@@ -47,7 +47,7 @@ import unicodedata
 import warnings
 import webbrowser
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 from urllib.parse import urlparse
 
 # `google-generativeai` es la dependencia del proveedor por defecto (Gemini).
@@ -102,6 +102,7 @@ _LOGO_SMALL = f"""
 # Configuración por defecto (se puede sobrescribir con argumentos CLI o env)
 # ---------------------------------------------------------------------------
 CARPETAS_DEFECTO = ("lib", "supabase")   # carpetas que se escanean
+CARPETAS_PROYECTO_VALIDAS = ("lib", "src", "supabase", "app", "packages", "backend")
 PROVEEDOR_DEFECTO = os.environ.get("SNAPCONTEXT_PROVIDER", "gemini")
 # SNAPCONTEXT_MODELO (opcional) sobrescribe el modelo por defecto del proveedor.
 MODELO_DEFECTO = os.environ.get("SNAPCONTEXT_MODELO") or None
@@ -390,6 +391,14 @@ def resolver_raiz(directorio: str) -> Path:
     if directorio not in (".", ""):
         return ruta
     return encontrar_raiz_git(ruta) or ruta
+
+
+def _es_proyecto_valido(directorio: Union[str, Path]) -> bool:
+    """Devuelve True si 'directorio' contiene al menos una carpeta típica de proyecto."""
+    ruta = Path(directorio)
+    if not ruta.is_dir():
+        return False
+    return any((ruta / carpeta).is_dir() for carpeta in CARPETAS_PROYECTO_VALIDAS)
 
 
 def _normalizar_relativa(ruta: str) -> str:
@@ -757,6 +766,32 @@ def seleccionar_archivos_con_openai(consulta: str, archivos: List[str],
     depurar(f"Respuesta de {cfg['nombre']} ({len(texto)} caracteres): {texto[:200]}")
 
     return normalizar_seleccion(parsear_json(texto), archivos, max_archivos)
+
+
+def seleccionar_proveedor_interactivo() -> str:
+    """Muestra un menú interactivo con questionary para elegir el proveedor de IA."""
+    try:
+        import questionary
+    except ImportError:
+        _emitir(
+            sys.stdout,
+            "💡 Para usar el modo interactivo, instala: pip install questionary",
+        )
+        return PROVEEDOR_DEFECTO
+
+    opciones = [
+        questionary.Choice("Gemini (Google)", value="gemini"),
+        questionary.Choice("Ollama (local)", value="ollama"),
+        questionary.Choice("DeepSeek (API)", value="deepseek"),
+        questionary.Choice("Groq (API)", value="groq"),
+    ]
+
+    respuesta = questionary.select(
+        "🤖 Selecciona el proveedor de IA:",
+        choices=opciones,
+    ).ask()
+
+    return respuesta or PROVEEDOR_DEFECTO
 
 
 def seleccionar_archivos(consulta: str, archivos: List[str],
