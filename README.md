@@ -67,6 +67,26 @@ $ snapcontext "el botón de pago no funciona"
 
 ---
 
+## Instalación rápida (one-liner)
+
+**Linux / macOS:**
+
+```bash
+curl -LsSf https://NicolasBruna24.github.io/snapcontext/install.sh | sh
+```
+
+**Windows (PowerShell):**
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://NicolasBruna24.github.io/snapcontext/install.ps1 | iex"
+```
+
+Los scripts detectan automáticamente tu sistema, verifican Python 3.9+, instalan `uv` (gestor rápido de paquetes Python) si no está presente, y finalmente instalan SnapContext. Al terminar, el comando `snapcontext` estará disponible en tu terminal.
+
+> **Nota:** Si prefieres una instalación manual paso a paso, ve a la sección [Instalación](#instalación).
+
+---
+
 ## Requisitos
 
 | Herramienta | Para qué | Instalación |
