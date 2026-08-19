@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SnapContext · Asistente de IA con contexto automático</title>
+  <style>
+    /* Reset y estilos base */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Segoe UI', Roboto, system-ui, -apple-system, sans-serif;
+      background: #0f0f1a;
+      color: #e4e4f0;
+      line-height: 1.6;
+      padding: 2rem 1.5rem;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    a {
+      color: #7d9eff;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    /* Contenedor principal */
+    .container {
+      background: #1a1a2e;
+      border-radius: 2rem;
+      padding: 2.5rem 2rem;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+      border: 1px solid #2a2a44;
+    }
+    /* Logo / Header */
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .logo-icon {
+      font-size: 2.2rem;
+      background: #2a2a44;
+      padding: 0.4rem 0.9rem;
+      border-radius: 12px;
+      font-weight: 700;
+      color: #b2b2f0;
+    }
+    .logo-text {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #b2b2f0, #7d9eff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .tagline {
+      color: #9292b0;
+      font-size: 1.1rem;
+      margin-top: -0.2rem;
+      margin-bottom: 2rem;
+      border-left: 3px solid #3a3a5a;
+      padding-left: 1rem;
+    }
+    /* Badges */
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 2rem;
+    }
+    .badge {
+      background: #252542;
+      padding: 0.2rem 0.8rem;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #b0b0d0;
+      border: 1px solid #353555;
+    }
+    .badge.green {
+      color: #8fdf9a;
+      border-color: #2a5a3a;
+    }
+    .badge.blue {
+      color: #7d9eff;
+      border-color: #2a3a6a;
+    }
+    .badge.yellow {
+      color: #f5d47a;
+      border-color: #5a4a2a;
+    }
+    /* Secciones */
+    h2 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-top: 2.5rem;
+      margin-bottom: 1rem;
+      color: #d0d0f0;
+      border-bottom: 1px solid #2a2a44;
+      padding-bottom: 0.3rem;
+    }
+    h2:first-of-type {
+      margin-top: 0;
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1.2rem;
+      margin: 1.5rem 0;
+    }
+    .feature-item {
+      background: #131325;
+      padding: 1rem 1.2rem;
+      border-radius: 14px;
+      border: 1px solid #262644;
+    }
+    .feature-item strong {
+      color: #d0d0f0;
+      display: block;
+      margin-bottom: 0.2rem;
+    }
+    .feature-item span {
+      color: #9292b0;
+      font-size: 0.9rem;
+    }
+    .code-block {
+      background: #0b0b18;
+      padding: 1rem 1.2rem;
+      border-radius: 12px;
+      border: 1px solid #2a2a44;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 0.85rem;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: #c4c4e0;
+      margin: 1rem 0;
+    }
+    .code-block .cmd {
+      color: #7d9eff;
+    }
+    .code-block .output {
+      color: #9292b0;
+    }
+    .button {
+      display: inline-block;
+      background: #2a2a5a;
+      color: #d0d0f0;
+      padding: 0.6rem 1.5rem;
+      border-radius: 30px;
+      font-weight: 600;
+      border: 1px solid #3a3a6a;
+      transition: all 0.15s;
+      margin-top: 0.5rem;
+    }
+    .button:hover {
+      background: #3a3a7a;
+      text-decoration: none;
+      transform: scale(1.02);
+    }
+    .button-primary {
+      background: #4a6af0;
+      border-color: #4a6af0;
+      color: #fff;
+    }
+    .button-primary:hover {
+      background: #5a7aff;
+    }
+    .footer {
+      margin-top: 2.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid #2a2a44;
+      font-size: 0.9rem;
+      color: #7a7a9a;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .footer a {
+      color: #7a7a9a;
+    }
+    .footer a:hover {
+      color: #b0b0d0;
+    }
+    .footer .links {
+      display: flex;
+      gap: 1.5rem;
+    }
+    @media (max-width: 600px) {
+      body {
+        padding: 1rem;
+      }
+      .container {
+        padding: 1.5rem;
+      }
+      .logo-text {
+        font-size: 1.6rem;
+      }
+      .features-grid {
+        grid-template-columns: 1fr;
+      }
+      .footer {
+        flex-direction: column;
+        gap: 0.8rem;
+        align-items: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <!-- Logo -->
+    <div class="logo">
+      <span class="logo-icon">⚡</span>
+      <span class="logo-text">SnapContext</span>
+    </div>
+    <div class="tagline">
+      Asistente de IA para desarrollo con contexto automático.<br>
+      No hace falta decirle qué archivos abrir — <strong>él los encuentra por ti</strong>.
+    </div>
+
+    <!-- Badges -->
+    <div class="badges">
+      <span class="badge green">✅ v0.4.0</span>
+      <span class="badge blue">📦 PyPI</span>
+      <span class="badge yellow">⚡ Open Source</span>
+      <span class="badge">🐍 Python 3.9+</span>
+      <span class="badge">🤖 Gemini · Ollama · DeepSeek · Groq</span>
+    </div>
+
+    <!-- Instalación rápida -->
+    <h2>🚀 Instalación rápida</h2>
+    <p>Instala SnapContext con un solo comando:</p>
+
+    <div class="code-block">
+      <span class="cmd">curl -LsSf https://NicolasBruna24.github.io/snapcontext/install.sh | sh</span>
+    </div>
+
+    <p>O, si prefieres <strong>pip</strong>:</p>
+    <div class="code-block">
+      <span class="cmd">pip install snapcontext</span>
+    </div>
+
+    <div style="margin-top: 0.5rem;">
+      <a href="#instalacion" class="button button-primary">📖 Ver documentación</a>
+      <a href="https://github.com/NicolasBruna24/snapcontext" class="button">🐙 GitHub</a>
+    </div>
+
+    <!-- Características -->
+    <h2>✨ Características</h2>
+    <div class="features-grid">
+      <div class="feature-item">
+        <strong>🧠 Contexto automático</strong>
+        <span>Escanea tu repositorio y selecciona los archivos relevantes sin que tengas que hacer `/add`.</span>
+      </div>
+      <div class="feature-item">
+        <strong>🤖 Múltiples proveedores</strong>
+        <span>Usa Gemini, Ollama local, DeepSeek o Groq para elegir los archivos más adecuados.</span>
+      </div>
+      <div class="feature-item">
+        <strong>🔁 Bucle agéntico</strong>
+        <span>Prueba automática con `flutter test` o lanza el servidor con `flutter run` y corrige errores.</span>
+      </div>
+      <div class="feature-item">
+        <strong>🛠️ Modo experto</strong>
+        <span>Revisa, añade o elimina archivos manualmente antes de ejecutar Aider.</span>
+      </div>
+      <div class="feature-item">
+        <strong>⚡ Integración con Aider</strong>
+        <span>Usa la potencia de Aider para editar código con diffs precisos y commits automáticos.</span>
+      </div>
+      <div class="feature-item">
+        <strong>📦 Instalación one-liner</strong>
+        <span>Instala en segundos con `curl | sh` o `pip install snapcontext`.</span>
+      </div>
+    </div>
+
+    <!-- Ejemplo de uso -->
+    <h2>📌 Ejemplo</h2>
+    <div class="code-block">
+      <span class="cmd">$ snapcontext "el botón de pago no funciona"</span>
+      <span class="output">
+ℹ Repositorio: C:\...\marketplace-productos-locales
+ℹ Escaneando el repositorio...
+ℹ 24 candidato(s) relevante(s).
+ℹ Seleccionando con Gemini...
+
+✔ Archivos seleccionados (3):
+   • lib/pages/pago/pago_page.dart
+   • lib/models/pedido.dart
+   • supabase/functions/procesar-pago-mp/index.ts
+
+ℹ Ejecutando Aider...
+✔ Aider terminó correctamente.
+      </span>
+    </div>
+
+    <!-- Enlaces -->
+    <h2>🔗 Enlaces</h2>
+    <div style="display: flex; flex-wrap: wrap; gap: 1.5rem; margin-top: 0.5rem;">
+      <div>
+        <strong>📦 PyPI</strong><br>
+        <a href="https://pypi.org/project/snapcontext/">pypi.org/project/snapcontext</a>
+      </div>
+      <div>
+        <strong>🐙 GitHub</strong><br>
+        <a href="https://github.com/NicolasBruna24/snapcontext">github.com/NicolasBruna24/snapcontext</a>
+      </div>
+      <div>
+        <strong>📄 Documentación</strong><br>
+        <a href="https://github.com/NicolasBruna24/snapcontext/blob/main/README.md">README.md</a>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <span>Hecho con ❤️ por <a href="https://github.com/NicolasBruna24">Nicolás Bruna</a></span>
+      <div class="links">
+        <a href="https://github.com/NicolasBruna24/snapcontext/issues">Issues</a>
+        <a href="https://github.com/NicolasBruna24/snapcontext/blob/main/LICENSE">Licencia MIT</a>
+        <a href="https://github.com/NicolasBruna24/snapcontext">Contribuir</a>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>
