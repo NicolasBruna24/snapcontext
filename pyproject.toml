@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# Nombre verificado disponible en PyPI (18/08/2026): pypi.org/pypi/snapcontext → 404.
+# Alternativas si algún día estuviera ocupado: "snapcontext-cli" o "snapcontext-tool".
+name = "snapcontext"
+version = "0.4.0"
+description = "SnapContext: Asistente de IA con contexto automático para desarrollo"
+readme = "README.md"
+requires-python = ">=3.9"
+# PEP 639: licencia SPDX + fichero de licencia incluido en el paquete.
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    # TODO: cambia por tu nombre y correo reales antes de publicar.
+    { name = "SnapContext Contributors", email = "tu@email.com" },
+]
+keywords = [
+    "ai", "aider", "gemini", "ollama", "deepseek", "groq",
+    "flutter", "supabase", "cli",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Code Generators",
+]
+dependencies = [
+    "google-generativeai>=0.8.3",
+    "openai>=1.30.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "aider-chat>=0.67.0",
+    "build>=1.2.0",
+    "twine>=5.0.0",
+]
+
+[project.urls]
+# TODO: apunta a tu repositorio real (no bloquea la publicación si lo dejas).
+Homepage = "https://github.com/TU_USUARIO/snapcontext"
+Repository = "https://github.com/TU_USUARIO/snapcontext"
+"Bug Tracker" = "https://github.com/TU_USUARIO/snapcontext/issues"
+
+# Entry point: expone el comando `snapcontext` que llama a main().
+[project.scripts]
+snapcontext = "snapcontext:main"
+
+[tool.setuptools]
+# Módulo único en la raíz (sin paquete)
+py-modules = ["snapcontext"]

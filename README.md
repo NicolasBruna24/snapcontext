@@ -1,0 +1,362 @@
+# SnapContext
+
+Asistente de IA para desarrollo con **contexto automático**, open-source.
+Combina lo mejor de dos mundos:
+
+- **Aider**: eficiencia, control y una integración Git impecable.
+- **Gestión automática de contexto** (estilo Claude Code): no hace falta
+  decirle `/add archivo` — SnapContext averigua los archivos por ti.
+
+Le pasas una tarea en lenguaje natural y SnapContext:
+
+1. **Escanea** el repositorio (por defecto las carpetas `lib/` y `supabase/`)
+   y encuentra los archivos más relacionados con tu consulta.
+2. **El proveedor de IA** (Gemini, Ollama local, DeepSeek o Groq) selecciona
+   los archivos más relevantes.
+3. **Aider** recibe esos archivos y la consulta original, y hace los cambios
+   en el código (con commits automáticos en Git).
+
+```
+$ snapcontext "el botón de pago no funciona"
+ℹ Repositorio: C:\...\marketplace-productos-locales
+ℹ Escaneando el repositorio para encontrar candidatos...
+ℹ 24 candidato(s) relevante(s) localmente.
+ℹ Seleccionando con Gemini (gemini-2.5-flash)...
+
+✔ Archivos seleccionados (3):
+   • lib/pages/pago/pago_page.dart
+   • lib/models/pedido.dart
+   • supabase/functions/procesar-pago-mp/index.ts
+
+ℹ Ejecutando Aider...
+✔ Aider terminó correctamente.
+```
+
+---
+
+## Requisitos
+
+| Herramienta | Para qué | Instalación |
+|---|---|---|
+| Python 3.9+ | ejecutar SnapContext | [python.org](https://python.org) |
+| `google-generativeai` | proveedor Gemini (por defecto) | `pip install google-generativeai` |
+| `openai` | DeepSeek, Groq y Ollama (API compatible OpenAI) | `pip install openai` |
+| Clave de un proveedor | `GEMINI_API_KEY`, `DEEPSEEK_API_KEY` o `GROQ_API_KEY` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
+| `aider-chat` | hacer las modificaciones | `pip install aider-chat` |
+| `flutter` (opcional) | bucle de pruebas `--test-loop` | [flutter.dev](https://flutter.dev) |
+
+> Aider usa su propia configuración de modelo y API keys (variables `AIDER_*`
+> o el fichero `.env` del proyecto). Configura Aider una vez y SnapContext lo
+> reutilizará.
+
+---
+
+## Instalación
+
+```bash
+# 1. Clonar / copiar el proyecto y entrar en él
+cd SnapContext
+
+# 2. (Recomendado) entorno virtual
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# Linux/Mac:
+source .venv/bin/activate
+
+# 3. Instalar en modo editable → expone el comando "snapcontext" globalmente
+pip install -e .
+
+# 4. Dependencia externa (Aider arrastra más paquetes por eso va aparte)
+pip install aider-chat
+
+# 5. Configurar la clave del proveedor que vayas a usar
+#    PowerShell:
+$env:GEMINI_API_KEY = "tu_clave"        # o DEEPSEEK_API_KEY / GROQ_API_KEY
+#    Linux/Mac:
+export GEMINI_API_KEY=tu_clave
+```
+
+---
+
+## Uso
+
+```bash
+# Ejemplo básico: escaneo + IA + Aider
+snapcontext "el botón de pago no funciona"
+
+# Elegir proveedor y modelo (Gemini es el proveedor por defecto)
+snapcontext "..." --provider groq
+snapcontext "..." --provider deepseek --model deepseek-reasoner
+snapcontext "..." --provider ollama --model qwen2.5   # Ollama local
+
+# Modo experto: revisar/añadir/eliminar archivos antes de Aider
+snapcontext "revisar pago" --experto
+
+# Si el proyecto usa carpetas distintas a lib/ y supabase/
+snapcontext "arreglar login" --carpetas src migrations
+
+# Solo ver qué archivos elegiría (sin tocar código)
+snapcontext "revisar carrito" --vista-previa
+
+# Bucle agéntico: ejecutar flutter test tras Aider y repetir si falla
+snapcontext "añadir validación al formulario" --test-loop
+
+# Cambiar el número de archivos que recibe Aider
+snapcontext "agregar índice a pedidos" --max-archivos 4
+
+# Opciones extra para Aider (modelo, etc.)
+snapcontext "..." --aider-opciones "--model sonnet --no-auto-commits"
+
+# Modo offline (sin Gemini) por si solo quieres la heurística local
+snapcontext "..." --local
+```
+
+### Opciones principales
+
+| Opción | Por defecto | Descripción |
+|---|---|---|
+| `consulta` | *(obligatorio)* | La tarea a resolver, entre comillas |
+| `--directorio` | `.` | Repositorio (detecta la raíz Git automáticamente) |
+| `--carpetas` | `lib supabase` | Carpetas a escanear |
+| `--max-archivos` | `3` | Archivos que recibe Aider |
+| `--candidatos` | `80` | Candidatos que se envían al proveedor de IA |
+| `--provider` | `gemini` | Proveedor que selecciona archivos (`gemini`, `ollama`, `deepseek`, `groq`) |
+| `--model` (alias `--modelo`) | según proveedor | Modelo del proveedor (o `SNAPCONTEXT_MODELO`) |
+| `--local` | off | Selección sin IA (modo offline / pruebas) |
+| `--vista-previa` | off | Mostrar la selección y salir |
+| `--experto` (alias `--expert`) | off | Revisar/añadir/eliminar archivos antes de Aider |
+| `--aider-opciones` | `""` | Flags extra para Aider |
+| `--test-loop` | off | Bucle agéntico Aider → pruebas → reparar |
+| `--server-loop` | off | Bucle agéntico con `flutter run`, modo automático (reintenta y pregunta s/n) |
+| `--manual-loop` | off | Bucle agéntico con `flutter run`, modo manual (usuario decide cada paso) |
+| `--max-intentos` | `3` | Intentos máximos de `--server-loop` |
+| `--dispositivo` | `web-server` | Plataforma/dispositivo de `flutter run` |
+| `--url-defecto` | `http://localhost:5000` | URL para abrir el navegador si Flutter no reporta una |
+| `--comando-test` | `"flutter test"` | Comando del bucle de pruebas |
+| `--max-iteraciones` | `3` | Iteraciones máximas del bucle |
+
+---
+
+## Cómo funciona por dentro
+
+```
+ consulta ──▶ [1] Escaneo local        ◀── git ls-files / os.walk
+                     │
+                     ▼
+    candidatos ordenados (heurística: ruta + contenido)
+                     │
+                     ▼
+      [2] Proveedor IA (JSON) ─▶ 3 archivos más relevantes
+      (Gemini | Ollama | DeepSeek | Groq)
+                     │
+                     ▼
+ [3] Aider --yes --file A --file B --message "consulta"
+                     │
+                     ▼
+ [4] (opcional) verificación: flutter test / flutter run ─ si falla, Aider arregla
+                     │                                     │
+                     └── pasa ─────────────── fin (aprobado)
+```
+
+**El escaneo** usa `git ls-files -c -o --exclude-standard` (respeta `.gitignore`
+e incluye archivos nuevos), con caída automática a recorrer el árbol si no hay
+Git. Luego puntúa cada archivo: coincidencias en la ruta (un nombre de archivo
+como `pago_page.dart` pesa más que el directorio `pagos/`) y coincidencias en
+las primeras líneas del contenido (con tildes normalizadas: `botón` → `boton`).
+
+**El proveedor de IA** recibe la lista de candidatos y responde en JSON (con
+validación y fallback si el modelo no devuelve rutas válidas). Gemini usa
+`google.generativeai`; DeepSeek, Groq y Ollama usan la librería `openai` (sus
+APIs son compatibles con la de OpenAI). El modo `--local` usa solo la
+heurística local, sin llamar a ningún proveedor.
+
+---
+
+## Bucle agéntico (`--test-loop`)
+
+El modo `--test-loop` implementa el paso 4 de la arquitectura:
+`Aider → flutter test → si falla, Aider recibe el error real y lo arregla`,
+hasta un máximo de `--max-iteraciones`.
+
+```bash
+snapcontext "arreglar el flujo de pago" --test-loop --max-iteraciones 5
+```
+
+Este es el punto natural para extender SnapContext: por ejemplo, añadir
+`flutter analyze`, linters o más herramientas dentro de
+`ejecutar_bucle_test()`.
+
+---
+
+## Modo experto (`--experto` / `--expert`)
+
+Con `--experto`, antes de ejecutar Aider SnapContext **te deja revisar y
+editar la lista de archivos** que la IA seleccionó:
+
+```bash
+snapcontext "revisar el flujo de pago" --experto
+```
+
+1. Tras la selección pregunta: `¿Quieres revisar los archivos seleccionados?
+   (s/n)`.
+   - `n` → ejecuta Aider directamente (comportamiento normal).
+   - `s` → abre el menú experto.
+2. En el menú se muestran los archivos **numerados** y las opciones:
+
+   ```
+   ── Modo experto ─────────────────────────
+     [1] lib/pago/pago_page.dart
+     [2] lib/models/pedido.dart
+     [3] supabase/functions/procesar-pago-mp/index.ts
+   Opciones: [a]gregar   [e]liminar   [l]impiar   [c]ontinuar
+   ```
+
+   | Opción | Qué hace |
+   |---|---|
+   | `a` | Pide una ruta y la añade (se valida que exista y esté dentro del repo) |
+   | `e` | Elimina por índice (fuera de rango se rechaza) |
+   | `l` | Vacía la lista (con confirmación) |
+   | `c` | Usa la lista final y ejecuta Aider |
+
+3. Con `c` (continuar) se muestran los archivos finales, se los pasa a Aider
+   y se ejecuta cualquiera de los bucles elegidos (`--test-loop`,
+   `--server-loop`, etc.)
+
+---
+
+## Bucle agéntico con servidor (`--server-loop` / `--manual-loop`)
+
+En vez de solo probar, SnapContext **lanza la app** con `flutter run` en
+segundo plano, detecta que el servidor arrancó (buscando `Running on`,
+`Synced`, `served at`, etc., o la URL real) y deja verificar la app.
+
+**Modo automático (`--server-loop`):**
+
+```bash
+snapcontext "arreglar la pantalla de pago" --server-loop
+snapcontext "..." --server-loop --max-intentos 5      # reintentos (por defecto 3)
+snapcontext "..." --server-loop --dispositivo chrome  # abrir Chrome
+```
+
+1. Aider edita los archivos.
+2. Se lanza `flutter run` (por defecto `-d web-server --web-port 5000`).
+3. Si el servidor **arranca** → pregunta `¿Quieres probar la app
+   manualmente? (s/n)`; con `s` abre el navegador con la URL real y espera a
+   que pulses Enter. Termina con éxito.
+4. Si el servidor **falla** → captura el error, se lo pasa a Aider
+   (`Arregla este error: ...`) y reintenta, hasta `--max-intentos`.
+5. Si se agotan los intentos → pregunta `¿Quieres cambiar a modo manual?
+   (s/n)`; con `s` pasa a `--manual-loop`, con `n` termina con error.
+
+**Modo manual (`--manual-loop`):**
+
+```bash
+snapcontext "revisar el flujo de login" --manual-loop
+```
+
+Tras cada intento (arranque o fallo) pregunta siempre
+`¿La app funciona correctamente? (s/n)`. Si respondes `n`, te pide que
+describas el error y esa descripción se pasa a Aider
+(`Arregla este error: <tu texto>`), repitiendo el ciclo.
+
+> El servidor se cierra solo al finalizar (o con Ctrl+C), sin dejar procesos
+> huérfanos. Configura tu proyecto para que `flutter run` use web si pruebas la
+> interfaz en el navegador.
+
+---
+
+## Solución de problemas
+
+| Problema | Solución |
+|---|---|
+| `No se encontró la librería 'google.generativeai'` | `pip install google-generativeai` |
+| `No se encontró la librería 'openai'` | `pip install openai` |
+| `No se encontró la variable de entorno GEMINI_API_KEY` | Configurar la clave del proveedor (ver Instalación) |
+| Falta la clave de DeepSeek / Groq | Configurar `DEEPSEEK_API_KEY` / `GROQ_API_KEY` |
+| `Error al llamar a Ollama` | Arrancar el servidor (`ollama serve`) y descargar el modelo (`ollama pull llama3.2`) |
+| `No se encontró 'flutter'` | Instalar Flutter o revisar el PATH (bucle de servidor) |
+| `--server-loop` no arranca la app | Ajustar `--dispositivo` (web-server / chrome / edge) y `--url-defecto` |
+| `No se encontró el comando 'aider'` | `pip install aider-chat` |
+| `No se encontraron archivos` | Revisar las carpetas escaneadas con `--carpetas` |
+| Quieres probar sin gastar cuota API | `--local --vista-previa` |
+| Errores de red / cuota en Gemini | Reintenta; el mensaje incluye el detalle |
+
+---
+
+## Extenderlo
+
+El código está pensado como un **único script claro y comentado**. Puntos de
+extensión fáciles:
+
+- `escanear_repositorio()` → cambiar la heurística de relevancia local.
+- `construir_prompt_seleccion()` → mejorar las instrucciones a Gemini.
+- `ejecutar_bucle_test()` → añadir más herramientas al bucle agéntico.
+- Constantes de configuración → ajustar el comportamiento por defecto.
+
+---
+
+## Variables de entorno
+
+Ejemplo de configuración en **Linux/macOS** (`bash`/`zsh`):
+
+```bash
+export GEMINI_API_KEY="tu_clave"
+export DEEPSEEK_API_KEY="tu_clave"
+export GROQ_API_KEY="tu_clave"
+export OLLAMA_URL="http://localhost:11434"
+```
+
+Ejemplo de configuración en **Windows** (PowerShell):
+
+```powershell
+$env:GEMINI_API_KEY = "tu_clave"
+$env:DEEPSEEK_API_KEY = "tu_clave"
+$env:GROQ_API_KEY = "tu_clave"
+$env:OLLAMA_URL = "http://localhost:11434"
+```
+
+| Variable | Uso |
+|---|---|
+| `GEMINI_API_KEY` | Clave de Google AI Studio (proveedor `gemini`) |
+| `DEEPSEEK_API_KEY` | Clave de la API de DeepSeek |
+| `GROQ_API_KEY` | Clave de la API de Groq |
+| `OLLAMA_URL` | URL del servidor Ollama (por defecto `http://localhost:11434`) |
+| `OLLAMA_API_KEY` | Opcional, si tu servidor Ollama exige clave |
+| `SNAPCONTEXT_PROVIDER` | Proveedor por defecto (opcional) |
+| `SNAPCONTEXT_MODELO` | Modelo global por defecto (opcional) |
+| `NO_COLOR` / `FORCE_COLOR` | Control de colores en la terminal |
+| `AIDER_*` | Configuración heredada por Aider (KEY, model, etc.) |
+
+---
+
+## Compatibilidad y Permisos (Linux / macOS)
+
+- **Permisos de ejecución**: Al instalar con `pip install -e .` o `pip install snapcontext`, pip registra el ejecutable en el `PATH` del usuario de forma automática sin requerir permisos especiales. Si ejecutas `snapcontext.py` directamente como script en Unix, puedes asignarle permisos de ejecución con `chmod +x snapcontext.py`.
+- **Servidor y Navegador**: En Linux y macOS, si `webbrowser.open()` no responde en entornos sin interfaz gráfica o con configuraciones personalizadas, SnapContext usa de forma automática los comandos nativos `xdg-open` (Linux) u `open` (macOS) como respaldo sin usar `shell=True`.
+- **Manejo de Señales**: En Linux/macOS y Windows, la interrupción por teclado (`Ctrl+C` / `SIGINT`) o la señal de terminación (`SIGTERM` en Unix) capturan el evento, cierran limpiamente cualquier subproceso en segundo plano (como `flutter run`) y salen de forma ordenada con código `0`.
+
+---
+
+## Publicación en PyPI
+
+SnapContext está preparado para publicarse en PyPI (el nombre `snapcontext`
+está disponible; alternativas: `snapcontext-cli`, `snapcontext-tool`). Antes
+de publicar, edita en `pyproject.toml` el campo `authors` (y `[project.urls]`)
+con tus datos reales.
+
+Sigue la guía completa en **[PUBLISHING.md](PUBLISHING.md)** (build + twine):
+
+```bash
+pip install build twine
+python -m build
+python -m twine check dist/*
+python -m twine upload dist/*
+pip install snapcontext   # verificar en un entorno limpio
+```
+
+---
+
+## Licencia
+
+MIT. Open-source y libre de usarlo, estudiarlo y mejorarlo.
