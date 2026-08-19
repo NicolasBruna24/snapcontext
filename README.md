@@ -18,7 +18,22 @@
   └──────────────────────────────────────────────────────────┘
   </pre>
 </p>
+[![PyPI version](https://badge.fury.io/py/snapcontext.svg)](https://badge.fury.io/py/snapcontext)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 Asistente de IA para desarrollo con **contexto automático**, open-source.
+
+## 🤝 Contribuciones
+
+Las contribuciones son bienvenidas. Si tienes una idea, abre un issue o envía un pull request.
+
+1. Haz un fork del proyecto.
+2. Crea tu rama de características (`git checkout -b feature/nueva-funcionalidad`).
+3. Haz commit de tus cambios (`git commit -m 'Añadir nueva funcionalidad'`).
+4. Haz push a la rama (`git push origin feature/nueva-funcionalidad`).
+5. Abre un Pull Request.
+   
 Combina lo mejor de dos mundos:
 
 - **Aider**: eficiencia, control y una integración Git impecable.
@@ -374,7 +389,13 @@ pip install snapcontext   # verificar en un entorno limpio
 ```
 
 ---
+## 🙌 Agradecimientos
 
+- **Aider** por su excelente motor de edición de código.
+- **Google Gemini** por su generoso plan gratuito.
+- **Ollama**, **DeepSeek** y **Groq** por sus modelos open-source.
+- La comunidad open-source por las herramientas que hacen posible este proyecto.
+- 
 ## Licencia
 
 MIT. Open-source y libre de usarlo, estudiarlo y mejorarlo.
