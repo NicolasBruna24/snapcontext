@@ -12,7 +12,7 @@ function Write-Color {
 function Write-Info    { Write-Color "ℹ $args" "Cyan" }
 function Write-OK     { Write-Color "✔ $args" "Green" }
 function Write-Warn   { Write-Color "⚠ $args" "Yellow" }
-function Write-Error  { Write-Color "✖ $args" "Red" }
+function Write-Err   { Write-Color "✖ $args" "Red" }
 
 # ─── Banner ───────────────────────────────────────────────────────────────
 Write-Host ""
@@ -38,7 +38,7 @@ foreach ($cmd in @("python", "python3")) {
 }
 
 if (-not $python) {
-    Write-Error "Python no encontrado. Instala Python 3.9+ desde https://python.org"
+    Write-Err "Python no encontrado. Instala Python 3.9+ desde https://python.org"
     exit 1
 }
 
@@ -47,12 +47,12 @@ if ($rawVersion -match "Python (\d+)\.(\d+)") {
     $major = [int]$Matches[1]
     $minor = [int]$Matches[2]
     if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 9)) {
-        Write-Error "Se requiere Python ≥ 3.9. Versión actual: $rawVersion"
+        Write-Err "Se requiere Python ≥ 3.9. Versión actual: $rawVersion"
         exit 1
     }
     Write-OK "Python $($Matches[1]).$($Matches[2]) encontrado"
 } else {
-    Write-Error "No se pudo determinar la versión de Python"
+    Write-Err "No se pudo determinar la versión de Python"
     exit 1
 }
 
