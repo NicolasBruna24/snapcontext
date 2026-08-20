@@ -34,8 +34,8 @@ pip install build twine
 
 ## 3. Comprobar que el módulo se importa y la versión es correcta
 ```bash
-python -c "import snapcontext; print(snapcontext.VERSION)"   # → 0.4.0
-python -m snapcontext --version                                # → snapcontext 0.4.0
+python -c "import snapcontext; print(snapcontext.VERSION)"   # → 0.6.0
+python -m snapcontext --version                                # → snapcontext 0.6.0
 ```
 > El número de versión está en dos sitios que deben coincidir:
 > `version` en `pyproject.toml` y `VERSION` en `snapcontext.py`.

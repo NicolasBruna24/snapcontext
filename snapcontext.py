@@ -70,7 +70,7 @@ try:
 except ImportError:  # pragma: no cover
     openai = None
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 
 # ─── Logo ASCII ──────────────────────────────────────────────────────────
 _LOGO = r"""
@@ -776,14 +776,27 @@ def cargar_configuracion() -> dict:
 
     El archivo es un JSON con las claves 'provider' y, opcionalmente, 'model'.
     Si no existe o está corrupto, se devuelve un dict vacío.
+
+    CORRECCIÓN 0.6.0: Manejo explícito de FileNotFoundError y json.JSONDecodeError
+    para evitar silenciar errores importantes sin aviso.
     """
     try:
         if CONFIG_PATH.is_file():
             datos = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
             if isinstance(datos, dict):
                 return datos
-    except (OSError, ValueError):  # permisos, JSON corrupto, etc.
-        pass
+        elif not CONFIG_PATH.exists():
+            # Archivo no existe aún; devolver vacío sin error
+            return {}
+    except FileNotFoundError:
+        aviso(f"Archivo de configuración no encontrado: {CONFIG_PATH}")
+        pass  # Devolver {} si el directorio/config no existe aún
+    except json.JSONDecodeError as exc:
+        error(f"Configuración corrupta en {CONFIG_PATH}: {exc}")
+        pass  # No intentar recuperar, devolver {} para evitar estado inconsistente
+    except (OSError, ValueError) as exc:
+        aviso(f"Error leyendo configuración: {type(exc).__name__}: {exc}")
+        pass  # Opcional: continuar sin la configuración previa
     return {}
 
 
@@ -1000,9 +1013,8 @@ def asistente_configuracion_inicial() -> int:
     exito("Configuración inicial de SnapContext")
     api_keys: dict = dict(cargar_configuracion().get("api_keys") or {})
 
-    clave = questionary.text(
+    clave = questionary.password(
         "Clave de API de Gemini (GEMINI_API_KEY):",
-        password=True,
         default=api_keys.get("gemini", ""),
     ).ask()
     if clave and clave.strip():
@@ -1013,9 +1025,9 @@ def asistente_configuracion_inicial() -> int:
     ).ask():
         for prov in ("groq", "deepseek"):
             env = PROVEEDORES[prov]["clave_env"]
-            valor = questionary.text(
+            # CORRECCIÓN 0.6.0: Usar questionary.password() en lugar de text(password=True)
+            valor = questionary.password(
                 f"Clave de API de {PROVEEDORES[prov]['nombre']} ({env}):",
-                password=True,
                 default=api_keys.get(prov, ""),
             ).ask()
             if valor and valor.strip():

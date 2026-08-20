@@ -13,14 +13,24 @@
   │                                                          │
   │    » Selección inteligente de archivos                  │
   │    » Soporte: Gemini · Ollama · DeepSeek · Groq        │
+  │    » Selección inteligente de archivos                  │
+  │    » Soporte: Gemini · Ollama · DeepSeek · Groq        │
+  │    » v0.6.0                                             │
+  │    » Selección inteligente de archivos                  │
+  │    » Soporte: Gemini · Ollama · DeepSeek · Groq        │
+  │    » v0.6.0                                             │
+  │                                                          │
+
+  └──────────────────────────────────────────────────────────┘
   │    » v0.5.0                                             │
   │                                                          │
   └──────────────────────────────────────────────────────────┘
   </pre>
 </p>
 
-[![PyPI version](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
-[![Release](https://img.shields.io/badge/release-v0.5.0-blue.svg)](https://github.com/NicolasBruna24/snapcontext/releases)
+[![PyPI version](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/) (disponible en desarrollo; versión pública: **v0.6.0**)
+
+[![Release](https://img.shields.io/badge/release-v0.6.0-blue.svg)](https://github.com/NicolasBruna24/snapcontext/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
@@ -68,7 +78,14 @@ $ snapcontext "el botón de pago no funciona"
 
 ---
 
-## Novedades (v0.5.0)
+## Novedades (v0.6.0)
+
+Qué hay de nuevo en esta versión:
+
+- **Corrección crítica en `--init`**: ahora usa correctamente `questionary.password()` para ingresar claves API con Groq y DeepSeek, solucionando un bug anterior que impedía la configuración de estos proveedores.
+- **Manejo mejorado de errores de configuración**: si `~/.snapcontext/config.json` está corrupto o no existe, se muestra un aviso claro en lugar de fallar silenciosamente.
+- **Actualización a versión 0.6.0**: todos los metadatos (pyproject.toml, README.md) reflejan la nueva versión.
+- **Mejoras de instalación**: scripts de Linux y Windows actualizados con mensajes claros y fallbacks correctos a `pip` si `uv` no está disponible.
 
 Qué hay de nuevo en esta versión:
 
@@ -91,13 +108,21 @@ Qué hay de nuevo en esta versión:
 **Linux / macOS:**
 
 ```bash
+# Instalar desde GitHub Pages (recomendado)
 curl -LsSf https://NicolasBruna24.github.io/snapcontext/install.sh | sh
+
+# Fallback: instalan directamente desde el repositorio raw si GitHub Pages falla
+curl -LsSf https://raw.githubusercontent.com/NicolasBruna24/snapcontext/main/install.sh | sh
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
+# Instalar desde GitHub Pages (recomendado)
 powershell -ExecutionPolicy ByPass -c "irm https://NicolasBruna24.github.io/snapcontext/install.ps1 | iex"
+
+# Fallback: instalan directamente desde el repositorio raw si GitHub Pages falla  
+powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/NicolasBruna24/snapcontext/main/install.ps1 | iex"
 ```
 
 Los scripts detectan automáticamente tu sistema, verifican Python 3.9+, instalan `uv` (gestor rápido de paquetes Python) si no está presente, y finalmente instalan SnapContext. Al terminar, el comando `snapcontext` estará disponible en tu terminal.
