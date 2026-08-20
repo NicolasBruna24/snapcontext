@@ -769,14 +769,22 @@ def seleccionar_archivos_con_openai(consulta: str, archivos: List[str],
 
 
 def seleccionar_proveedor_interactivo() -> str:
-    """Muestra un menú interactivo con questionary para elegir el proveedor de IA."""
+    """Ofrece un menú interactivo (questionary) para elegir el proveedor de IA.
+
+    - Pregunta primero si se quiere seleccionar el proveedor ahora.
+    - Si questionary no está instalada, avisa y usa el proveedor por defecto.
+    - Si el usuario responde que no, devuelve el proveedor por defecto.
+    """
     try:
         import questionary
-    except ImportError:
+    except ImportError:  # pragma: no cover
         _emitir(
             sys.stdout,
             "💡 Para usar el modo interactivo, instala: pip install questionary",
         )
+        return PROVEEDOR_DEFECTO
+
+    if not questionary.confirm("¿Deseas seleccionar el proveedor de IA ahora?").ask():
         return PROVEEDOR_DEFECTO
 
     opciones = [
@@ -792,6 +800,18 @@ def seleccionar_proveedor_interactivo() -> str:
     ).ask()
 
     return respuesta or PROVEEDOR_DEFECTO
+
+
+def _determinar_proveedor(args: argparse.Namespace) -> str:
+    """Resuelve el proveedor de IA que elegirá los archivos.
+
+    - Si el usuario pasó --provider, se usa sin preguntar.
+    - Si no (y tampoco --local), se ofrece el menú interactivo con questionary.
+      Sin questionary (o si responde "no") se usa PROVEEDOR_DEFECTO (gemini).
+    """
+    if getattr(args, "provider", None):
+        return args.provider
+    return seleccionar_proveedor_interactivo()
 
 
 def seleccionar_archivos(consulta: str, archivos: List[str],
@@ -1444,9 +1464,11 @@ def crear_parser() -> argparse.ArgumentParser:
         help="Máximo de candidatos que recibe Gemini (por defecto: 80).",
     )
     parser.add_argument(
-        "--provider", choices=sorted(PROVEEDORES), default=PROVEEDOR_DEFECTO,
+        "--provider", choices=sorted(PROVEEDORES), default=None,
         help="Proveedor de IA que elige los archivos "
-             "(gemini | ollama | deepseek | groq; por defecto: gemini). "
+             "(gemini | ollama | deepseek | groq). Si no se indica -y tampoco "
+             "--local-, SnapContext muestra un menú interactivo para elegirlo "
+             "(requiere: pip install questionary; si no está, usa gemini). "
              "Env: SNAPCONTEXT_PROVIDER.",
     )
     parser.add_argument(
@@ -1529,9 +1551,22 @@ def flujo_principal(args: argparse.Namespace) -> int:
         raise RuntimeError("--max-archivos debe ser al menos 1.")
 
     raiz = resolver_raiz(args.directorio)
+
+    # Mejora 1: validación de carpeta de proyecto antes de cualquier otra acción.
+    # Si el directorio no contiene ninguna carpeta típica de proyecto, avisamos
+    # con un mensaje amigable y salimos con código de error 1 (sin seguir).
+    if not _es_proyecto_valido(raiz):
+        error(
+            "⚠️ No parece que estés en una carpeta de proyecto. "
+            "SnapContext espera carpetas como lib/, src/, supabase/, etc. "
+            "Puedes indicar una carpeta con --directorio <ruta> o navega a "
+            "la raíz de tu proyecto y vuelve a intentarlo."
+        )
+        return 1
+
     info(f"Repositorio: {raiz}")
 
-    # 1) Escaneo del repositorio (heurística local)
+    # 1) –––– Escaneo del repositorio (heurística local) ––––
     carpetas = args.carpetas or list(CARPETAS_DEFECTO)
     info("Escaneando el repositorio para encontrar candidatos...")
     candidatos = escanear_repositorio(
@@ -1554,9 +1589,13 @@ def flujo_principal(args: argparse.Namespace) -> int:
         aviso("Hay pocos candidatos; se usan todos sin consultar al selector IA.")
         seleccion = candidatos
     else:
+        # Mejora 2: si no se eligió proveedor con --provider, se ofrece el menú
+        # interactivo (questionary). Sin questionary o si responde "no", se usa
+        # el proveedor por defecto (SNAPCONTEXT_PROVIDER o gemini).
+        proveedor = _determinar_proveedor(args)
         seleccion = seleccionar_archivos(
             args.consulta, candidatos,
-            proveedor=args.provider, modelo=args.modelo,
+            proveedor=proveedor, modelo=args.modelo,
             max_archivos=args.max_archivos,
         )
         if not seleccion:

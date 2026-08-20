@@ -45,6 +45,10 @@ dev = [
     "build>=1.2.0",
     "twine>=5.0.0",
 ]
+# Menú interactivo de selección de proveedor (--provider y --local omitidos).
+interactive = [
+    "questionary>=1.10.0",
+]
 
 [project.urls]
 # TODO: apunta a tu repositorio real (no bloquea la publicación si lo dejas).

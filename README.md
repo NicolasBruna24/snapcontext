@@ -94,6 +94,7 @@ Los scripts detectan automáticamente tu sistema, verifican Python 3.9+, instala
 | Python 3.9+ | ejecutar SnapContext | [python.org](https://python.org) |
 | `google-generativeai` | proveedor Gemini (por defecto) | `pip install google-generativeai` |
 | `openai` | DeepSeek, Groq y Ollama (API compatible OpenAI) | `pip install openai` |
+| `questionary` (opcional) | menú interactivo de selección de proveedor | `pip install "snapcontext[interactive]"` |
 | Clave de un proveedor | `GEMINI_API_KEY`, `DEEPSEEK_API_KEY` o `GROQ_API_KEY` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | `aider-chat` | hacer las modificaciones | `pip install aider-chat` |
 | `flutter` (opcional) | bucle de pruebas `--test-loop` | [flutter.dev](https://flutter.dev) |
@@ -120,6 +121,10 @@ source .venv/bin/activate
 # 3. Instalar en modo editable → expone el comando "snapcontext" globalmente
 pip install -e .
 
+# 3b. (Opcional) Menú interactivo para elegir proveedor con flechas ↑↓
+#     (si no lo instalas, SnapContext usa Gemini por defecto con un aviso)
+pip install "snapcontext[interactive]"     # o simplemente:  pip install questionary
+
 # 4. Dependencia externa (Aider arrastra más paquetes por eso va aparte)
 pip install aider-chat
 
@@ -138,10 +143,18 @@ export GEMINI_API_KEY=tu_clave
 # Ejemplo básico: escaneo + IA + Aider
 snapcontext "el botón de pago no funciona"
 
-# Elegir proveedor y modelo (Gemini es el proveedor por defecto)
+# Selección de proveedor: sin --provider ni --local, aparecerá un menú
+# interactivo (↑↓ + Enter) para elegir entre Gemini, Ollama, DeepSeek y Groq.
+# Requiere questionary (ver instalación); sin él se usa Gemini con un aviso.
+snapcontext "revisar el login"
+
+# Elegir proveedor y modelo directamente (sin menú interactivo)
 snapcontext "..." --provider groq
 snapcontext "..." --provider deepseek --model deepseek-reasoner
 snapcontext "..." --provider ollama --model qwen2.5   # Ollama local
+
+# Modo offline (sin IA): no muestra menú interactivo
+snapcontext "..." --local
 
 # Modo experto: revisar/añadir/eliminar archivos antes de Aider
 snapcontext "revisar pago" --experto
@@ -164,6 +177,35 @@ snapcontext "..." --aider-opciones "--model sonnet --no-auto-commits"
 # Modo offline (sin Gemini) por si solo quieres la heurística local
 snapcontext "..." --local
 ```
+### Validación de carpeta de proyecto
+
+Al iniciar, SnapContext comprueba que el directorio contiene carpetas típicas de
+proyecto (`lib/`, `src/`, `supabase/`, `app/`, `packages/`, `backend/`). Si no
+encuentra ninguna, avisa y sale (código 1):
+
+```
+⚠️ No parece que estés en una carpeta de proyecto. SnapContext espera carpetas como
+lib/, src/, supabase/, etc. Puedes especificar una carpeta con --directorio <ruta> o
+navega a la raíz de tu proyecto y vuelve a intentarlo.
+```
+
+### Menú interactivo de proveedor (↑↓ + Enter)
+
+Si ejecutas `snapcontext "consulta"` **sin** `--provider` ni `--local`, SnapContext
+te pregunta si quieres elegir el proveedor y, si aceptas, muestra un menú con las
+flechas ↑/↓ y Enter:
+
+```text
+🤖 Selecciona el proveedor de IA:
+  ❯ Gemini (Google)
+    Ollama (local)
+    DeepSeek (API)
+    Groq (API)
+```
+
+Usa la librería **questionary** (`pip install snapcontext[interactive]`). Si no
+está instalada, se muestra un aviso y se usa **Gemini por defecto**. Para evitarlo,
+pasa siempre `--provider` o `--local`.
 
 ### Opciones principales
 
@@ -174,7 +216,7 @@ snapcontext "..." --local
 | `--carpetas` | `lib supabase` | Carpetas a escanear |
 | `--max-archivos` | `3` | Archivos que recibe Aider |
 | `--candidatos` | `80` | Candidatos que se envían al proveedor de IA |
-| `--provider` | `gemini` | Proveedor que selecciona archivos (`gemini`, `ollama`, `deepseek`, `groq`) |
+| `--provider` | *(sin por defecto)* | Proveedor que selecciona archivos (`gemini`, `ollama`, `deepseek`, `groq`). Si no se indica (ni `--local`) aparece un menú interactivo |
 | `--model` (alias `--modelo`) | según proveedor | Modelo del proveedor (o `SNAPCONTEXT_MODELO`) |
 | `--local` | off | Selección sin IA (modo offline / pruebas) |
 | `--vista-previa` | off | Mostrar la selección y salir |
