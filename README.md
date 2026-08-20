@@ -13,13 +13,14 @@
   │                                                          │
   │    » Selección inteligente de archivos                  │
   │    » Soporte: Gemini · Ollama · DeepSeek · Groq        │
-  │    » v0.4.0                                             │
+  │    » v0.5.0                                             │
   │                                                          │
   └──────────────────────────────────────────────────────────┘
   </pre>
 </p>
 
 [![PyPI version](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
+[![Release](https://img.shields.io/badge/release-v0.5.0-blue.svg)](https://github.com/NicolasBruna24/snapcontext/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
@@ -64,6 +65,24 @@ $ snapcontext "el botón de pago no funciona"
 ℹ Ejecutando Aider...
 ✔ Aider terminó correctamente.
 ```
+
+---
+
+## Novedades (v0.5.0)
+
+Qué hay de nuevo en esta versión:
+
+- **Validación de carpeta de proyecto**: comprueba al iniciar que existe una
+  carpeta típica (`lib/`, `src/`, `supabase/`, `app/`, `packages/`, `backend/`)
+  y avisa si no (sale con código 1).
+- **Menú interactivo de proveedor** (`questionary` con flechas y Enter):
+  elige Gemini, Ollama, DeepSeek o Groq sin escribir `--provider`.
+- **Configuración persistente**: guarda tu proveedor/modelo favorito en
+  `~/.snapcontext/config.json` y lo reutiliza en las siguientes ejecuciones.
+- **Auto-detección de modelos de Ollama**: con `ollama list`, muestra los
+  modelos locales disponibles para elegir.
+- **Asistente de configuración inicial (`--init`)**: guía el alta de claves API,
+  proveedor y modelo favorito, y una prueba opcional de conexión.
 
 ---
 
@@ -207,16 +226,90 @@ Usa la librería **questionary** (`pip install snapcontext[interactive]`). Si no
 está instalada, se muestra un aviso y se usa **Gemini por defecto**. Para evitarlo,
 pasa siempre `--provider` o `--local`.
 
+### Configuración persistente
+
+SnapContext guarda tus preferencias (proveedor favorito, modelo y claves API de
+los proveedores que configures) en `~/.snapcontext/config.json`:
+
+```json
+{
+  "provider": "groq",
+  "model": "llama-3.3-70b-versatile",
+  "api_keys": {
+    "gemini": "AIza...",
+    "groq": "gsk_..."
+  }
+}
+```
+
+- **Primera vez** (sin configuración): pregunta si quieres elegir proveedor con el
+  menú interactivo y ofrece guardarlo como predeterminado.
+- **Siguientes veces**: usa directamente el proveedor guardado, sin menú.
+- **`--provider ...` (y opcional `--model ...`)**: usa ese proveedor y sobrescribe
+  la preferencia guardada.
+- **`--no-persist`**: ignora la configuración guardada y fuerza el menú interactivo
+  (no guarda nada).
+- También respeta la variable de entorno `SNAPCONTEXT_PROVIDER` si no hay
+  configuración guardada.
+
+**Cómo editarlo:** abre `~/.snapcontext/config.json` con cualquier editor, cambia
+`provider` y `model`, y guarda. La próxima ejecución lo lee (la carpeta se crea
+automáticamente con `--init` o al elegir "guardar").
+
+### Asistente de configuración inicial (`--init`)
+
+Para no configurar claves y proveedor a mano, existe un asistente guiado:
+
+```bash
+snapcontext --init
+```
+
+Flujo del asistente:
+
+1. Pide la **clave de API de Gemini** (campo oculto).
+2. Pregunta si quieres configurar otros proveedores (Groq, DeepSeek) y guarda
+   sus claves.
+3. Te deja elegir el **proveedor y modelo favorito** con el menú interactivo.
+4. Guarda todo en `~/.snapcontext/config.json`.
+5. (Opcional) Prueba la conexión con la API del proveedor elegido.
+
+Si ya existe una configuración, pregunta si quieres **sobrescribirla**.
+Si `questionary` no está instalada, se muestra el aviso: `pip install
+questionary` (o `pip install snapcontext[interactive]`).
+
+`--init` es independiente: no necesita consulta, ni escaneo, ni Aider; solo
+configura y sale (el resto de flags sigue funcionando igual).
+
+### Auto-detección de modelos de Ollama
+
+Si eliges **Ollama** (en el menú o como preferencia guardada) sin pasar
+`--model`, SnapContext ejecuta `ollama list` en segundo plano, listo los modelos
+locales y te deja elegir con las flechas:
+
+```text
+🤖 Selecciona el modelo de Ollama:
+  ❯ llama3.2
+    qwen2.5
+```
+
+- Los modelos se parsean de la primera columna de la salida de `ollama list`.
+- Si `ollama` no está instalado o no hay modelos, se avisa y se ofrece volver al
+  menú de proveedores o usar **Gemini** por defecto.
+- Si pasas `--provider ollama --model <nombre>` por CLI, se omite la detección
+  y se usa directamente ese modelo.
+
 ### Opciones principales
 
 | Opción | Por defecto | Descripción |
 |---|---|---|
-| `consulta` | *(obligatorio)* | La tarea a resolver, entre comillas |
+| `consulta` | *(opcional con `--init`)* | La tarea a resolver, entre comillas |
+| `--init` | off | Asistente de configuración inicial (claves + proveedor/modelo) |
 | `--directorio` | `.` | Repositorio (detecta la raíz Git automáticamente) |
 | `--carpetas` | `lib supabase` | Carpetas a escanear |
 | `--max-archivos` | `3` | Archivos que recibe Aider |
 | `--candidatos` | `80` | Candidatos que se envían al proveedor de IA |
-| `--provider` | *(sin por defecto)* | Proveedor que selecciona archivos (`gemini`, `ollama`, `deepseek`, `groq`). Si no se indica (ni `--local`) aparece un menú interactivo |
+| `--provider` | *(sin por defecto)* | Proveedor que selecciona archivos (`gemini`, `ollama`, `deepseek`, `groq`). Si no se indica (ni `--local`) se usa el guardado en `~/.snapcontext/config.json` o un menú interactivo |
+| `--no-persist` | off | Ignora la configuración guardada y fuerza el menú interactivo |
 | `--model` (alias `--modelo`) | según proveedor | Modelo del proveedor (o `SNAPCONTEXT_MODELO`) |
 | `--local` | off | Selección sin IA (modo offline / pruebas) |
 | `--vista-previa` | off | Mostrar la selección y salir |

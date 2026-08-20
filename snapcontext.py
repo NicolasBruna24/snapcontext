@@ -70,7 +70,7 @@ try:
 except ImportError:  # pragma: no cover
     openai = None
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 # ─── Logo ASCII ──────────────────────────────────────────────────────────
 _LOGO = r"""
@@ -86,7 +86,7 @@ _LOGO = r"""
   │                                                          │
   │    » Selección inteligente de archivos                  │
   │    » Soporte: Gemini · Ollama · DeepSeek · Groq        │
-  │    » v0.4.0                                             │
+  │    » v0.5.0                                             │
   │                                                          │
   └──────────────────────────────────────────────────────────┘
 """
@@ -106,6 +106,9 @@ CARPETAS_PROYECTO_VALIDAS = ("lib", "src", "supabase", "app", "packages", "backe
 PROVEEDOR_DEFECTO = os.environ.get("SNAPCONTEXT_PROVIDER", "gemini")
 # SNAPCONTEXT_MODELO (opcional) sobrescribe el modelo por defecto del proveedor.
 MODELO_DEFECTO = os.environ.get("SNAPCONTEXT_MODELO") or None
+# Preferencias guardadas (~/.snapcontext/config.json): proveedor y modelo.
+CONFIG_DIR = Path.home() / ".snapcontext"
+CONFIG_PATH = CONFIG_DIR / "config.json"
 MAX_ARCHIVOS_DEFECTO = 3                           # archivos que recibe Aider
 MAX_CANDIDATOS_DEFECTO = 80                        # candidatos que se envían al selector IA
 MAX_ITERACIONES_TEST_DEFECTO = 3
@@ -768,50 +771,311 @@ def seleccionar_archivos_con_openai(consulta: str, archivos: List[str],
     return normalizar_seleccion(parsear_json(texto), archivos, max_archivos)
 
 
-def seleccionar_proveedor_interactivo() -> str:
-    """Ofrece un menú interactivo (questionary) para elegir el proveedor de IA.
+def cargar_configuracion() -> dict:
+    """Lee la configuración guardada en ~/.snapcontext/config.json.
 
-    - Pregunta primero si se quiere seleccionar el proveedor ahora.
-    - Si questionary no está instalada, avisa y usa el proveedor por defecto.
-    - Si el usuario responde que no, devuelve el proveedor por defecto.
+    El archivo es un JSON con las claves 'provider' y, opcionalmente, 'model'.
+    Si no existe o está corrupto, se devuelve un dict vacío.
     """
     try:
+        if CONFIG_PATH.is_file():
+            datos = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+            if isinstance(datos, dict):
+                return datos
+    except (OSError, ValueError):  # permisos, JSON corrupto, etc.
+        pass
+    return {}
+
+
+def guardar_configuracion(provider: str, model: Optional[str] = None,
+                          api_keys: Optional[dict] = None) -> bool:
+    """Guarda el proveedor preferido, modelo opcional y claves API.
+
+    Recibe además `api_keys` (dict {proveedor: clave}) que se mezcla con las
+    existentes, de modo que guardar solo el proveedor (como hace
+    `_determinador_proveedor`) no borre las claves ya configuradas con --init.
+    Devuelve True si se escribió correctamente en ~/.snapcontext/config.json.
+    """
+    try:
+        existente = cargar_configuracion()
+        claves = dict(existente.get("api_keys") or {})
+        if api_keys:
+            claves.update({k: v for k, v in api_keys.items() if v})
+
+        datos: dict = {"provider": provider}
+        if model:
+            datos["model"] = model
+        if claves:
+            datos["api_keys"] = claves
+
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        CONFIG_PATH.write_text(
+            json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return True
+    except OSError:
+        return False
+
+
+def _importar_questionary():
+    """Devuelve el módulo 'questionary' o None si no está instalado."""
+    try:
         import questionary
+        return questionary
     except ImportError:  # pragma: no cover
+        return None
+
+
+def _listar_modelos_ollama() -> tuple:
+    """Devuelve (modelos, error) consultando los modelos locales vía `ollama list`.
+
+    La primera columna de cada fila (la cabecera se ignora) es el nombre del
+    modelo. Si `ollama` no está o falla, devuelve ([], mensaje de error).
+    """
+    try:
+        proc = subprocess.run(
+            ["ollama", "list"], capture_output=True, text=True, timeout=60
+        )
+    except FileNotFoundError:
+        return [], "No se encontró 'ollama' en el PATH. ¿Está instalado?"
+    except subprocess.TimeoutExpired:
+        return [], "El comando 'ollama list' tardó demasiado (60 s)."
+    except OSError as exc:
+        return [], f"No se pudo ejecutar 'ollama list': {exc}"
+
+    if proc.returncode != 0:
+        fallo = (proc.stderr or proc.stdout or "").strip()
+        return [], fallo or "El comando 'ollama list' devolvió un error."
+
+    modelos: List[str] = []
+    for num_linea, linea in enumerate((proc.stdout or "").splitlines()):
+        if num_linea == 0:          # cabecera: ID  NAME  SIZE  MODIFIED
+            continue
+        partes = linea.split()
+        if partes:
+            modelos.append(partes[0])
+    return modelos, None
+
+
+def seleccionar_proveedor_interactivo() -> tuple:
+    """Menú interactivo (questionary) para elegir proveedor y, si es Ollama,
+    su modelo local. Devuelve (provider, model).
+
+    - Pregunta primero si se quiere elegir el proveedor ahora.
+    - Si se elige Ollama, se auto-detectan los modelos con `ollama list`.
+      Sin modelos / sin ollama instalado, se avisa y se ofrece volver al menú
+      de proveedores o usar Gemini por defecto.
+    - Sin questionary se avisa y se usa PROVEEDOR_DEFECTO (gemini), model None.
+    """
+    questionary = _importar_questionary()
+    if questionary is None:
         _emitir(
             sys.stdout,
             "💡 Para usar el modo interactivo, instala: pip install questionary",
         )
-        return PROVEEDOR_DEFECTO
+        return (PROVEEDOR_DEFECTO, None)
 
     if not questionary.confirm("¿Deseas seleccionar el proveedor de IA ahora?").ask():
-        return PROVEEDOR_DEFECTO
+        return (PROVEEDOR_DEFECTO, None)
 
-    opciones = [
-        questionary.Choice("Gemini (Google)", value="gemini"),
-        questionary.Choice("Ollama (local)", value="ollama"),
-        questionary.Choice("DeepSeek (API)", value="deepseek"),
-        questionary.Choice("Groq (API)", value="groq"),
-    ]
+    while True:
+        opciones = [
+            questionary.Choice("Gemini (Google)", value="gemini"),
+            questionary.Choice("Ollama (local)", value="ollama"),
+            questionary.Choice("DeepSeek (API)", value="deepseek"),
+            questionary.Choice("Groq (API)", value="groq"),
+        ]
+        proveedor = questionary.select(
+            "🤖 Selecciona el proveedor de IA:",
+            choices=opciones,
+        ).ask() or PROVEEDOR_DEFECTO
 
-    respuesta = questionary.select(
-        "🤖 Selecciona el proveedor de IA:",
-        choices=opciones,
-    ).ask()
+        # Ollama → auto-detección de modelos locales (Mejora 2).
+        if proveedor == "ollama":
+            modelos, error = _listar_modelos_ollama()
+            if modelos:
+                elegido = questionary.select(
+                    "🤖 Selecciona el modelo de Ollama:",
+                    choices=list(modelos),
+                ).ask()
+                return ("ollama", elegido or modelos[0])
 
-    return respuesta or PROVEEDOR_DEFECTO
+            if error:
+                aviso(f"No se pudieron listar modelos de Ollama: {error}")
+            else:
+                aviso("Ollama no tiene modelos instalados. "
+                      "Prueba: ollama pull llama3.2")
+            usar_gemini = questionary.confirm(
+                "¿Quieres usar Gemini por defecto? (No = volver al proveedor)"
+            ).ask()
+            if usar_gemini:
+                return ("gemini", None)
+            # Si responde "no": vuelve al menú de proveedores.
+            continue
+
+        return (proveedor, None)
 
 
-def _determinar_proveedor(args: argparse.Namespace) -> str:
-    """Resuelve el proveedor de IA que elegirá los archivos.
+def _preguntar_guardar_config() -> bool:
+    """Pregunta si guardar el proveedor elegido como predeterminado.
 
-    - Si el usuario pasó --provider, se usa sin preguntar.
-    - Si no (y tampoco --local), se ofrece el menú interactivo con questionary.
-      Sin questionary (o si responde "no") se usa PROVEEDOR_DEFECTO (gemini).
+    Solo hace la pregunta si questionary está instalada; si no, devuelve False
+    y no se persiste nada (comportamiento elegante sin dependencia extra).
     """
-    if getattr(args, "provider", None):
-        return args.provider
-    return seleccionar_proveedor_interactivo()
+    questionary = _importar_questionary()
+    if questionary is None:
+        return False
+    return bool(
+        questionary.confirm(
+            "¿Guardar este proveedor como predeterminado?"
+        ).ask()
+    )
+
+
+def _probar_conexion_proveedor(provider: str, model: Optional[str] = None) -> bool:
+    """Comprueba la conexión con la API del proveedor elegido (usado por --init).
+
+    Reutiliza la clave guardada en la configuración o, como plan B, la variable
+    de entorno correspondiente. Hace una llamada mínima y devuelve True si ok.
+    """
+    cfg = PROVEEDORES[provider]
+    api_keys = cargar_configuracion().get("api_keys") or {}
+
+    if provider == "gemini":
+        if genai is None:
+            aviso("Falta google-generativeai. Instala: pip install google-generativeai")
+            return False
+        clave = (api_keys.get("gemini") or "").strip() \
+            or os.environ.get("GEMINI_API_KEY", "").strip()
+        if not clave:
+            aviso("No se encontró ninguna clave de Gemini.")
+            return False
+        try:
+            genai.configure(api_key=clave)
+            genai.GenerativeModel(model or cfg["modelo_default"]).generate_content("responde ok")
+            return True
+        except Exception:
+            return False
+
+    # Proveedores con API estilo OpenAI (Groq, DeepSeek y Ollama).
+    if openai is None:
+        aviso(MENSAJE_OPENAI_FALTANTE)
+        return False
+    clave = (api_keys.get(provider) or "").strip() \
+        or os.environ.get(cfg["clave_env"], "").strip()
+    base_url = _resolver_url_openai(cfg)
+    try:
+        cliente = openai.OpenAI(api_key=clave or "ollama", base_url=base_url)
+        cliente.chat.completions.create(
+            model=model or cfg["modelo_default"],
+            messages=[{"role": "user", "content": "responde ok"}],
+            max_tokens=5,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def asistente_configuracion_inicial() -> int:
+    """Asistente interactivo de configuración inicial (SNAPCONTEXT --init).
+
+    Guía en la configuración de claves API y el proveedor/modelo favorito en
+    ~/.snapcontext/config.json. Devuelve el código de salida (0 = éxito).
+    """
+    questionary = _importar_questionary()
+    if questionary is None:
+        aviso(
+            "El asistente requiere questionary. "
+            "Instálalo con: pip install questionary"
+            "  (o: pip install snapcontext[interactive])"
+        )
+        return 1
+
+    if CONFIG_PATH.exists() and not questionary.confirm(
+        "¿Ya existe una configuración. ¿Quieres sobrescribirla?"
+    ).ask():
+        aviso("Configuración no modificada.")
+        return 0
+
+    exito("Configuración inicial de SnapContext")
+    api_keys: dict = dict(cargar_configuracion().get("api_keys") or {})
+
+    clave = questionary.text(
+        "Clave de API de Gemini (GEMINI_API_KEY):",
+        password=True,
+        default=api_keys.get("gemini", ""),
+    ).ask()
+    if clave and clave.strip():
+        api_keys["gemini"] = clave.strip()
+
+    if questionary.confirm(
+        "¿Quieres configurar otros proveedores (Groq, DeepSeek)?"
+    ).ask():
+        for prov in ("groq", "deepseek"):
+            env = PROVEEDORES[prov]["clave_env"]
+            valor = questionary.text(
+                f"Clave de API de {PROVEEDORES[prov]['nombre']} ({env}):",
+                password=True,
+                default=api_keys.get(prov, ""),
+            ).ask()
+            if valor and valor.strip():
+                api_keys[prov] = valor.strip()
+        aviso("Ollama es local y no necesita clave (opcional: OLLAMA_API_KEY).")
+
+    aviso("Ahora elige tu proveedor y modelo favoritos (con las flechas).")
+    proveedor, modelo = seleccionar_proveedor_interactivo()
+
+    if not guardar_configuracion(proveedor, modelo, api_keys):
+        error(f"No se pudo escribir la configuración en {CONFIG_PATH}")
+        return 1
+    exito(f"Configuración guardada en {CONFIG_PATH}")
+
+    if questionary.confirm("¿Quieres probar la conexión con la API ahora?").ask():
+        if _probar_conexion_proveedor(proveedor, modelo):
+            exito("¡Conexión con la API verificada correctamente!")
+        else:
+            error("No se pudo conectar con la API. Revisa la clave.")
+            return 1
+    return 0
+
+
+def _determinar_proveedor(args: argparse.Namespace) -> dict:
+    """Resuelve proveedor y modelo con persistencia en la configuración.
+
+    Devuelve un dict con las claves 'provider' y 'model'. Prioridad:
+      1) --provider por CLI (y se guarda, salvo --no-persist).
+      2) Configuración guardada en ~/.snapcontext/config.json.
+      3) Env SNAPCONTEXT_PROVIDER (si no hay configuración guardada).
+      4) Primer uso → menú interactivo y preguntar si se guarda.
+    """
+    persistir = not getattr(args, "no_persist", False)
+    proveedor_cli = getattr(args, "provider", None)
+    modelo_cli = getattr(args, "modelo", None) or MODELO_DEFECTO
+
+    # 1) Proveedor explícito en CLI: máxima prioridad; además se recuerda.
+    if proveedor_cli:
+        if persistir:
+            guardar_configuracion(proveedor_cli, modelo_cli)
+        return {"provider": proveedor_cli, "model": modelo_cli}
+
+    # 2) Preferencia guardada (primer uso → todavía no existe el archivo).
+    if persistir:
+        config = cargar_configuracion()
+        if config.get("provider"):
+            modelo = modelo_cli or config.get("model") or None
+            return {"provider": config["provider"], "model": modelo}
+
+        # 3) Variable de entorno como preferencia global.
+        proveedor_env = os.environ.get("SNAPCONTEXT_PROVIDER")
+        if proveedor_env:
+            guardar_configuracion(proveedor_env, modelo_cli)
+            return {"provider": proveedor_env, "model": modelo_cli}
+
+    # 4) Primer uso sin configuración: menú interactivo + preguntar si guardar.
+    proveedor, modelo = seleccionar_proveedor_interactivo()
+    if persistir and _preguntar_guardar_config():
+        guardar_configuracion(proveedor, modelo)
+    return {"provider": proveedor, "model": modelo}
 
 
 def seleccionar_archivos(consulta: str, archivos: List[str],
@@ -1443,8 +1707,14 @@ def crear_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "consulta", type=str,
-        help="La tarea a resolver (pásala entre comillas).",
+        "consulta", type=str, nargs="?", default=None,
+        help="La tarea a resolver (pásala entre comillas). Omitible con --init.",
+    )
+    parser.add_argument(
+        "--init", action="store_true",
+        help="Asistente de configuración inicial: claves API, proveedor y "
+             "modelo favorito (se guarda en ~/.snapcontext/config.json). "
+             "Independiente de la consulta y el escaneo.",
     )
     parser.add_argument(
         "--directorio", default=".",
@@ -1465,11 +1735,16 @@ def crear_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--provider", choices=sorted(PROVEEDORES), default=None,
-        help="Proveedor de IA que elige los archivos "
-             "(gemini | ollama | deepseek | groq). Si no se indica -y tampoco "
-             "--local-, SnapContext muestra un menú interactivo para elegirlo "
-             "(requiere: pip install questionary; si no está, usa gemini). "
-             "Env: SNAPCONTEXT_PROVIDER.",
+        help="Proveedor de IA que elige los archivos (gemini | ollama | "
+             "deepseek | groq). Si no se indica -y tampoco --local-, se usa el "
+             "guardado en ~/.snapcontext/config.json o, si es el primer uso, "
+             "se muestra un menú interactivo (questionary); con --no-persist "
+             "se fuerza siempre el menú. Env: SNAPCONTEXT_PROVIDER.",
+    )
+    parser.add_argument(
+        "--no-persist", action="store_true",
+        help="Ignora la configuracion guardada (~/.snapcontext/config.json) y "
+             "fuerza el menú interactivo de proveedor (si no hay --local).",
     )
     parser.add_argument(
         "--model", "--modelo", dest="modelo", default=MODELO_DEFECTO,
@@ -1547,6 +1822,13 @@ def flujo_principal(args: argparse.Namespace) -> int:
     global DEPURAR
     DEPURAR = args.depurar
 
+    if not getattr(args, "consulta", None):
+        raise RuntimeError(
+            "Falta la consulta (la tarea a resolver). Uso:\n"
+            '  snapcontext "el botón de pago no funciona"\n'
+            "  snapcontext --init   (para la configuracion inicial)"
+        )
+
     if args.max_archivos < 1:
         raise RuntimeError("--max-archivos debe ser al menos 1.")
 
@@ -1589,13 +1871,12 @@ def flujo_principal(args: argparse.Namespace) -> int:
         aviso("Hay pocos candidatos; se usan todos sin consultar al selector IA.")
         seleccion = candidatos
     else:
-        # Mejora 2: si no se eligió proveedor con --provider, se ofrece el menú
-        # interactivo (questionary). Sin questionary o si responde "no", se usa
-        # el proveedor por defecto (SNAPCONTEXT_PROVIDER o gemini).
-        proveedor = _determinar_proveedor(args)
+        # Mejora 2: si no se eligió proveedor con --provider, se resuelve con
+        # persistencia: configuración guardada, env o menú interactivo.
+        pref = _determinar_proveedor(args)
         seleccion = seleccionar_archivos(
             args.consulta, candidatos,
-            proveedor=proveedor, modelo=args.modelo,
+            proveedor=pref["provider"], modelo=pref["model"],
             max_archivos=args.max_archivos,
         )
         if not seleccion:
@@ -1654,6 +1935,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     _registrar_manejadores_senales()
     args = crear_parser().parse_args(argv)
     try:
+        # --init es independiente: configura claves/proveedor y sale.
+        if getattr(args, "init", False):
+            return asistente_configuracion_inicial()
         return flujo_principal(args)
     except KeyboardInterrupt:
         error("Interrumpido por el usuario.")
