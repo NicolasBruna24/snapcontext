@@ -125,9 +125,19 @@ powershell -ExecutionPolicy ByPass -c "irm https://NicolasBruna24.github.io/snap
 powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/NicolasBruna24/snapcontext/main/install.ps1 | iex"
 ```
 
-Los scripts detectan automáticamente tu sistema, verifican Python 3.9+, instalan `uv` (gestor rápido de paquetes Python) si no está presente, y finalmente instalan SnapContext. Al terminar, el comando `snapcontext` estará disponible en tu terminal.
+Los scripts detectan automáticamente tu sistema, verifican Python 3.9+, instalan `uv` (gestor rápido de paquetes Python) si no está presente, y finalmente instalan SnapContext. Al terminar:
 
-> **Nota:** Si prefieres una instalación manual paso a paso, ve a la sección [Instalación](#instalación).
+- ✅ **Windows**: El comando `snapcontext` se añadirá automáticamente al PATH del usuario permanentemente (variable `Path`). Solo necesitas reiniciar tu terminal o ejecutar `refreshenv`.
+- ✅ **Linux/macOS**: pip registra el ejecutable en el PATH del usuario de forma automática sin requerir permisos especiales.
+
+> 📝 En Windows, si prefieres una instalación manual paso a paso o instalaste directamente con `pip install snapcontext` (sin usar el one-liner), puedes ejecutar:
+> 
+> ```powershell
+> snapcontext --setup-path
+> ```
+> 
+> Esto añadirá automáticamente la carpeta de SnapContext al PATH del usuario.
+
 
 ---
 
@@ -543,9 +553,10 @@ $env:OLLAMA_URL = "http://localhost:11434"
 
 ---
 
-## Compatibilidad y Permisos (Linux / macOS)
+## Compatibilidad y Permisos (Linux / macOS / Windows)
 
-- **Permisos de ejecución**: Al instalar con `pip install -e .` o `pip install snapcontext`, pip registra el ejecutable en el `PATH` del usuario de forma automática sin requerir permisos especiales. Si ejecutas `snapcontext.py` directamente como script en Unix, puedes asignarle permisos de ejecución con `chmod +x snapcontext.py`.
+- **Windows**: Al instalar con `pip install snapcontext` o usando el one-liner (`install.ps1`), el instalador configura automáticamente el PATH del usuario permanentemente. Si instalaste manualmente sin usar el one-liner, ejecuta `snapcontext --setup-path` para añadir la carpeta al PATH.
+- **Permisos de ejecución**: En Linux/macOS, al instalar con `pip install -e .` o `pip install snapcontext`, pip registra el ejecutable en el `PATH` del usuario de forma automática sin requerir permisos especiales. Si ejecutas `snapcontext.py` directamente como script en Unix, puedes asignarle permisos de ejecución con `chmod +x snapcontext.py`.
 - **Servidor y Navegador**: En Linux y macOS, si `webbrowser.open()` no responde en entornos sin interfaz gráfica o con configuraciones personalizadas, SnapContext usa de forma automática los comandos nativos `xdg-open` (Linux) u `open` (macOS) como respaldo sin usar `shell=True`.
 - **Manejo de Señales**: En Linux/macOS y Windows, la interrupción por teclado (`Ctrl+C` / `SIGINT`) o la señal de terminación (`SIGTERM` en Unix) capturan el evento, cierran limpiamente cualquier subproceso en segundo plano (como `flutter run`) y salen de forma ordenada con código `0`.
 
