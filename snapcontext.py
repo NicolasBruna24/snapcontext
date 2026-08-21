@@ -1836,49 +1836,78 @@ def crear_parser() -> argparse.ArgumentParser:
 
 
 def _localizar_carpeta_scripts() -> Optional[str]:
-    """Devuelve una carpeta donde vive el ejecutable de SnapContext (o, como
-    plan B, la carpeta Scripts donde pip registra el comando `snapcontext`)."""
+    """Localiza la carpeta donde se registra el comando `snapcontext`.
+
+    Devuelve la carpeta de scripts del intérprete de Python actual (donde pip
+    instala el ejecutable `snapcontext.exe` / `snapcontext`) o, como respaldo,
+    cualquier carpeta típica de Scripts/bin de Python que realmente exista.
+    Nunca devuelve el directorio del proyecto actual.
+
+    Se considera válida una carpeta que exista y cumpla AL MENOS una de:
+      - contiene un marcador de ejecutable (snapcontext.exe/.bat o snapcontext);
+      - su ruta contiene el segmento "Scripts" o "bin" (carpetas de ejecutables).
+    """
     marcadores = ("snapcontext.exe", "snapcontext", "snapcontext.bat")
 
-    def _tiene_ejecutable(carpeta: str) -> bool:
-        return bool(carpeta) and any(
-            os.path.exists(os.path.join(carpeta, m)) for m in marcadores
-        )
+    def _es_valida(carpeta: str) -> bool:
+        if not carpeta or not os.path.isdir(carpeta):
+            return False
+        # Coincidencia por ejecutable presente en la carpeta.
+        for m in marcadores:
+            if os.path.exists(os.path.join(carpeta, m)):
+                return True
+        # Coincidencia por tipo de carpeta de ejecutables (Scripts / bin).
+        nombre = carpeta.lower()
+        partes = [p for p in nombre.replace("/", "\\").split("\\") if p]
+        tipo_ejecutables = "scripts" in partes or "bin" in partes
+        # En Windows las variables Programa pueden usar "Scripts"; en Unix "bin".
+        if "scripts" in nombre or "\\bin" in nombre or "/bin" in nombre:
+            tipo_ejecutables = True
+        return tipo_ejecutables
 
     candidatos: List[str] = []
 
-    # 1) Ejecutable empaquetado (PyInstaller / cx_Freeze).
-    if getattr(sys, "frozen", False):
-        candidatos.append(os.path.dirname(os.path.abspath(sys.executable)))
-
-    # 2) Carpeta de este script (desarrollo / `python -m snapcontext`).
-    candidatos.append(os.path.dirname(os.path.abspath(__file__)))
-
-    # 3) Scripts del Python en uso (donde se registran los comandos console).
+    # 1) Carpeta de scripts del intérprete Python en uso (donde pip y
+    #    `pip install .` registran el comando `snapcontext`). Prioridad máxima.
     try:
         import sysconfig
         candidatos.append(sysconfig.get_path("scripts"))
     except Exception:
         pass
 
-    # 4) Scripts hermano del interprete + localizaciones tipicas de Windows.
+    # 2) Carpeta Scripts hermana de python.exe.
     dir_python = os.path.dirname(sys.executable)
     candidatos.append(os.path.join(dir_python, "Scripts"))
-    for base in (
-        os.environ.get("LOCALAPPDATA", ""),
-        os.environ.get("APPDATA", ""),
-        os.path.join(os.path.expanduser("~"), "AppData", "Local"),
-    ):
-        candidatos.append(os.path.join(base, "Programs", "Python", "Scripts"))
 
-    # Preferir una carpeta existente que ya contenga el ejecutable.
-    for c in candidatos:
-        if c and os.path.isdir(c) and _tiene_ejecutable(c):
-            return c
+    # 3) Rutas típicas de instalaciones de usuario en Windows.
+    appdata = os.environ.get("APPDATA", "")
+    localappdata = os.environ.get("LOCALAPPDATA", "")
+    candidatos.append(os.path.join(appdata, "Python", "Scripts") if appdata else "")
+    if localappdata:
+        candidatos.append(os.path.join(localappdata, "Programs", "Python", "Scripts"))
+        # Python3X: localizaciones con número de versión (p. ej. Python313).
+        base_prog = os.path.join(localappdata, "Programs", "Python")
+        try:
+            for nombre in sorted(os.listdir(base_prog)):
+                if nombre.lower().startswith("python"):
+                    candidatos.append(
+                        os.path.join(base_prog, nombre, "Scripts")
+                    )
+        except OSError:
+            pass
 
-    # Plan B: primera candidata existente (suele ser la Scripts del Python).
+    # 4) Ejecutable empaquetado (PyInstaller / cx_Freeze): su propia carpeta.
+    if getattr(sys, "frozen", False):
+        candidatos.append(os.path.dirname(os.path.abspath(sys.executable)))
+
+    # Devolver la primera candidata que resulte válida (existe y es Scripts/bin
+    # o contiene el ejecutable). Orden de prioridad = orden de la lista.
+    vistos = set()
     for c in candidatos:
-        if c and os.path.isdir(c):
+        if not c or c in vistos:
+            continue
+        vistos.add(c)
+        if _es_valida(c):
             return c
 
     return None
