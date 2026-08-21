@@ -70,7 +70,7 @@ try:
 except ImportError:  # pragma: no cover
     openai = None
 
-VERSION = "0.6.0"
+VERSION = "0.6.1"
 
 # ─── Logo ASCII ──────────────────────────────────────────────────────────
 _LOGO = r"""
@@ -1835,6 +1835,119 @@ def crear_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _localizar_carpeta_scripts() -> Optional[str]:
+    """Devuelve una carpeta donde vive el ejecutable de SnapContext (o, como
+    plan B, la carpeta Scripts donde pip registra el comando `snapcontext`)."""
+    marcadores = ("snapcontext.exe", "snapcontext", "snapcontext.bat")
+
+    def _tiene_ejecutable(carpeta: str) -> bool:
+        return bool(carpeta) and any(
+            os.path.exists(os.path.join(carpeta, m)) for m in marcadores
+        )
+
+    candidatos: List[str] = []
+
+    # 1) Ejecutable empaquetado (PyInstaller / cx_Freeze).
+    if getattr(sys, "frozen", False):
+        candidatos.append(os.path.dirname(os.path.abspath(sys.executable)))
+
+    # 2) Carpeta de este script (desarrollo / `python -m snapcontext`).
+    candidatos.append(os.path.dirname(os.path.abspath(__file__)))
+
+    # 3) Scripts del Python en uso (donde se registran los comandos console).
+    try:
+        import sysconfig
+        candidatos.append(sysconfig.get_path("scripts"))
+    except Exception:
+        pass
+
+    # 4) Scripts hermano del interprete + localizaciones tipicas de Windows.
+    dir_python = os.path.dirname(sys.executable)
+    candidatos.append(os.path.join(dir_python, "Scripts"))
+    for base in (
+        os.environ.get("LOCALAPPDATA", ""),
+        os.environ.get("APPDATA", ""),
+        os.path.join(os.path.expanduser("~"), "AppData", "Local"),
+    ):
+        candidatos.append(os.path.join(base, "Programs", "Python", "Scripts"))
+
+    # Preferir una carpeta existente que ya contenga el ejecutable.
+    for c in candidatos:
+        if c and os.path.isdir(c) and _tiene_ejecutable(c):
+            return c
+
+    # Plan B: primera candidata existente (suele ser la Scripts del Python).
+    for c in candidatos:
+        if c and os.path.isdir(c):
+            return c
+
+    return None
+
+
+def _guardar_path_windows(nuevo_path: str) -> bool:
+    """Persiste el PATH en la variable de entorno de USUARIO.
+
+    Intenta `setx PATH` (sin /M, no requiere admin) y, si no esta disponible,
+    escribe directamente en HKCU\\Environment con `winreg`."""
+    try:
+        res = subprocess.run(
+            ["setx", "PATH", nuevo_path],
+            capture_output=True, text=True, timeout=20,
+        )
+        if res.returncode == 0:
+            return True
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    try:
+        import winreg
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE
+        ) as clave:
+            winreg.SetValueEx(clave, "PATH", 0, winreg.REG_EXPAND_SZ, nuevo_path)
+        return True
+    except Exception:
+        pass
+
+    return False
+
+
+def configurar_path() -> int:
+    """Configura el PATH del usuario en Windows (--setup-path).
+
+    Es independiente de la consulta: localiza la carpeta de ejecutables, la
+    añade al PATH persistente del usuario y sale. Código 0 = éxito.
+    """
+    if not sys.platform.startswith("win"):
+        error("--setup-path solo funciona en Windows.")
+        return 1
+
+    info("Configurando el PATH del usuario para Windows...")
+    carpeta = _localizar_carpeta_scripts()
+    if not carpeta:
+        error("No se pudo localizar la carpeta de ejecutables de SnapContext.")
+        aviso("SnapContext seguirá funcionando con: 'python -m snapcontext'")
+        return 1
+
+    path_actual = os.environ.get("PATH", "")
+    if carpeta in [p for p in path_actual.split(";") if p]:
+        exito("'" + carpeta + "' ya está en el PATH del usuario (sin cambios).")
+        return 0
+
+    nuevo = carpeta + ";" + path_actual
+    os.environ["PATH"] = nuevo
+
+    if _guardar_path_windows(nuevo):
+        exito("'" + carpeta + "' añadido al PATH persistente del usuario.")
+        info("Reinicia tu terminal para que el cambio surta efecto.")
+        info("Si instalaste Chocolatey, ejecuta 'refreshenv'.")
+        return 0
+
+    error("No se pudo guardar el PATH de forma permanente.")
+    aviso("El PATH solo queda activo para esta sesion de terminal.")
+    return 1
+
+
 def flujo_principal(args: argparse.Namespace) -> int:
     """Orquesta el pipeline completo. Devuelve el código de salida."""
     global DEPURAR
@@ -1846,87 +1959,6 @@ def flujo_principal(args: argparse.Namespace) -> int:
             '  snapcontext "el botón de pago no funciona"\n'
             "  snapcontext --init   (para la configuracion inicial)"
         )
-
-    # --- Configuración automática del PATH (Windows) con --setup-path ---
-    if args.setup_path and sys.platform.startswith("win"):
-        info("Configurando PATH del usuario para Windows...")
-        
-        import os
-        
-        try:
-            # Obtener la ruta del sitio de paquetes de usuario
-            site_packages = os.path.dirname(
-                __import__("sysconfig").get_path("scripts")
-            )
-            
-            # En Python 3.9+, los scripts están en Scripts, no en bin/
-            scripts_path = site_packages.replace("\\site-packages", "\\Scripts")
-            
-            # Verificar si existe el ejecutable
-            ejecutable_path = os.path.join(scripts_path, "snapcontext.exe")
-            
-            if os.path.exists(ejecutable_path):
-                # Obtener PATH actual del usuario
-                path_actual = os.environ.get("PATH", "")
-                
-                # Añadir la carpeta Scripts al PATH si no está presente
-                if scripts_path not in path_actual:
-                    new_path = scripts_path + ";" + path_actual
-                    os.environ["PATH"] = new_path
-                    
-                    # Guardar permanentemente en el registro de Windows
-                    import subprocess
-                    result = subprocess.run(
-                        ['setx', '/M', 'PATH', new_path],
-                        capture_output=True,
-                        text=True
-                    )
-                    
-                    if result.returncode == 0:
-                        info(f"✓ Ruta '{scripts_path}' añadida permanentemente al PATH de usuario")
-                        info("Reinicia tu terminal para que los cambios surtan efecto.")
-                        info("O ejecuta 'refreshenv' si tienes Chocolatey instalado.")
-                    else:
-                        error(f"Error al guardar en PATH: {result.stderr}")
-                else:
-                    info(f"Ruta '{scripts_path}' ya presente en el PATH (sin cambios necesarios)")
-            else:
-                warn(f"El ejecutable no se encuentra en: {ejecutable_path}")
-                info("Intentando localizar snapcontext.exe...")
-                
-                # Fallback: buscar en rutas comunes de pip/uv
-                for candidate in [
-                    os.path.join(os.environ.get("APPDATA", ""), "Python", "Scripts"),
-                    os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Python", "Python3*", "Scripts"),
-                    scripts_path,
-                ]:
-                    candidate_path = os.path.join(candidate, "snapcontext.exe")
-                    if os.path.exists(candidate_path):
-                        scripts_path = candidate
-                        
-                        path_actual = os.environ.get("PATH", "")
-                        if scripts_path not in path_actual:
-                            new_path = scripts_path + ";" + path_actual
-                            os.environ["PATH"] = new_path
-                            
-                            result = subprocess.run(
-                                ['setx', '/M', 'PATH', new_path],
-                                capture_output=True,
-                                text=True
-                            )
-                            
-                            if result.returncode == 0:
-                                info(f"✓ Ruta '{scripts_path}' añadida al PATH de usuario (fallback)")
-                            else:
-                                warn(f"Error al guardar en PATH: {result.stderr}")
-                        else:
-                            info(f"Ruta ya presente en el PATH del usuario")
-                        break
-                else:
-                    warn("No se pudo encontrar snapcontext.exe automáticamente.")
-        except Exception as e:
-            error(f"Error configurando PATH: {e}")
-            info("La funcionalidad de SnapContext seguirá funcionando normalmente.")
 
     if args.max_archivos < 1:
         raise RuntimeError("--max-archivos debe ser al menos 1.")
@@ -2037,6 +2069,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         # --init es independiente: configura claves/proveedor y sale.
         if getattr(args, "init", False):
             return asistente_configuracion_inicial()
+        # --setup-path es independiente de la consulta: configura el PATH
+        # y termina sin recorrer el pipeline (ni pedir consulta).
+        if getattr(args, "setup_path", False):
+            return configurar_path()
         return flujo_principal(args)
     except KeyboardInterrupt:
         error("Interrumpido por el usuario.")
