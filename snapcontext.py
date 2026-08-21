@@ -70,7 +70,7 @@ try:
 except ImportError:  # pragma: no cover
     openai = None
 
-VERSION = "0.6.1"
+VERSION = "0.7.0"
 
 # ─── Logo ASCII ──────────────────────────────────────────────────────────
 _LOGO = r"""
