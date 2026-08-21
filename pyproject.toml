@@ -49,6 +49,11 @@ dev = [
 interactive = [
     "questionary>=1.10.0",
 ]
+# Interfaz web (FastAPI + WebSockets) con --web.
+web = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+]
 
 [project.urls]
 # TODO: apunta a tu repositorio real (no bloquea la publicación si lo dejas).
@@ -61,5 +66,10 @@ Repository = "https://github.com/NicolasBruna24/snapcontext"
 snapcontext = "snapcontext:main"
 
 [tool.setuptools]
-# Módulo único en la raíz (sin paquete)
-py-modules = ["snapcontext"]
+# Módulos en la raíz (sin paquete): CLI + arquitectura de agentes.
+py-modules = ["snapcontext", "agentes", "orquestador"]
+packages = ["web"]
+
+[tool.setuptools.package-data]
+# El estático de la interfaz web debe viajar dentro del paquete instalado.
+"web" = ["static/index.html"]

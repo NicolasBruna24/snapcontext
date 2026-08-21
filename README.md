@@ -230,6 +230,10 @@ snapcontext "..." --aider-opciones "--model sonnet --no-auto-commits"
 
 # Modo offline (sin Gemini) por si solo quieres la heurística local
 snapcontext "..." --local
+
+# Interfaz web (FastAPI + WebSockets) con logs en tiempo real
+snapcontext --web              # http://localhost:8000
+snapcontext --web --web-puerto 8123
 ```
 ### Validación de carpeta de proyecto
 
@@ -486,6 +490,52 @@ describas el error y esa descripción se pasa a Aider
 > El servidor se cierra solo al finalizar (o con Ctrl+C), sin dejar procesos
 > huérfanos. Configura tu proyecto para que `flutter run` use web si pruebas la
 > interfaz en el navegador.
+
+---
+
+## Interfaz Web (`--web`)
+
+SnapContext incluye una interfaz web ligera sobre la **arquitectura de agentes**
+para seguir en tiempo real lo que hacen el orquestador y los agentes (escaneo,
+selección, Aider, pruebas, cierre) sin mirar la terminal.
+
+**Requisito:** instala las dependencias opcionales:
+
+```bash
+pip install snapcontext[web]
+#   o, en desarrollo: pip install -e '.[web]'
+```
+
+**Arranque** (bloquea hasta `Ctrl+C`):
+
+```bash
+snapcontext --web                      # http://localhost:8000
+snapcontext --web --web-puerto 8123    # puerto personalizado
+```
+
+Después abre `http://localhost:8000` en el navegador. La página ofrece:
+
+- **Campo consulta** + botón **Ejecutar** (también con `Enter`).
+- **Logs en tiempo real**: panel que muestra cada evento `log` que emite el
+  orquestador (info/aviso/error) vía WebSocket.
+- **Resultados**: archivos seleccionados, avance de Aider y cierre de la tarea
+  (éxito/error).
+- Opciones rápidas: **Selección local (sin IA)**, **Vista previa**, **Bucle de
+  pruebas** y campos opcionales de directorio y `--max-archivos`.
+
+**Eventos que emite el orquestador** (visible en la web):
+
+| Tipo | Significado |
+|---|---|
+| `log` | Línea de log del pipeline (info/aviso/error). |
+| `selección` | Archivos elegidos por el agente de contexto. |
+| `aider` | Inicio/fin de la ejecución de Aider (AgenteEditor). |
+| `test` | Iteración de prueba del AgenteTester (`aider`/`prueba`, ok/falló). |
+| `final` | Cierre de la ejecución con código de éxito/error. |
+
+En la consola, si no hay dependencias web instaladas, `snapcontext --web`
+muestra el mensaje: *"La interfaz web necesita dependencias opcionales…"* y sale
+sin romper el resto de la CLI.
 
 ---
 

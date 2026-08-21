@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SnapContext · Interfaz Web</title>
+<style>
+  :root {
+    --fondo: #0f1115; --panel: #171a21; --borde: #2a2f3a;
+    --texto: #d8dee9; --gris: #8b93a7;
+    --verde: #7ee081; --amarillo: #e3b341; --rojo: #f47174; --cian: #7dcfff;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:'Segoe UI',system-ui,sans-serif; background:var(--fondo); color:var(--texto); }
+  header { padding:1rem 1.6rem; border-bottom:1px solid var(--borde); background:var(--panel); font-weight:700; letter-spacing:.5px; }
+  .tarjeta { background:var(--panel); border:1px solid var(--borde); border-radius:10px; padding:1rem 1.2rem; }
+  .campo { display:flex; gap:12px; }
+  input[type=text] { flex:1; background:#0d1014; color:var(--texto); border:1px solid var(--borde); border-radius:8px; padding:.75rem 1rem; font-size:1rem; }
+  button { background:#2a6fdb; color:#fff; border:0; border-radius:8px; padding:.75rem 1.6rem; font-size:1rem; cursor:pointer; }
+  button:disabled { background:#3a4250; color:#9aa3b2; cursor:default; }
+  .opciones { display:flex; flex-wrap:wrap; gap:10px; margin-top:.7rem; }
+  label.check { display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:.9rem; }
+  input[type=checkbox] { accent-color:var(--verde); }
+  input#directorio, input#maxArchivos { flex:1; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:1.2rem; margin-top:1.2rem; }
+  pre.logs { height:360px; overflow:auto; margin:0; padding:.8rem 1rem; background:#0b0e12; border:1px solid var(--borde); border-radius:8px; font-family:Consolas,monospace; font-size:.85rem; line-height:1.5; white-space:pre-wrap; }
+  .resumen { min-height:120px; border-radius:8px; }
+  .pila { margin:.4rem 0; padding:.45rem .8rem; background:rgba(23,26,33,.6); border-radius:6px; font-family:Consolas,monospace; font-size:.85rem; }
+  footer { margin-top:1.2rem; color:var(--gris); font-size:.82rem; }
+  .chip { display:inline-flex; align-items:center; gap:6px; }
+  .punto { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px; }
+  .ok { background:var(--verde); } .bad { background:var(--rojo); }
+</style>
+</head>
+<!-- __PARTE2__ -->
+<body>
+<header>🛠 SnapContext <small>· Interfaz Web · asistentes con contexto automático</small></header>
+
+<main style="max-width:1100px; margin:1.4rem auto;">
+  <section class="tarjeta">
+    <div class="campo">
+      <input type="text" id="consulta" placeholder='Escribe la tarea, p. ej. "el botón de pago no funciona"' autofocus
+             onkeydown="if(event.key==='Enter') ejecutar()">
+      <button id="botonEjecutar" onclick="ejecutar()">Ejecutar</button>
+    </div>
+    <div class="opciones">
+      <label class="check"><input type="checkbox" id="local"> Selección local (sin IA)</label>
+      <label class="check"><input type="checkbox" id="vistaPrevia"> Vista previa (no ejecuta Aider)</label>
+      <label class="check"><input type="checkbox" id="testLoop"> Bucle de pruebas (--test-loop)</label>
+      <input type="text" id="directorio" placeholder="directorio (opcional)">
+      <input type="text" id="maxArchivos" placeholder="max archivos (opcional)">
+    </div>
+  </section>
+
+  <div class="grid">
+    <section class="tarjeta">
+      <h3 style="margin:0 0 8px">📜 Logs (tiempo real)</h3>
+      <pre id="logs" class="logs"><span style="color:var(--gris)">Conectando al WebSocket…</span></pre>
+    </section>
+    <section class="tarjeta">
+      <h3 style="margin:0 0 8px">✅ Resultados</h3>
+      <div id="resultados" class="resumen"><p style="color:var(--gris)">Aquí aparecerán los archivos seleccionados y el cierre de la tarea.</p></div>
+    </section>
+  </div>
+
+  <footer>
+    <span id="chipEstado" class="chip"><span id="puntoEstado" class="punto bad"></span><span id="textoEstado">desconectado</span></span>
+    &nbsp;·&nbsp; FastAPI + WebSockets
+  </footer>
+</main>
+<!-- __PARTE3__ -->
+<script>
+  var ws = null;
+  const $id = (s) => document.getElementById(s);
+
+  function estado(nombre) {
+    $id('puntoEstado').className = 'punto ' + (nombre === 'conectado' ? 'ok' : 'bad');
+    $id('textoEstado').textContent = nombre;
+  }
+
+  function conectar() {
+    var proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    var url = proto + '://' + location.host + '/ws';
+    ws = new WebSocket(url);
+    ws.onopen = () => { estado('conectado'); logRow('', '✔ WebSocket conectado.'); };
+    ws.onclose = () => { estado('desconectado'); logRow('[servidor]', 'conexión cerrada.', 'var(--gris)'); };
+    ws.onerror = () => { estado('desconectado'); };
+    ws.onmessage = (e) => procesar(JSON.parse(e.data));
+  }
+
+  function escapar(s) {
+    return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function logRow(prefix, texto, color) {
+    var el = $id('logs');
+    var spanColor = color || 'var(--texto)';
+    el.innerHTML += '<span style="color:var(--cian)">' + escapar(prefix) + '</span> '
+      + '<span style="color:' + spanColor + '">' + escapar(texto) + '</span>\n';
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function anexarResultado(texto, ok) {
+    var el = $id('resultados');
+    var col = ok ? 'var(--verde)' : 'var(--rojo)';
+    el.innerHTML += '<p style="color:' + col + '">' + escapar(texto) + '</p>';
+  }
+
+  function mostrarSeleccion(archivos) {
+    var el = $id('resultados');
+    el.innerHTML = '<b>Archivos seleccionados (' + (archivos||[]).length + '):</b>';
+    (archivos||[]).forEach(function(a) {
+      el.innerHTML += '<div class="pila">• ' + escapar(a) + '</div>';
+    });
+  }
+
+  function procesar(ev) {
+    if (ev.tipo === 'log') {
+      logRow('', ev.texto || '', ev.nivel === 'error' ? 'var(--rojo)' : null);
+    } else if (ev.tipo === 'selección') {
+      mostrarSeleccion(ev.archivos || []);
+    } else if (ev.tipo === 'aider') {
+      if (ev.accion === 'iniciar') logRow('', '→ AgenteEditor: ejecutando Aider…', 'var(--amarillo)');
+      else anexarResultado(ev.ok ? '✔ Aider terminó correctamente.' : '✖ Aider terminó con error.', ev.ok);
+    } else if (ev.tipo === 'test') {
+      logRow('', '→ test iter. ' + ev.iteracion + ': ' + ev.accion + ' (' + (ev.ok ? 'ok' : 'falló') + ')', 'var(--amarillo)');
+    } else if (ev.tipo === 'final') {
+      anexarResultado(ev.ok ? '✔ Finalizado con éxito.' : '✖ Finalizado con error.', ev.ok);
+      habilitar(true);
+    }
+  }
+
+  function anexar(texto, ok) { anexarResultado(texto, ok); }
+
+  function habilitar(on) { $id('botonEjecutar').disabled = !on; }
+
+  function ejecutar() {
+    var consulta = $id('consulta').value.trim();
+    if (!consulta) { logRow('[web]', '✖ Introduce una consulta.', 'var(--rojo)'); return; }
+    if (!ws) { logRow('[web]', 'WebSocket no conectado.', 'var(--rojo)'); return; }
+    habilitar(false);
+    $id('logs').innerHTML = '';
+    $id('resultados').innerHTML = '';
+    var msg = {
+      consulta: consulta,
+      local: $id('local').checked,
+      vista_previa: $id('vistaPrevia').checked,
+      test_loop: $id('testLoop').checked,
+      directorio: $id('directorio').value.trim() || undefined,
+      max_archivos: $id('maxArchivos').value ? parseInt($id('maxArchivos').value, 10) : undefined
+    };
+    ws.send(JSON.stringify(msg));
+  }
+
+  conectar();
+</script>
+</body>
+</html>

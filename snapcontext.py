@@ -231,6 +231,22 @@ def _texto_seguro(texto: str) -> str:
     return texto
 
 
+# Callback global de eventos hacia la interfaz web (y otros consumidores).
+# Recibe dicts con al menos {"tipo": ...}. Se activa con fijar_evento_callback.
+EVENTO_CALLBACK = None  # type: ignore[assignment]
+
+
+def fijar_evento_callback(manejador) -> None:
+    """Registra un manejador de eventos (p. ej. la interfaz web).
+
+    ``manejador(dict)`` recibe eventos como ``{\"tipo\": \"log\", ...}`` para
+    mostrar en tiempo real lo que hacen el orquestador y los agentes. Pasa
+    ``None`` para limpiar el registro.
+    """
+    global EVENTO_CALLBACK
+    EVENTO_CALLBACK = manejador
+
+
 def _emitir(stream, texto: str) -> None:
     """Escribe texto con seguridad ante codificaciones limitadas."""
     seguro = _texto_seguro(texto)
@@ -238,6 +254,17 @@ def _emitir(stream, texto: str) -> None:
         print(seguro, file=stream)
     except UnicodeEncodeError:
         print(seguro.encode("ascii", "replace").decode("ascii"), file=stream)
+    # Si hay un manejador registrado (interfaz web), se le difunde el log en
+    # tiempo real junto con su nivel, para que la UI lo muestre mientras corre.
+    if EVENTO_CALLBACK is not None:
+        try:
+            EVENTO_CALLBACK({
+                "tipo": "log",
+                "nivel": "error" if stream is sys.stderr else "info",
+                "texto": seguro,
+            })
+        except Exception:
+            pass
 
 
 def _soporta_color() -> bool:
@@ -1832,43 +1859,26 @@ def crear_parser() -> argparse.ArgumentParser:
              "carpeta de ejecutable al PATH persistente. Útil si instalaste con "
              "'pip install snapcontext' sin usar el one-liner. Solo funciona en Windows.",
     )
+    parser.add_argument(
+        "--web", action="store_true",
+        help="Inicia la interfaz web en http://localhost:8000 (FastAPI + WebSockets "
+             "con logs en tiempo real). Requiere: pip install snapcontext[web].",
+    )
+    parser.add_argument(
+        "--web-puerto", type=int, default=8000,
+        help="Puerto para la interfaz web (por defecto: 8000). Requiere --web.",
+    )
     return parser
 
 
-def _localizar_carpeta_scripts() -> Optional[str]:
-    """Localiza la carpeta donde se registra el comando `snapcontext`.
-
-    Devuelve la carpeta de scripts del intérprete de Python actual (donde pip
-    instala el ejecutable `snapcontext.exe` / `snapcontext`) o, como respaldo,
-    cualquier carpeta típica de Scripts/bin de Python que realmente exista.
-    Nunca devuelve el directorio del proyecto actual.
-
-    Se considera válida una carpeta que exista y cumpla AL MENOS una de:
-      - contiene un marcador de ejecutable (snapcontext.exe/.bat o snapcontext);
-      - su ruta contiene el segmento "Scripts" o "bin" (carpetas de ejecutables).
-    """
-    marcadores = ("snapcontext.exe", "snapcontext", "snapcontext.bat")
-
-    def _es_valida(carpeta: str) -> bool:
-        if not carpeta or not os.path.isdir(carpeta):
-            return False
-        # Coincidencia por ejecutable presente en la carpeta.
-        for m in marcadores:
-            if os.path.exists(os.path.join(carpeta, m)):
-                return True
-        # Coincidencia por tipo de carpeta de ejecutables (Scripts / bin).
-        nombre = carpeta.lower()
-        partes = [p for p in nombre.replace("/", "\\").split("\\") if p]
-        tipo_ejecutables = "scripts" in partes or "bin" in partes
-        # En Windows las variables Programa pueden usar "Scripts"; en Unix "bin".
-        if "scripts" in nombre or "\\bin" in nombre or "/bin" in nombre:
-            tipo_ejecutables = True
-        return tipo_ejecutables
-
+def _candidatos_carpetas_scripts() -> List[str]:
+    """Devuelve, en orden de prioridad, las carpetas donde suele instalarse el
+    comando `snapcontext` (carpetas de scripts/bin de Python), sin comprobar
+    todavía si existen. Prioriza el intérprete Python en uso."""
     candidatos: List[str] = []
 
     # 1) Carpeta de scripts del intérprete Python en uso (donde pip y
-    #    `pip install .` registran el comando `snapcontext`). Prioridad máxima.
+    #    `pip install -e .` registran el comando `snapcontext`). Prioridad máxima.
     try:
         import sysconfig
         candidatos.append(sysconfig.get_path("scripts"))
@@ -1882,17 +1892,18 @@ def _localizar_carpeta_scripts() -> Optional[str]:
     # 3) Rutas típicas de instalaciones de usuario en Windows.
     appdata = os.environ.get("APPDATA", "")
     localappdata = os.environ.get("LOCALAPPDATA", "")
-    candidatos.append(os.path.join(appdata, "Python", "Scripts") if appdata else "")
+    if appdata:
+        candidatos.append(os.path.join(appdata, "Python", "Scripts"))
     if localappdata:
-        candidatos.append(os.path.join(localappdata, "Programs", "Python", "Scripts"))
+        candidatos.append(
+            os.path.join(localappdata, "Programs", "Python", "Scripts")
+        )
         # Python3X: localizaciones con número de versión (p. ej. Python313).
         base_prog = os.path.join(localappdata, "Programs", "Python")
         try:
             for nombre in sorted(os.listdir(base_prog)):
                 if nombre.lower().startswith("python"):
-                    candidatos.append(
-                        os.path.join(base_prog, nombre, "Scripts")
-                    )
+                    candidatos.append(os.path.join(base_prog, nombre, "Scripts"))
         except OSError:
             pass
 
@@ -1900,16 +1911,44 @@ def _localizar_carpeta_scripts() -> Optional[str]:
     if getattr(sys, "frozen", False):
         candidatos.append(os.path.dirname(os.path.abspath(sys.executable)))
 
-    # Devolver la primera candidata que resulte válida (existe y es Scripts/bin
-    # o contiene el ejecutable). Orden de prioridad = orden de la lista.
+    # Eliminar vacíos y duplicados conservando el orden de prioridad.
     vistos = set()
+    unicos: List[str] = []
     for c in candidatos:
-        if not c or c in vistos:
-            continue
-        vistos.add(c)
-        if _es_valida(c):
-            return c
+        if c and c not in vistos:
+            vistos.add(c)
+            unicos.append(c)
+    return unicos
 
+
+def _localizar_carpeta_scripts() -> Optional[str]:
+    """Localiza la carpeta donde se registra el comando `snapcontext`.
+
+    Prioriza `sysconfig.get_path("scripts")`: si esa carpeta existe se devuelve
+    directamente, sin exigir que contenga el ejecutable, porque en instalaciones
+    en modo editable el stub `snapcontext` puede tener otro nombre o no estar
+    todavía en el mismo lugar que apunta el sysconfig.
+
+    Si esa carpeta no existe, se devuelve la primera de las demás rutas típicas
+    de Python que sí exista. Nunca devuelve el directorio del proyecto actual.
+    """
+    marcadores = ("snapcontext.exe", "snapcontext", "snapcontext.bat")
+    intentadas: List[str] = []
+
+    for c in _candidatos_carpetas_scripts():
+        if not os.path.isdir(c):
+            intentadas.append(c)
+            continue
+        # En ejecutables empaquetados la carpeta propia no es de scripts;
+        # exigimos ahí el ejecutable para no devolver una carpeta cualquiera.
+        if getattr(sys, "frozen", False):
+            if any(os.path.exists(os.path.join(c, m)) for m in marcadores):
+                return c
+            continue
+        return c
+
+    if intentadas:
+        depurar("--setup-path: rutas probadas sin éxito: " + "; ".join(intentadas))
     return None
 
 
@@ -1954,9 +1993,32 @@ def configurar_path() -> int:
     info("Configurando el PATH del usuario para Windows...")
     carpeta = _localizar_carpeta_scripts()
     if not carpeta:
-        error("No se pudo localizar la carpeta de ejecutables de SnapContext.")
-        aviso("SnapContext seguirá funcionando con: 'python -m snapcontext'")
-        return 1
+        error("No se pudo localizar automáticamente la carpeta de ejecutables "
+              "de SnapContext.")
+        aviso("Rutas típicas donde suele instalarse el comando 'snapcontext':")
+        for r in _candidatos_carpetas_scripts():
+            if r:
+                aviso("  - " + r)
+
+        # Fallback interactivo: ofrecer indicar la ruta manualmente.
+        if _preguntar_si("¿Quieres indicar la carpeta de Scripts manualmente?"):
+            try:
+                manual = input(
+                    _pintar("Ruta de la carpeta Scripts (p. ej. "
+                            "C:\\...\\Python313\\Scripts): ", _CYAN)
+                ).strip().strip('"').strip("'")
+            except EOFError:  # entrada no interactiva → abandonar
+                manual = ""
+            if manual and os.path.isdir(manual):
+                carpeta = manual
+            else:
+                aviso("Ruta no válida o inexistente: no se modificará el PATH.")
+
+        if not carpeta or not os.path.isdir(carpeta):
+            aviso("Añade la ruta de Scripts manualmente al PATH del usuario "
+                  "o vuelve a ejecutar --setup-path tras instalar SnapContext.")
+            aviso("SnapContext seguirá funcionando con: 'python -m snapcontext'")
+            return 1
 
     path_actual = os.environ.get("PATH", "")
     if carpeta in [p for p in path_actual.split(";") if p]:
@@ -1978,115 +2040,43 @@ def configurar_path() -> int:
 
 
 def flujo_principal(args: argparse.Namespace) -> int:
-    """Orquesta el pipeline completo. Devuelve el código de salida."""
+    """Orquesta el pipeline completo. Devuelve el código de salida.
+
+    La lógica se delega en el Orquestador (arquitectura de agentes); aquí solo
+    se conserva la firma de la CLI y la bandera de depuración global.
+    """
     global DEPURAR
     DEPURAR = args.depurar
+    # Al ejecutar como `python -m snapcontext` el archivo vive como `__main__`,
+    # pero agentes/orquestador hacen `import snapcontext` (copia de módulo). Se
+    # sincroniza el flag en el módulo compartido para que los logs salgan.
+    import snapcontext as _snap_sync
+    _snap_sync.DEPURAR = args.depurar
+    from orquestador import Orquestador  # import diferido para evitar ciclos
+    return Orquestador().ejecutar_flujo(args)
 
-    if not getattr(args, "consulta", None):
-        raise RuntimeError(
-            "Falta la consulta (la tarea a resolver). Uso:\n"
-            '  snapcontext "el botón de pago no funciona"\n'
-            "  snapcontext --init   (para la configuracion inicial)"
-        )
+def iniciar_servidor_web(args: argparse.Namespace) -> int:
+    """Arranca la interfaz web (FastAPI + WebSockets) en http://localhost:puerto.
 
-    if args.max_archivos < 1:
-        raise RuntimeError("--max-archivos debe ser al menos 1.")
-
-    raiz = resolver_raiz(args.directorio)
-
-    # Mejora 1: validación de carpeta de proyecto antes de cualquier otra acción.
-    # Si el directorio no contiene ninguna carpeta típica de proyecto, avisamos
-    # con un mensaje amigable y salimos con código de error 1 (sin seguir).
-    if not _es_proyecto_valido(raiz):
+    Importa ``web.app`` de forma diferida para que la CLI funcione sin FastAPI;
+    si falta la dependencia opcional, devuelve un mensaje claro y sal con 1.
+    """
+    puerto = int(getattr(args, "web_puerto", 8000) or 8000)
+    try:
+        from web.app import arrancar_servidor
+    except ImportError as exc:
         error(
-            "⚠️ No parece que estés en una carpeta de proyecto. "
-            "SnapContext espera carpetas como lib/, src/, supabase/, etc. "
-            "Puedes indicar una carpeta con --directorio <ruta> o navega a "
-            "la raíz de tu proyecto y vuelve a intentarlo."
+            "La interfaz web necesita dependencias opcionales. Instala:\n"
+            "  pip install snapcontext[web]\n"
+            f"  (o pip install fastapi uvicorn websockets) — error: {exc}"
         )
         return 1
-
-    info(f"Repositorio: {raiz}")
-
-    # 1) –––– Escaneo del repositorio (heurística local) ––––
-    carpetas = args.carpetas or list(CARPETAS_DEFECTO)
-    info("Escaneando el repositorio para encontrar candidatos...")
-    candidatos = escanear_repositorio(
-        args.consulta, directorio=str(raiz),
-        carpetas=carpetas, max_candidatos=max(args.candidatos, 1),
-    )
-    if not candidatos:
-        error(
-            "No se encontraron archivos. ¿Hay código dentro de "
-            f"{', '.join(carpetas)}? Revisa --carpetas."
-        )
-        return 1
-    info(f"{len(candidatos)} candidato(s) relevante(s) localmente.")
-
-    # 2) Selección final (Gemini o heurística local)
-    if args.local:
-        aviso("Modo --local: selección por heurística, sin proveedor de IA.")
-        seleccion = candidatos[: args.max_archivos]
-    elif len(candidatos) <= args.max_archivos:
-        aviso("Hay pocos candidatos; se usan todos sin consultar al selector IA.")
-        seleccion = candidatos
-    else:
-        # Mejora 2: si no se eligió proveedor con --provider, se resuelve con
-        # persistencia: configuración guardada, env o menú interactivo.
-        pref = _determinar_proveedor(args)
-        seleccion = seleccionar_archivos(
-            args.consulta, candidatos,
-            proveedor=pref["provider"], modelo=pref["model"],
-            max_archivos=args.max_archivos,
-        )
-        if not seleccion:
-            aviso("El proveedor no devolvió rutas válidas; se usan las mejor "
-                  "puntuadas localmente.")
-            seleccion = candidatos[: args.max_archivos]
-
-    _emitir(sys.stdout, "")
-    exito(f"Archivos seleccionados ({len(seleccion)}):")
-    for archivo in seleccion:
-        _emitir(sys.stdout, "   " + _pintar("\u2022 " + archivo, _VERDE))
-
-    if args.vista_previa:
-        aviso("Modo --vista-previa: no se ejecuta Aider.")
-        return 0
-
-    # --- Modo experto: revisar/editar la selección antes de ejecutar Aider ----
-    if args.experto and _preguntar_si(
-        "¿Quieres revisar los archivos seleccionados? (s/n): "
-    ):
-        seleccion = modo_experto(seleccion, raiz)
-        _emitir(sys.stdout, "")
-        exito("Lista final para Aider:")
-        for archivo in seleccion:
-            _emitir(sys.stdout, "   " + _pintar("• " + archivo, _VERDE))
-        _emitir(sys.stdout, "")
-
-    # 3) Ejecución (Aider directo, pruebas o bucle con servidor Flutter)
-    _emitir(sys.stdout, "")
-    if args.server_loop or args.manual_loop:
-        ok = ejecutar_bucle_agente(
-            args.consulta, seleccion,
-            modo="auto" if args.server_loop else "manual",
-            max_intentos=args.max_intentos,
-            directorio=str(raiz), opciones_aider=args.aider_opciones,
-            dispositivo=args.dispositivo, url_defecto=args.url_defecto,
-        )
-    elif args.test_loop:
-        ok = ejecutar_bucle_test(
-            args.consulta, seleccion, str(raiz),
-            opciones_aider=args.aider_opciones,
-            comando_test=shlex.split(args.comando_test),
-            max_iteraciones=max(args.max_iteraciones, 1),
-        )
-    else:
-        ok = ejecutar_aider(
-            seleccion, args.consulta, str(raiz),
-            opciones_aider=args.aider_opciones,
-        )
-    return 0 if ok else 1
+    info(f"Interfaz web en http://localhost:{puerto}  (Ctrl+C para salir)...")
+    try:
+        arrancar_servidor(puerto=puerto)
+    except KeyboardInterrupt:
+        info("Interfaz web detenida.")
+    return 0
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -2102,6 +2092,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         # y termina sin recorrer el pipeline (ni pedir consulta).
         if getattr(args, "setup_path", False):
             return configurar_path()
+        # --web inicia la interfaz web (FastAPI + WebSockets) y bloquea hasta parar.
+        if getattr(args, "web", False):
+            return iniciar_servidor_web(args)
         return flujo_principal(args)
     except KeyboardInterrupt:
         error("Interrumpido por el usuario.")

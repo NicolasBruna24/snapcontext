@@ -1,0 +1,1 @@
+# tests vacío: convierte la carpeta en un paquete para pytest/unittest discover.

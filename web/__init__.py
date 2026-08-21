@@ -1,0 +1,1 @@
+# Paquete web de SnapContext: interfaz FastAPI + WebSockets.
