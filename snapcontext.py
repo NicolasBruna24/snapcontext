@@ -84,7 +84,7 @@ try:
 except ImportError:  # pragma: no cover
     anthropic = None
 
-VERSION = "0.14.0"
+VERSION = "0.15.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
@@ -2115,6 +2115,8 @@ AYUDA_CHAT = """Comandos disponibles:
   /tool <nombre> <args>  → ejecutar una herramienta MCP
                            (p. ej.: /tool grep login · /tool read_file a.py)
                            args en JSON también válidos: /tool read_file {"ruta": "a.py", "linea_inicio": 10}
+  /claude                → mostrar la memoria del proyecto (CLAUDE.md)
+  /context               → mostrar memoria del proyecto y archivos en contexto
   /ayuda                 → mostrar esta ayuda
 Cualquier otro texto se envía como mensaje al proveedor de IA; si parece una
 pregunta de exploración, SnapContext puede usar herramientas MCP de solo
@@ -2244,12 +2246,27 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             continue
 
         if linea == "/archivos" or linea == "/context":
-            if not contexto_archivos:
-                aviso("Sin archivos en contexto. Usa /seleccion <consulta>.")
-            else:
+            if MEMORIA_PROYECTO:
+                exito("── Memoria del proyecto (CLAUDE.md) ──")
+                for linea_memoria in MEMORIA_PROYECTO.splitlines()[:60]:
+                    _emitir(sys.stdout, "  " + linea_memoria)
+            if not contexto_archivos and not MEMORIA_PROYECTO:
+                aviso("Sin memoria de proyecto ni archivos en contexto "
+                      "(usa --init-claude o /seleccion).")
+            elif contexto_archivos:
                 exito(f"Archivos en contexto ({len(contexto_archivos)}):")
                 for archivo in contexto_archivos:
                     _emitir(sys.stdout, "   • " + archivo)
+            continue
+
+        # ---- memoria del proyecto (v0.15.0) -------------------------------
+        if linea == "/claude":
+            if not MEMORIA_PROYECTO:
+                aviso("No hay CLAUDE.md ni SNAPCONTEXT.md en este proyecto. "
+                      "Créalos con: snapcontext --init-claude")
+            else:
+                exito(f"── {_buscar_claude_md().name} ──")
+                _emitir(sys.stdout, MEMORIA_PROYECTO)
             continue
 
         if linea == "/historial":
@@ -2404,6 +2421,11 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             historial_chat[-1]["content"] += (
                 "\n\n[Contexto obtenido con herramientas MCP]\n"
                 + contexto_mcp[:3000])
+        if MEMORIA_PROYECTO:
+            # Memoria del proyecto (v0.15.0): contexto persistente CLAUDE.md.
+            historial_chat[-1]["content"] = (
+                "[Memoria del proyecto]\n" + MEMORIA_PROYECTO[:2000]
+                + "\n\n" + historial_chat[-1]["content"])
         try:
             # Se envían solo los últimos 20 turnos para no crecer sin límite.
             respuesta = _enviar_al_proveedor(
@@ -2677,6 +2699,13 @@ def _generar_plan(consulta: str, proveedor: Optional[str] = None,
             info("🛠 Contexto MCP del proyecto añadido al planificador.")
     except Exception as exc:
         depurar(f"[mcp] contexto de planificación falló: {exc}")
+
+    # Memoria de proyecto (v0.15.0): CLAUDE.md como contexto persistente.
+    if MEMORIA_PROYECTO:
+        prompt += ("\n\nMEMORIA DEL PROYECTO (CLAUDE.md, respeta sus "
+                   "convenciones al proponer pasos):\n"
+                   + MEMORIA_PROYECTO[:3000])
+        info("📄 Memoria del proyecto (CLAUDE.md) incluida en la planificación.")
 
 
     tipo = cfg["tipo"]
@@ -3001,6 +3030,14 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
         "tipo": "plan",
         "pasos": resultados,
     })
+
+    # Memoria de proyecto (v0.15.0): tras un plan exitoso se propone (con
+    # confirmación) actualizar CLAUDE.md con lo aprendido.
+    if todo_ok and MEMORIA_PROYECTO:
+        resumen = "; ".join(
+            f"{r['descripcion']} [{r['accion']}] ({r['resultado']})"
+            for r in resultados)
+        _actualizar_claude_md_automatico(resumen, raiz)
     return 0 if todo_ok or abortar else 1
 
 
@@ -3482,6 +3519,170 @@ def _contexto_automatico_mcp(mensaje: str, max_llamadas: int = 2) -> str:
     return "\n".join(bloques)
 
 
+# ---------------------------------------------------------------------------
+# Memoria de proyecto (CLAUDE.md / SNAPCONTEXT.md) — v0.15.0
+# ---------------------------------------------------------------------------
+NOMBRES_MEMORIA = ("CLAUDE.md", "SNAPCONTEXT.md")
+MEMORIA_MAX_CARACTERES = 6000
+
+# Contexto persistente del proyecto cargado al inicio (cadena vacía si no hay
+# memoria). La rellenan flujo_principal, --chat y --plan.
+MEMORIA_PROYECTO = ""
+
+
+def _buscar_claude_md(raiz: str = ".") -> Optional[Path]:
+    """Devuelve la ruta de CLAUDE.md (o SNAPCONTEXT.md) en ``raiz``, o None."""
+    for nombre in NOMBRES_MEMORIA:
+        camino = Path(raiz) / nombre
+        if camino.is_file():
+            return camino
+    return None
+
+
+def _cargar_claude_md(raiz: str = ".",
+                      max_caracteres: int = MEMORIA_MAX_CARACTERES) -> str:
+    """Carga el contenido de la memoria del proyecto (o "" si no existe).
+
+    Se recorta a ``max_caracteres`` para no desbordar el contexto del modelo.
+    """
+    camino = _buscar_claude_md(raiz)
+    if camino is None:
+        return ""
+    try:
+        contenido = camino.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError as exc:
+        aviso(f"No se pudo leer {camino}: {exc}")
+        return ""
+    if len(contenido) > max_caracteres:
+        contenido = contenido[:max_caracteres] + "\n\n… (recortado)"
+    return contenido
+
+
+def _plantilla_claude_md_basica(directorio: str = ".") -> str:
+    """Plantilla offline generada con un escaneo local (sin IA).
+
+    Se usa como fallback de ``--init-claude`` cuando no hay proveedor
+    disponible o falla la llamada.
+    """
+    tipo = _detectar_tipo_proyecto(str(Path(directorio).resolve())) or "desconocido"
+    listado = _tool_list_files(directorio, max_archivos=40)
+    archivos = listado.get("archivos", [])
+    manifiestos = [n for n in ("pubspec.yaml", "package.json", "pyproject.toml",
+                               "requirements.txt", "go.mod", "Cargo.toml")
+                   if (Path(directorio) / n).is_file()]
+    return (
+        "# Memoria del proyecto\n\n"
+        f"Generada por SnapContext v{VERSION} (modo básico, sin IA).\n\n"
+        "## Objetivo\n\n(Describe aquí para qué sirve este proyecto.)\n\n"
+        f"## Tecnologías\n\n- Tipo de proyecto detectado: **{tipo}**\n"
+        + ("- Manifiestos encontrados: " + ", ".join(manifiestos) + "\n"
+           if manifiestos else "- Sin manifiestos detectados.\n")
+        + "\n## Estructura\n\nArchivos principales:\n"
+        + "".join(f"- {a}\n" for a in archivos[:20])
+        + "\n## Convenciones\n\n"
+          "- (Describe convenciones de estilo y ramas.)\n\n"
+          "## Comandos útiles\n\n"
+          "- (Describe cómo ejecutar tests/build.)\n")
+
+
+def _generar_claude_md(proveedor: Optional[str] = None,
+                       modelo: Optional[str] = None,
+                       directorio: str = ".") -> Path:
+    """Genera un CLAUDE.md inicial escaneando el proyecto (``--init-claude``).
+
+    Usa el proveedor de IA para redactar el contenido; si falta clave/librería
+    o la llamada falla, cae a una plantilla básica offline. Devuelve la ruta
+    escrita. Si ya existía memoria, pide confirmación antes de sobreescribir.
+    """
+    raiz = Path(directorio).resolve()
+    destino = _buscar_claude_md(str(raiz)) or (raiz / "CLAUDE.md")
+
+    # 1) Escaneo local: tipo de proyecto, estructura y estado git (vía MCP).
+    tipo = _detectar_tipo_proyecto(str(raiz)) or "desconocido"
+    listado = _ejecutar_herramienta_mcp(
+        "list_files", {"directorio": str(raiz), "max_archivos": 60},
+        confirmar=False)
+    estructura = "\n".join(listado["resultado"]["archivos"]) \
+        if listado.get("ok") else "(escaneo no disponible)"
+    estado_git = _ejecutar_herramienta_mcp("git_status",
+                                           {"directorio": str(raiz)},
+                                           confirmar=False)
+
+    prompt = (
+        "Eres un asistente que documenta proyectos. Analiza esta información "
+        "de un proyecto y genera el contenido de un archivo CLAUDE.md: la "
+        "memoria persistente de un agente de código.\n\n"
+        f"Tipo de proyecto detectado: {tipo}\n"
+        f"Estado git: "
+        f"{json.dumps(estado_git.get('resultado', {}), ensure_ascii=False)}\n"
+        f"Estructura de archivos:\n{estructura}\n\n"
+        "Devuelve SOLO el contenido markdown del archivo, con estas secciones:\n"
+        "# <nombre del proyecto>\n## Objetivo\n## Tecnologías\n"
+        "## Estructura\n## Convenciones\n## Comandos útiles\n"
+        "Sé concreto y breve (máximo ~80 líneas).")
+
+    contenido = ""
+    preferencias = cargar_configuracion()
+    proveedor = proveedor or preferencias.get("provider") or PROVEEDOR_DEFECTO
+    try:
+        contenido = _enviar_al_proveedor(proveedor, modelo,
+                                         [{"role": "user", "content": prompt}])
+        info(f"Contenido generado con {PROVEEDORES[proveedor]['nombre']}.")
+    except RuntimeError as exc:
+        aviso(f"Sin generación por IA ({str(exc).splitlines()[0]}); "
+              "se usará una plantilla básica.")
+    if not contenido.strip():
+        contenido = _plantilla_claude_md_basica(str(raiz))
+
+    # 2) Confirmación si se va a sobreescribir una memoria existente.
+    if destino.exists() and not _confirmar_accion(
+            f"sobreescribir {destino.name}", tipo="editar",
+            detalles=f"tamaño actual: {destino.stat().st_size} bytes"):
+        aviso("Operación cancelada; no se modificó la memoria.")
+        return destino
+
+    destino.write_text(contenido.strip() + "\n", encoding="utf-8")
+    exito(f"Memoria de proyecto creada: {destino}")
+    return destino
+
+
+def _actualizar_claude_md_automatico(resumen_tarea: str,
+                                     directorio: str = ".") -> bool:
+    """Tras una tarea significativa, propone actualizar la memoria (opcional).
+
+    Pide confirmación; si se acepta, el proveedor reescribe la memoria
+    incorporando el resumen de lo aprendido. Solo actúa si ya existe memoria:
+    la creación inicial es responsabilidad de ``--init-claude``.
+    """
+    camino = _buscar_claude_md(directorio)
+    if camino is None:
+        return False
+    actual = _cargar_claude_md(directorio)
+    if CONFIRMAR_ACCIONES and not _confirmar_accion(
+            f"actualizar {camino.name} con lo aprendido", tipo="editar",
+            detalles=resumen_tarea[:200]):
+        return False
+    prompt = (
+        "Actualiza esta memoria de proyecto incorporando la información nueva. "
+        "Mantén el formato y las secciones; devuelve SOLO el markdown final.\n\n"
+        f"--- MEMORIA ACTUAL ---\n{actual or '(vacía)'}\n\n"
+        f"--- LO APRENDIDO EN LA ÚLTIMA TAREA ---\n{resumen_tarea}\n")
+    preferencias = cargar_configuracion()
+    try:
+        nuevo = _enviar_al_proveedor(preferencias.get("provider")
+                                     or PROVEEDOR_DEFECTO, None,
+                                     [{"role": "user", "content": prompt}])
+    except RuntimeError as exc:
+        aviso(f"No se pudo actualizar la memoria: {str(exc).splitlines()[0]}")
+        return False
+    if not nuevo.strip():
+        aviso("El proveedor devolvió contenido vacío; memoria sin cambios.")
+        return False
+    camino.write_text(nuevo.strip() + "\n", encoding="utf-8")
+    exito(f"Memoria actualizada: {camino}")
+    return True
+
+
 def crear_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="snapcontext",
@@ -3678,6 +3879,12 @@ def crear_parser() -> argparse.ArgumentParser:
         help="Pide confirmación (s/n/todos/nunca) antes de acciones sensibles "
              "(pasos del planificador, /run y /edit del chat). Por defecto "
              "activado; desactivar con --no-confirmar para modo automático.",
+    )
+    parser.add_argument(
+        "--init-claude", action="store_true",
+        help="Escanea el proyecto (estructura, dependencias, git) y genera una "
+             "memoria persistente CLAUDE.md (o SNAPCONTEXT.md) usando el "
+             "proveedor de IA; sin conexión usa una plantilla básica.",
     )
     return parser
 
@@ -4047,12 +4254,23 @@ def flujo_principal(args: argparse.Namespace) -> int:
     _snap_sync.DEPURAR = args.depurar
     from orquestador import Orquestador  # import diferido para evitar ciclos
     inicio = time.monotonic()
+    codigo = 1
     try:
-        return Orquestador().ejecutar_flujo(args)
+        codigo = Orquestador().ejecutar_flujo(args)
+        return codigo
     finally:
         # Memoria persistente (v0.10.0): se guarda aunque haya fallo, en un
         # hilo para no bloquear la salida del proceso.
-        _registrar_historial_async(args, 0, time.monotonic() - inicio)
+        _registrar_historial_async(args, codigo, time.monotonic() - inicio)
+        # Memoria de proyecto (v0.15.0): tras una tarea exitosa se propone
+        # (con confirmación) actualizar CLAUDE.md con lo aprendido.
+        if codigo == 0 and MEMORIA_PROYECTO:
+            try:
+                _actualizar_claude_md_automatico(
+                    f"Tarea completada: {getattr(args, 'consulta', '')}",
+                    directorio=getattr(args, "directorio", ".") or ".")
+            except Exception as exc:        # nunca romper la salida
+                depurar(f"[memoria] actualización falló: {exc}")
 
 def iniciar_servidor_web(args: argparse.Namespace) -> int:
     """Arranca la interfaz web (FastAPI + WebSockets) en http://localhost:puerto.
@@ -4092,6 +4310,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         # para todos los modos (chat, planificador, ...).
         global CONFIRMAR_ACCIONES
         CONFIRMAR_ACCIONES = getattr(args, "confirmar", True)
+        # --init-claude es independiente: crea la memoria del proyecto y sale.
+        if getattr(args, "init_claude", False):
+            _generar_claude_md(getattr(args, "provider", None),
+                               getattr(args, "modelo", None))
+            return 0
+        # Memoria de proyecto (v0.15.0): carga CLAUDE.md/SNAPCONTEXT.md si
+        # existe, para todos los modos que hablan con el agente.
+        global MEMORIA_PROYECTO
+        MEMORIA_PROYECTO = _cargar_claude_md()
+        if MEMORIA_PROYECTO:
+            info("📄 Memoria de proyecto cargada ("
+                 + (_buscar_claude_md().name or "CLAUDE.md") + ").")
         # --init es independiente: configura claves/proveedor y sale.
         if getattr(args, "init", False):
             return asistente_configuracion_inicial()

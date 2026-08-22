@@ -6,6 +6,26 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [0.15.0] - 2026-08-22
+
+### 📄 Memoria de proyecto (CLAUDE.md)
+
+- Al iniciar cualquier modo (tarea, chat, plan, demo) SnapContext busca y
+  carga `CLAUDE.md` (o `SNAPCONTEXT.md`) en la raíz del proyecto y lo usa como
+  contexto persistente del agente.
+- Nuevo comando **`snapcontext --init-claude`**: escanea el proyecto
+  (estructura vía MCP, tipo detectado, estado git) y genera la memoria con el
+  proveedor de IA; sin conexión cae a una plantilla básica offline.
+- Chat: `/claude` muestra la memoria; `/context` muestra memoria + archivos en
+  contexto; cada mensaje al proveedor incluye la memoria como contexto.
+- Planificador: la memoria se incluye en la planificación para respetar las
+  convenciones del proyecto. Tras una tarea/plan exitoso se propone (con
+  confirmación) actualizar la memoria con lo aprendido.
+
+---
+
+
+
 ## [0.14.0] - 2026-08-22
 
 ### 🛠 MCP (Model Context Protocol): herramientas para el agente

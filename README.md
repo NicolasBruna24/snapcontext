@@ -26,6 +26,26 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
+## 📄 Memoria de proyecto (v0.15.0)
+
+SnapContext usa un archivo **`CLAUDE.md`** (o `SNAPCONTEXT.md`) en la raíz del
+proyecto como memoria persistente: objetivo, tecnologías, estructura,
+convenciones y comandos útiles. Se carga automáticamente al inicio de
+cualquier modo y se inyecta como contexto del agente (chat, planificador).
+
+Genera la memoria inicial con:
+
+```bash
+snapcontext --init-claude     # escanea el proyecto y la redacta con IA
+```
+
+Sin conexión o sin API key, genera una plantilla básica offline que puedes
+completar a mano. Tras tareas/planes exitosos, SnapContext propone (con tu
+confirmación) actualizar la memoria con lo aprendido.
+
+En el chat: `/claude` muestra el contenido; `/context` muestra memoria +
+archivos en contexto.
+
 ## 🛠 Herramientas MCP (v0.14.0)
 
 El agente puede usar herramientas externas con resultados estructurados:
