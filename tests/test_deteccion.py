@@ -135,5 +135,29 @@ class TestAliases(unittest.TestCase):
         self.assertEqual(sc._preparar_argv_aliases(None), [])
 
 
+class TestModoDemo(unittest.TestCase):
+    """El modo --demo debe ser autónomo, offline y terminar en éxito."""
+
+    def test_parser_tiene_flag_demo(self):
+        args = sc.crear_parser().parse_args(["--demo"])
+        self.assertTrue(args.demo)
+
+    def test_crear_demo_proyecto_genera_archivos(self):
+        tmp = Path(tempfile.mkdtemp(prefix="sc-test-cdp-"))
+        try:
+            sc._crear_demo_proyecto(tmp)
+            self.assertTrue((tmp / "requirements.txt").is_file())
+            self.assertTrue((tmp / "src" / "main.py").is_file())
+            self.assertTrue((tmp / "tests" / "test_main.py").is_file())
+            # El archivo tiene el bug de la demo.
+            self.assertIn("return f\"Hola, {name}\"",
+                          (tmp / "src" / "main.py").read_text(encoding="utf-8"))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_ejecutar_demo_termina_en_exito(self):
+        self.assertEqual(sc._ejecutar_demo(), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

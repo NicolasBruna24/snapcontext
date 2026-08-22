@@ -6,6 +6,25 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [0.9.0] - 2026-08-21
+
+### ✨ Modo demo (`--demo`)
+
+- Nueva función `_ejecutar_demo()` que muestra el valor de SnapContext en ~1
+  minuto, **sin necesidad de API key ni Aider**:
+  - Crea un proyecto Python de ejemplo en una carpeta temporal
+    (`tempfile.mkdtemp()`), con un `saludar(nombre)` con bug y un test que
+    falla.
+  - Fase 1: ejecuta la selección de archivos con `--vista-previa --local` y la
+    muestra en tiempo real.
+  - Fase 2: ejecuta el bucle de pruebas completo (Editor → Tester → error
+    realimentado → corrección → éxito) con un editor de demostración offline.
+  - Resumen final con el tiempo total, los archivos seleccionados y el resultado
+    de las pruebas.
+- Integrado en `main()`: `snapcontext --demo`. No rompe ningún flag existente.
+
+---
+
 ## [0.8.0] - 2026-08-21
 
 ### ✨ Mejoras de usabilidad

@@ -46,6 +46,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -75,7 +76,7 @@ try:
 except ImportError:  # pragma: no cover
     openai = None
 
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
@@ -1867,6 +1868,7 @@ def crear_parser() -> argparse.ArgumentParser:
             '  snapcontext review "revisar código"\n'
             '  snapcontext server "iniciar servidor"\n'
             '  snapcontext interactive\n'
+            '  snapcontext --demo\n'
             '  snapcontext "..." --provider groq --model llama-3.3-70b-versatile\n'
             "Variables de entorno: clave según --provider (GEMINI_API_KEY / "
             "DEEPSEEK_API_KEY / GROQ_API_KEY), OLLAMA_URL (default "
@@ -1997,6 +1999,12 @@ def crear_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--web-puerto", type=int, default=8000,
         help="Puerto para la interfaz web (por defecto: 8000). Requiere --web.",
+    )
+    parser.add_argument(
+        "--demo", action="store_true",
+        help="Ejecuta una demo autónoma de SnapContext: crea un proyecto de prueba "
+             "temporal, muestra la selección de archivos (--vista-previa --local) y "
+             "el bucle de pruebas completo, sin necesidad de API key.",
     )
     return parser
 
@@ -2197,6 +2205,143 @@ def configurar_path() -> int:
     return 1
 
 
+# ---------------------------------------------------------------------------
+# Modo demo (--demo): muestra el valor de SnapContext sin API key ni Aider
+# ---------------------------------------------------------------------------
+def _crear_demo_proyecto(directorio: Path) -> None:
+    """Crea un proyecto Python de ejemplo (con un bug) en ``directorio``.
+
+    Estructura:
+      - ``src/main.py``: ``saludar(nombre)`` con un error (usa ``name``).
+      - ``tests/test_main.py``: test que falla con el bug.
+      - ``src/__init__.py``: hace ``src`` importable para el comando de prueba.
+
+    La carpeta ``src``/``tests`` hace que la auto-detección clasifique la demo
+    como proyecto Python y que el escaneo (--local) encuentre los archivos.
+    """
+    (directorio / "src").mkdir(parents=True, exist_ok=True)
+    (directorio / "tests").mkdir(parents=True, exist_ok=True)
+    # Archivo identificador: fuerza la auto-detección como proyecto Python
+    # (evita que `src/` haga que se clasifique como Node en el respaldo por carpetas).
+    (directorio / "requirements.txt").write_text("", encoding="utf-8")
+    (directorio / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (directorio / "src" / "main.py").write_text(
+        "def saludar(nombre):\n"
+        '    return f"Hola, {name}"  # bug: debería ser {nombre}\n',
+        encoding="utf-8",
+    )
+    (directorio / "tests" / "test_main.py").write_text(
+        "from src.main import saludar\n\n\n"
+        "def test_saludo():\n"
+        '    assert saludar("Mundo") == "Hola, Mundo"\n',
+        encoding="utf-8",
+    )
+
+
+def _crear_demo_editor(directorio: Path):
+    """Devuelve un "editor" de demostración que sustituye a Aider en la demo.
+
+    En la primera llamada simula que Aider intenta corregir pero deja el bug
+    (para que el tester falle); en la segunda recibe el error realimentado y
+    corrige ``name`` → ``nombre`` en ``src/main.py``. Así se muestra el ciclo
+    completo Editor → Tester → error → corrección → éxito, sin dependencias.
+    """
+    estado = {"llamadas": 0}
+    ruta_main = directorio / "src" / "main.py"
+
+    def _editor(archivos, mensaje, directorio, opciones_aider=""):
+        estado["llamadas"] += 1
+        if estado["llamadas"] == 1:
+            info("→ Aider (demo) intenta corregir el saludo... (aún quedará un error)")
+            return True
+        info("→ Aider (demo) recibe el error realimentado y corrige 'name' → 'nombre'.")
+        texto = ruta_main.read_text(encoding="utf-8")
+        ruta_main.write_text(
+            texto.replace('return f"Hola, {name}"', 'return f"Hola, {nombre}"'),
+            encoding="utf-8",
+        )
+        return True
+
+    return _editor
+
+
+def _ejecutar_demo() -> int:
+    """Ejecuta una demo autónoma de SnapContext (sin API key ni Aider real).
+
+    Fases:
+      1. Crea un proyecto Python de ejemplo en ``tempfile.mkdtemp()``.
+      2. ``--vista-previa --local``: muestra la selección de archivos relevantes.
+      3. ``--test-loop`` (equivalente): ejecuta el bucle de pruebas completo
+         (Editor → Tester → error realimentado → corrección → éxito).
+      4. Resume el tiempo total, los archivos seleccionados y el resultado.
+
+    Devuelve el código de salida (0 = éxito, 1 = fallo).
+    """
+    t_inicio = time.monotonic()
+    info("=== SnapContext · Demo (sin API key) ===")
+    info("Creando un proyecto de prueba temporal...")
+    tmp = Path(tempfile.mkdtemp(prefix="snapcontext-demo-"))
+    try:
+        _crear_demo_proyecto(tmp)
+        consulta = ("Corrige la función saludar para que devuelva el saludo "
+                    "correcto")
+
+        args = crear_parser().parse_args(
+            _preparar_argv_aliases(
+                [consulta, "--directorio", str(tmp), "--local", "--depurar"]
+            )
+        )
+
+        # FASE 1: mostrar la selección de archivos (sin tocar código).
+        info("── FASE 1 · Selección de archivos (--vista-previa --local) ──")
+        args.vista_previa = True
+        if flujo_principal(args) != 0:
+            error("La selección de archivos falló durante la demo.")
+            return 1
+
+        # Tras la fase 1, args ya trae carpetas/extensiones ajustadas por tipo.
+        carpetas = list(args.carpetas or CARPETAS_DEFECTO)
+        extensiones = getattr(args, "extensiones", None)
+        seleccion = listar_archivos_candidatos(
+            tmp, carpetas, extensiones=extensiones
+        )[: args.max_archivos]
+
+        # FASE 2: bucle de pruebas completo (Editor → Tester) offline.
+        info("── FASE 2 · Bucle de pruebas (Editor → Tester) ──")
+        from orquestador import Orquestador  # import diferido para evitar ciclos
+
+        orch = Orquestador()
+        orch.agente_editor.ejecutar_aider = _crear_demo_editor(tmp)
+        comando_test = [
+            sys.executable, "-c",
+            "from src.main import saludar; "
+            "assert saludar('Mundo') == 'Hola, Mundo', 'saludo incorrecto'; "
+            "print('prueba superada')",
+        ]
+        ok = orch._bucle_test(
+            consulta, seleccion, str(tmp),
+            opciones_aider="",
+            comando_test=comando_test,
+            max_iteraciones=3,
+        )
+
+        # RESUMEN
+        total = time.monotonic() - t_inicio
+        _emitir(sys.stdout, "")
+        _emitir(sys.stdout, _pintar("=" * 46, _CYAN))
+        _emitir(sys.stdout, _pintar("  RESUMEN DE LA DEMO", _CYAN))
+        _emitir(sys.stdout, _pintar("=" * 46, _CYAN))
+        exito(f"Tiempo total: {total:.1f} s")
+        exito(f"Archivos seleccionados ({len(seleccion)}):")
+        for archivo in seleccion:
+            _emitir(sys.stdout, "   " + _pintar("• " + archivo, _VERDE))
+        exito(f"Resultado de las pruebas: {'ÉXITO ✔' if ok else 'FALLO ✖'}")
+        _emitir(sys.stdout, "")
+        return 0 if ok else 1
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def flujo_principal(args: argparse.Namespace) -> int:
     """Orquesta el pipeline completo. Devuelve el código de salida.
 
@@ -2257,6 +2402,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         # --web inicia la interfaz web (FastAPI + WebSockets) y bloquea hasta parar.
         if getattr(args, "web", False):
             return iniciar_servidor_web(args)
+        # --demo ejecuta una demo autónoma (sin API key ni Aider) y termina.
+        if getattr(args, "demo", False):
+            return _ejecutar_demo()
         return flujo_principal(args)
     except KeyboardInterrupt:
         error("Interrumpido por el usuario.")

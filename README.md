@@ -69,6 +69,15 @@ $ snapcontext "el botón de pago no funciona"
 
 ---
 
+## Novedades (v0.9.0)
+
+- **Modo demo (`--demo`)**: muestra el valor de SnapContext en ~1 minuto, sin
+  necesidad de API key ni Aider. Crea un proyecto de prueba temporal, muestra
+  la selección de archivos (`--vista-previa --local`) y ejecuta el bucle de
+  pruebas completo con un editor de demostración offline.
+
+---
+
 ## Novedades (v0.8.0)
 
 - **Auto-detección del tipo de proyecto**: ajusta carpetas y extensiones por
@@ -242,6 +251,9 @@ snapcontext fix "el botón de pago no funciona"    # = --test-loop
 snapcontext review "revisar el login"             # = --vista-previa --experto
 snapcontext server "iniciar servidor"             # = --server-loop
 snapcontext interactive                           # = --web
+
+# Demo: valor de SnapContext en ~1 min, sin API key
+snapcontext --demo
 ```
 ### Auto-detección del tipo de proyecto
 
