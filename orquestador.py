@@ -79,6 +79,8 @@ class Orquestador:
             raise RuntimeError("El comando de pruebas está vacío (--comando-test).")
 
         ultimo_error = ""
+        self._emitir_tipo("test_inicio", comando=" ".join(comando_test),
+                          max_iteraciones=max_iteraciones)
         for iteracion in range(1, max_iteraciones + 1):
             sc.info(f"Iteración {iteracion} de {max_iteraciones} — Aider...")
             self._emitir_tipo("test", iteracion=iteracion, accion="aider",
@@ -106,6 +108,7 @@ class Orquestador:
                               ok=superado, comando=" ".join(comando_test))
             if superado:
                 sc.exito(f"¡Pruebas superadas en la iteración {iteracion}!")
+                self._emitir_tipo("test_fin", ok=True, iteracion=iteracion)
                 return True
 
             ultimo_error = self.agente_tester.analizar_error(resultado)
@@ -117,6 +120,7 @@ class Orquestador:
         sc.error(
             f"No se consiguió que las pruebas pasaran tras {max_iteraciones} iteraciones."
         )
+        self._emitir_tipo("test_fin", ok=False, iteracion=max_iteraciones)
         return False
 
 # __M2__
@@ -216,14 +220,26 @@ class Orquestador:
             return None
 
         sc.info(f"Repositorio: {raiz}")
+
+        # Auto-detección del tipo de proyecto (transparente; solo logs con --depurar).
+        tipo = sc._detectar_tipo_proyecto(str(raiz))
+        if tipo:
+            sc.depurar(f"[Orquestador] Tipo de proyecto detectado: {tipo}")
+            sc._ajustar_parametros_por_tipo(tipo, args)
+
         carpetas = args.carpetas or list(sc.CARPETAS_DEFECTO)
+        extensiones = getattr(args, "extensiones", None)
 
         # 2) Escaneo del repositorio (Agente de Contexto)
         sc.info("Escaneando el repositorio para encontrar candidatos...")
+        self._emitir_tipo("escaneo_inicio", directorio=str(raiz),
+                          carpetas=carpetas, extensiones=extensiones)
         candidatos = self.agente_contexto.escanear_candidatos(
             consulta, str(raiz),
-            carpetas=carpetas, max_candidatos=max(args.candidatos, 1),
+            carpetas=carpetas, extensiones=extensiones,
+            max_candidatos=max(args.candidatos, 1),
         )
+        self._emitir_tipo("escaneo_fin", total=len(candidatos))
         if not candidatos:
             sc.error(
                 "No se encontraron archivos. ¿Hay código dentro de "
@@ -233,6 +249,8 @@ class Orquestador:
         sc.info(f"{len(candidatos)} candidato(s) relevante(s) localmente.")
 
         # 3) Selección final (Agente de Contexto)
+        self._emitir_tipo("seleccion_inicio", max_archivos=args.max_archivos,
+                          directorio=str(raiz), carpetas=carpetas)
         if args.local:
             sc.aviso("Modo --local: selección por heurística, sin proveedor de IA.")
             seleccion = candidatos[: args.max_archivos]
@@ -246,6 +264,7 @@ class Orquestador:
             seleccion = self.agente_contexto.seleccionar_archivos(
                 consulta, str(raiz), carpetas, args.max_archivos,
                 provider=pref["provider"], modelo=pref["model"],
+                extensiones=extensiones,
             )
             if not seleccion:
                 sc.aviso(
@@ -253,6 +272,9 @@ class Orquestador:
                     "puntuadas localmente."
                 )
                 seleccion = candidatos[: args.max_archivos]
+
+        self._emitir_tipo("seleccion_fin", cantidad=len(seleccion),
+                          archivos=seleccion, directorio=str(raiz))
 
         sc._emitir(sys.stdout, "")
         sc.exito(f"Archivos seleccionados ({len(seleccion)}):")

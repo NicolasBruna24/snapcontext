@@ -35,10 +35,14 @@ class AgenteContexto:
         consulta: str,
         directorio: str = ".",
         carpetas: Optional[List[str]] = None,
+        extensiones: Optional[List[str]] = None,
         max_candidatos: int = 80,
     ) -> List[str]:
         """Escanea ``directorio`` y devuelve los ``max_candidatos`` archivos más
         relevantes para ``consulta`` usando heurística local (sin llamar a la IA).
+
+        ``extensiones`` (opcional) restringe el escaneo a determinadas
+        extensiones (p. ej. ``[\".dart\"]``).
 
         Este es el sub-paso 1 del pipeline: reduce el repositorio a candidatos.
         """
@@ -46,12 +50,14 @@ class AgenteContexto:
 
         sc.depurar(
             f"[AgenteContexto] Escaneando '{directorio}' "
-            f"(carpetas={carpetas}, max_candidatos={max_candidatos})..."
+            f"(carpetas={carpetas}, extensiones={extensiones}, "
+            f"max_candidatos={max_candidatos})..."
         )
         resultado = sc.escanear_repositorio(
             consulta,
             directorio=directorio,
             carpetas=carpetas,
+            extensiones=extensiones,
             max_candidatos=max_candidatos,
         )
         sc.depurar(
@@ -67,6 +73,7 @@ class AgenteContexto:
         max_archivos: int,
         provider: str,
         modelo: str,
+        extensiones: Optional[List[str]] = None,
     ) -> List[str]:
         """Pipeline completo del agente de contexto: escanea el repositorio y
         pide al proveedor IA ``provider`` que se quede con las ``max_archivos``
@@ -80,6 +87,7 @@ class AgenteContexto:
             consulta,
             directorio=directorio,
             carpetas=carpetas,
+            extensiones=extensiones,
             max_candidatos=max(max_archivos * 3, 1),
         )
         if not candidatos:

@@ -4,12 +4,14 @@
 SnapContext — Asistente de IA para desarrollo con contexto automático.
 
 Pipeline:
-    1) Escanea automáticamente el repositorio (por defecto: lib/ y supabase/)
+    1) Detecta automáticamente el tipo de proyecto (Flutter, Node, Python, Go, Rust, etc.)
+       y ajusta carpetas/extensiones por defecto.
+    2) Escanea automáticamente el repositorio (por defecto según el tipo de proyecto):
        buscando archivos relevantes para la consulta del usuario.
-    2) Usa Gemini (Google AI Studio) para seleccionar los archivos más
+    3) Usa Gemini (Google AI Studio) para seleccionar los archivos más
        relevantes, sin que el desarrollador tenga que listarlos a mano.
-    3) Ejecuta Aider con los archivos seleccionados y la consulta original.
-    4) (Opcional, --test-loop) Después de Aider ejecuta las pruebas
+    4) Ejecuta Aider con los archivos seleccionados y la consulta original.
+    5) (Opcional, --test-loop) Después de Aider ejecuta las pruebas
        (flutter test) y, si fallan, vuelve a llamar a Aider con el error
        para que las arregle.
 
@@ -27,6 +29,9 @@ Uso:
     snapcontext "arreglar el checkout" --server-loop      # servidor automático
     snapcontext "arreglar login" --manual-loop            # servidor manual
     snapcontext "revisar pago" --experto                  # revisar/editar archivos
+    snapcontext fix "el botón de pago no funciona"        # alias: test-loop
+    snapcontext review "revisar código"                   # alias: vista-previa + experto
+    snapcontext server "iniciar servidor"                 # alias: server-loop
     snapcontext "..." --provider groq --model llama-3.3-70b-versatile
 
 Open-source y pensado para ser fácil de extender (ver ejecutar_bucle_test).
@@ -70,26 +75,137 @@ try:
 except ImportError:  # pragma: no cover
     openai = None
 
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 
-# ─── Logo ASCII ──────────────────────────────────────────────────────────
+
+# ─── Configuración por tipo de proyecto ────────────────────────────────────
+# Detección automática de carpetas y extensiones según el tipo de proyecto detectado.
+_CORRECTORES_CARPETAS_PROYECTO = {
+    "flutter": {
+        "carpetas_defecto": ["lib", "test", "web"],
+        "extensiones": [".dart"]
+    },
+    "node": {
+        "carpetas_defecto": ["src", "backend", "frontend", "lib"],
+        "extensiones": [".js", ".ts", ".jsx", ".tsx", ".json"]
+    },
+    "python": {
+        "carpetas_defecto": ["src", "app", "lib", "tests", "scripts"],
+        "extensiones": [".py", ".pyx", ".pxd"]
+    },
+    "go": {
+        "carpetas_defecto": ["cmd", "internal", "pkg"],
+        "extensiones": [".go"]
+    },
+    "rust": {
+        "carpetas_defecto": ["src", "tests"],
+        "extensiones": [".rs", ".toml", ".md"]
+    },
+    "kotlin": {
+        "carpetas_defecto": ["app/src/main/kotlin", "app/src/test/kotlin"],
+        "extensiones": [".kt", ".kts"]
+    },
+    "swift": {
+        "carpetas_defecto": ["Sources", "Tests"],
+        "extensiones": [".swift"]
+    }
+}
+
+_CORRECTORES_EXTENSIONES_PROYECTO = {
+    "flutter": [".dart"],
+    "node": [".js", ".ts", ".jsx", ".tsx", ".json", ".vue", ".svelte"],
+    "python": [".py", ".pyx", ".pxd", ".ipynb"],
+    "go": [".go", ".mod", ".sum"],
+    "rust": [".rs", ".toml", ".md"],
+    "kotlin": [".kt", ".kts"],
+    "swift": [".swift"]
+}
+
+# Mapeo de archivos clave para la detección automática de tipo de proyecto.
+_CORRECTORES_ARCHIVOS_IDENTIFICADORES = {
+    "pubspec.yaml": "flutter",
+    "package.json": "node",
+    "requirements.txt": "python",
+    "pyproject.toml": "python",
+    "setup.py": "python",
+    "go.mod": "go",
+    "Cargo.toml": "rust",
+    "build.gradle": "kotlin",
+    "Podfile": "swift"
+}
+
+
 _LOGO = r"""
-  ┌──────────────────────────────────────────────────────────┐
-  │                                                          │
-  │                                                          │
-  │    ███████╗███╗   ██╗ █████╗ ██████╗  ██████╗ ██████╗   │
-  │    ██╔════╝████╗  ██║██╔══██╗██╔══██╗██╔════╝██╔════╝   │
-  │    ███████╗██╔██╗ ██║███████║██████╔╝██║     ██║        │
-  │    ╚════██║██║╚██╗██║██╔══██║██╔═══╝ ██║     ██║        │
-  │    ███████║██║ ╚████║██║  ██║██║     ╚██████╗╚██████╗   │
-  │    ╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝      ╚═════╝ ╚═════╝   │
-  │                                                          │
-  │    » Selección inteligente de archivos                  │
-  │    » Soporte: Gemini · Ollama · DeepSeek · Groq        │
-  │    » v0.5.0                                             │
-  │                                                          │
-  └──────────────────────────────────────────────────────────┘
+   ┌──────────────────────────────────────────────────────────┐
+   │                                                          │
+   │                                                          │
+   │    ███████╗███╗   ██╗ █████╗ ██████╗  ██████╗ ██████╗   │
+   │    ██╔════╝████╗  ██║██╔══██╗██╔══██╗██╔════╝██╔════╝   │
+   │    ███████╗██╔██╗ ██║███████║██████╔╝██║     ██║        │
+   │    ╚════██║██║╚██╗██║██╔═══╝ ██║     ██║     ██║        │
+   │    ███████║██║ ╚████║██║  ██║██║     ╚██████╗╚██████╗   │
+   │    ╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝      ╚═════╝ ╚═════╝   │
+   │                                                          │
+   │    » Selección inteligente de archivos                  │
+   │    » Soporte: Gemini · Ollama · DeepSeek · Groq        │
+   │    » v0.5.0                                             │
+   │                                                          │
+   └──────────────────────────────────────────────────────────┘
 """
+
+
+def _detectar_tipo_proyecto(directorio: str) -> Optional[str]:
+    """Detecta automáticamente el tipo de proyecto buscando archivos clave.
+
+    Args:
+        directorio: Ruta del directorio a analizar (raíz ya resuelta).
+
+    Returns:
+        El tipo detectado (flutter, node, python, go, rust, …) o None si no hay.
+    """
+    ruta = Path(directorio)
+    if not ruta.is_dir():
+        return None
+
+    for nombre_archivo, tipo in _CORRECTORES_ARCHIVOS_IDENTIFICADORES.items():
+        if (ruta / nombre_archivo).exists():
+            depurar(f"[Detección] {nombre_archivo} encontrado → tipo: {tipo}")
+            return tipo
+
+    # Sin archivo identificador, se busca una carpeta típica por tipo.
+    for tipo, info in _CORRECTORES_CARPETAS_PROYECTO.items():
+        for carpeta in info.get("carpetas_defecto", []):
+            if (ruta / carpeta).exists():
+                depurar(f"[Detección] Carpetilla típica de {tipo}: {carpeta}/")
+                return tipo
+    return None
+
+
+def _ajustar_parametros_por_tipo(tipo: Optional[str], args):
+    """Ajusta ``args`` según el tipo de proyecto detectado.
+
+    Solo modifica ``carpetas`` y ``extensiones`` si NO se pasaron explícitamente
+    por CLI, y es transparente para el usuario (nada se muestra salvo ``--depurar``).
+    """
+    if getattr(args, "carpetas", None):
+        depurar("[Detección] Carpetas explícitas — no se sobrescriben.")
+        return args
+
+    if not tipo:
+        depurar("[Detección] Sin tipo detectado — carpetas por defecto actuales.")
+        return args
+
+    info = _CORRECTORES_CARPETAS_PROYECTO.get(tipo)
+    if info and not getattr(args, "carpetas", None):
+        args.carpetas = list(info["carpetas_defecto"])
+        depurar(f"[Detección] Carpetas para {tipo}: {args.carpetas}")
+
+    extensiones = _CORRECTORES_EXTENSIONES_PROYECTO.get(tipo)
+    if extensiones and not getattr(args, "extensiones", None):
+        args.extensiones = list(extensiones)
+        depurar(f"[Detección] Extensiones para {tipo}: {args.extensiones}")
+
+    return args
 
 _LOGO_SMALL = f"""
 \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557
@@ -480,7 +596,8 @@ def _es_archivo_indexable(ruta: str) -> bool:
     return not any(p in DIRS_IGNORADOS for p in partes[:-1])
 
 
-def listar_archivos_candidatos(raiz: Path, carpetas: List[str]) -> List[str]:
+def listar_archivos_candidatos(raiz: Path, carpetas: List[str],
+                               extensiones: Optional[List[str]] = None) -> List[str]:
     """Devuelve las rutas (relativas, formato POSIX) de `carpetas` bajo `raiz`.
 
     Prioridad:
@@ -521,9 +638,17 @@ def listar_archivos_candidatos(raiz: Path, carpetas: List[str]) -> List[str]:
                         ruta = (Path(directorio_actual) / nombre).relative_to(raiz).as_posix()
                         coleccion.append(ruta)
 
+    def _cumple_extension(ruta: str) -> bool:
+        if not extensiones:
+            return True
+        permitidas = {ext.lower() for ext in extensiones}
+        return Path(ruta).suffix.lower() in permitidas
+
     return sorted({
         ruta for ruta in coleccion
-        if _pertenece_a_carpetas(ruta, carpetas) and _es_archivo_indexable(ruta)
+        if _pertenece_a_carpetas(ruta, carpetas)
+        and _es_archivo_indexable(ruta)
+        and _cumple_extension(ruta)
     })
 
 
@@ -570,6 +695,7 @@ def puntuar_contenido(archivo: Path, tokens: List[str]) -> float:
 
 def escanear_repositorio(consulta: str, directorio: str = ".",
                          carpetas: Optional[List[str]] = None,
+                         extensiones: Optional[List[str]] = None,
                          max_candidatos: int = MAX_CANDIDATOS_DEFECTO) -> List[str]:
     """Escanea el repositorio y devuelve los mejores candidatos (heurística
     local) para la consulta, ordenados de más a menos relevante.
@@ -582,7 +708,7 @@ def escanear_repositorio(consulta: str, directorio: str = ".",
     """
     carpetas = list(carpetas) if carpetas else list(CARPETAS_DEFECTO)
     raiz = resolver_raiz(directorio)
-    archivos = listar_archivos_candidatos(raiz, carpetas)
+    archivos = listar_archivos_candidatos(raiz, carpetas, extensiones=extensiones)
     if not archivos:
         return []
 
@@ -1737,6 +1863,10 @@ def crear_parser() -> argparse.ArgumentParser:
             '  snapcontext "revisar pago" --experto\n'
             '  snapcontext "arreglar el checkout" --server-loop\n'
             '  snapcontext "arreglar login" --manual-loop\n'
+            '  snapcontext fix "el botón de pago no funciona"\n'
+            '  snapcontext review "revisar código"\n'
+            '  snapcontext server "iniciar servidor"\n'
+            '  snapcontext interactive\n'
             '  snapcontext "..." --provider groq --model llama-3.3-70b-versatile\n'
             "Variables de entorno: clave según --provider (GEMINI_API_KEY / "
             "DEEPSEEK_API_KEY / GROQ_API_KEY), OLLAMA_URL (default "
@@ -1869,6 +1999,34 @@ def crear_parser() -> argparse.ArgumentParser:
         help="Puerto para la interfaz web (por defecto: 8000). Requiere --web.",
     )
     return parser
+
+
+def _preparar_argv_aliases(argv: Optional[List[str]]) -> List[str]:
+    """Convierte el primer token en un alias de comando común.
+
+    Sintaxis ``snapcontext <alias> "mensaje"``:
+
+      - ``fix``         → equivalente a ``--test-loop``
+      - ``review``      → equivalente a ``--vista-previa --experto``
+      - ``server``      → equivalente a ``--server-loop``
+      - ``interactive`` → equivalente a ``--web``
+
+    Si el primer token no es un alias conocido, se devuelve ``argv`` intacto
+    (comportamiento actual: se trata como consulta del usuario).
+    """
+    argv = list(argv or [])
+    if not argv:
+        return argv
+    primer = argv[0]
+    if primer == "fix":
+        return ["--test-loop"] + argv[1:]
+    if primer == "review":
+        return ["--vista-previa", "--experto"] + argv[1:]
+    if primer == "server":
+        return ["--server-loop"] + argv[1:]
+    if primer == "interactive":
+        return ["--web"] + argv[1:]
+    return argv
 
 
 def _candidatos_carpetas_scripts() -> List[str]:
@@ -2083,7 +2241,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Instala los manejadores de Ctrl+C / SIGTERM (cierre limpio, subprocesos
     # incluidos) antes de hacer nada. Es seguro en Windows y Linux/macOS.
     _registrar_manejadores_senales()
-    args = crear_parser().parse_args(argv)
+    if argv is None:
+        # Al ejecutar como script (`python snapcontext.py ...`) argparse debe
+        # ver los argumentos reales; si pasáramos [] vacío, se perderían.
+        argv = sys.argv[1:]
+    args = crear_parser().parse_args(_preparar_argv_aliases(argv))
     try:
         # --init es independiente: configura claves/proveedor y sale.
         if getattr(args, "init", False):

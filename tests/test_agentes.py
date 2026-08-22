@@ -34,7 +34,8 @@ class TestAgenteContexto(_AgenteBase):
             )
         self.assertEqual(resultado, ["a.dart", "b.dart"])
         escanear.assert_called_once_with(
-            "consulta", directorio="dir", carpetas=["lib"], max_candidatos=10
+            "consulta", directorio="dir", carpetas=["lib"],
+            extensiones=None, max_candidatos=10
         )
 
     def test_seleccionar_archivos_sin_candidatos(self):

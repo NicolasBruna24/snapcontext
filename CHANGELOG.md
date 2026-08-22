@@ -6,6 +6,34 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [0.8.0] - 2026-08-21
+
+### ✨ Mejoras de usabilidad
+
+- **Auto-detección del tipo de proyecto** (`pubspec.yaml`, `package.json`,
+  `requirements.txt`/`pyproject.toml`, `go.mod`, `Cargo.toml`, etc.) que ajusta
+  automáticamente las carpetas y extensiones por defecto. Es transparente para
+  el usuario (solo se informa con `--depurar`). Si no se detecta ningún tipo,
+  se mantiene el comportamiento actual (`lib/`, `supabase/`, …).
+- **Extensiones:** el escaneo ahora puede filtrarse por extensión según el tipo
+  de proyecto detectado (`listar_archivos_candidatos`, `escanear_repositorio`).
+- **Alias / atajos de comandos**:
+  - `snapcontext fix "…"` → `--test-loop`
+  - `snapcontext review "…"` → `--vista-previa --experto`
+  - `snapcontext server "…"` → `--server-loop`
+  - `snapcontext interactive` → `--web`
+  - Si el primer argumento no coincide con ningún alias, se trata como consulta
+    (comportamiento actual).
+- **Interfaz web en tiempo real:** indicador de estado (spinner/barra de
+  progreso), cronómetro con el tiempo transcurrido, contador de archivos
+  escaneados y seleccionados, y renderizado con colores de los nuevos eventos
+  (`inicio`, `escaneo_inicio/fin`, `seleccion_inicio/fin`, `test_inicio/fin`).
+
+- Reparada una corrupción del working tree que dejaba funciones de detección
+  dentro del literal `_LOGO` y un `crear_parser` duplicado.
+
+---
+
 ## [0.6.0] - 2026-08-20
 
 ### 🔴 Correcciones críticas (CRITICAL FIXES)

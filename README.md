@@ -1,28 +1,19 @@
 # SnapContext
 <p align="center">
   <pre>
-  ┌──────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────┐
   │                                                          │
   │                                                          │
   │    ███████╗███╗   ██╗ █████╗ ██████╗  ██████╗ ██████╗   │
   │    ██╔════╝████╗  ██║██╔══██╗██╔══██╗██╔════╝██╔════╝   │
   │    ███████╗██╔██╗ ██║███████║██████╔╝██║     ██║        │
-  │    ╚════██║██║╚██╗██║██╔══██║██╔═══╝ ██║     ██║        │
+  │    ╚════██║██║╚██╗██║██╔═══╝ ██║     ██║     ██║        │
   │    ███████║██║ ╚████║██║  ██║██║     ╚██████╗╚██████╗   │
-  │    ╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝      ╚═════╝ ╚═════╝   │
+  │    ╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝      ╚═════╝ ╚═════╝   │
   │                                                          │
   │    » Selección inteligente de archivos                  │
   │    » Soporte: Gemini · Ollama · DeepSeek · Groq        │
-  │    » Selección inteligente de archivos                  │
-  │    » Soporte: Gemini · Ollama · DeepSeek · Groq        │
-  │    » v0.6.0                                             │
-  │    » Selección inteligente de archivos                  │
-  │    » Soporte: Gemini · Ollama · DeepSeek · Groq        │
-  │    » v0.6.0                                             │
-  │                                                          │
-
-  └──────────────────────────────────────────────────────────┘
-  │    » v0.5.0                                             │
+  │    » v0.8.0                                             │
   │                                                          │
   └──────────────────────────────────────────────────────────┘
   </pre>
@@ -75,6 +66,17 @@ $ snapcontext "el botón de pago no funciona"
 ℹ Ejecutando Aider...
 ✔ Aider terminó correctamente.
 ```
+
+---
+
+## Novedades (v0.8.0)
+
+- **Auto-detección del tipo de proyecto**: ajusta carpetas y extensiones por
+  defecto según el proyecto detectado (Flutter, Node, Python, Go, Rust, Kotlin,
+  Swift) de forma transparente.
+- **Alias / atajos de comandos**: `fix`, `review`, `server` e `interactive`.
+- **Interfaz web en tiempo real**: spinner/barra de progreso, cronómetro,
+  contadores de archivos escaneados/seleccionados y nuevos eventos coloreados.
 
 ---
 
@@ -234,7 +236,50 @@ snapcontext "..." --local
 # Interfaz web (FastAPI + WebSockets) con logs en tiempo real
 snapcontext --web              # http://localhost:8000
 snapcontext --web --web-puerto 8123
+
+# Alias / atajos para tareas frecuentes
+snapcontext fix "el botón de pago no funciona"    # = --test-loop
+snapcontext review "revisar el login"             # = --vista-previa --experto
+snapcontext server "iniciar servidor"             # = --server-loop
+snapcontext interactive                           # = --web
 ```
+### Auto-detección del tipo de proyecto
+
+SnapContext detecta automáticamente el tipo de proyecto buscando archivos clave
+en la raíz resuelta por `--directorio` (o el directorio actual):
+
+| Archivo clave               | Tipo       | Carpetas por defecto que escanea            |
+|-----------------------------|------------|----------------------------------------------|
+| `pubspec.yaml`              | `flutter`  | `lib`, `test`, `web`                         |
+| `package.json`              | `node`     | `src`, `backend`, `frontend`, `lib`          |
+| `requirements.txt` / `pyproject.toml` | `python` | `src`, `app`, `lib`, `tests`, `scripts` |
+| `go.mod`                    | `go`       | `cmd`, `internal`, `pkg`                     |
+| `Cargo.toml`                | `rust`     | `src`, `tests`                               |
+| `build.gradle`              | `kotlin`   | `app/src/main/kotlin`, `app/src/test/kotlin` |
+| `Podfile`                   | `swift`    | `Sources`, `Tests`                           |
+
+Además ajusta las **extensiones** consideradas en el escaneo (por ejemplo,
+`.dart` para Flutter, `.js`/`.ts`/`.jsx`/`.tsx` para Node, `.py` para Python…).
+
+La detección es **transparente**: no imprime nada salvo que uses `--depurar`.
+Si no se detecta ningún tipo, se mantiene el comportamiento actual (`lib/`,
+`supabase/`, …). Si pasas `--carpetas` manualmente, tu valor tiene prioridad.
+
+### Alias / atajos de comandos
+
+Para tareas frecuentes existen subcomandos cortos (siempre se pueden combinar
+con el resto de flags):
+
+| Comando                          | Equivale a                                            |
+|----------------------------------|-------------------------------------------------------|
+| `snapcontext fix "mensaje"`      | `snapcontext "mensaje" --test-loop`                   |
+| `snapcontext review "mensaje"`   | `snapcontext "mensaje" --vista-previa --experto`      |
+| `snapcontext server "mensaje"`   | `snapcontext "mensaje" --server-loop`                 |
+| `snapcontext interactive`        | `snapcontext --web`                                   |
+
+Si el primer argumento no coincide con ninguno de estos alias, se trata como
+consulta (comportamiento habitual).
+
 ### Validación de carpeta de proyecto
 
 Al iniciar, SnapContext comprueba que el directorio contiene carpetas típicas de

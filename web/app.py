@@ -13,6 +13,7 @@ import asyncio
 import json
 import queue
 import threading
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -25,7 +26,7 @@ _ESTATICO = Path(__file__).resolve().parent / "static"
 
 def crear_app() -> FastAPI:
     """Construye y devuelve la app FastAPI (rutas + WebSocket)."""
-    app = FastAPI(title="SnapContext Web", version="0.6.1")
+    app = FastAPI(title="SnapContext Web", version="0.8.0")
 
     @app.get("/")
     async def raiz():
@@ -92,17 +93,28 @@ def _importar_snapcontext():
 
 
 def _ejecutar_tarea(args, cola) -> None:
-    """Ejecuta el orquestador en un hilo, enviando sus eventos a la cola."""
+    """Ejecuta el orquestador en un hilo, enviando sus eventos a la cola.
+
+    Emite además un evento ``inicio`` (para que la UI ponga en marcha el
+    cronómetro) y enriquece cada evento reenviado con el tiempo transcurrido
+    (clave ``tiempo``) desde el arranque, en segundos.
+    """
+    t0 = time.monotonic()
+    cola.put({"tipo": "inicio"})
+
+    def _on_evento(dicto: dict) -> None:
+        evento = dict(dicto)
+        evento.setdefault("tiempo", round(time.monotonic() - t0, 1))
+        cola.put(evento)
+
     try:
         from orquestador import Orquestador
-
-        def _on_evento(dicto: dict) -> None:
-            cola.put(dicto)
 
         Orquestador(evento_callback=_on_evento).ejecutar_flujo(args)
     except Exception as exc:  # noqa: BLE001  → se reporta a la UI
         cola.put({"tipo": "log", "nivel": "error", "texto": f"✖ {exc}"})
-        cola.put({"tipo": "final", "ok": False, "error": str(exc)})
+        cola.put({"tipo": "final", "ok": False, "error": str(exc),
+                  "tiempo": round(time.monotonic() - t0, 1)})
     finally:
         sc = _importar_snapcontext()
         if sc is not None:

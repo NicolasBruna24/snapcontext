@@ -30,6 +30,15 @@
   .chip { display:inline-flex; align-items:center; gap:6px; }
   .punto { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px; }
   .ok { background:var(--verde); } .bad { background:var(--rojo); }
+  .barra { display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-top:.8rem; padding:.55rem .8rem; background:#0b0e12; border:1px solid var(--borde); border-radius:8px; font-size:.85rem; }
+  .spinner { width:16px; height:16px; border:3px solid var(--borde); border-top-color:var(--cian); border-radius:50%; animation:girar .8s linear infinite; display:inline-block; flex:0 0 auto; }
+  @keyframes girar { to { transform: rotate(360deg); } }
+  .oculto { display:none !important; }
+  .cuenta { font-variant-numeric: tabular-nums; color:var(--texto); }
+  .tag { padding:.12rem .45rem; border-radius:999px; font-size:.75rem; }
+  .tag-esc { background:rgba(125,207,255,.15); color:var(--cian); }
+  .tag-sel { background:rgba(126,224,129,.15); color:var(--verde); }
+  .tag-test { background:rgba(227,179,65,.15); color:var(--amarillo); }
 </style>
 </head>
 <!-- __PARTE2__ -->
@@ -52,6 +61,14 @@
     </div>
   </section>
 
+  <section class="barra">
+    <span id="spinner" class="spinner oculto"></span>
+    <span id="textoProgreso" style="color:var(--gris)">En espera de una tarea.</span>
+    <span style="color:var(--gris)">· Tiempo: <span id="tiempo" class="cuenta">0s</span></span>
+    <span style="color:var(--gris)">· Escaneados: <span id="contEscaneados" class="cuenta">0</span></span>
+    <span style="color:var(--gris)">· Seleccionados: <span id="contSeleccionados" class="cuenta">0</span></span>
+  </section>
+
   <div class="grid">
     <section class="tarjeta">
       <h3 style="margin:0 0 8px">📜 Logs (tiempo real)</h3>
@@ -71,6 +88,8 @@
 <!-- __PARTE3__ -->
 <script>
   var ws = null;
+  var tInicio = null;
+  var intervaloReloj = null;
   const $id = (s) => document.getElementById(s);
 
   function estado(nombre) {
@@ -83,9 +102,42 @@
     var url = proto + '://' + location.host + '/ws';
     ws = new WebSocket(url);
     ws.onopen = () => { estado('conectado'); logRow('', '✔ WebSocket conectado.'); };
-    ws.onclose = () => { estado('desconectado'); logRow('[servidor]', 'conexión cerrada.', 'var(--gris)'); };
+    ws.onclose = () => { estado('desconectado'); logRow('[servidor]', 'conexión cerrada.', 'var(--gris)'); pararReloj(); };
     ws.onerror = () => { estado('desconectado'); };
     ws.onmessage = (e) => procesar(JSON.parse(e.data));
+  }
+
+  function formatearSegundos(s) {
+    s = Math.max(0, Math.floor(s || 0));
+    if (s < 60) return s + 's';
+    var m = Math.floor(s / 60), r = s % 60;
+    return m + 'm ' + r + 's';
+  }
+
+  function arrancarReloj() {
+    if (tInicio !== null) return;
+    tInicio = Date.now();
+    intervaloReloj = setInterval(function () {
+      $id('tiempo').textContent = formatearSegundos((Date.now() - tInicio) / 1000);
+    }, 250);
+  }
+
+  function pararReloj() {
+    if (intervaloReloj) clearInterval(intervaloReloj);
+    intervaloReloj = null;
+    tInicio = null;
+  }
+
+  function setProgreso(activo, texto) {
+    if (activo) {
+      $id('spinner').classList.remove('oculto');
+      $id('textoProgreso').style.color = 'var(--cian)';
+      $id('textoProgreso').textContent = texto || 'Trabajando…';
+    } else {
+      $id('spinner').classList.add('oculto');
+      $id('textoProgreso').style.color = 'var(--gris)';
+      $id('textoProgreso').textContent = texto || 'En espera de una tarea.';
+    }
   }
 
   function escapar(s) {
@@ -115,17 +167,46 @@
   }
 
   function procesar(ev) {
-    if (ev.tipo === 'log') {
+    if (ev.tipo === 'inicio') {
+      arrancarReloj();
+      setProgreso(true, 'Preparando la tarea…');
+    } else if (ev.tipo === 'log') {
       logRow('', ev.texto || '', ev.nivel === 'error' ? 'var(--rojo)' : null);
-    } else if (ev.tipo === 'selección') {
+    } else if (ev.tipo === 'escaneo_inicio') {
+      arrancarReloj();
+      setProgreso(true, 'Escaneando el repositorio…');
+      logRow('[escaneo]', 'inicio', 'var(--cian)');
+    } else if (ev.tipo === 'escaneo_fin') {
+      $id('contEscaneados').textContent = ev.total || 0;
+      logRow('[escaneo]', 'fin — ' + (ev.total || 0) + ' candidato(s) encontrado(s).', 'var(--cian)');
+    } else if (ev.tipo === 'seleccion_inicio') {
+      arrancarReloj();
+      setProgreso(true, 'Seleccionando archivos relevantes…');
+      logRow('[selección]', 'inicio', 'var(--amarillo)');
+    } else if (ev.tipo === 'seleccion_fin') {
+      $id('contSeleccionados').textContent = ev.cantidad || 0;
       mostrarSeleccion(ev.archivos || []);
+      logRow('[selección]', 'fin — ' + (ev.cantidad || 0) + ' archivo(s).', 'var(--verde)');
+    } else if (ev.tipo === 'selección') {
+      if (ev.cantidad === undefined) mostrarSeleccion(ev.archivos || []);
     } else if (ev.tipo === 'aider') {
-      if (ev.accion === 'iniciar') logRow('', '→ AgenteEditor: ejecutando Aider…', 'var(--amarillo)');
-      else anexarResultado(ev.ok ? '✔ Aider terminó correctamente.' : '✖ Aider terminó con error.', ev.ok);
+      if (ev.accion === 'iniciar') {
+        setProgreso(true, 'Ejecutando Aider…');
+        logRow('[Aider]', 'ejecutando…', 'var(--amarillo)');
+      } else anexarResultado(ev.ok ? '✔ Aider terminó correctamente.' : '✖ Aider terminó con error.', ev.ok);
+    } else if (ev.tipo === 'test_inicio') {
+      arrancarReloj();
+      setProgreso(true, 'Bucle de pruebas…');
+      logRow('[test]', 'inicio — comando: ' + (ev.comando || ''), 'var(--amarillo)');
     } else if (ev.tipo === 'test') {
-      logRow('', '→ test iter. ' + ev.iteracion + ': ' + ev.accion + ' (' + (ev.ok ? 'ok' : 'falló') + ')', 'var(--amarillo)');
+      logRow('[test]', 'iter. ' + ev.iteracion + ': ' + ev.accion + ' (' + (ev.ok ? 'ok' : 'falló') + ')', 'var(--amarillo)');
+    } else if (ev.tipo === 'test_fin') {
+      logRow('[test]', 'fin — ' + (ev.ok ? 'superado' : 'falló'), ev.ok ? 'var(--verde)' : 'var(--rojo)');
     } else if (ev.tipo === 'final') {
-      anexarResultado(ev.ok ? '✔ Finalizado con éxito.' : '✖ Finalizado con error.', ev.ok);
+      var transcurrido = tInicio !== null ? (Date.now() - tInicio) / 1000 : 0;
+      pararReloj();
+      anexarResultado((ev.ok ? '✔ Finalizado con éxito.' : '✖ Finalizado con error.') + ' (' + formatearSegundos(transcurrido) + ')', ev.ok);
+      setProgreso(false, ev.ok ? 'Tarea finalizada.' : 'La tarea terminó con errores.');
       habilitar(true);
     }
   }
@@ -141,6 +222,11 @@
     habilitar(false);
     $id('logs').innerHTML = '';
     $id('resultados').innerHTML = '';
+    $id('contEscaneados').textContent = '0';
+    $id('contSeleccionados').textContent = '0';
+    $id('tiempo').textContent = '0s';
+    pararReloj();
+    setProgreso(true, 'Enviando consulta…');
     var msg = {
       consulta: consulta,
       local: $id('local').checked,
