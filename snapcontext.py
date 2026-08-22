@@ -83,7 +83,7 @@ try:
 except ImportError:  # pragma: no cover
     anthropic = None
 
-VERSION = "0.10.0"
+VERSION = "0.12.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
@@ -2489,6 +2489,389 @@ def _cmd_chat_save(historial_chat: List[dict]) -> None:
               f"({entrada['mensajes']} mensajes).")
 
 
+# ---------------------------------------------------------------------------
+# Planificador de tareas (--plan) — v0.12.0
+# ---------------------------------------------------------------------------
+PROMPT_PLAN = (
+    "Eres un planificador de tareas de desarrollo. Descompón la siguiente "
+    "tarea en pasos CONCRETOS y ATÓMICOS (máximo 8).\n\n"
+    "TAREA: {consulta}\n\n"
+    "Devuelve SOLO un objeto JSON con esta forma exacta (sin explicaciones):\n"
+    '{{"pasos": [{{\n'
+    '  "descripcion": "qué hace este paso",\n'
+    '  "accion": "editar" | "ejecutar" | "consultar",\n'
+    '  "archivos": ["ruta/relativa.py"],   // solo para accion "editar"\n'
+    '  "comando": "comando shell"          // solo para accion "ejecutar"\n'
+    "}}]}}\n\n"
+    "Significado de las acciones:\n"
+    ' - "editar": modificar código (Aider). Indica los archivos implicados.\n'
+    ' - "ejecutar": lanzar un comando (tests, build, migraciones...).\n'
+    ' - "consultar": aclarar una duda sobre el proyecto sin cambiar nada.\n'
+)
+
+ACCIONES_VALIDAS = {"editar", "ejecutar", "consultar"}
+
+
+def _normalizar_pasos(datos) -> List[dict]:
+    """Normaliza la respuesta del proveedor a una lista de pasos válidos.
+
+    Acepta ``{"pasos": [...]}``, una lista directa o un único paso suelto.
+    Descarta pasos mal formados (sin descripción o con acción desconocida).
+    """
+    if isinstance(datos, dict):
+        datos = datos.get("pasos", [])
+    if isinstance(datos, dict):
+        datos = [datos]
+    if not isinstance(datos, list):
+        return []
+    pasos: List[dict] = []
+    for crudo in datos:
+        if not isinstance(crudo, dict):
+            continue
+        descripcion = str(crudo.get("descripcion") or "").strip()
+        accion = str(crudo.get("accion") or "").strip().lower()
+        if not descripcion or accion not in ACCIONES_VALIDAS:
+            continue
+        archivos = crudo.get("archivos") or []
+        if not isinstance(archivos, list):
+            archivos = []
+        paso = {
+            "descripcion": descripcion,
+            "accion": accion,
+            "archivos": [str(a) for a in archivos if str(a).strip()],
+            "comando": str(crudo.get("comando") or "").strip(),
+        }
+        pasos.append(paso)
+    return pasos
+
+
+def _generar_plan(consulta: str, proveedor: Optional[str] = None,
+                  modelo: Optional[str] = None) -> List[dict]:
+    """Pide al proveedor de IA un plan en JSON para la ``consulta``.
+
+    Devuelve la lista de pasos normalizada (vacía si el proveedor no devolvió
+    nada utilizable). Lanza RuntimeError ante fallos de configuración/API.
+    """
+    preferencias = cargar_configuracion()
+    proveedor = proveedor or preferencias.get("provider") or PROVEEDOR_DEFECTO
+    cfg = PROVEEDORES[proveedor]
+    modelo = modelo or cfg["modelo_default"]
+    prompt = PROMPT_PLAN.format(consulta=consulta)
+    info(f"Generando plan con {cfg['nombre']} ({modelo})...")
+
+    tipo = cfg["tipo"]
+    if tipo == "gemini":
+        if genai is None:
+            raise RuntimeError(MENSAJE_GENAI_FALTANTE)
+        api_key = os.environ.get(cfg["clave_env"], "").strip()
+        if not api_key:
+            raise RuntimeError(MENSAJE_API_KEY)
+        genai.configure(api_key=api_key)
+        generador = genai.GenerativeModel(model_name=modelo)
+        config = genai.types.GenerationConfig(
+            temperature=0.2, response_mime_type="application/json")
+        try:
+            respuesta = generador.generate_content(prompt, generation_config=config)
+            texto = respuesta.text or ""
+        except Exception as exc:
+            raise RuntimeError(f"Error al generar el plan con Gemini: {exc}") from exc
+
+    elif tipo == "anthropic":
+        if anthropic is None:
+            raise RuntimeError(MENSAJE_ANTHROPIC_FALTANTE)
+        api_key = os.environ.get(cfg["clave_env"], "").strip()
+        if not api_key:
+            raise RuntimeError(_mensaje_clave_faltante(proveedor, cfg))
+        cliente = anthropic.Anthropic(api_key=api_key)
+        try:
+            respuesta = cliente.messages.create(
+                model=modelo, max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+            )
+            texto = "".join(
+                bloque.text for bloque in respuesta.content
+                if getattr(bloque, "type", None) == "text")
+        except Exception as exc:
+            raise RuntimeError(
+                f"Error al generar el plan con Claude: {exc}") from exc
+
+    else:  # tipo "openai"
+        if openai is None:
+            raise RuntimeError(MENSAJE_OPENAI_FALTANTE)
+        api_key = os.environ.get(cfg["clave_env"], "").strip()
+        if cfg["requiere_clave"] and not api_key:
+            raise RuntimeError(_mensaje_clave_faltante(proveedor, cfg))
+        cliente = openai.OpenAI(
+            api_key=api_key or "ollama-local",
+            base_url=_resolver_url_openai(cfg), timeout=120)
+        mensajes = [{"role": "user", "content": prompt}]
+        try:
+            try:
+                respuesta = cliente.chat.completions.create(
+                    model=modelo, messages=mensajes, temperature=0.2,
+                    response_format={"type": "json_object"})
+            except Exception:
+                respuesta = cliente.chat.completions.create(
+                    model=modelo, messages=mensajes, temperature=0.2)
+            texto = respuesta.choices[0].message.content or ""
+        except Exception as exc:
+            raise RuntimeError(
+                f"Error al generar el plan con {cfg['nombre']}: {exc}") from exc
+
+    depurar(f"Plan recibido ({len(texto)} caracteres): {texto[:200]}")
+    return _normalizar_pasos(parsear_json(texto))
+
+
+# --- Git explícito para el planificador ------------------------------------
+def _es_repo_git(directorio: str) -> bool:
+    """True si ``directorio`` está dentro de un repositorio git."""
+    codigo, _, _ = _ejecutar_comando("git rev-parse --is-inside-work-tree",
+                                     directorio, timeout=15)
+    return codigo == 0
+
+
+def _git_crear_rama(nombre: str, directorio: str = ".") -> bool:
+    """Crea y cambia a la rama ``nombre`` (git checkout -b). True si ok."""
+    if not nombre or not nombre.strip():
+        error("--branch requiere un nombre de rama.")
+        return False
+    if not _es_repo_git(directorio):
+        error(f"'{directorio}' no es un repositorio git; no se puede crear "
+              f"la rama '{nombre}'.")
+        return False
+    codigo, _, stderr = _ejecutar_comando(
+        f'git checkout -b "{nombre.strip()}"', directorio, timeout=30)
+    if codigo == 0:
+        exito(f"Rama creada y activada: {nombre.strip()}")
+        return True
+    # La rama puede existir ya; intentar solo cambiar a ella.
+    codigo2, _, _ = _ejecutar_comando(
+        f'git checkout "{nombre.strip()}"', directorio, timeout=30)
+    if codigo2 == 0:
+        aviso(f"La rama '{nombre.strip()}' ya existía; se ha cambiado a ella.")
+        return True
+    error(f"No se pudo crear/cambiar a la rama '{nombre.strip()}': "
+          f"{stderr.strip()}")
+    return False
+
+
+def _git_commit_paso(descripcion: str, directorio: str = ".") -> bool:
+    """`git add .` + `git commit -m "paso: <descripcion>"`. True si ok.
+
+    Si no hay cambios que commitear se considera éxito silencioso.
+    """
+    if not _es_repo_git(directorio):
+        depurar("[plan] No es repo git; se omite el commit del paso.")
+        return True
+    _ejecutar_comando("git add .", directorio, timeout=60)
+    mensaje = f"paso: {descripcion}".replace('"', "'")
+    codigo, _, stderr = _ejecutar_comando(
+        f'git commit -m "{mensaje}"', directorio, timeout=60)
+    if codigo == 0:
+        exito(f"Commit creado: {mensaje}")
+        return True
+    texto = (stderr or "").lower()
+    if "nothing to commit" in texto or "no changes added" in texto:
+        depurar("[plan] Sin cambios que commitear en este paso.")
+        return True
+    aviso(f"El commit del paso falló: {(stderr or '').strip()}")
+    return False
+
+
+def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
+                        raiz: str) -> tuple:
+    """Ejecuta un paso del plan. Devuelve (ok: bool, detalle: str).
+
+    - "editar": usa el orquestador actual — ``_planificar`` para elegir los
+      archivos y ``_bucle_test``/AgenteEditor para aplicar la descripción.
+    - "ejecutar": lanza ``paso["comando"]`` con ``_ejecutar_comando``.
+    - "consultar": pregunta al proveedor y muestra su respuesta.
+    """
+    import snapcontext as sc
+    from orquestador import Orquestador
+
+    accion = paso["accion"]
+    descripcion = paso["descripcion"]
+
+    if accion == "ejecutar":
+        if not paso.get("comando"):
+            return (False, 'el paso no indica "comando"')
+        info(f'$ {paso["comando"]}')
+        codigo, stdout, stderr = _ejecutar_comando(paso["comando"], raiz)
+        if stdout.strip():
+            _emitir(sys.stdout, _pintar(stdout.rstrip(), _VERDE))
+        if stderr.strip():
+            _emitir(sys.stdout, _pintar(stderr.rstrip(), _AMARILLO))
+        return (codigo == 0, f"código {codigo}")
+
+    if accion == "consultar":
+        preferencias = cargar_configuracion()
+        proveedor = preferencias.get("provider") or PROVEEDOR_DEFECTO
+        try:
+            respuesta = _enviar_al_proveedor(
+                proveedor, getattr(args, "modelo", None),
+                [{"role": "user",
+                  "content": f"Tarea general: {getattr(args, 'consulta', '')}\n"
+                             f"Paso a aclarar: {descripcion}\n"
+                             "Responde de forma breve y útil."}],
+            )
+            _emitir(sys.stdout, _pintar(respuesta, _VERDE))
+            return (True, "respuesta mostrada")
+        except RuntimeError as exc:
+            error(str(exc))
+            return (False, str(exc))
+
+    # accion == "editar": reutiliza el pipeline existente con este paso.
+    paso_args = argparse.Namespace(**vars(args))
+    paso_args.consulta = descripcion
+    orch = Orquestador()
+    plan = orch._planificar(paso_args, sc)
+    if plan is None:
+        return (False, "no se pudo planificar la edición (sin candidatos)")
+    _, ruta_raiz, _, seleccion = plan
+    if getattr(args, "test_loop", False):
+        ok = orch._bucle_test(
+            descripcion, seleccion, str(ruta_raiz),
+            opciones_aider=getattr(args, "aider_opciones", ""),
+            comando_test=shlex.split(getattr(args, "comando_test",
+                                             COMANDO_TEST_DEFECTO)),
+            max_iteraciones=max(getattr(args, "max_iteraciones", 1), 1),
+        )
+        return (ok, "bucle de pruebas")
+    ok = orch.agente_editor.ejecutar_aider(
+        seleccion, descripcion, str(ruta_raiz),
+        opciones_aider=getattr(args, "aider_opciones", ""),
+    )
+    return (ok, f"Aider sobre {len(seleccion)} archivo(s)")
+
+
+def _ejecutar_planificador(args: argparse.Namespace) -> int:
+    """Modo planificador (`snapcontext --plan "tarea"`). Devuelve código 0/1.
+
+    Flujo: generar plan con IA → confirmación → ejecución secuencial con menú
+    continuar/reintentar/saltar tras cada paso → resumen final. Con
+    ``--branch`` crea una rama antes de empezar y con ``--git-commit``
+    (por defecto) commitea `paso: <descripción>` tras cada paso exitoso.
+    """
+    global DEPURAR
+    DEPURAR = getattr(args, "depurar", False)
+    consulta = getattr(args, "consulta", None)
+    if not consulta:
+        error("El modo --plan necesita una consulta. Uso:\n"
+              '  snapcontext --plan "añadir login con Google"')
+        return 1
+
+    directorio = getattr(args, "directorio", ".") or "."
+    raiz = str(resolver_raiz(directorio))
+
+    # Rama git opcional antes de empezar.
+    rama = getattr(args, "branch", None)
+    if rama and not _git_crear_rama(rama, raiz):
+        return 1
+
+    # 1) Generación del plan (con un reintento si viene vacío/mal formado).
+    pasos: List[dict] = []
+    for _intento in range(2):
+        try:
+            pasos = _generar_plan(consulta,
+                                  getattr(args, "provider", None),
+                                  getattr(args, "modelo", None))
+        except RuntimeError as exc:
+            error(str(exc))
+            return 1
+        if pasos:
+            break
+        aviso("El plan vino vacío o mal formado; reintentando...")
+    if not pasos:
+        error("No se pudo obtener un plan válido del proveedor.")
+        return 1
+
+    # 2) Mostrar el plan y pedir confirmación.
+    exito(f"Plan generado ({len(pasos)} paso(s)):")
+    for numero, paso in enumerate(pasos, start=1):
+        extra = paso.get("comando") or ", ".join(paso.get("archivos", []))
+        sufijo = f" → {extra}" if extra else ""
+        _emitir(sys.stdout, f"  {numero}. [{paso['accion']}] "
+                            f"{paso['descripcion']}{sufijo}")
+    if not _preguntar_si("\n¿Quieres ejecutar estos pasos? (s/n): "):
+        aviso("Plan cancelado por el usuario.")
+        return 0
+
+    # 3) Ejecución secuencial con control por paso.
+    resultados: List[dict] = []
+    indice = 0
+    abortar = False
+    while indice < len(pasos) and not abortar:
+        paso = pasos[indice]
+        numero = indice + 1
+        _emitir(sys.stdout, "")
+        exito(f"Paso {numero}/{len(pasos)} [{paso['accion']}]: "
+              f"{paso['descripcion']}")
+        try:
+            ok, detalle = _ejecutar_paso_plan(paso, args, raiz)
+        except Exception as exc:            # blindaje del bucle interactivo
+            ok, detalle = False, f"excepción: {exc}"
+            error(f"El paso lanzó una excepción: {exc}")
+
+        if ok and getattr(args, "git_commit", True):
+            _git_commit_paso(paso["descripcion"], raiz)
+
+        estado = "éxito" if ok else "fallo"
+        resultados.append({"paso": numero, "descripcion": paso["descripcion"],
+                           "accion": paso["accion"], "resultado": estado,
+                           "detalle": detalle})
+
+        # Menú post-paso: continuar / reintentar / saltar / abortar.
+        while True:
+            try:
+                eleccion = input(_pintar(
+                    "[c]ontinuar · [r]eintentar · [s]altar · [x]abortar "
+                    "(c/r/s/x): ", _CYAN)).strip().lower()
+            except EOFError:
+                eleccion = "c"
+            if eleccion in ("", "c", "continuar"):
+                indice += 1
+                break
+            if eleccion in ("r", "reintentar"):
+                break                        # mismo índice: repetir el paso
+            if eleccion in ("s", "saltar"):
+                aviso(f"Paso {numero} saltado.")
+                indice += 1
+                break
+            if eleccion in ("x", "abortar", "salir"):
+                aviso("Plan abortado por el usuario.")
+                abortar = True
+                break
+            aviso("Opción no válida; usa c, r, s o x.")
+
+    # 4) Resumen final + memoria persistente.
+    _emitir(sys.stdout, "")
+    exito("── Resumen del plan " + "─" * 30)
+    for r in resultados:
+        marca = "✔" if r["resultado"] == "éxito" else "✖"
+        _emitir(sys.stdout,
+                f"  {marca} Paso {r['paso']} [{r['accion']}] "
+                f"{r['descripcion']} ({r['resultado']}: {r['detalle']})")
+    saltados = len(pasos) - len(resultados)
+    if saltados > 0:
+        aviso(f"{saltados} paso(s) sin ejecutar (saltados o abortados).")
+    exitos = sum(1 for r in resultados if r["resultado"] == "éxito")
+    exito(f"Resultado: {exitos}/{len(resultados)} paso(s) exitoso(s).")
+
+    todo_ok = bool(resultados) and exitos == len(resultados) and saltados == 0
+    _guardar_historial({
+        "fecha": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "consulta": consulta,
+        "archivos": [],
+        "resultado": "éxito" if todo_ok else ("fallo" if exitos == 0 else "parcial"),
+        "duracion": round(len(resultados), 2),
+        "tipo": "plan",
+        "pasos": resultados,
+    })
+    return 0 if todo_ok or abortar else 1
+
+
 def crear_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="snapcontext",
@@ -2662,6 +3045,23 @@ def crear_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--historial-limpiar", action="store_true",
         help="Borra el historial persistente (~/.snapcontext/historial.json) y sale.",
+    )
+    parser.add_argument(
+        "--plan", action="store_true",
+        help="Modo planificador: pide al proveedor de IA que descomponga la tarea "
+             "en pasos (editar/ejecutar/consultar), los muestra para confirmación "
+             "y los ejecuta secuencialmente con control continuar/reintentar/saltar. "
+             "Requiere consulta.",
+    )
+    parser.add_argument(
+        "--git-commit", action=argparse.BooleanOptionalAction, default=True,
+        help="En modo --plan, hace 'git add . && git commit' tras cada paso exitoso "
+             "(por defecto: activado; desactivar con --no-git-commit).",
+    )
+    parser.add_argument(
+        "--branch", dest="branch", default=None, metavar="NOMBRE",
+        help="En modo --plan, crea y cambia a una rama git nueva antes de ejecutar "
+             "los pasos (p. ej. --branch fix/checkout).",
     )
     return parser
 
@@ -3095,6 +3495,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         # --chat abre el REPL interactivo (no requiere consulta).
         if getattr(args, "chat", False):
             return _ejecutar_chat()
+        # --plan ejecuta el planificador de tareas (requiere consulta).
+        if getattr(args, "plan", False):
+            return _ejecutar_planificador(args)
         return flujo_principal(args)
     except KeyboardInterrupt:
         error("Interrumpido por el usuario.")

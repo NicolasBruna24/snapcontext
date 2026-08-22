@@ -6,6 +6,23 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [0.12.0] - 2026-08-22
+
+### ✨ Planificador de tareas (`--plan`)
+
+- Nuevo modo agéntico: `snapcontext --plan "tarea"` pide al proveedor de IA un
+  plan en JSON (`descripcion`, `accion`: editar/ejecutar/consultar, `archivos`,
+  `comando`), muestra los pasos numerados y pide confirmación antes de actuar.
+- Ejecución secuencial: `editar` reutiliza el orquestador (`_planificar` +
+  `_bucle_test`), `ejecutar` usa `_ejecutar_comando`, `consultar` pregunta al
+  proveedor. Menú por paso (continuar/reintentar/saltar/abortar) y resumen
+  final registrado en `~/.snapcontext/historial.json`.
+- Integración git explícita: `--branch <nombre>` crea la rama antes de empezar
+  y `--git-commit/--no-git-commit` controla commits automáticos
+  (`paso: <descripción>`) tras cada paso exitoso (por defecto: activado).
+
+---
+
 ## [0.10.0] - 2026-08-22
 
 ### ✨ Soporte para Claude (Anthropic) como proveedor de IA

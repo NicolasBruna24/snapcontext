@@ -26,6 +26,27 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
+## 🗺️ Planificador de tareas (v0.12.0)
+
+`snapcontext --plan "añadir login con Google"` convierte SnapContext en un agente:
+
+1. El proveedor de IA descompone la tarea en pasos JSON:
+   `{"descripcion": "...", "accion": "editar|ejecutar|consultar", "archivos": [...], "comando": "..."}`
+2. Los pasos se muestran numerados y se pide confirmación.
+3. Cada paso se ejecuta secuencialmente: **editar** usa el pipeline completo
+   (`_planificar` + `_bucle_test`), **ejecutar** lanza comandos shell,
+   **consultar** pregunta al proveedor.
+4. Tras cada paso eliges: continuar / reintentar / saltar / abortar. Al final
+   hay un resumen que se guarda en `historial.json`.
+
+Opciones git:
+
+```bash
+snapcontext --plan "migrar a null-safety" --branch fix/null-safety   # rama nueva
+snapcontext --plan "..." --no-git-commit                             # sin commits por paso
+snapcontext --plan "..."                                             # commits 'paso: ...' activados
+```
+
 ## ✨ Novedades v0.10.0
 
 - **Claude (Anthropic) como proveedor de IA**: `snapcontext "..." --provider anthropic`
