@@ -84,7 +84,7 @@ try:
 except ImportError:  # pragma: no cover
     anthropic = None
 
-VERSION = "0.16.0"
+VERSION = "0.17.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
@@ -2844,13 +2844,20 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
     descripcion = paso["descripcion"]
 
     # Confirmación de permisos (v0.13.0) antes de cualquier acción.
+    # En modo autónomo (--auto, v0.17.0) no se pregunta: solo se respetan las
+    # preferencias ya guardadas en permisos.json (nunca → denegado).
     if accion == "ejecutar":
         detalles_paso = paso.get("comando") or None
     elif accion == "editar":
         detalles_paso = "\n".join(paso.get("archivos", [])) or None
     else:
         detalles_paso = None
-    if not _confirmar_accion(
+    if getattr(args, "auto", False):
+        if _permiso_recordado(accion) is False:
+            aviso(f"[auto] Paso '{accion}' denegado por permisos guardados "
+                  f"(permisos.json).")
+            return (False, "denegado por permisos guardados")
+    elif not _confirmar_accion(
             descripcion, tipo=accion, detalles=detalles_paso,
             confirmar=getattr(args, "confirmar", True)):
         return (False, "denegado por el usuario")
@@ -2948,16 +2955,26 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
         error("No se pudo obtener un plan válido del proveedor.")
         return 1
 
-    # 2) Mostrar el plan y pedir confirmación.
-    exito(f"Plan generado ({len(pasos)} paso(s)):")
-    for numero, paso in enumerate(pasos, start=1):
-        extra = paso.get("comando") or ", ".join(paso.get("archivos", []))
-        sufijo = f" → {extra}" if extra else ""
-        _emitir(sys.stdout, f"  {numero}. [{paso['accion']}] "
-                            f"{paso['descripcion']}{sufijo}")
-    if not _preguntar_si("\n¿Quieres ejecutar estos pasos? (s/n): "):
-        aviso("Plan cancelado por el usuario.")
-        return 0
+    # Modo autónomo (v0.17.0): sin confirmación inicial ni menú por paso;
+    # reintentos automáticos de pasos fallidos.
+    auto = bool(getattr(args, "auto", False))
+    MAX_REINTENTOS_AUTO = 3
+    if auto:
+        exito(f"Modo autónomo (--auto): {len(pasos)} paso(s) se ejecutarán "
+              f"sin confirmaciones, con hasta {MAX_REINTENTOS_AUTO} "
+              f"reintentos por paso. Permisos guardados en permisos.json "
+              f"siguen aplicándose.")
+    else:
+        # 2) Mostrar el plan y pedir confirmación.
+        exito(f"Plan generado ({len(pasos)} paso(s)):")
+        for numero, paso in enumerate(pasos, start=1):
+            extra = paso.get("comando") or ", ".join(paso.get("archivos", []))
+            sufijo = f" → {extra}" if extra else ""
+            _emitir(sys.stdout, f"  {numero}. [{paso['accion']}] "
+                                f"{paso['descripcion']}{sufijo}")
+        if not _preguntar_si("\n¿Quieres ejecutar estos pasos? (s/n): "):
+            aviso("Plan cancelado por el usuario.")
+            return 0
 
     # 3) Ejecución secuencial con control por paso.
     resultados: List[dict] = []
@@ -2969,21 +2986,38 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
         _emitir(sys.stdout, "")
         exito(f"Paso {numero}/{len(pasos)} [{paso['accion']}]: "
               f"{paso['descripcion']}")
-        try:
-            ok, detalle = _ejecutar_paso_plan(paso, args, raiz)
-        except Exception as exc:            # blindaje del bucle interactivo
-            ok, detalle = False, f"excepción: {exc}"
-            error(f"El paso lanzó una excepción: {exc}")
+        intentos = 0
+        while True:
+            intentos += 1
+            try:
+                ok, detalle = _ejecutar_paso_plan(paso, args, raiz)
+            except Exception as exc:        # blindaje del bucle interactivo
+                ok, detalle = False, f"excepción: {exc}"
+                error(f"El paso lanzó una excepción: {exc}")
+            if ok or not auto:
+                break
+            if intentos < MAX_REINTENTOS_AUTO:
+                aviso(f"Paso {numero} falló (intento {intentos}/"
+                      f"{MAX_REINTENTOS_AUTO}); reintentando automáticamente…")
+            else:
+                aviso(f"Paso {numero} agotó sus {MAX_REINTENTOS_AUTO} "
+                      f"intentos; se continúa con el siguiente paso.")
+                break
 
         if ok and getattr(args, "git_commit", True):
             _git_commit_paso(paso["descripcion"], raiz)
 
-        estado = "éxito" if ok else "fallo"
-        resultados.append({"paso": numero, "descripcion": paso["descripcion"],
-                           "accion": paso["accion"], "resultado": estado,
-                           "detalle": detalle})
+        if auto:
+            # Autónomo: cada paso se registra una única vez (último intento).
+            resultados.append({"paso": numero,
+                               "descripcion": paso["descripcion"],
+                               "accion": paso["accion"],
+                               "resultado": "éxito" if ok else "fallo",
+                               "detalle": detalle, "intentos": intentos})
+            indice += 1
+            continue
 
-        # Menú post-paso: continuar / reintentar / saltar / abortar.
+        # Interactivo: menú post-paso y registro único al abandonar el paso.
         while True:
             try:
                 eleccion = input(_pintar(
@@ -2992,12 +3026,21 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
             except EOFError:
                 eleccion = "c"
             if eleccion in ("", "c", "continuar"):
+                resultados.append(
+                    {"paso": numero, "descripcion": paso["descripcion"],
+                     "accion": paso["accion"],
+                     "resultado": "éxito" if ok else "fallo",
+                     "detalle": detalle, "intentos": intentos})
                 indice += 1
                 break
             if eleccion in ("r", "reintentar"):
                 break                        # mismo índice: repetir el paso
             if eleccion in ("s", "saltar"):
                 aviso(f"Paso {numero} saltado.")
+                resultados.append(
+                    {"paso": numero, "descripcion": paso["descripcion"],
+                     "accion": paso["accion"], "resultado": "fallo",
+                     "detalle": "saltado por el usuario", "intentos": intentos})
                 indice += 1
                 break
             if eleccion in ("x", "abortar", "salir"):
@@ -3011,9 +3054,12 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
     exito("── Resumen del plan " + "─" * 30)
     for r in resultados:
         marca = "✔" if r["resultado"] == "éxito" else "✖"
+        reintentos = (f", {r['intentos']} intento(s)"
+                      if r.get("intentos", 1) > 1 else "")
         _emitir(sys.stdout,
                 f"  {marca} Paso {r['paso']} [{r['accion']}] "
-                f"{r['descripcion']} ({r['resultado']}: {r['detalle']})")
+                f"{r['descripcion']} ({r['resultado']}: {r['detalle']}"
+                f"{reintentos})")
     saltados = len(pasos) - len(resultados)
     if saltados > 0:
         aviso(f"{saltados} paso(s) sin ejecutar (saltados o abortados).")
@@ -3079,6 +3125,21 @@ def _guardar_permiso(tipo: str, valor: str) -> bool:
     except OSError as exc:
         aviso(f"No se pudo guardar el permiso ({PERMISOS_PATH}): {exc}")
         return False
+
+
+def _permiso_recordado(tipo: str) -> Optional[bool]:
+    """Devuelve la preferencia guardada para ``tipo`` sin preguntar.
+
+    True → "siempre" permitido · False → "nunca" · None → sin preferencia.
+    Lo usa el modo autónomo (--auto), que no puede preguntar pero sí debe
+    respetar las decisiones previas del usuario en permisos.json.
+    """
+    recordado = _cargar_permisos().get(tipo)
+    if recordado == "siempre":
+        return True
+    if recordado == "nunca":
+        return False
+    return None
 
 
 def _limpiar_permisos() -> bool:
@@ -3885,6 +3946,13 @@ def crear_parser() -> argparse.ArgumentParser:
         help="Escanea el proyecto (estructura, dependencias, git) y genera una "
              "memoria persistente CLAUDE.md (o SNAPCONTEXT.md) usando el "
              "proveedor de IA; sin conexión usa una plantilla básica.",
+    )
+    parser.add_argument(
+        "--auto", action="store_true", default=False,
+        help="Modo autónomo para --plan: salta las confirmaciones paso a paso "
+             "(siguiendo respetando permisos.json) y reintenta automáticamente "
+             "cada paso fallido hasta 3 veces antes de continuar. Con "
+             "--no-confirmar no añade diferencia adicional.",
     )
     return parser
 

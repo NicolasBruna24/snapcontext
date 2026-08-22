@@ -26,6 +26,22 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
+## 🤖 Modo autónomo (v0.17.0)
+
+Añade `--auto` al planificador para ejecución sin supervisión:
+
+```bash
+snapcontext --plan "actualizar dependencias y pasar tests" --auto --no-confirmar
+snapcontext --plan "refactorizar el módulo de pagos" --auto   # con permisos guardados
+```
+
+- Salta la confirmación del plan y el menú paso a paso.
+- Cada paso fallido se **reintenta automáticamente hasta 3 veces**; si sigue
+  fallando, continúa con el siguiente y lo refleja en el resumen final.
+- **Sigue respetando `~/.snapcontext/permisos.json`**: los tipos marcados como
+  "nunca" se deniegan sin preguntar. Con `--no-confirmar` no hay diferencia
+  adicional (todas las confirmaciones ya están desactivadas).
+
 ## 🧩 Extensión VS Code (v0.16.0)
 
 SnapContext se integra en VS Code como extensión nativa (`vscode/`), reutilizando la interfaz web y el orquestador existentes.

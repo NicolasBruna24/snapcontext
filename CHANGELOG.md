@@ -6,6 +6,20 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [0.17.0] - 2026-08-22
+
+### 🤖 Modo autónomo (`--auto`)
+
+- Nuevo flag `--auto` para el planificador: ejecuta los pasos del plan sin
+  confirmación inicial ni menú paso a paso.
+- Los pasos fallidos se **reintentan automáticamente hasta 3 veces** antes de
+  continuar con el siguiente; el resumen final muestra el número de intentos.
+- Sigue respetando las preferencias de `permisos.json`: un tipo marcado como
+  "nunca" se deniega automáticamente (nueva función `_permiso_recordado()`).
+  Con `--no-confirmar` no añade diferencia adicional (todo ya está permitido).
+
+---
+
 ## [0.16.0] - 2026-08-22
 
 ### 🧩 Extensión para VS Code

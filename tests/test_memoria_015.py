@@ -178,8 +178,8 @@ class TestFlagsMemoriaCli(BaseMemoria):
         self.assertTrue(sc.crear_parser().parse_args(
             ["--init-claude"]).init_claude)
 
-    def test_version_es_0_16_0(self):
-        self.assertEqual(sc.VERSION, "0.16.0")
+    def test_version_es_0_17_0(self):
+        self.assertEqual(sc.VERSION, "0.17.0")
 
 
 if __name__ == "__main__":

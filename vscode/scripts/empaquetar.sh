@@ -18,4 +18,4 @@ npx @vscode/vsce package --no-dependencies
 
 echo ""
 echo "✔ Listo. El .vsix está en vscode/. Instálalo con:"
-echo "    code --install-extension snapcontext-vscode-0.16.0.vsix"
+echo "    code --install-extension snapcontext-vscode-0.17.0.vsix"
