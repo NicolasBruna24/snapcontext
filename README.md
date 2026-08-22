@@ -1,30 +1,68 @@
 # SnapContext
-<p align="center">
-  <pre>
-┌──────────────────────────────────────────────────────────┐
-  │                                                          │
-  │                                                          │
-  │    ███████╗███╗   ██╗ █████╗ ██████╗  ██████╗ ██████╗   │
-  │    ██╔════╝████╗  ██║██╔══██╗██╔══██╗██╔════╝██╔════╝   │
-  │    ███████╗██╔██╗ ██║███████║██████╔╝██║     ██║        │
-  │    ╚════██║██║╚██╗██║██╔═══╝ ██║     ██║     ██║        │
-  │    ███████║██║ ╚████║██║  ██║██║     ╚██████╗╚██████╗   │
-  │    ╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝      ╚═════╝ ╚═════╝   │
-  │                                                          │
-  │    » Selección inteligente de archivos                  │
-  │    » Soporte: Gemini · Ollama · DeepSeek · Groq        │
-  │    » v0.8.0                                             │
-  │                                                          │
-  └──────────────────────────────────────────────────────────┘
-  </pre>
-</p>
 
-[![PyPI version](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/) (disponible en desarrollo; versión pública: **v0.6.0**)
-
-[![Release](https://img.shields.io/badge/release-v0.6.0-blue.svg)](https://github.com/NicolasBruna24/snapcontext/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+![v1.0.0](https://img.shields.io/badge/version-1.0.0-blue.svg)
+[![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
+[![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
+![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Plataformas](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macOS-lightgrey.svg)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
+
+**SnapContext** es un asistente de IA con contexto automático para desarrollo:
+detecta el tipo de proyecto, selecciona los archivos relevantes con IA, ejecuta
+tareas con Aider, planifica trabajos complejos y aprende del proyecto mediante
+una memoria persistente (`CLAUDE.md`).
+
+- **Proveedores**: Gemini · Claude (Anthropic) · Ollama (local) · DeepSeek · Groq
+- **Arquitectura**: orquestador + agentes (Contexto / Editor / Tester)
+- **Seguridad**: permisos con confirmaciones (`~/.snapcontext/permisos.json`)
+
+## 📦 Instalación
+
+```bash
+# Linux / macOS (one-liner)
+curl -fsSL https://raw.githubusercontent.com/NicolasBruna24/snapcontext/main/install.sh | sh
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/NicolasBruna24/snapcontext/main/install.ps1 | iex
+```
+
+O manualmente:
+
+```bash
+pip install snapcontext                 # base
+pip install "snapcontext[anthropic]"    # Claude
+pip install "snapcontext[web]"          # interfaz web (--web)
+pip install aider-chat                  # ediciones de código
+snapcontext --init                      # asistente inicial + API key
+```
+
+## 🚀 Inicio rápido
+
+```bash
+snapcontext "arregla el botón de pago"        # tarea completa
+snapcontext "..." --vista-previa              # ver archivos elegidos sin editar
+snapcontext --demo                            # demo completa sin API key
+```
+
+Auto-detección de proyecto (Flutter, Node/React, Python, Go, Rust…) que ajusta
+carpetas, extensiones y comandos de test por defecto.
+
+## 🧭 Modos y alias
+
+| Modo | Comando |
+|------|---------|
+| Tarea | `snapcontext "<consulta>"` (+ `--test-loop`) |
+| Vista previa / revisión | `--vista-previa` · alias `review` |
+| Chat interactivo | `--chat` |
+| Planificador | `--plan "<tarea>"` |
+| Autónomo | `--plan "<tarea>" --auto` |
+| Demo / Web | `--demo` · `--web` (alias `interactive`) |
+| Memoria e historial | `--init-claude` · `--historial` / `--historial-limpiar` |
+
+Alias: `fix` (= `--test-loop`) · `review` · `server` (= `--server-loop`).
 
 ## 🤖 Modo autónomo (v0.17.0)
 
@@ -50,7 +88,7 @@ SnapContext se integra en VS Code como extensión nativa (`vscode/`), reutilizan
 
 ```powershell
 ./vscode/scripts/empaquetar.ps1          # genera el .vsix
-code --install-extension vscode/snapcontext-vscode-0.16.0.vsix
+code --install-extension vscode/snapcontext-vscode-1.0.0.vsix
 ```
 
 **Comandos** (paleta de comandos, prefijo `SnapContext:`):
@@ -190,6 +228,48 @@ snapcontext --plan "..."                                             # commits '
   `/save` (guarda la sesión en historial.json) además de los comandos previos.
   Los comandos largos (`/run`, `/explore`, `/fix`, `/review`, `/server`) se
   ejecutan en un hilo separado para no bloquear el chat.
+
+## 📚 Casos de uso
+
+### Flutter
+
+```bash
+snapcontext "el botón de pago no actualiza el total" --test-loop
+snapcontext fix "el widget de login no muestra errores"
+snapcontext review "revisa la navegación del carrito"
+```
+
+Detecta `pubspec.yaml`, escanea `lib/` y `test/`, y ejecuta `flutter test` en
+bucle hasta que pasen.
+
+### React / Node
+
+```bash
+snapcontext --provider anthropic "el formulario no valida el email"
+snapcontext plan "migrar componentes a hooks" --branch refactor/hooks --auto
+```
+
+Detecta `package.json`, escanea `src/`, y respeta las convenciones anotadas en
+tu `CLAUDE.md`.
+
+### Python
+
+```bash
+snapcontext "añade tests para el módulo de pagos"
+snapcontext --init-claude      # genera la memoria del proyecto
+snapcontext --chat             # /tool ast pagos.py · /tool git_status
+```
+
+Detecta `pyproject.toml` / `requirements.txt` y usa `pytest` como test por
+defecto.
+
+### CI / automatización
+
+```bash
+snapcontext --plan "corregir tests rotos" --local --no-confirmar --auto
+```
+
+Sin claves (`--local` usa heurística local) y sin preguntas interactivas.
 
 ## 🤝 Contribuciones
 

@@ -6,6 +6,47 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [1.0.0] - 2026-08-22 · 🎉 Primera versión estable
+
+SnapContext 1.0.0 consolida todas las funcionalidades desarrolladas desde la
+0.4.0 en un lanzamiento estable y documentado.
+
+### Resumen de características
+
+- **Selección inteligente de contexto**: auto-detección del tipo de proyecto
+  (Flutter, Node, Python, Go, Rust…), escaneo heurístico + selección con IA
+  (Gemini, Claude/Anthropic, Ollama local, DeepSeek, Groq).
+- **Tareas con Aider**: edición asistida con bucle de pruebas (`--test-loop`),
+  bucles con servidor (`--server-loop`/`--manual-loop`) y revisión experta.
+- **Alias**: `fix`, `review`, `server`, `interactive`.
+- **Chat interactivo** (`--chat`): REPL con herramientas MCP (`/tool`,
+  `/tools`), alias del pipeline, historial de sesión y `/save`.
+- **MCP**: herramientas `grep`, `read_file`, `list_files`, `ast`, `git_status`,
+  `git_diff`, `execute_command` + herramientas de usuario en
+  `~/.snapcontext/mcp_tools.json`.
+- **Planificador** (`--plan`): descomposición en pasos JSON
+  (editar/ejecutar/consultar) con menú continuar/reintentar/saltar.
+- **Modo autónomo** (`--auto`): ejecución sin confirmaciones paso a paso con
+  reintentos automáticos (3) respetando permisos guardados.
+- **Permisos**: `--confirmar/--no-confirmar` con preferencias persistentes
+  (`permisos.json`, opciones s/n/t/a).
+- **Memoria de proyecto**: `CLAUDE.md`/`SNAPCONTEXT.md` cargado automáticamente;
+  generación con `--init-claude` (IA + fallback offline) y actualización
+  propuesta tras tareas exitosas.
+- **Historial persistente**: `historial.json` con `--historial` /
+  `--historial-limpiar`.
+- **Interfaces**: CLI, web en tiempo real (`--web`), extensión VS Code
+  (`vscode/`, canal "SnapContext Output", webview del chat).
+- **Calidad**: 163+ tests unitarios/de integración, demo sin dependencias
+  (`--demo`), empaquetado PyPI y `.vsix`.
+
+### Notas de migración
+
+Ninguna: 1.0.0 es retrocompatible con las configuraciones y archivos de
+versiones 0.x (config.json, permisos.json, historial.json, mcp_tools.json).
+
+---
+
 ## [0.17.0] - 2026-08-22
 
 ### 🤖 Modo autónomo (`--auto`)

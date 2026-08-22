@@ -23,4 +23,4 @@ try {
 
 Write-Host ""
 Write-Host "✔ Listo. El .vsix está en vscode\. Instálalo con:" -ForegroundColor Green
-Write-Host "    code --install-extension snapcontext-vscode-0.17.0.vsix"
+Write-Host "    code --install-extension snapcontext-vscode-1.0.0.vsix"

@@ -216,8 +216,8 @@ class TestFormatoYAutoContexto(BaseMCP):
 
 
 class TestVersionMCPCli(BaseMCP):
-    def test_version_es_0_17_0(self):
-        self.assertEqual(sc.VERSION, "0.17.0")
+    def test_version_es_1_0_0(self):
+        self.assertEqual(sc.VERSION, "1.0.0")
 
 
 if __name__ == "__main__":
