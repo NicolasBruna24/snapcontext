@@ -6,6 +6,23 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [0.13.0] - 2026-08-22
+
+### 🔒 Permisos y confirmaciones (`--confirmar` / `--no-confirmar`)
+
+- Nueva función `_confirmar_accion(descripcion, tipo, detalles)`: muestra un
+  resumen de la acción y pregunta `¿Permitir esta acción? (s/n/t/a)`:
+  - `s` permitir una vez · `n` saltar · `t` permitir todas las del tipo ·
+    `a` no permitir ninguna del tipo.
+- Las respuestas `t`/`a` se guardan en `~/.snapcontext/permisos.json`
+  (`{"<tipo>": "siempre"|"nunca"}`) y se respetan en sesiones futuras.
+- Integrado antes de cada paso del planificador (`--plan`, los tres tipos de
+  acción), en `/run` y `/edit` del chat. `/explore` sigue sin pedir permiso
+  (solo lectura). Con `--no-confirmar` se omiten todas las preguntas
+  (modo automático).
+
+---
+
 ## [0.12.0] - 2026-08-22
 
 ### ✨ Planificador de tareas (`--plan`)

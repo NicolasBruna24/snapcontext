@@ -83,7 +83,7 @@ try:
 except ImportError:  # pragma: no cover
     anthropic = None
 
-VERSION = "0.12.0"
+VERSION = "0.13.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
@@ -2101,12 +2101,14 @@ AYUDA_CHAT = """Comandos disponibles:
   /provider <proveedor>  → cambiar proveedor (gemini | anthropic | ollama | deepseek | groq)
   /historial             → mostrar las últimas tareas guardadas
   /run <comando>         → ejecutar un comando de shell y mostrar su salida
+                           (pide permiso salvo con --no-confirmar)
   /read <archivo>        → mostrar el contenido de un archivo
-  /explore <tema>        → buscar un tema en el código (rg/grep/findstr)
+  /explore <tema>        → buscar un tema en el código (rg/grep/findstr, sin permiso)
   /fix <mensaje>         → ejecutar el alias fix (bucle de pruebas)
   /review <mensaje>      → ejecutar el alias review (vista previa + experto)
   /server <mensaje>      → ejecutar el alias server (bucle con servidor)
-  /edit <archivo>        → abrir el archivo en el editor (VSCode/nano/notepad)
+  /edit <archivo>        → abrir el archivo en el editor (VSCode/nano/notepad;
+                           pide permiso salvo con --no-confirmar)
   /save                  → guardar la sesión actual en historial.json
   /ayuda                 → mostrar esta ayuda
 Cualquier otro texto se envía como mensaje al proveedor de IA.
@@ -2267,7 +2269,8 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             continue
 
         if linea.startswith("/edit "):
-            _cmd_chat_edit(linea[len("/edit "):].strip().strip('"').strip("'"))
+            _cmd_chat_edit(linea[len("/edit "):].strip().strip('"').strip("'"),
+                           confirmar=CONFIRMAR_ACCIONES)
             continue
 
         if linea == "/fix" or linea.startswith("/fix ") \
@@ -2346,10 +2349,15 @@ def _lanzar_en_hilo(fn, *args) -> threading.Thread:
     return hilo
 
 
-def _cmd_chat_run(comando: str, directorio: str = ".") -> None:
+def _cmd_chat_run(comando: str, directorio: str = ".",
+                  confirmar: Optional[bool] = None) -> None:
     """`/run <comando>`: ejecuta un comando de shell y muestra su salida."""
     if not comando:
         aviso("Uso: /run <comando>")
+        return
+    if not _confirmar_accion(comando, tipo="ejecutar",
+                             detalles=f"directorio: {directorio}",
+                             confirmar=confirmar):
         return
     info(f"$ {comando}")
     codigo, stdout, stderr = _ejecutar_comando(comando, directorio)
@@ -2443,7 +2451,7 @@ def _cmd_chat_alias(alias: str, mensaje: str) -> int:
     return flujo_principal(args)
 
 
-def _cmd_chat_edit(archivo: str) -> None:
+def _cmd_chat_edit(archivo: str, confirmar: Optional[bool] = None) -> None:
     """`/edit <archivo>`: abre el archivo en VSCode, $EDITOR o nano/notepad."""
     if not archivo:
         aviso("Uso: /edit <archivo>")
@@ -2453,6 +2461,10 @@ def _cmd_chat_edit(archivo: str) -> None:
         camino = Path.cwd() / camino
     if not camino.is_file():
         error(f"El archivo no existe: {camino}")
+        return
+    # Solo lectura en el chat, pero se abre un programa externo: se confirma.
+    if not _confirmar_accion(f"abrir '{camino}' en el editor", tipo="editar",
+                             confirmar=confirmar):
         return
     editor_cmd = (os.environ.get("VISUAL") or os.environ.get("EDITOR") or "").strip()
     candidatos = ([shlex.split(editor_cmd)] if editor_cmd else [])
@@ -2694,6 +2706,18 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
     accion = paso["accion"]
     descripcion = paso["descripcion"]
 
+    # Confirmación de permisos (v0.13.0) antes de cualquier acción.
+    if accion == "ejecutar":
+        detalles_paso = paso.get("comando") or None
+    elif accion == "editar":
+        detalles_paso = "\n".join(paso.get("archivos", [])) or None
+    else:
+        detalles_paso = None
+    if not _confirmar_accion(
+            descripcion, tipo=accion, detalles=detalles_paso,
+            confirmar=getattr(args, "confirmar", True)):
+        return (False, "denegado por el usuario")
+
     if accion == "ejecutar":
         if not paso.get("comando"):
             return (False, 'el paso no indica "comando"')
@@ -2870,6 +2894,122 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
         "pasos": resultados,
     })
     return 0 if todo_ok or abortar else 1
+
+
+# ---------------------------------------------------------------------------
+# Permisos y confirmaciones (--confirmar / --no-confirmar) — v0.13.0
+# ---------------------------------------------------------------------------
+PERMISOS_PATH = CONFIG_DIR / "permisos.json"
+
+# Interruptor global: main() lo sincroniza con args.confirmar (por defecto
+# True). Con --no-confirmar todas las preguntas se omiten (modo automático).
+CONFIRMAR_ACCIONES = True
+
+
+def _cargar_permisos() -> dict:
+    """Devuelve las preferencias guardadas en ~/.snapcontext/permisos.json.
+
+    Formato: {"<tipo>": "siempre" | "nunca"} para cada tipo de acción
+    ("editar", "ejecutar", "consultar", ...). Archivo corrupto → {}.
+    """
+    try:
+        if PERMISOS_PATH.is_file():
+            datos = json.loads(PERMISOS_PATH.read_text(encoding="utf-8"))
+            if isinstance(datos, dict):
+                return {str(k): str(v) for k, v in datos.items()}
+    except (json.JSONDecodeError, OSError) as exc:
+        aviso(f"No se pudieron leer los permisos ({PERMISOS_PATH}): {exc}")
+    return {}
+
+
+def _guardar_permiso(tipo: str, valor: str) -> bool:
+    """Guarda ``{"<tipo>": valor}`` en permisos.json (valor: siempre/nunca)."""
+    try:
+        permisos = _cargar_permisos()
+        permisos[tipo] = valor
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        PERMISOS_PATH.write_text(
+            json.dumps(permisos, ensure_ascii=False, indent=2), encoding="utf-8")
+        return True
+    except OSError as exc:
+        aviso(f"No se pudo guardar el permiso ({PERMISOS_PATH}): {exc}")
+        return False
+
+
+def _limpiar_permisos() -> bool:
+    """Borra ~/.snapcontext/permisos.json (todas las preferencias 't'/'a')."""
+    try:
+        if PERMISOS_PATH.exists():
+            PERMISOS_PATH.unlink()
+            exito(f"Permisos restablecidos ({PERMISOS_PATH} borrado).")
+        else:
+            info("No hay preferencias de permisos guardadas.")
+        return True
+    except OSError as exc:
+        error(f"No se pudieron borrar los permisos: {exc}")
+        return False
+
+
+def _confirmar_accion(descripcion: str, tipo: str = "editar",
+                      detalles: Optional[str] = None,
+                      confirmar: Optional[bool] = None) -> bool:
+    """Pide permiso al usuario antes de una acción sensible.
+
+    - Muestra un resumen (tipo, descripción y detalles opcionales).
+    - Respeta las preferencias guardadas en permisos.json:
+      "siempre" → permite sin preguntar; "nunca" → deniega sin preguntar.
+    - Pregunta ``¿Permitir esta acción? (s/n/t/a)`` donde:
+        s → permitir solo esta vez · n → saltar esta vez
+        t → permitir TODAS las de este tipo (se guarda)
+        a → no permitir NINGUNA de este tipo (se guarda)
+
+    Devuelve True si la acción está permitida. Con confirmaciones desactivadas
+    (``--no-confirmar`` o ``confirmar=False``) devuelve True siempre.
+    """
+    activo = CONFIRMAR_ACCIONES if confirmar is None else confirmar
+    if not activo:
+        return True
+
+    permisos = _cargar_permisos()
+    recordado = permisos.get(tipo)
+    if recordado == "siempre":
+        depurar(f"[permisos] '{tipo}' recordada como SIEMPRE permitida.")
+        return True
+    if recordado == "nunca":
+        depurar(f"[permisos] '{tipo}' recordada como NUNCA permitida.")
+        return False
+
+    exito("── Permiso requerido " + "─" * 30)
+    _emitir(sys.stdout, f"  tipo        : {tipo}")
+    _emitir(sys.stdout, f"  acción      : {descripcion}")
+    if detalles:
+        for linea in str(detalles).splitlines()[:6]:
+            _emitir(sys.stdout, f"  detalle     : {linea}")
+    while True:
+        try:
+            eleccion = input(_pintar(
+                "¿Permitir esta acción? "
+                "[s]í · [n]o · [t]odos este tipo · [a]nular todas (s/n/t/a): ",
+                _AMARILLO)).strip().lower()
+        except EOFError:
+            aviso("Sin entrada disponible; acción denegada por seguridad.")
+            return False
+        if eleccion in ("s", "si", "sí", "y", "yes"):
+            return True
+        if eleccion in ("n", "no"):
+            aviso("Acción denegada por el usuario.")
+            return False
+        if eleccion in ("t", "todos", "todo"):
+            _guardar_permiso(tipo, "siempre")
+            exito(f"Se recordará: '{tipo}' siempre permitido "
+                  f"({PERMISOS_PATH}). Usa --init o borra el archivo para "
+                  "restaurar las preguntas.")
+            return True
+        if eleccion in ("a", "anular", "nunca"):
+            _guardar_permiso(tipo, "nunca")
+            aviso(f"Se recordará: '{tipo}' nunca permitido ({PERMISOS_PATH}).")
+            return False
+        aviso("Opción no válida; responde s, n, t o a.")
 
 
 def crear_parser() -> argparse.ArgumentParser:
@@ -3062,6 +3202,12 @@ def crear_parser() -> argparse.ArgumentParser:
         "--branch", dest="branch", default=None, metavar="NOMBRE",
         help="En modo --plan, crea y cambia a una rama git nueva antes de ejecutar "
              "los pasos (p. ej. --branch fix/checkout).",
+    )
+    parser.add_argument(
+        "--confirmar", action=argparse.BooleanOptionalAction, default=True,
+        help="Pide confirmación (s/n/todos/nunca) antes de acciones sensibles "
+             "(pasos del planificador, /run y /edit del chat). Por defecto "
+             "activado; desactivar con --no-confirmar para modo automático.",
     )
     return parser
 
@@ -3472,6 +3618,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         argv = sys.argv[1:]
     args = crear_parser().parse_args(_preparar_argv_aliases(argv))
     try:
+        # Permisos (v0.13.0): sincroniza el interruptor global con --confirmar
+        # para todos los modos (chat, planificador, ...).
+        global CONFIRMAR_ACCIONES
+        CONFIRMAR_ACCIONES = getattr(args, "confirmar", True)
         # --init es independiente: configura claves/proveedor y sale.
         if getattr(args, "init", False):
             return asistente_configuracion_inicial()

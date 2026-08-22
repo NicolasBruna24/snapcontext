@@ -26,6 +26,30 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
+## 🔒 Permisos y confirmaciones (v0.13.0)
+
+Por defecto SnapContext **pide permiso** antes de acciones sensibles:
+
+- Pasos del planificador (`--plan`): editar, ejecutar y consultar.
+- Comandos `/run` y `/edit` del chat.
+
+Pregunta `¿Permitir esta acción? (s/n/t/a)` con estas opciones:
+
+| Tecla | Efecto |
+|-------|--------|
+| `s`   | Permitir solo esta vez |
+| `n`   | Saltar esta acción |
+| `t`   | Permitir **todas** las acciones de este tipo (se recuerda) |
+| `a`   | No permitir ninguna de este tipo (se recuerda) |
+
+Las preferencias se guardan en `~/.snapcontext/permisos.json`. Para volver a
+que pregunte, borra ese archivo o usa `--init`. Para modo automático (CI,
+scripts) desactiva todas las preguntas con `--no-confirmar`:
+
+```bash
+snapcontext --plan "tarea" --no-confirmar
+```
+
 ## 🗺️ Planificador de tareas (v0.12.0)
 
 `snapcontext --plan "añadir login con Google"` convierte SnapContext en un agente:

@@ -19,6 +19,7 @@ def _args_base(**extra):
         consulta="tarea de prueba", depurar=False, provider=None, modelo=None,
         git_commit=False, branch=None, directorio=".", test_loop=False,
         aider_opciones="", comando_test="flutter test", max_iteraciones=1,
+        confirmar=False,
     )
     base.update(extra)
     return sc.argparse.Namespace(**base)
@@ -266,8 +267,8 @@ class TestFlagsPlanCLI(unittest.TestCase):
         self.assertEqual(args.branch, "fix/checkout")
         self.assertIsNone(self._parse(["--plan", "x"]).branch)
 
-    def test_version_es_0_12_0(self):
-        self.assertEqual(sc.VERSION, "0.12.0")
+    def test_version_es_0_13_0(self):
+        self.assertEqual(sc.VERSION, "0.13.0")
 
 
 if __name__ == "__main__":
