@@ -6,6 +6,46 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [0.10.0] - 2026-08-22
+
+### ✨ Soporte para Claude (Anthropic) como proveedor de IA
+
+- Nueva entrada `"anthropic"` en `PROVEEDORES` (tipo `anthropic`, clave
+  `ANTHROPIC_API_KEY`, modelo por defecto `claude-3-5-sonnet-20241022`).
+- Nueva función `seleccionar_archivos_con_anthropic()` que usa el SDK oficial
+  (`client.messages.create()`); import diferido con aviso claro si falta la
+  librería: `pip install snapcontext[anthropic]`.
+- `seleccionar_archivos()` redirige al nuevo tipo `"anthropic"`; también
+  soportado en `--init` (prueba de conexión) y en el menú interactivo.
+- Dependencia opcional `anthropic = ["anthropic>=0.30.0"]` en `pyproject.toml`.
+
+### ✨ Modo chat interactivo (`--chat`)
+
+- `snapcontext --chat` abre un REPL (`💬 SnapContext Chat`) con comandos:
+  `/salir`, `/archivos`, `/limpiar`, `/seleccion <consulta>`,
+  `/provider <proveedor>`, `/historial` y `/ayuda`. Cualquier otro texto se
+  envía al proveedor actual manteniendo el historial de conversación de la
+  sesión (últimos 20 turnos por petición).
+
+### ✨ Memoria persistente (`historial.json`)
+
+- Nuevos flags `--historial` (muestra las últimas 20 tareas) y
+  `--historial-limpiar` (borra el archivo).
+- `_cargar_historial()` / `_guardar_historial()` persisten en
+  `~/.snapcontext/historial.json`; cada tarea ejecutada se registra
+  automáticamente (fecha, consulta, archivos, resultado y duración) en un
+  hilo secundario para no bloquear la salida.
+
+### ✨ Lectura de archivos y ejecución de comandos genéricos
+
+- `_leer_archivo(ruta)`: lee rutas relativas/absolutas (devuelve `None` con
+  aviso si falla).
+- `_ejecutar_comando(comando, directorio)`: ejecuta comandos de shell con
+  timeout y devuelve `(codigo_retorno, stdout, stderr)`. Base para el
+  planificador autónomo y disponible desde el chat.
+
+---
+
 ## [0.9.0] - 2026-08-21
 
 ### ✨ Modo demo (`--demo`)

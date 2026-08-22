@@ -76,7 +76,14 @@ try:
 except ImportError:  # pragma: no cover
     openai = None
 
-VERSION = "0.9.0"
+# Claude (Anthropic) usa su propio SDK oficial (`anthropic`), distinto de la
+# API estilo OpenAI. Import diferido por la misma razón que los anteriores.
+try:
+    import anthropic
+except ImportError:  # pragma: no cover
+    anthropic = None
+
+VERSION = "0.10.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
@@ -272,6 +279,14 @@ PROVEEDORES = {
         "base_url": "https://api.groq.com/openai/v1",
         "modelo_default": "llama-3.3-70b-versatile",
     },
+    "anthropic": {
+        "nombre": "Claude",
+        "tipo": "anthropic",                 # SDK oficial `anthropic`
+        "clave_env": "ANTHROPIC_API_KEY",
+        "requiere_clave": True,
+        "url_base": None,                    # se usa la URL oficial por defecto
+        "modelo_default": "claude-3-5-sonnet-20241022",
+    },
 }
 
 # Carpetas / extensiones que se ignoran al escanear manualmente. Con git no
@@ -452,6 +467,14 @@ MENSAJE_OPENAI_FALTANTE = (
     "Este proveedor usa la librería 'openai' (API compatible con OpenAI).\n"
     "Instálala con:  pip install openai"
 )
+MENSAJE_ANTHROPIC_FALTANTE = (
+    "Este proveedor usa la librería 'anthropic' (API oficial de Claude).\n"
+    "Instálala con:  pip install snapcontext[anthropic]\n"
+    "  (o directamente: pip install anthropic>=0.30.0)"
+)
+# Memoria persistente (~/.snapcontext/historial.json): últimas tareas realizadas.
+HISTORIAL_PATH = CONFIG_DIR / "historial.json"
+MAX_HISTORIAL_ENTRADAS = 200      # se recorta para que el archivo no crezca sin límite
 
 # ---------------------------------------------------------------------------
 # Señales y cierre limpio (Ctrl+C / SIGTERM) — multiplataforma
@@ -925,6 +948,59 @@ def seleccionar_archivos_con_openai(consulta: str, archivos: List[str],
     return normalizar_seleccion(parsear_json(texto), archivos, max_archivos)
 
 
+def seleccionar_archivos_con_anthropic(consulta: str, archivos: List[str],
+                                       max_archivos: int = MAX_ARCHIVOS_DEFECTO,
+                                       modelo: Optional[str] = None) -> List[str]:
+    """Selecciona archivos con Claude (Anthropic) usando su SDK oficial.
+
+    Errores controlados con mensajes claros:
+      - librería `anthropic` no instalada        -> MENSAJE_ANTHROPIC_FALTANTE
+      - variable ANTHROPIC_API_KEY sin configurar -> mensaje con la var exacta
+      - errores de red/API de Anthropic           -> RuntimeError descriptivo
+    """
+    if anthropic is None:
+        raise RuntimeError(MENSAJE_ANTHROPIC_FALTANTE)
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError(
+            "No se encontró la variable de entorno ANTHROPIC_API_KEY "
+            "(necesaria para Claude, proveedor 'anthropic').\n"
+            "  PowerShell:  $env:ANTHROPIC_API_KEY=\"tu_clave\"\n"
+            "  Linux/Mac :  export ANTHROPIC_API_KEY=tu_clave"
+        )
+
+    modelo = modelo or PROVEEDORES["anthropic"]["modelo_default"]
+    info(f"Seleccionando con Claude ({modelo})...")
+
+    cliente = anthropic.Anthropic(api_key=api_key)
+    prompt = construir_prompt_seleccion(consulta, archivos, max_archivos)
+    depurar(f"Prompt de selección: {len(prompt)} caracteres, {len(archivos)} candidatos")
+
+    try:
+        respuesta = cliente.messages.create(
+            model=modelo,
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+        )
+    except Exception as exc:  # red, clave inválida, modelo inexistente...
+        raise RuntimeError(f"Error al llamar a Claude (Anthropic): {exc}") from exc
+
+    texto = ""
+    try:
+        # messages.create devuelve bloques de contenido; concatenamos los de texto.
+        texto = "".join(
+            bloque.text for bloque in respuesta.content
+            if getattr(bloque, "type", None) == "text"
+        )
+    except Exception:
+        texto = ""
+    depurar(f"Respuesta de Claude ({len(texto)} caracteres): {texto[:200]}")
+
+    return normalizar_seleccion(parsear_json(texto), archivos, max_archivos)
+
+
 def cargar_configuracion() -> dict:
     """Lee la configuración guardada en ~/.snapcontext/config.json.
 
@@ -1048,6 +1124,7 @@ def seleccionar_proveedor_interactivo() -> tuple:
     while True:
         opciones = [
             questionary.Choice("Gemini (Google)", value="gemini"),
+            questionary.Choice("Claude (Anthropic)", value="anthropic"),
             questionary.Choice("Ollama (local)", value="ollama"),
             questionary.Choice("DeepSeek (API)", value="deepseek"),
             questionary.Choice("Groq (API)", value="groq"),
@@ -1120,6 +1197,27 @@ def _probar_conexion_proveedor(provider: str, model: Optional[str] = None) -> bo
         try:
             genai.configure(api_key=clave)
             genai.GenerativeModel(model or cfg["modelo_default"]).generate_content("responde ok")
+            return True
+        except Exception:
+            return False
+
+    # Claude (Anthropic): SDK oficial, distinto de la API estilo OpenAI.
+    if provider == "anthropic":
+        if anthropic is None:
+            aviso(MENSAJE_ANTHROPIC_FALTANTE)
+            return False
+        clave = (api_keys.get("anthropic") or "").strip() \
+            or os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        if not clave:
+            aviso("No se encontró ninguna clave de Anthropic.")
+            return False
+        try:
+            cliente = anthropic.Anthropic(api_key=clave)
+            cliente.messages.create(
+                model=model or cfg["modelo_default"],
+                max_tokens=5,
+                messages=[{"role": "user", "content": "responde ok"}],
+            )
             return True
         except Exception:
             return False
@@ -1266,6 +1364,10 @@ def seleccionar_archivos(consulta: str, archivos: List[str],
         return seleccionar_archivos_con_openai(
             consulta, archivos, proveedor=proveedor, modelo=modelo,
             max_archivos=max_archivos,
+        )
+    if cfg["tipo"] == "anthropic":
+        return seleccionar_archivos_con_anthropic(
+            consulta, archivos, max_archivos=max_archivos, modelo=modelo,
         )
     raise RuntimeError(f"Tipo de proveedor no implementado: {cfg['tipo']}")
 
@@ -1848,6 +1950,338 @@ class _VersionAction(argparse.Action):
         parser.exit()
 
 
+# ---------------------------------------------------------------------------
+# Memoria persistente (~/.snapcontext/historial.json) — v0.10.0
+# ---------------------------------------------------------------------------
+def _cargar_historial() -> List[dict]:
+    """Devuelve la lista de tareas guardadas en ~/.snapcontext/historial.json.
+
+    Si el archivo no existe o está corrupto se devuelve [] (sin lanzar error),
+    para que el historial nunca rompa el flujo principal.
+    """
+    try:
+        if HISTORIAL_PATH.is_file():
+            datos = json.loads(HISTORIAL_PATH.read_text(encoding="utf-8"))
+            if isinstance(datos, list):
+                return [e for e in datos if isinstance(e, dict)]
+    except (json.JSONDecodeError, OSError) as exc:
+        aviso(f"No se pudo leer el historial ({HISTORIAL_PATH}): {exc}")
+    return []
+
+
+def _guardar_historial(entrada: dict) -> bool:
+    """Añade ``entrada`` al historial persistente y lo recorta si crece mucho.
+
+    ``entrada`` típico::
+
+        {"fecha": "2026-08-21T12:00:00", "consulta": "...",
+         "archivos": ["..."], "resultado": "éxito"/"fallo",
+         "duracion": 12.5}
+
+    Devuelve True si se escribió correctamente. Los errores solo avisan: la
+    memoria es un extra y no debe interrumpir una tarea que sí funcionó.
+    """
+    try:
+        historial = _cargar_historial()
+        historial.append(entrada)
+        historial = historial[-MAX_HISTORIAL_ENTRADAS:]
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        HISTORIAL_PATH.write_text(
+            json.dumps(historial, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return True
+    except OSError as exc:
+        aviso(f"No se pudo guardar en el historial: {exc}")
+        return False
+
+
+def _mostrar_historial(ultimas: int = 20) -> int:
+    """Muestra las ``ultimas`` entradas más recientes del historial.
+
+    Devuelve el número de entradas mostradas.
+    """
+    historial = _cargar_historial()
+    if not historial:
+        info("Historial vacío: aún no hay tareas guardadas.")
+        return 0
+    recientes = historial[-ultimas:]
+    exito(f"Últimas {len(recientes)} tarea(s) guardada(s) "
+          f"({HISTORIAL_PATH}):")
+    for entrada in reversed(recientes):     # la más reciente primero
+        fecha = str(entrada.get("fecha", "?"))
+        consulta = str(entrada.get("consulta", "?"))[:70]
+        resultado = str(entrada.get("resultado", "?"))
+        duracion = entrada.get("duracion")
+        duracion_txt = f"{duracion:.1f}s" if isinstance(duracion, (int, float)) else "?"
+        archivos = entrada.get("archivos") or []
+        _emitir(sys.stdout, f"  [{fecha}] {resultado} · {duracion_txt}")
+        _emitir(sys.stdout, f"      consulta : {consulta}")
+        if archivos:
+            _emitir(sys.stdout, f"      archivos : {', '.join(map(str, archivos[:5]))}"
+                    + ("…" if len(archivos) > 5 else ""))
+    return len(recientes)
+
+
+def _limpiar_historial() -> bool:
+    """Borra ~/.snapcontext/historial.json. Devuelve True si se eliminó."""
+    try:
+        if HISTORIAL_PATH.exists():
+            HISTORIAL_PATH.unlink()
+            exito(f"Historial borrado ({HISTORIAL_PATH}).")
+        else:
+            info("No hay historial que borrar.")
+        return True
+    except OSError as exc:
+        error(f"No se pudo borrar el historial: {exc}")
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Utilidades genéricas para el agente autónomo — v0.10.0
+# ---------------------------------------------------------------------------
+def _leer_archivo(ruta: Union[str, Path]) -> Optional[str]:
+    """Lee un archivo (ruta relativa o absoluta) y devuelve su contenido.
+
+    Devuelve ``None`` si no existe, es un directorio o falla la lectura
+    (el error se registra con ``aviso``). Pensado para ser usado por el chat,
+    el orquestador y futuros planificadores autónomos.
+    """
+    try:
+        camino = Path(ruta).expanduser()
+        if not camino.is_absolute():
+            camino = Path.cwd() / camino
+        camino = camino.resolve()
+        if not camino.is_file():
+            aviso(f"_leer_archivo: no existe o no es archivo: {camino}")
+            return None
+        return camino.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        aviso(f"_leer_archivo: error leyendo '{ruta}': {exc}")
+        return None
+
+
+def _ejecutar_comando(comando: str, directorio: str = ".",
+                      timeout: int = 120) -> tuple:
+    """Ejecuta ``comando`` (str de shell) en ``directorio``.
+
+    Devuelve ``(codigo_retorno, stdout, stderr)``. Usa ``shell=True`` en todas
+    las plataformas (cmd.exe en Windows, sh en Linux/macOS). Errores comunes
+    (timeout, directorio inválido) devuelven ``(-1, "", mensaje_de_error)``
+    sin lanzar excepciones.
+    """
+    raiz = Path(directorio).expanduser()
+    if not raiz.is_dir():
+        return (-1, "", f"El directorio no existe: {raiz}")
+    try:
+        proc = subprocess.run(
+            comando,
+            cwd=str(raiz),
+            shell=True,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=timeout,
+        )
+        return (proc.returncode, proc.stdout or "", proc.stderr or "")
+    except subprocess.TimeoutExpired:
+        return (-1, "", f"El comando tardó demasiado (timeout={timeout}s)")
+    except OSError as exc:
+        return (-1, "", f"Error ejecutando '{comando}': {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Modo chat interactivo (--chat) — v0.10.0
+# ---------------------------------------------------------------------------
+AYUDA_CHAT = """Comandos disponibles:
+  /salir                 → salir del chat
+  /archivos              → mostrar los archivos del contexto actual
+  /limpiar               → limpiar el historial de conversación
+  /seleccion <consulta>  → seleccionar archivos relevantes con el proveedor actual
+  /provider <proveedor>  → cambiar proveedor (gemini | anthropic | ollama | deepseek | groq)
+  /historial             → mostrar las últimas tareas guardadas
+  /ayuda                 → mostrar esta ayuda
+Cualquier otro texto se envía como mensaje al proveedor de IA."""
+
+
+def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
+                         mensajes: List[dict]) -> str:
+    """Envía ``mensajes`` ([{"role": ..., "content": ...}, ...]) al proveedor.
+
+    Soporta todos los tipos registrados en PROVEEDORES (gemini, openai-compatible
+    y anthropic). Devuelve el texto de respuesta o lanza RuntimeError.
+    """
+    if proveedor not in PROVEEDORES:
+        raise RuntimeError(
+            f"Proveedor desconocido '{proveedor}'. "
+            f"Válidos: {', '.join(sorted(PROVEEDORES))}"
+        )
+    cfg = PROVEEDORES[proveedor]
+    modelo = modelo or cfg["modelo_default"]
+    tipo = cfg["tipo"]
+
+    if tipo == "gemini":
+        if genai is None:
+            raise RuntimeError(MENSAJE_GENAI_FALTANTE)
+        api_key = os.environ.get(cfg["clave_env"], "").strip()
+        if not api_key:
+            raise RuntimeError(MENSAJE_API_KEY)
+        genai.configure(api_key=api_key)
+        generador = genai.GenerativeModel(model_name=modelo)
+        # Gemini distingue user/model; convertimos "assistant" → "model".
+        contenidos = [
+            {"role": "user" if m["role"] != "assistant" else "model",
+             "parts": [m["content"]]}
+            for m in mensajes
+        ]
+        respuesta = generador.generate_content(contenidos)
+        return respuesta.text or ""
+
+    if tipo == "anthropic":
+        if anthropic is None:
+            raise RuntimeError(MENSAJE_ANTHROPIC_FALTANTE)
+        api_key = os.environ.get(cfg["clave_env"], "").strip()
+        if not api_key:
+            raise RuntimeError(_mensaje_clave_faltante(proveedor, cfg))
+        cliente = anthropic.Anthropic(api_key=api_key)
+        respuesta = cliente.messages.create(
+            model=modelo, max_tokens=2048, messages=mensajes,
+        )
+        return "".join(
+            bloque.text for bloque in respuesta.content
+            if getattr(bloque, "type", None) == "text"
+        )
+
+    # Tipo "openai": Groq, DeepSeek y Ollama (API compatible).
+    if openai is None:
+        raise RuntimeError(MENSAJE_OPENAI_FALTANTE)
+    api_key = os.environ.get(cfg["clave_env"], "").strip()
+    if cfg["requiere_clave"] and not api_key:
+        raise RuntimeError(_mensaje_clave_faltante(proveedor, cfg))
+    cliente = openai.OpenAI(
+        api_key=api_key or "ollama-local",
+        base_url=_resolver_url_openai(cfg), timeout=120,
+    )
+    respuesta = cliente.chat.completions.create(
+        model=modelo, messages=mensajes, temperature=0.4,
+    )
+    return respuesta.choices[0].message.content or ""
+
+
+def _ejecutar_chat(proveedor: Optional[str] = None,
+                   modelo: Optional[str] = None) -> int:
+    """REPL interactivo (`snapcontext --chat`). Devuelve código de salida.
+
+    Mantiene la conversación en memoria (`historial_chat`) y da acceso a los
+    comandos /salir, /archivos, /limpiar, /seleccion, /provider, /historial y
+    /ayuda. Cualquier otro texto se envía al proveedor actual.
+    """
+    preferencias = cargar_configuracion()
+    proveedor = proveedor or preferencias.get("provider") or PROVEEDOR_DEFECTO
+
+    _emitir(sys.stdout, _pintar(
+        f"💬 SnapContext Chat (v{VERSION}) — Escribe tu tarea, "
+        "/salir para terminar", _CYAN))
+    info(f"Proveedor actual: {PROVEEDORES[proveedor]['nombre']} "
+         f"({modelo or PROVEEDORES[proveedor]['modelo_default']}). "
+         "Escribe /ayuda para ver los comandos.")
+
+    historial_chat: List[dict] = []       # conversación de esta sesión
+    contexto_archivos: List[str] = []     # selección actual (/seleccion)
+
+    while True:
+        try:
+            linea = input(_pintar("> ", _CYAN)).strip()
+        except (EOFError, KeyboardInterrupt):
+            _emitir(sys.stdout, "")
+            info("Chat terminado.")
+            return 0
+        if not linea:
+            continue
+
+        # ---- comandos internos -------------------------------------------
+        if linea in ("/salir", "/exit", "/quit"):
+            info("Chat terminado.")
+            return 0
+
+        if linea == "/ayuda":
+            _emitir(sys.stdout, AYUDA_CHAT)
+            continue
+
+        if linea == "/limpiar":
+            historial_chat = []
+            exito("Historial de conversación limpiado.")
+            continue
+
+        if linea == "/archivos":
+            if not contexto_archivos:
+                aviso("Sin archivos en contexto. Usa /seleccion <consulta>.")
+            else:
+                exito(f"Archivos en contexto ({len(contexto_archivos)}):")
+                for archivo in contexto_archivos:
+                    _emitir(sys.stdout, "   • " + archivo)
+            continue
+
+        if linea == "/historial":
+            _mostrar_historial()
+            continue
+
+        if linea.startswith("/provider"):
+            partes = linea.split(maxsplit=1)
+            nuevo = partes[1].strip().lower() if len(partes) > 1 else ""
+            if nuevo not in PROVEEDORES:
+                aviso(f"Proveedores válidos: {', '.join(sorted(PROVEEDORES))}")
+                continue
+            proveedor = nuevo
+            modelo = None                       # vuelve al modelo por defecto
+            exito(f"Proveedor cambiado a {PROVEEDORES[proveedor]['nombre']} "
+                  f"({PROVEEDORES[proveedor]['modelo_default']}).")
+            continue
+
+        if linea.startswith("/seleccion"):
+            consulta = linea[len("/seleccion"):].strip()
+            if not consulta:
+                aviso("Uso: /seleccion <consulta>")
+                continue
+            try:
+                candidatos = escanear_repositorio(
+                    consulta, directorio=".", carpetas=list(CARPETAS_DEFECTO))
+                if not candidatos:
+                    aviso("No se encontraron candidatos en este repositorio.")
+                    continue
+                contexto_archivos = seleccionar_archivos(
+                    consulta, candidatos,
+                    proveedor=proveedor, modelo=modelo,
+                )
+                if contexto_archivos:
+                    exito(f"Selección ({len(contexto_archivos)}):")
+                    for archivo in contexto_archivos:
+                        _emitir(sys.stdout, "   • " + archivo)
+                else:
+                    aviso("El proveedor no devolvió archivos.")
+            except RuntimeError as exc:
+                error(str(exc))
+            continue
+
+        # ---- mensaje normal → proveedor de IA ----------------------------
+        historial_chat.append({"role": "user", "content": linea})
+        try:
+            # Se envían solo los últimos 20 turnos para no crecer sin límite.
+            respuesta = _enviar_al_proveedor(
+                proveedor, modelo, historial_chat[-20:],
+            )
+        except RuntimeError as exc:
+            error(str(exc))
+            historial_chat.pop()            # no conservar el turno fallido
+            continue
+        except Exception as exc:            # errores de red/API no controlados
+            error(f"Error hablando con {PROVEEDORES[proveedor]['nombre']}: {exc}")
+            historial_chat.pop()
+            continue
+        historial_chat.append({"role": "assistant", "content": respuesta})
+        _emitir(sys.stdout, _pintar(respuesta, _VERDE))
+        _emitir(sys.stdout, "")
+
+
 def crear_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="snapcontext",
@@ -1868,11 +2302,13 @@ def crear_parser() -> argparse.ArgumentParser:
             '  snapcontext review "revisar código"\n'
             '  snapcontext server "iniciar servidor"\n'
             '  snapcontext interactive\n'
+            '  snapcontext --chat\n'
+            '  snapcontext --historial\n'
             '  snapcontext --demo\n'
             '  snapcontext "..." --provider groq --model llama-3.3-70b-versatile\n'
             "Variables de entorno: clave según --provider (GEMINI_API_KEY / "
-            "DEEPSEEK_API_KEY / GROQ_API_KEY), OLLAMA_URL (default "
-            "localhost:11434), SNAPCONTEXT_PROVIDER y SNAPCONTEXT_MODELO "
+            "ANTHROPIC_API_KEY / DEEPSEEK_API_KEY / GROQ_API_KEY), OLLAMA_URL "
+            "(default localhost:11434), SNAPCONTEXT_PROVIDER y SNAPCONTEXT_MODELO "
             "(opcionales).\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -2005,6 +2441,20 @@ def crear_parser() -> argparse.ArgumentParser:
         help="Ejecuta una demo autónoma de SnapContext: crea un proyecto de prueba "
              "temporal, muestra la selección de archivos (--vista-previa --local) y "
              "el bucle de pruebas completo, sin necesidad de API key.",
+    )
+    parser.add_argument(
+        "--chat", action="store_true",
+        help="Abre el modo chat interactivo (REPL): conversa con el proveedor de IA, "
+             "cambia de proveedor (/provider), selecciona archivos (/seleccion) y "
+             "consulta el historial (/historial). No necesita consulta.",
+    )
+    parser.add_argument(
+        "--historial", action="store_true",
+        help="Muestra las últimas 20 tareas guardadas en ~/.snapcontext/historial.json.",
+    )
+    parser.add_argument(
+        "--historial-limpiar", action="store_true",
+        help="Borra el historial persistente (~/.snapcontext/historial.json) y sale.",
     )
     return parser
 
@@ -2342,11 +2792,28 @@ def _ejecutar_demo() -> int:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def _registrar_historial_async(args: argparse.Namespace, codigo: int,
+                               duracion: float) -> None:
+    """Guarda la tarea en el historial en un hilo secundario (no bloquea)."""
+    entrada = {
+        "fecha": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "consulta": getattr(args, "consulta", None) or "(sin consulta)",
+        "archivos": list(getattr(args, "archivos_seleccionados", []) or []),
+        "resultado": "éxito" if codigo == 0 else "fallo",
+        "duracion": round(duracion, 2),
+    }
+    hilo = threading.Thread(target=_guardar_historial,
+                            args=(entrada,), daemon=True)
+    hilo.start()
+    hilo.join(timeout=5)   # espera breve: evita perder la entrada al salir
+
+
 def flujo_principal(args: argparse.Namespace) -> int:
     """Orquesta el pipeline completo. Devuelve el código de salida.
 
     La lógica se delega en el Orquestador (arquitectura de agentes); aquí solo
-    se conserva la firma de la CLI y la bandera de depuración global.
+    se conserva la firma de la CLI, la bandera de depuración global y, desde
+    v0.10.0, el registro automático de la tarea en el historial persistente.
     """
     global DEPURAR
     DEPURAR = args.depurar
@@ -2356,7 +2823,13 @@ def flujo_principal(args: argparse.Namespace) -> int:
     import snapcontext as _snap_sync
     _snap_sync.DEPURAR = args.depurar
     from orquestador import Orquestador  # import diferido para evitar ciclos
-    return Orquestador().ejecutar_flujo(args)
+    inicio = time.monotonic()
+    try:
+        return Orquestador().ejecutar_flujo(args)
+    finally:
+        # Memoria persistente (v0.10.0): se guarda aunque haya fallo, en un
+        # hilo para no bloquear la salida del proceso.
+        _registrar_historial_async(args, 0, time.monotonic() - inicio)
 
 def iniciar_servidor_web(args: argparse.Namespace) -> int:
     """Arranca la interfaz web (FastAPI + WebSockets) en http://localhost:puerto.
@@ -2405,6 +2878,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         # --demo ejecuta una demo autónoma (sin API key ni Aider) y termina.
         if getattr(args, "demo", False):
             return _ejecutar_demo()
+        # --historial-limpiar borra la memoria persistente y termina.
+        if getattr(args, "historial_limpiar", False):
+            return 0 if _limpiar_historial() else 1
+        # --historial muestra las últimas tareas guardadas y termina.
+        if getattr(args, "historial", False):
+            _mostrar_historial()
+            return 0
+        # --chat abre el REPL interactivo (no requiere consulta).
+        if getattr(args, "chat", False):
+            return _ejecutar_chat()
         return flujo_principal(args)
     except KeyboardInterrupt:
         error("Interrumpido por el usuario.")

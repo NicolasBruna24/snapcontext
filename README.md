@@ -26,6 +26,22 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
+## ✨ Novedades v0.10.0
+
+- **Claude (Anthropic) como proveedor de IA**: `snapcontext "..." --provider anthropic`
+  (requiere `ANTHROPIC_API_KEY` y `pip install snapcontext[anthropic]`). Modelo por
+  defecto: `claude-3-5-sonnet-20241022`.
+- **Modo chat interactivo**: `snapcontext --chat` abre un REPL con los comandos
+  `/salir`, `/archivos`, `/limpiar`, `/seleccion <consulta>`,
+  `/provider <proveedor>`, `/historial` y `/ayuda`. Cualquier otro texto se envía
+  al proveedor actual manteniendo la conversación.
+- **Memoria persistente**: cada tarea se guarda en `~/.snapcontext/historial.json`
+  (fecha, consulta, archivos, resultado y duración). Consulta con
+  `snapcontext --historial` y borra con `snapcontext --historial-limpiar`.
+- **Base para el agente autónomo**: nuevas utilidades `_leer_archivo(ruta)` y
+  `_ejecutar_comando(comando, directorio)` disponibles para el chat y futuros
+  planificadores.
+
 ## 🤝 Contribuciones
 
 Las contribuciones son bienvenidas. Si tienes una idea, abre un issue o envía un pull request.
