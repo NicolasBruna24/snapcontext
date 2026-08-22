@@ -6,6 +6,24 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [0.16.0] - 2026-08-22
+
+### 🧩 Extensión para VS Code
+
+- Nuevo directorio `vscode/` con la extensión nativa: `package.json`
+  (comandos, menús y configuración), `extension.js`, webview (copia de la
+  interfaz web + `servidor_webview.py`) y scripts de empaquetado.
+- Comandos: *Abrir chat* (webview con la interfaz web), *Ejecutar consulta*,
+  *Planificar* (`--plan --no-confirmar`) y *Configurar API key*.
+- Canal de salida dedicado **"SnapContext Output"** con los logs del
+  orquestador; el workspace abierto se usa como directorio del proyecto.
+- Integración visual con el editor: clic derecho en el explorador → "Añadir
+  al contexto"; los archivos marcados se adjuntan a consultas y planes.
+
+---
+
+
+
 ## [0.15.0] - 2026-08-22
 
 ### 📄 Memoria de proyecto (CLAUDE.md)

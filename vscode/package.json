@@ -1,0 +1,100 @@
+{
+  "name": "snapcontext-vscode",
+  "displayName": "SnapContext",
+  "description": "Asistente de IA con contexto automático para desarrollo: chat, planificador y selección inteligente de archivos.",
+  "version": "0.16.0",
+  "publisher": "snapcontext",
+  "license": "MIT",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "ai", "gemini", "claude", "ollama", "aider", "agente", "mcp"
+  ],
+  "activationEvents": [],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "snapcontext.abrirChat",
+        "title": "SnapContext: Abrir chat",
+        "category": "SnapContext"
+      },
+      {
+        "command": "snapcontext.ejecutarConsulta",
+        "title": "SnapContext: Ejecutar consulta",
+        "category": "SnapContext"
+      },
+      {
+        "command": "snapcontext.planificar",
+        "title": "SnapContext: Planificar",
+        "category": "SnapContext"
+      },
+      {
+        "command": "snapcontext.configurarApiKey",
+        "title": "SnapContext: Configurar API key",
+        "category": "SnapContext"
+      },
+      {
+        "command": "snapcontext.limpiarSeleccion",
+        "title": "SnapContext: Limpiar archivos seleccionados",
+        "category": "SnapContext"
+      },
+      {
+        "command": "snapcontext.anadirAlContexto",
+        "title": "SnapContext: Añadir al contexto",
+        "category": "SnapContext"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "snapcontext.anadirAlContexto",
+          "title": "SnapContext: Añadir al contexto",
+          "group": "snapcontext"
+        }
+      ],
+      "commandPalette": [
+        { "command": "snapcontext.anadirAlContexto", "when": "false" },
+        { "command": "snapcontext.limpiarSeleccion", "when": "snapcontext.tieneSeleccion" }
+      ]
+    },
+    "configuration": {
+      "title": "SnapContext",
+      "properties": {
+        "snapcontext.pythonPath": {
+          "type": "string",
+          "default": "python",
+          "description": "Ruta al ejecutable de Python donde está instalado snapcontext."
+        },
+        "snapcontext.provider": {
+          "type": "string",
+          "enum": [null, "gemini", "anthropic", "ollama", "deepseek", "groq"],
+          "default": null,
+          "description": "Proveedor de IA por defecto (equivalente a --provider)."
+        },
+        "snapcontext.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Clave API del proveedor (se pasa como variable de entorno GEMINI_API_KEY/ANTHROPIC_API_KEY según el proveedor)."
+        },
+        "snapcontext.confirmar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Pedir confirmación antes de acciones sensibles (--confirmar/--no-confirmar)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "node -e \"console.log('Recuerda tener snapcontext instalado en el Python configurado.')\"",
+    "package": "vsce package"
+  },
+  "devDependencies": {}
+}

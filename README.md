@@ -26,6 +26,31 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
+## 🧩 Extensión VS Code (v0.16.0)
+
+SnapContext se integra en VS Code como extensión nativa (`vscode/`), reutilizando la interfaz web y el orquestador existentes.
+
+**Instalación** (requiere Node.js y `snapcontext` instalado en el Python del sistema):
+
+```powershell
+./vscode/scripts/empaquetar.ps1          # genera el .vsix
+code --install-extension vscode/snapcontext-vscode-0.16.0.vsix
+```
+
+**Comandos** (paleta de comandos, prefijo `SnapContext:`):
+
+| Comando | Descripción |
+|---------|-------------|
+| *Abrir chat* | Arranca el servidor web y muestra la interfaz en una webview |
+| *Ejecutar consulta* | Pide la consulta y la ejecuta con el workspace abierto |
+| *Planificar* | Ejecuta `--plan` mostrando el progreso en el canal de salida |
+| *Configurar API key* | Guarda la clave en los settings del workspace |
+| *Añadir al contexto* | Clic derecho en archivos del explorador → contexto visual |
+
+**Configuración** (`settings.json`): `snapcontext.pythonPath`, `snapcontext.provider`, `snapcontext.apiKey`, `snapcontext.confirmar`.
+
+Los logs del orquestador aparecen en tiempo real en el canal de salida **"SnapContext Output"**, con el workspace abierto como directorio del proyecto. La webview del chat reutiliza `web/static/index.html` (copia en `vscode/webview/`) servida por `servidor_webview.py`.
+
 ## 📄 Memoria de proyecto (v0.15.0)
 
 SnapContext usa un archivo **`CLAUDE.md`** (o `SNAPCONTEXT.md`) en la raíz del

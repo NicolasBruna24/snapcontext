@@ -84,7 +84,7 @@ try:
 except ImportError:  # pragma: no cover
     anthropic = None
 
-VERSION = "0.15.0"
+VERSION = "0.16.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
