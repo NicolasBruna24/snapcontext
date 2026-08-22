@@ -10,4 +10,4 @@ venv/
 # Entorno
 .env
 .env.*
-.aider*
+

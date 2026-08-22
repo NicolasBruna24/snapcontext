@@ -6,6 +6,26 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [0.14.0] - 2026-08-22
+
+### 🛠 MCP (Model Context Protocol): herramientas para el agente
+
+- Sistema de herramientas con resultados estructurados: registro predefinido
+  (`grep`, `read_file`, `list_files`, `ast`, `git_status`, `git_diff`,
+  `execute_command`) más herramientas de usuario definidas en
+  `~/.snapcontext/mcp_tools.json` (comandos shell).
+- Dispatcher `_ejecutar_herramienta_mcp()` con confirmación integrada
+  (reutiliza `_confirmar_accion`; `execute_command` y herramientas de usuario
+  requieren permiso; las de lectura no).
+- Chat: `/tools` lista las disponibles, `/tool <nombre> [args|JSON]` las
+  ejecuta mostrando el resultado coloreado y lo añade al contexto de la
+  conversación. Mensajes de exploración ("busca…", "estado de git"…) activan
+  automáticamente herramientas de solo lectura como contexto del proveedor.
+- Planificador: `_generar_plan()` explora el proyecto (git_status + list_files)
+  antes de pedir el plan para generar pasos más precisos.
+
+---
+
 ## [0.13.0] - 2026-08-22
 
 ### 🔒 Permisos y confirmaciones (`--confirmar` / `--no-confirmar`)

@@ -38,6 +38,7 @@ Open-source y pensado para ser fácil de extender (ver ejecutar_bucle_test).
 """
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -83,7 +84,7 @@ try:
 except ImportError:  # pragma: no cover
     anthropic = None
 
-VERSION = "0.13.0"
+VERSION = "0.14.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
@@ -2110,8 +2111,14 @@ AYUDA_CHAT = """Comandos disponibles:
   /edit <archivo>        → abrir el archivo en el editor (VSCode/nano/notepad;
                            pide permiso salvo con --no-confirmar)
   /save                  → guardar la sesión actual en historial.json
+  /tools                 → listar las herramientas MCP disponibles
+  /tool <nombre> <args>  → ejecutar una herramienta MCP
+                           (p. ej.: /tool grep login · /tool read_file a.py)
+                           args en JSON también válidos: /tool read_file {"ruta": "a.py", "linea_inicio": 10}
   /ayuda                 → mostrar esta ayuda
-Cualquier otro texto se envía como mensaje al proveedor de IA.
+Cualquier otro texto se envía como mensaje al proveedor de IA; si parece una
+pregunta de exploración, SnapContext puede usar herramientas MCP de solo
+lectura automáticamente y añadir el resultado como contexto.
 Los comandos /run, /explore, /fix, /review y /server se ejecutan en un hilo
 separado para no bloquear el chat."""
 
@@ -2253,6 +2260,68 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             _cmd_chat_save(historial_chat)
             continue
 
+        # ---- herramientas MCP (v0.14.0) -----------------------------------
+        if linea == "/tools":
+            herramientas = _cargar_herramientas_mcp()
+            exito(f"Herramientas MCP disponibles ({len(herramientas)}):")
+            for nombre in sorted(herramientas):
+                cfg = herramientas[nombre]
+                permiso = "🔒 requiere permiso" if cfg.get("requiere_permiso") \
+                    else "lectura"
+                _emitir(sys.stdout,
+                        f"   • {nombre} — {cfg['descripcion']} [{permiso}]")
+            continue
+
+        if linea.startswith("/tool "):
+            resto = linea[len("/tool "):].strip()
+            partes = resto.split(maxsplit=1)
+            nombre = partes[0]
+            argumentos: dict = {}
+            if len(partes) > 1:
+                bruto = partes[1].strip()
+                try:
+                    cargado = json.loads(bruto)
+                    if not isinstance(cargado, dict):
+                        raise ValueError
+                    argumentos = cargado
+                except (ValueError, json.JSONDecodeError):
+                    # Formato posicional simple por herramienta.
+                    if nombre == "grep":
+                        argumentos = {"patron": bruto.strip('"').strip("'")}
+                    elif nombre == "read_file":
+                        trozos = shlex.split(bruto)
+                        argumentos = {"ruta": trozos[0] if trozos else ""}
+                        if len(trozos) > 1:
+                            argumentos["linea_inicio"] = trozos[1]
+                        if len(trozos) > 2:
+                            argumentos["linea_fin"] = trozos[2]
+                    elif nombre == "list_files":
+                        argumentos = {"directorio": bruto.strip('"').strip("'")}
+                    elif nombre == "ast":
+                        argumentos = {"ruta": bruto.strip('"').strip("'")}
+                    elif nombre == "git_diff":
+                        argumentos = {"archivo": bruto.strip('"').strip("'")}
+                    elif nombre == "execute_command":
+                        argumentos = {"comando": bruto}
+                    else:
+                        argumentos = {"comando": bruto}
+            info(f"🛠 Ejecutando herramienta MCP '{nombre}'...")
+            llamada = _ejecutar_herramienta_mcp(nombre, argumentos,
+                                                confirmar=CONFIRMAR_ACCIONES)
+            texto = _formatear_resultado_mcp(llamada)
+            _emitir(sys.stdout, _pintar(texto, _VERDE if llamada["ok"]
+                                        else _AMARILLO))
+            if llamada["ok"]:
+                exito("Herramienta completada.")
+            else:
+                error("La herramienta devolvió un error.")
+            # El resultado queda en el contexto de la conversación.
+            historial_chat.append({
+                "role": "user",
+                "content": f"[herramienta {nombre}] "
+                           + _formatear_resultado_mcp(llamada)[:2000]})
+            continue
+
         # ---- comandos de agente ------------------------------------------
         if linea.startswith("/run "):
             hilos.append(_lanzar_en_hilo(
@@ -2321,6 +2390,20 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
 
         # ---- mensaje normal → proveedor de IA ----------------------------
         historial_chat.append({"role": "user", "content": linea})
+        try:
+            # MCP automático (v0.14.0): si el mensaje parece una pregunta de
+            # exploración, se recopila contexto con herramientas de solo
+            # lectura y se añade al turno del usuario.
+            contexto_mcp = _contexto_automatico_mcp(linea)
+        except Exception as exc:                # nunca romper el chat
+            depurar(f"[mcp] contexto automático falló: {exc}")
+            contexto_mcp = ""
+        if contexto_mcp:
+            info("🛠 Contexto MCP añadido a la consulta "
+                 "(herramientas de solo lectura).")
+            historial_chat[-1]["content"] += (
+                "\n\n[Contexto obtenido con herramientas MCP]\n"
+                + contexto_mcp[:3000])
         try:
             # Se envían solo los últimos 20 turnos para no crecer sin límite.
             respuesta = _enviar_al_proveedor(
@@ -2570,6 +2653,31 @@ def _generar_plan(consulta: str, proveedor: Optional[str] = None,
     modelo = modelo or cfg["modelo_default"]
     prompt = PROMPT_PLAN.format(consulta=consulta)
     info(f"Generando plan con {cfg['nombre']} ({modelo})...")
+
+    # MCP (v0.14.0): explora el proyecto con herramientas de solo lectura para
+    # generar pasos más precisos (best-effort: nunca rompe la planificación).
+    try:
+        contexto_proyecto: List[str] = []
+        estado = _ejecutar_herramienta_mcp("git_status", {},
+                                           confirmar=False)
+        if estado.get("ok"):
+            res = estado["resultado"]
+            contexto_proyecto.append(
+                f"Rama git: {res.get('rama')} · cambios sin commitear: "
+                f"{res.get('total_cambios')}")
+        listado = _ejecutar_herramienta_mcp(
+            "list_files", {"max_archivos": 30}, confirmar=False)
+        if listado.get("ok"):
+            contexto_proyecto.append(
+                "Archivos del proyecto (muestra): "
+                + ", ".join(listado["resultado"]["archivos"][:30]))
+        if contexto_proyecto:
+            prompt += "\n\nCONTEXTO DEL PROYECTO (obtenido con herramientas " \
+                      "MCP):\n" + "\n".join(contexto_proyecto)
+            info("🛠 Contexto MCP del proyecto añadido al planificador.")
+    except Exception as exc:
+        depurar(f"[mcp] contexto de planificación falló: {exc}")
+
 
     tipo = cfg["tipo"]
     if tipo == "gemini":
@@ -3010,6 +3118,368 @@ def _confirmar_accion(descripcion: str, tipo: str = "editar",
             aviso(f"Se recordará: '{tipo}' nunca permitido ({PERMISOS_PATH}).")
             return False
         aviso("Opción no válida; responde s, n, t o a.")
+
+
+# ---------------------------------------------------------------------------
+# MCP (Model Context Protocol): herramientas para el agente — v0.14.0
+# ---------------------------------------------------------------------------
+MCP_TOOLS_PATH = CONFIG_DIR / "mcp_tools.json"
+
+# Registro de herramientas predefinidas. Cada entrada describe la herramienta
+# (para que el agente/usuario sepa cómo usarla) y si requiere permiso.
+HERRAMIENTAS_PREDEFINIDAS = {
+    "grep": {
+        "descripcion": "Busca un patrón en el código (rg/grep/findstr).",
+        "parametros": {"patron": "str", "directorio": "str='.'"},
+        "requiere_permiso": False,          # solo lectura
+    },
+    "read_file": {
+        "descripcion": "Lee un archivo completo o un rango de líneas.",
+        "parametros": {"ruta": "str", "linea_inicio": "int?", "linea_fin": "int?"},
+        "requiere_permiso": False,          # solo lectura
+    },
+    "list_files": {
+        "descripcion": "Lista archivos de una carpeta, con filtro de extensión.",
+        "parametros": {"directorio": "str='.'", "extensiones": "list?",
+                       "max_archivos": "int=200"},
+        "requiere_permiso": False,          # solo lectura
+    },
+    "ast": {
+        "descripcion": "Analiza un .py y extrae imports, clases y funciones.",
+        "parametros": {"ruta": "str"},
+        "requiere_permiso": False,          # solo lectura
+    },
+    "git_status": {
+        "descripcion": "Estado de Git (cambios sin commitear, rama actual).",
+        "parametros": {"directorio": "str='.'"},
+        "requiere_permiso": False,          # solo lectura
+    },
+    "git_diff": {
+        "descripcion": "Muestra el diff (opcionalmente de un archivo).",
+        "parametros": {"directorio": "str='.'", "archivo": "str?"},
+        "requiere_permiso": False,          # solo lectura
+    },
+    "execute_command": {
+        "descripcion": "Ejecuta cualquier comando shell (confirmación estricta).",
+        "parametros": {"comando": "str", "directorio": "str='.'"},
+        "requiere_permiso": True,
+    },
+}
+
+
+def _cargar_herramientas_mcp() -> dict:
+    """Devuelve las herramientas disponibles: predefinidas + las del usuario.
+
+    Las definidas por el usuario viven en ~/.snapcontext/mcp_tools.json con
+    formato::
+
+        {"tools": [{"nombre": "build", "descripcion": "...",
+                    "comando": "npm run build", "requiere_permiso": true}]}
+
+    Cada herramienta de usuario se ejecuta como comando shell. Archivo
+    corrupto o entradas inválidas se ignoran con aviso (sin romper nada).
+    """
+    herramientas = {nombre: dict(cfg)
+                    for nombre, cfg in HERRAMIENTAS_PREDEFINIDAS.items()}
+    try:
+        if MCP_TOOLS_PATH.is_file():
+            datos = json.loads(MCP_TOOLS_PATH.read_text(encoding="utf-8"))
+            for cruda in datos.get("tools", []) if isinstance(datos, dict) else []:
+                nombre = str(cruda.get("nombre") or "").strip()
+                comando = str(cruda.get("comando") or "").strip()
+                if not nombre or not comando:
+                    aviso(f"[mcp] Herramienta de usuario inválida ignorada: "
+                          f"{cruda}")
+                    continue
+                herramientas[nombre] = {
+                    "descripcion": str(cruda.get("descripcion")
+                                       or f"Comando: {comando}"),
+                    "parametros": {},
+                    "requiere_permiso": bool(cruda.get("requiere_permiso", True)),
+                    "comando": comando,
+                }
+    except (json.JSONDecodeError, OSError) as exc:
+        aviso(f"No se pudieron leer las herramientas MCP "
+              f"({MCP_TOOLS_PATH}): {exc}")
+    return herramientas
+
+
+# --- Implementaciones de las herramientas (resultados estructurados) -------
+def _tool_grep(patron: str, directorio: str = ".",
+               max_resultados: int = 50) -> dict:
+    """Herramienta `grep`: busca un patrón en el código del proyecto."""
+    if not patron:
+        return {"ok": False, "error": "falta el patrón de búsqueda"}
+    herramienta = _herramienta_busqueda()
+    if herramienta is None:
+        return {"ok": False, "error": "sin buscador disponible (rg/grep/findstr)"}
+    if herramienta == "rg":
+        comando = f'rg -n -i --max-count 5 "{patron}"'
+    elif herramienta == "grep":
+        comando = f'grep -rn -i -m 5 "{patron}" .'
+    else:
+        comando = f'findstr /s /n /i "{patron}" *.py *.dart *.js *.ts *.go *.rs'
+    codigo, stdout, stderr = _ejecutar_comando(comando, directorio, timeout=60)
+    lineas = [l for l in (stdout or "").splitlines() if l.strip()]
+    return {"ok": codigo == 0 or bool(lineas),
+            "buscador": herramienta, "total": len(lineas),
+            "coincidencias": lineas[:max_resultados],
+            "error": None if (codigo == 0 or lineas) else stderr.strip()}
+
+
+def _tool_read_file(ruta: str, linea_inicio: Optional[int] = None,
+                    linea_fin: Optional[int] = None) -> dict:
+    """Herramienta `read_file`: lee un archivo completo o un rango de líneas."""
+    contenido = _leer_archivo(ruta)
+    if contenido is None:
+        return {"ok": False, "ruta": ruta, "error": "no se pudo leer"}
+    lineas = contenido.splitlines()
+    ini = max((linea_inicio or 1), 1)
+    fin = min(linea_fin or len(lineas), len(lineas))
+    fragmento = lineas[ini - 1:fin]
+    return {"ok": True, "ruta": ruta, "total_lineas": len(lineas),
+            "linea_inicio": ini, "linea_fin": fin,
+            "contenido": "\n".join(fragmento)}
+
+
+def _tool_list_files(directorio: str = ".",
+                     extensiones: Optional[List[str]] = None,
+                     max_archivos: int = 200) -> dict:
+    """Herramienta `list_files`: lista archivos con filtros opcionales."""
+    raiz = Path(directorio).expanduser()
+    if not raiz.is_dir():
+        return {"ok": False, "directorio": directorio,
+                "error": f"el directorio no existe: {raiz}"}
+    extensiones = [e.lower() if e.startswith(".") else f".{e.lower()}"
+                   for e in (extensiones or [])]
+    encontrados: List[str] = []
+    for camino in sorted(raiz.rglob("*")):
+        if not camino.is_file():
+            continue
+        if any(parte in (".git", "__pycache__", "node_modules")
+               for parte in camino.parts):
+            continue
+        if extensiones and camino.suffix.lower() not in extensiones:
+            continue
+        encontrados.append(str(camino.relative_to(raiz)))
+        if len(encontrados) >= max_archivos:
+            break
+    return {"ok": True, "directorio": str(raiz), "total": len(encontrados),
+            "archivos": encontrados}
+
+
+def _tool_ast(ruta: str) -> dict:
+    """Herramienta `ast`: extrae imports, clases y funciones de un .py."""
+    contenido = _leer_archivo(ruta)
+    if contenido is None:
+        return {"ok": False, "ruta": ruta, "error": "no se pudo leer"}
+    try:
+        arbol = ast.parse(contenido)
+    except SyntaxError as exc:
+        return {"ok": False, "ruta": ruta,
+                "error": f"sintaxis inválida: {exc}"}
+    imports: List[str] = []
+    clases: List[dict] = []
+    funciones: List[dict] = []
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, ast.Import):
+            for alias in nodo.names:
+                imports.append(alias.name)
+        elif isinstance(nodo, ast.ImportFrom):
+            modulo = nodo.module or ""
+            nombres = ", ".join(a.name for a in nodo.names)
+            imports.append(f"from {modulo} import {nombres}")
+        elif isinstance(nodo, ast.ClassDef):
+            metodos = [n.name for n in nodo.body
+                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+            clases.append({"nombre": nodo.name, "linea": nodo.lineno,
+                           "metodos": metodos})
+        elif isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            argumentos = [a.arg for a in nodo.args.args]
+            funciones.append({"nombre": nodo.name, "linea": nodo.lineno,
+                              "argumentos": argumentos})
+    return {"ok": True, "ruta": ruta, "imports": imports, "clases": clases,
+            "funciones": funciones}
+
+
+def _tool_git_status(directorio: str = ".") -> dict:
+    """Herramienta `git_status`: rama actual y cambios sin commitear."""
+    if not _es_repo_git(directorio):
+        return {"ok": False, "error": f"'{directorio}' no es un repositorio git"}
+    _, rama, _ = _ejecutar_comando("git rev-parse --abbrev-ref HEAD",
+                                   directorio, timeout=15)
+    codigo, salida, _ = _ejecutar_comando("git status --porcelain",
+                                          directorio, timeout=30)
+    modificados = [l.strip() for l in (salida or "").splitlines() if l.strip()]
+    return {"ok": codigo == 0, "rama": (rama or "").strip(),
+            "cambios": modificados, "total_cambios": len(modificados)}
+
+
+def _tool_git_diff(directorio: str = ".", archivo: Optional[str] = None,
+                   max_lineas: int = 200) -> dict:
+    """Herramienta `git_diff`: diferencias sin commitear (staged + unstaged)."""
+    if not _es_repo_git(directorio):
+        return {"ok": False, "error": f"'{directorio}' no es un repositorio git"}
+    comando = "git diff HEAD"
+    if archivo:
+        comando += f' -- "{archivo}"'
+    codigo, salida, stderr = _ejecutar_comando(comando, directorio, timeout=60)
+    lineas = (salida or "").splitlines()
+    return {"ok": codigo == 0, "archivo": archivo,
+            "total_lineas": len(lineas),
+            "diff": "\n".join(lineas[:max_lineas]),
+            "recortado": len(lineas) > max_lineas,
+            "error": None if codigo == 0 else stderr.strip()}
+
+
+def _tool_execute_command(comando: str, directorio: str = ".") -> dict:
+    """Herramienta `execute_command`: ejecuta un comando shell arbitrario.
+
+    Requiere confirmación estricta (se valida en el dispatcher).
+    """
+    if not comando:
+        return {"ok": False, "error": "falta el comando a ejecutar"}
+    codigo, stdout, stderr = _ejecutar_comando(comando, directorio)
+    return {"ok": codigo == 0, "codigo_retorno": codigo,
+            "stdout": stdout.strip(), "stderr": stderr.strip()}
+
+
+# --- Dispatcher MCP: valida permisos y ejecuta la herramienta --------------
+def _ejecutar_herramienta_mcp(nombre: str, argumentos: Optional[dict] = None,
+                              confirmar: Optional[bool] = None) -> dict:
+    """Ejecuta una herramienta MCP por nombre con argumentos ``dict``.
+
+    Devuelve un resultado estructurado::
+
+        {"ok": bool, "herramienta": nombre, "resultado": <dict>,
+         "error": str|None}
+
+    Si la herramienta requiere permiso, pasa por ``_confirmar_accion``
+    (tipo "herramienta"); denegada devuelve ok=False sin ejecutarla.
+    """
+    argumentos = argumentos or {}
+    herramientas = _cargar_herramientas_mcp()
+    cfg = herramientas.get(nombre)
+    if cfg is None:
+        return {"ok": False, "herramienta": nombre, "error":
+                f"herramienta desconocida '{nombre}'. Disponibles: "
+                f"{', '.join(sorted(herramientas))}"}
+
+    if cfg.get("requiere_permiso"):
+        detalles = json.dumps(argumentos, ensure_ascii=False) if argumentos else None
+        if not _confirmar_accion(f"usar herramienta '{nombre}'",
+                                 tipo="herramienta", detalles=detalles,
+                                 confirmar=confirmar):
+            return {"ok": False, "herramienta": nombre,
+                    "error": "denegado por el usuario"}
+
+    depurar(f"[mcp] Ejecutando herramienta '{nombre}' con {argumentos}")
+    try:
+        if nombre == "grep":
+            resultado = _tool_grep(
+                str(argumentos.get("patron", "")),
+                str(argumentos.get("directorio", ".")),
+                int(argumentos.get("max_resultados", 50)))
+        elif nombre == "read_file":
+            resultado = _tool_read_file(
+                str(argumentos.get("ruta", "")),
+                _entero_opcional(argumentos.get("linea_inicio")),
+                _entero_opcional(argumentos.get("linea_fin")))
+        elif nombre == "list_files":
+            resultado = _tool_list_files(
+                str(argumentos.get("directorio", ".")),
+                argumentos.get("extensiones"),
+                int(argumentos.get("max_archivos", 200)))
+        elif nombre == "ast":
+            resultado = _tool_ast(str(argumentos.get("ruta", "")))
+        elif nombre == "git_status":
+            resultado = _tool_git_status(str(argumentos.get("directorio", ".")))
+        elif nombre == "git_diff":
+            archivo = argumentos.get("archivo")
+            resultado = _tool_git_diff(str(argumentos.get("directorio", ".")),
+                                       str(archivo) if archivo else None)
+        elif nombre == "execute_command":
+            resultado = _tool_execute_command(
+                str(argumentos.get("comando", "")),
+                str(argumentos.get("directorio", ".")))
+        else:
+            # Herramienta de usuario definida en mcp_tools.json → comando.
+            resultado = _tool_execute_command(cfg["comando"],
+                                              str(argumentos.get("directorio",
+                                                                 ".")))
+    except Exception as exc:                    # blindaje del agente
+        resultado = {"ok": False, "error": f"excepción: {exc}"}
+    return {"ok": bool(resultado.get("ok")), "herramienta": nombre,
+            "resultado": resultado}
+
+
+def _entero_opcional(valor) -> Optional[int]:
+    """Convierte a int o devuelve None (para argumentos de herramientas)."""
+    try:
+        return int(valor) if valor is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _formatear_resultado_mcp(llamada: dict, max_lineas: int = 40) -> str:
+    """Convierte el resultado de una llamada MCP en texto legible."""
+    if not llamada.get("ok"):
+        return f"✖ {llamada.get('herramienta', 'herramienta')}: " \
+               f"{llamada.get('error', 'fallo')}"
+    res = llamada.get("resultado", {})
+    partes: List[str] = []
+    for clave, valor in res.items():
+        if clave in ("contenido", "diff") and isinstance(valor, str):
+            lineas = valor.splitlines()
+            muestra = "\n".join(lineas[:max_lineas])
+            extra = f"\n… (+{len(lineas) - max_lineas} líneas)" \
+                if len(lineas) > max_lineas else ""
+            partes.append(f"{clave}:\n{muestra}{extra}")
+        elif isinstance(valor, list):
+            muestra = ", ".join(map(str, valor[:20]))
+            extra = " …" if len(valor) > 20 else ""
+            partes.append(f"{clave} ({len(valor)}): {muestra}{extra}")
+        else:
+            partes.append(f"{clave}: {valor}")
+    return "\n".join(partes) or "(sin datos)"
+
+
+def _contexto_automatico_mcp(mensaje: str, max_llamadas: int = 2) -> str:
+    """Uso automático de herramientas de solo lectura según el mensaje.
+
+    Heurística ligera: si el usuario pregunta dónde está algo, el estado del
+    repo o qué archivos hay, se ejecutan hasta ``max_llamadas`` herramientas
+    de solo lectura y se devuelve un bloque de contexto (str) para añadir al
+    prompt del proveedor. Cadena vacía si no aplica.
+    """
+    texto = mensaje.lower()
+    llamadas: List[tuple] = []
+
+    if any(p in texto for p in ("busca ", "buscar ", "dónde está",
+                                "donde esta", "grep", "quién usa",
+                                "quien usa")):
+        # Términos demasiado genéricos para usar como patrón de búsqueda.
+        paradas = {"busca", "buscar", "dónde", "donde", "está", "esta",
+                   "quién", "quien", "usa", "usan", "usado", "usar", "usos"}
+        candidatos = [p for p in re.findall(r"\w+", mensaje)
+                      if len(p) >= 3 and p.lower() not in paradas]
+        if candidatos:
+            # El término más largo suele ser el identificador relevante.
+            llamadas.append(("grep",
+                             {"patron": max(candidatos, key=len)}))
+    if any(p in texto for p in ("estado de git", "git status", "sin commitear",
+                                "cambios pendientes")):
+        llamadas.append(("git_status", {}))
+    if any(p in texto for p in ("lista los archivos", "list_files",
+                                "qué archivos hay", "que archivos hay")):
+        llamadas.append(("list_files", {"max_archivos": 50}))
+
+    bloques: List[str] = []
+    for nombre, argumentos in llamadas[:max_llamadas]:
+        llamada = _ejecutar_herramienta_mcp(nombre, argumentos)
+        bloques.append(f"[{nombre}] "
+                       + _formatear_resultado_mcp(llamada, max_lineas=15))
+    return "\n".join(bloques)
 
 
 def crear_parser() -> argparse.ArgumentParser:

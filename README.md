@@ -26,6 +26,42 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
+## 🛠 Herramientas MCP (v0.14.0)
+
+El agente puede usar herramientas externas con resultados estructurados:
+
+| Herramienta | Descripción | Permiso |
+|-------------|-------------|---------|
+| `grep` | Buscar patrón en el código (rg/grep/findstr) | no |
+| `read_file` | Leer archivo completo o rango de líneas | no |
+| `list_files` | Listar archivos con filtro de extensión | no |
+| `ast` | Extraer imports/clases/funciones de un `.py` | no |
+| `git_status` | Rama actual y cambios sin commitear | no |
+| `git_diff` | Diff sin commitear | no |
+| `execute_command` | Ejecutar cualquier comando shell | **sí** |
+
+En el chat:
+
+```text
+/tools                          # listar herramientas disponibles
+/tool grep login                # forzar una búsqueda
+/tool read_file lib/login.dart  # leer un archivo
+/tool execute_command flutter test   # pide confirmación (🔒)
+```
+
+Además, mensajes como *"busca donde se usa checkout"* o *"¿cuál es el estado de
+git?"* hacen que el agente ejecute automáticamente las herramientas de lectura
+pertinentes y use su salida como contexto para responder. Puedes definir tus
+propias herramientas en `~/.snapcontext/mcp_tools.json`:
+
+```json
+{"tools": [{"nombre": "build", "descripcion": "Compilar el proyecto",
+            "comando": "npm run build", "requiere_permiso": true}]}
+```
+
+El planificador (`--plan`) también usa estas herramientas de solo lectura para
+explorar el proyecto antes de proponer pasos.
+
 ## 🔒 Permisos y confirmaciones (v0.13.0)
 
 Por defecto SnapContext **pide permiso** antes de acciones sensibles:
