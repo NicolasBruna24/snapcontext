@@ -171,5 +171,77 @@ class TestFlagsCLI(unittest.TestCase):
         self.assertEqual(sc.VERSION, "0.10.0")
 
 
+class TestComandosAgenteChat(unittest.TestCase):
+    """Tests del REPL de comandos de agente (--chat) añadidos tras 0.10.0."""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir_tmp = Path(self.tmp.name)
+        (self.dir_tmp / "demo.txt").write_text("hola mundo", encoding="utf-8")
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_run_muestra_salida(self):
+        sc._cmd_chat_run("cmd /c echo prueba" if sys.platform.startswith("win")
+                         else "echo prueba", str(self.dir_tmp))
+
+    def test_run_sin_comando_avisa(self):
+        sc._cmd_chat_run("")   # no debe lanzar excepción
+
+    def test_read_contenido_e_inexistente(self):
+        sc._cmd_chat_read(str(self.dir_tmp / "demo.txt"))
+        sc._cmd_chat_read(str(self.dir_tmp / "no_existe.txt"))
+        sc._cmd_chat_read("")  # uso sin argumento
+
+    def test_herramienta_busqueda_devuelve_algo_en_sistemas_reales(self):
+        resultado = sc._herramienta_busqueda()
+        # En Windows siempre existe findstr; en Linux/macOS grep.
+        self.assertIsNotNone(resultado)
+        self.assertIn(resultado, ("rg", "grep", "findstr"))
+
+    def test_explore_encuentra_coincidencias(self):
+        sc._cmd_chat_explore("hola", str(self.dir_tmp))
+
+    def test_explore_sin_tema_avisa(self):
+        sc._cmd_chat_explore("")
+
+    def test_alias_reutiliza_preparar_argv(self):
+        """_/cmd_chat_alias debe convertir el alias igual que la CLI."""
+        with mock.patch.object(sc, "flujo_principal", return_value=0) as fp:
+            codigo = sc._cmd_chat_alias(
+                "review", "'revisar código' --local --vista-previa")
+        self.assertEqual(codigo, 0)
+        fp.assert_called_once()
+        args = fp.call_args[0][0]
+        self.assertTrue(args.vista_previa)
+        self.assertTrue(args.experto)
+
+    def test_save_guarda_la_sesion(self):
+        import tempfile as _tf
+        dir_hist = Path(_tf.mkdtemp())
+        parches = [
+            mock.patch.object(sc, "CONFIG_DIR", dir_hist),
+            mock.patch.object(sc, "HISTORIAL_PATH",
+                              dir_hist / "historial.json"),
+        ]
+        for p in parches:
+            p.start()
+            self.addCleanup(p.stop)
+        sesion = [
+            {"role": "user", "content": "primera pregunta"},
+            {"role": "assistant", "content": "respuesta"},
+            {"role": "user", "content": "segunda pregunta"},
+        ]
+        sc._cmd_chat_save(sesion)
+        datos = json.loads((dir_hist / "historial.json").read_text("utf-8"))
+        self.assertEqual(len(datos), 1)
+        self.assertEqual(datos[0]["tipo"], "sesion-chat")
+        self.assertEqual(datos[0]["mensajes"], 3)
+        sc._cmd_chat_save([])   # sesión vacía: solo aviso
+
+    def test_edit_con_archivo_inexistente_no_falla(self):
+        sc._cmd_chat_edit(str(self.dir_tmp / "no_existe.txt"))
+
+
 if __name__ == "__main__":
     unittest.main()

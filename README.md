@@ -41,6 +41,13 @@
 - **Base para el agente autónomo**: nuevas utilidades `_leer_archivo(ruta)` y
   `_ejecutar_comando(comando, directorio)` disponibles para el chat y futuros
   planificadores.
+- **Chat como REPL de comandos de agente**: desde `--chat` puedes ejecutar
+  `/run <comando>` (shell), `/read <archivo>`, `/explore <tema>` (búsqueda con
+  rg/grep/findstr), `/fix | /review | /server <mensaje>` (alias del pipeline),
+  `/edit <archivo>` (VSCode/nano/notepad/$EDITOR), `/context` (contexto actual),
+  `/save` (guarda la sesión en historial.json) además de los comandos previos.
+  Los comandos largos (`/run`, `/explore`, `/fix`, `/review`, `/server`) se
+  ejecutan en un hilo separado para no bloquear el chat.
 
 ## 🤝 Contribuciones
 

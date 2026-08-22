@@ -2095,12 +2095,23 @@ def _ejecutar_comando(comando: str, directorio: str = ".",
 AYUDA_CHAT = """Comandos disponibles:
   /salir                 → salir del chat
   /archivos              → mostrar los archivos del contexto actual
+  /context               → alias de /archivos (contexto de la conversación)
   /limpiar               → limpiar el historial de conversación
   /seleccion <consulta>  → seleccionar archivos relevantes con el proveedor actual
   /provider <proveedor>  → cambiar proveedor (gemini | anthropic | ollama | deepseek | groq)
   /historial             → mostrar las últimas tareas guardadas
+  /run <comando>         → ejecutar un comando de shell y mostrar su salida
+  /read <archivo>        → mostrar el contenido de un archivo
+  /explore <tema>        → buscar un tema en el código (rg/grep/findstr)
+  /fix <mensaje>         → ejecutar el alias fix (bucle de pruebas)
+  /review <mensaje>      → ejecutar el alias review (vista previa + experto)
+  /server <mensaje>      → ejecutar el alias server (bucle con servidor)
+  /edit <archivo>        → abrir el archivo en el editor (VSCode/nano/notepad)
+  /save                  → guardar la sesión actual en historial.json
   /ayuda                 → mostrar esta ayuda
-Cualquier otro texto se envía como mensaje al proveedor de IA."""
+Cualquier otro texto se envía como mensaje al proveedor de IA.
+Los comandos /run, /explore, /fix, /review y /server se ejecutan en un hilo
+separado para no bloquear el chat."""
 
 
 def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
@@ -2187,21 +2198,32 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
 
     historial_chat: List[dict] = []       # conversación de esta sesión
     contexto_archivos: List[str] = []     # selección actual (/seleccion)
+    hilos: List[threading.Thread] = []    # comandos de agente en 2º plano
+
+    def _esperar_hilos(limite: float = 120.0) -> None:
+        """Espera (con tope) a que terminen los comandos lanzados en hilos."""
+        for h in hilos:
+            h.join(timeout=limite)
+        hilos.clear()
 
     while True:
         try:
             linea = input(_pintar("> ", _CYAN)).strip()
         except (EOFError, KeyboardInterrupt):
             _emitir(sys.stdout, "")
+            info("Esperando comandos en curso (Ctrl+C para forzar)...")
+            _esperar_hilos()
+            info("Chat terminado.")
+            return 0
+
+        # ---- comandos internos -------------------------------------------
+        if linea in ("/salir", "/exit", "/quit"):
+            info("Esperando comandos en curso...")
+            _esperar_hilos()
             info("Chat terminado.")
             return 0
         if not linea:
             continue
-
-        # ---- comandos internos -------------------------------------------
-        if linea in ("/salir", "/exit", "/quit"):
-            info("Chat terminado.")
-            return 0
 
         if linea == "/ayuda":
             _emitir(sys.stdout, AYUDA_CHAT)
@@ -2212,7 +2234,7 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             exito("Historial de conversación limpiado.")
             continue
 
-        if linea == "/archivos":
+        if linea == "/archivos" or linea == "/context":
             if not contexto_archivos:
                 aviso("Sin archivos en contexto. Usa /seleccion <consulta>.")
             else:
@@ -2223,6 +2245,38 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
 
         if linea == "/historial":
             _mostrar_historial()
+            continue
+
+        if linea == "/save":
+            _cmd_chat_save(historial_chat)
+            continue
+
+        # ---- comandos de agente ------------------------------------------
+        if linea.startswith("/run "):
+            hilos.append(_lanzar_en_hilo(
+                _cmd_chat_run, linea[len("/run "):].strip()))
+            continue
+
+        if linea.startswith("/read "):
+            _cmd_chat_read(linea[len("/read "):].strip().strip('"').strip("'"))
+            continue
+
+        if linea.startswith("/explore "):
+            hilos.append(_lanzar_en_hilo(
+                _cmd_chat_explore, linea[len("/explore "):].strip()))
+            continue
+
+        if linea.startswith("/edit "):
+            _cmd_chat_edit(linea[len("/edit "):].strip().strip('"').strip("'"))
+            continue
+
+        if linea == "/fix" or linea.startswith("/fix ") \
+                or linea == "/review" or linea.startswith("/review ") \
+                or linea == "/server" or linea.startswith("/server "):
+            _alias = linea[1:].split(maxsplit=1)[0]
+            hilos.append(_lanzar_en_hilo(
+                _cmd_chat_alias, _alias,
+                linea[len(f"/{_alias}"):].strip()))
             continue
 
         if linea.startswith("/provider"):
@@ -2280,6 +2334,159 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
         historial_chat.append({"role": "assistant", "content": respuesta})
         _emitir(sys.stdout, _pintar(respuesta, _VERDE))
         _emitir(sys.stdout, "")
+
+
+# ---------------------------------------------------------------------------
+# Comandos de agente del chat (--chat) — v0.10.x
+# ---------------------------------------------------------------------------
+def _lanzar_en_hilo(fn, *args) -> threading.Thread:
+    """Ejecuta ``fn(*args)`` en un hilo daemon para no bloquear el REPL."""
+    hilo = threading.Thread(target=fn, args=args, daemon=True)
+    hilo.start()
+    return hilo
+
+
+def _cmd_chat_run(comando: str, directorio: str = ".") -> None:
+    """`/run <comando>`: ejecuta un comando de shell y muestra su salida."""
+    if not comando:
+        aviso("Uso: /run <comando>")
+        return
+    info(f"$ {comando}")
+    codigo, stdout, stderr = _ejecutar_comando(comando, directorio)
+    if stdout.strip():
+        _emitir(sys.stdout, _pintar(stdout.rstrip(), _VERDE))
+    if stderr.strip():
+        _emitir(sys.stdout, _pintar(stderr.rstrip(), _AMARILLO))
+    if codigo == 0:
+        exito("Comando terminado correctamente.")
+    else:
+        error(f"Comando terminado con código {codigo}.")
+
+
+def _cmd_chat_read(archivo: str) -> None:
+    """`/read <archivo>`: muestra el contenido de un archivo en el chat."""
+    if not archivo:
+        aviso("Uso: /read <archivo>")
+        return
+    contenido = _leer_archivo(archivo)
+    if contenido is None:
+        error(f"No se pudo leer '{archivo}'.")
+        return
+    lineas = contenido.splitlines()
+    exito(f"── {archivo} ({len(lineas)} línea(s)) " + "─" * 20)
+    # Se muestran como máximo 400 líneas para no saturar la consola.
+    for linea in lineas[:400]:
+        _emitir(sys.stdout, "  " + linea)
+    if len(lineas) > 400:
+        aviso(f"(salida recortada: {len(lineas) - 400} línea(s) más)")
+
+
+def _herramienta_busqueda() -> Optional[str]:
+    """Devuelve el buscador disponible: ripgrep ('rg'), 'grep' o 'findstr'."""
+    for herramienta in ("rg", "grep", "findstr"):
+        if shutil.which(herramienta):
+            return herramienta
+    return None
+
+
+def _cmd_chat_explore(tema: str, directorio: str = ".") -> None:
+    """`/explore <tema>`: busca ``tema`` en el código del repositorio.
+
+    Usa ripgrep si está instalado; si no, `grep` en Linux/macOS o `findstr`
+    en Windows. Recursivo e insensible a mayúsculas.
+    """
+    if not tema:
+        aviso("Uso: /explore <tema>")
+        return
+    herramienta = _herramienta_busqueda()
+    if herramienta is None:
+        error("No se encontró ningún buscador (rg, grep ni findstr) en el PATH.")
+        return
+    info(f"Explorando '{tema}' con {herramienta}...")
+    if herramienta == "rg":
+        comando = f'rg -n -i --max-count 5 "{tema}"'
+    elif herramienta == "grep":
+        comando = f'grep -rn -i -m 5 "{tema}" .'
+    else:  # findstr (Windows): /s recursivo, /i sin mayúsculas
+        comando = f'findstr /s /n /i "{tema}" *.py *.dart *.js *.ts *.go *.rs'
+    codigo, stdout, stderr = _ejecutar_comando(comando, directorio, timeout=60)
+    salida = (stdout or "").strip()
+    if salida:
+        lineas = salida.splitlines()
+        exito(f"{len(lineas)} coincidencia(s):")
+        for linea in lineas[:50]:
+            _emitir(sys.stdout, "  " + linea)
+        if len(lineas) > 50:
+            aviso(f"(mostradas 50 de {len(lineas)} coincidencias)")
+    elif codigo == 0:
+        aviso("Sin coincidencias.")
+    else:
+        error(f"La búsqueda falló (código {codigo}): "
+              f"{stderr.strip() or 'sin detalle'}")
+
+
+def _cmd_chat_alias(alias: str, mensaje: str) -> int:
+    """Ejecuta los alias fix/review/server desde el chat.
+
+    Reutiliza exactamente la lógica existente: convierte el alias con
+    ``_preparar_argv_aliases``, parsea los argumentos con ``crear_parser`` y
+    llama a ``flujo_principal`` (que además registra la tarea en el historial).
+    Devuelve el código de salida del pipeline.
+    """
+    if not mensaje:
+        aviso(f"Uso: /{alias} <mensaje>")
+        return 1
+    argv = _preparar_argv_aliases([alias] + shlex.split(mensaje))
+    args = crear_parser().parse_args(argv)
+    args.depurar = DEPURAR
+    info(f"Ejecutando alias '{alias}' con: {mensaje}")
+    return flujo_principal(args)
+
+
+def _cmd_chat_edit(archivo: str) -> None:
+    """`/edit <archivo>`: abre el archivo en VSCode, $EDITOR o nano/notepad."""
+    if not archivo:
+        aviso("Uso: /edit <archivo>")
+        return
+    camino = Path(archivo).expanduser()
+    if not camino.is_absolute():
+        camino = Path.cwd() / camino
+    if not camino.is_file():
+        error(f"El archivo no existe: {camino}")
+        return
+    editor_cmd = (os.environ.get("VISUAL") or os.environ.get("EDITOR") or "").strip()
+    candidatos = ([shlex.split(editor_cmd)] if editor_cmd else [])
+    candidatos += [["code"], ["nano"] if os.name != "nt" else ["notepad"]]
+    for cmd in candidatos:
+        if shutil.which(cmd[0]):
+            try:
+                subprocess.Popen(cmd + [str(camino)])
+                exito(f"Abriendo '{camino}' con {cmd[0]}...")
+            except OSError as exc:
+                error(f"No se pudo abrir el editor: {exc}")
+            return
+    error("No se encontró ningún editor (code/nano/notepad/$EDITOR).")
+
+
+def _cmd_chat_save(historial_chat: List[dict]) -> None:
+    """`/save`: guarda un resumen de la sesión actual en historial.json."""
+    if not historial_chat:
+        aviso("No hay conversación que guardar.")
+        return
+    turnos_usuario = [m["content"] for m in historial_chat
+                      if m.get("role") == "user"]
+    entrada = {
+        "fecha": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "consulta": " | ".join(t[:120] for t in turnos_usuario),
+        "archivos": [],
+        "resultado": "éxito",
+        "duracion": round(len(turnos_usuario), 2),   # nº de turnos del usuario
+        "tipo": "sesion-chat",
+        "mensajes": len(historial_chat),
+    }
+    if _guardar_historial(entrada):
+        exito(f"Sesión guardada en {HISTORIAL_PATH} "
+              f"({entrada['mensajes']} mensajes).")
 
 
 def crear_parser() -> argparse.ArgumentParser:
