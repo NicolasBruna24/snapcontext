@@ -25,6 +25,7 @@ import asyncio
 import json
 import queue
 import shlex
+import sys
 import threading
 import time
 from pathlib import Path
@@ -33,14 +34,17 @@ from typing import List
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import FileResponse
 
-_ESTATICO = Path(__file__).resolve().parent / "static"
+_ESTATICO = Path(getattr(sys, "_MEIPASS",
+                         Path(__file__).resolve().parent.parent)) / "web" / "static"
+# En el ejecutable PyInstaller (v1.5.0), ``web/static`` va a ``_MEIPASS``;
+# en desarrollo, ``__file__`` es ``web/app.py`` y el estático queda al lado.
 # ``directorio`` por defecto si la UI no lo indica (directorio de trabajo).
 _DIRECTORIO_DEFECTO = "."
 
 
 def crear_app() -> FastAPI:
     """Construye y devuelve la app FastAPI (rutas + WebSocket)."""
-    app = FastAPI(title="SnapContext Web", version="1.4.0")
+    app = FastAPI(title="SnapContext Web", version="1.5.0")
 
     @app.get("/")
     async def raiz():

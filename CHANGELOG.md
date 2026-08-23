@@ -6,6 +6,38 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [1.5.0] - 2026-08-23 · 📦 Instalador .exe para Windows (sin Python)
+
+### ✨ Nuevas funcionalidades
+- **Ejecutable único `snapcontext.exe`** generado con **PyInstaller**
+  (`snapcontext.spec`): incluye el código y las dependencias ligeras
+  (`google-generativeai`, `openai`, `questionary`, `fastapi`, `uvicorn` y el
+  estático de la interfaz web). El usuario final **no necesita Python**.
+- **Instalador NSIS `SnapContext-Setup-<versión>.exe`** (`installer.nsi`):
+  - Instala en `%LOCALAPPDATA%\Programs\SnapContext` (por usuario, sin admin).
+  - Añade la carpeta al **PATH del usuario** automáticamente.
+  - Accesos directos opcionales en **Menú Inicio** y **Escritorio**.
+  - **Desinstalador** completo (PATH, accesos, registro; conserva
+    `~\.snapcontext` con claves e historial).
+- **Automatización**: nuevo script `scripts/empaquetar_exe.ps1`
+  (y `empaquetar_exe.sh` para CI/Linux) que ejecuta PyInstaller + NSIS de una
+  sola vez y verifica que el exe responde a `--version`.
+- **Modo full opcional**: `-Full` (o `SNAPCONTEXT_EXE_FULL=1`) incluye los
+  extras pesados (`sentence-transformers`, `tree-sitter`); por defecto se
+  excluyen y SnapContext usa sus fallbacks (`ast`, aviso en búsqueda
+  semántica), manteniendo el instalador ligero.
+
+### 🔧 Compatibilidad
+- `web/app.py` resuelve su estático vía `sys._MEIPASS` cuando corre como exe
+  y vía `__file__` en desarrollo: `--web` funciona igual en ambos modos.
+- CLI, chat, planificador, MCP y extensión VS Code sin cambios.
+
+### 🧪 Tests
+- Nuevo `tests/test_exe_150.py`: coherencia de artefactos (spec/NSIS/scripts)
+  y resolución del estático web en modo desarrollo/frozen.
+
+---
+
 ## [1.4.0] - 2026-08-23 · 🤖 MCP avanzado + planificador autónomo
 
 ### ✨ Nuevas funcionalidades

@@ -388,6 +388,49 @@ Qué hay de nuevo en esta versión:
 
 ---
 
+## 📦 Instalación con el instalador .exe (Windows, sin Python) — v1.5.0
+
+Desde la **v1.5.0**, en Windows puedes instalar SnapContext **sin necesidad de
+Python** con el instalador gráfico:
+
+1. Descarga **`SnapContext-Setup-<versión>.exe`** desde
+   [GitHub Releases](https://github.com/NicolasBruna24/snapcontext/releases).
+2. Ejecútalo: instala en `%LOCALAPPDATA%\Programs\SnapContext`, añade la
+   carpeta al **PATH del usuario** y (opcional) crea accesos directos en el
+   **Menú Inicio** y el **Escritorio**.
+3. Abre una terminal nueva y comprueba:
+
+   ```powershell
+   snapcontext --version
+   snapcontext --demo          # demo sin API key ni Aider
+   ```
+
+El instalador incluye un **desinstalador** (Panel de control → Aplicaciones o
+`Uninstall.exe` en la carpeta de instalación); tu configuración
+(`~\.snapcontext`) se conserva.
+
+> **Notas:** el `.exe` incluye las dependencias ligeras (Gemini/OpenAI,
+> menú interactivo e interfaz web). Los extras pesados (embeddings con
+> `sentence-transformers` y análisis con `tree-sitter`) quedan fuera para
+> mantenerlo ligero; si los necesitas, instala la versión Python con
+> `pip install snapcontext[embeddings,mcp_avanzado]`. Aider (modo edición)
+> se instala aparte: `pip install aider-chat`.
+
+### Regenerar el instalador (mantenedores)
+
+Requisitos: Python 3.9+ con las dependencias del proyecto, `pip install
+pyinstaller` y [NSIS](https://nsis.sourceforge.io) en el PATH.
+
+```powershell
+.\scripts\empaquetar_exe.ps1          # genera dist\SnapContext-Setup-<versión>.exe
+.\scripts\empaquetar_exe.ps1 -Full    # incluye sentence-transformers + tree-sitter
+```
+
+El script ejecuta `pyinstaller snapcontext.spec`, verifica que el ejecutable
+responde a `--version` y después compila `installer.nsi` con `makensis`.
+
+---
+
 ## Instalación rápida (one-liner)
 
 **Linux / macOS:**
