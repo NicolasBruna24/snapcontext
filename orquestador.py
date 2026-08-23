@@ -210,14 +210,36 @@ class Orquestador:
             raise RuntimeError("--max-archivos debe ser al menos 1.")
 
         raiz = sc.resolver_raiz(args.directorio)
-        if not sc._es_proyecto_valido(raiz):
-            sc.error(
-                "⚠️ No parece que estés en una carpeta de proyecto. "
-                "SnapContext espera carpetas como lib/, src/, supabase/, etc. "
-                "Puedes indicar una carpeta con --directorio <ruta> o navega a "
-                "la raíz de tu proyecto y vuelve a intentarlo."
+
+        # v1.3.0: --iniciar-proyecto desactiva por completo la validación.
+        if getattr(args, "iniciar_proyecto", False):
+            sc.aviso(
+                "Modo iniciar-proyecto: se omite la validación de carpeta. "
+                "Asegúrate de estar en el directorio correcto."
             )
-            return None
+        else:
+            directo_explicito = args.directorio not in (".", "")
+            valido = sc._es_proyecto_valido(raiz)
+            if not valido and (args.local or directo_explicito):
+                # Con --local o --directorio explícito solo se avisa: el
+                # usuario ya indicó claramente dónde quiere trabajar.
+                sc.aviso(
+                    "No se detectó una carpeta de proyecto típica "
+                    "(lib/, src/, supabase/, etc.), pero se continúa por "
+                    + ("usar --local." if args.local
+                       else f"haber indicado --directorio ({raiz}).")
+                )
+            elif not valido:
+                sc.error(
+                    "⚠️ No se detectó una carpeta de proyecto típica "
+                    "(lib/, src/, supabase/, etc.).\n"
+                    "Si estás empezando un proyecto desde cero, usa "
+                    "--iniciar-proyecto para saltar esta validación.\n"
+                    "O usa --local para trabajar sin IA (también desactiva "
+                    "la validación).\n"
+                    "También puedes indicar la carpeta con --directorio <ruta>."
+                )
+                return None
 
         sc.info(f"Repositorio: {raiz}")
 

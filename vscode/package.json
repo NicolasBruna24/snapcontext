@@ -2,7 +2,7 @@
   "name": "snapcontext-vscode",
   "displayName": "SnapContext",
   "description": "Asistente de IA con contexto automático para desarrollo: chat, planificador y selección inteligente de archivos.",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "publisher": "NicolasBrunaFuentealba",
   "license": "MIT",
   "engines": {
@@ -16,38 +16,45 @@
   "keywords": [
     "ai", "gemini", "claude", "ollama", "aider", "agente", "mcp"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:snapcontext.abrirChat",
+    "onCommand:snapcontext.ejecutarConsulta",
+    "onCommand:snapcontext.planificar",
+    "onCommand:snapcontext.configurarApiKey",
+    "onCommand:snapcontext.anadirAlContexto",
+    "onCommand:snapcontext.limpiarSeleccion"
+  ],
   "main": "./extension.js",
   "contributes": {
     "commands": [
       {
         "command": "snapcontext.abrirChat",
-        "title": "SnapContext: Abrir chat",
+        "title": "Abrir chat",
         "category": "SnapContext"
       },
       {
         "command": "snapcontext.ejecutarConsulta",
-        "title": "SnapContext: Ejecutar consulta",
+        "title": "Ejecutar consulta",
         "category": "SnapContext"
       },
       {
         "command": "snapcontext.planificar",
-        "title": "SnapContext: Planificar",
+        "title": "Planificar",
         "category": "SnapContext"
       },
       {
         "command": "snapcontext.configurarApiKey",
-        "title": "SnapContext: Configurar API key",
+        "title": "Configurar API key",
         "category": "SnapContext"
       },
       {
         "command": "snapcontext.limpiarSeleccion",
-        "title": "SnapContext: Limpiar archivos seleccionados",
+        "title": "Limpiar archivos seleccionados",
         "category": "SnapContext"
       },
       {
         "command": "snapcontext.anadirAlContexto",
-        "title": "SnapContext: Añadir al contexto",
+        "title": "Añadir al contexto",
         "category": "SnapContext"
       }
     ],

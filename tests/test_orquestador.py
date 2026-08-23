@@ -55,8 +55,9 @@ class TestPlanificacion(unittest.TestCase):
 
     def test_proyecto_invalido_devuelve_none(self):
         import snapcontext as snap
+        args = snap.crear_parser().parse_args(["consulta"])
+        # v1.3.0: solo bloquea si NO hay --local ni --directorio explicito.
         with mock.patch.object(snap, "_es_proyecto_valido", return_value=False):
-            args = self._parser_args([])
             self.assertIsNone(Orquestador()._planificar(args, snap))
 
 

@@ -539,16 +539,55 @@ con el resto de flags):
 Si el primer argumento no coincide con ninguno de estos alias, se trata como
 consulta (comportamiento habitual).
 
+### 🚀 Empezar un proyecto desde cero
+
+¿Carpeta vacía? No hay problema. Desde la **v1.3.0** SnapContext puede trabajar
+en carpetas nuevas o casi vacías:
+
+```bash
+mkdir mi-app && cd mi-app
+snapcontext "crear la estructura inicial de un backend con FastAPI" --iniciar-proyecto
+```
+
+- `--iniciar-proyecto` (alias `--no-validar`): omite por completo la validación
+  de carpeta. Ideal para empezar un proyecto desde cero. Muestra el aviso:
+  `⚠️ Modo iniciar-proyecto: se omite la validación de carpeta. Asegúrate de estar en el directorio correcto.`
+- `--local`: trabaja sin IA y también desactiva la validación:
+
+  ```bash
+  snapcontext "listar archivos del proyecto" --local --vista-previa
+  ```
+
+- `--directorio <ruta>` explícito: si indicas la carpeta a mano, solo se muestra
+  un aviso (no se bloquea).
+- Además, desde v1.3.0 la validación acepta **carpetas típicas vacías**
+  (`lib/`, `src/`, `supabase/`, `app/`, `packages/`, `backend/`), **archivos de
+  código vacíos** en la raíz (`main.py`, `main.dart`, `index.js`, ...) y
+  **archivos de configuración vacíos** (`pubspec.yaml`, `package.json`,
+  `pyproject.toml`, ...). Basta con crear uno para que SnapContext te deje
+  trabajar.
+
+SnapContext puede crear archivos desde cero: Aider escribe los ficheros nuevos
+que la tarea requiera, incluso en una carpeta que antes estaba vacía.
+
 ### Validación de carpeta de proyecto
 
-Al iniciar, SnapContext comprueba que el directorio contiene carpetas típicas de
-proyecto (`lib/`, `src/`, `supabase/`, `app/`, `packages/`, `backend/`). Si no
-encuentra ninguna, avisa y sale (código 1):
+Al iniciar, SnapContext comprueba que el directorio tenga indicios de ser un
+proyecto (v1.3.0): alguna carpeta típica (`lib/`, `src/`, `supabase/`, `app/`,
+`packages/`, `backend/`) —aunque esté vacía—, algún archivo de código en la
+raíz —aunque esté vacío— o algún archivo de configuración típico
+(`pubspec.yaml`, `package.json`, `requirements.txt`, `go.mod`, `Cargo.toml`,
+`setup.py`, `pyproject.toml`). Si no encuentra nada:
+
+- Con `--iniciar-proyecto`, `--local` o `--directorio <ruta>` explícito → solo
+  avisa y continúa.
+- Sin ninguno de esos flags → error con sugerencias (código 1):
 
 ```
-⚠️ No parece que estés en una carpeta de proyecto. SnapContext espera carpetas como
-lib/, src/, supabase/, etc. Puedes especificar una carpeta con --directorio <ruta> o
-navega a la raíz de tu proyecto y vuelve a intentarlo.
+⚠️ No se detectó una carpeta de proyecto típica (lib/, src/, supabase/, etc.).
+Si estás empezando un proyecto desde cero, usa --iniciar-proyecto para saltar esta validación.
+O usa --local para trabajar sin IA (también desactiva la validación).
+También puedes indicar la carpeta con --directorio <ruta>.
 ```
 
 ### Menú interactivo de proveedor (↑↓ + Enter)
@@ -654,7 +693,8 @@ locales y te deja elegir con las flechas:
 | `--provider` | *(sin por defecto)* | Proveedor que selecciona archivos (`gemini`, `ollama`, `deepseek`, `groq`). Si no se indica (ni `--local`) se usa el guardado en `~/.snapcontext/config.json` o un menú interactivo |
 | `--no-persist` | off | Ignora la configuración guardada y fuerza el menú interactivo |
 | `--model` (alias `--modelo`) | según proveedor | Modelo del proveedor (o `SNAPCONTEXT_MODELO`) |
-| `--local` | off | Selección sin IA (modo offline / pruebas) |
+| `--local` | off | Selección sin IA (modo offline / pruebas). También desactiva la validación de carpeta |
+| `--iniciar-proyecto` (alias `--no-validar`) | off | Omite la validación de carpeta: permite trabajar en carpetas vacías al empezar un proyecto desde cero |
 | `--vista-previa` | off | Mostrar la selección y salir |
 | `--experto` (alias `--expert`) | off | Revisar/añadir/eliminar archivos antes de Aider |
 | `--aider-opciones` | `""` | Flags extra para Aider |

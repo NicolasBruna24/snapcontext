@@ -84,12 +84,55 @@ if (Get-Command uv -ErrorAction SilentlyContinue) {
     }
 }
 
+# ─── 2b. Limpiar instalaciones previas de SnapContext con uv ──────────────
+# Un snapcontext antiguo instalado con 'uv tool' vive en %USERPROFILE%\.local\bin
+# y puede tapar al nuevo en el PATH (bug conocido de la v1.2.0).
+$uvPrevio = $false
+if ($uvExists) {
+    try {
+        $lista = & uv tool list 2>$null
+        if ($lista -match '^snapcontext') { $uvPrevio = $true }
+    } catch { }
+}
+if (-not $uvPrevio -and (Test-Path "$env:USERPROFILE\.local\bin\snapcontext.exe")) {
+    $uvPrevio = $true
+}
+
+if ($uvPrevio) {
+    Write-Warn "Se detectó una instalación previa de SnapContext vía 'uv tool'."
+    $respuesta = "s"
+    if (-not [Console]::IsInputRedirected) {
+        $respuesta = Read-Host "¿Eliminarla para evitar conflictos de PATH? (s/n)"
+    } else {
+        Write-Info "Ejecución no interactiva: se elimina automáticamente."
+    }
+    if ($respuesta -notmatch '^[nN]') {
+        if ($uvExists) {
+            & uv tool uninstall snapcontext 2>&1 | Select-Object -Last 1
+        } else {
+            Remove-Item "$env:USERPROFILE\.local\bin\snapcontext.exe" -Force `
+                -ErrorAction SilentlyContinue
+        }
+        Write-OK "Instalación previa con uv eliminada."
+    } else {
+        Write-Warn "Se conserva la instalación con uv; puede haber conflictos de versión."
+    }
+}
+
 # ─── 3. Instalar SnapContext ──────────────────────────────────────────────
 Write-Info "Instalando SnapContext..."
 if ($uvExists) {
     & uv tool install snapcontext 2>&1 | Select-Object -Last 1
     $userBin = "$env:USERPROFILE\.local\bin"
     if (Test-Path $userBin) { $env:PATH = "$userBin;$env:PATH" }
+
+    # Persistir %USERPROFILE%\.local\bin en el PATH del usuario si falta,
+    # para que 'snapcontext' funcione en terminales nuevas.
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if ($userPath -notlike "*$userBin*") {
+        [Environment]::SetEnvironmentVariable("Path", "$userBin;$userPath", "User")
+        Write-OK "✓ Ruta '$userBin' añadida al PATH del usuario"
+    }
 } else {
     & $python -m pip install --upgrade pip 2>&1 | Out-Null
     & $python -m pip install snapcontext 2>&1 | Select-Object -Last 1

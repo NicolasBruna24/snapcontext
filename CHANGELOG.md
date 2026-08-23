@@ -6,6 +6,46 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [1.3.0] - 2026-08-23 · 🚀 Proyectos desde cero + instaladores mejorados
+
+### ✨ Nuevas funcionalidades
+- **Nuevo flag `--iniciar-proyecto`** (alias `--no-validar`): desactiva por
+  completo la validación de carpeta de proyecto, para empezar un proyecto
+  desde cero en una carpeta vacía. Muestra el aviso
+  `⚠️ Modo iniciar-proyecto: se omite la validación de carpeta...`.
+- **Validación de proyecto más permisiva (`_es_proyecto_valido()`)**: ahora
+  también valida si hay carpetas típicas (`lib/`, `src/`, `supabase/`,
+  `app/`, `packages/`, `backend/`) **vacías**, archivos de código en la raíz
+  (`.py`, `.dart`, `.js`, `.ts`, `.go`, `.rs`, `.java`, ...) **vacíos**, o
+  archivos de configuración típicos (`pubspec.yaml`, `package.json`,
+  `requirements.txt`, `go.mod`, `Cargo.toml`, `setup.py`, `pyproject.toml`)
+  **vacíos**.
+- **`--local` y `--directorio` explícito ya no bloquean**: si no se detecta
+  estructura de proyecto, solo se muestra un aviso y se continúa (antes se
+  abortaba).
+
+### 🔧 Correcciones y mejoras
+- Mensaje de error de validación más útil: sugiere `--iniciar-proyecto`,
+  `--local` o `--directorio <ruta>`.
+- `--help` documenta el nuevo flag y aclara que `--local` desactiva la
+  validación.
+- **Instalador Windows (`install.ps1`)**: detecta instalaciones previas vía
+  `uv tool list` / `%USERPROFILE%\.local\bin\snapcontext.exe` y las elimina
+  (evita que `snapcontext --version` muestre una versión antigua de uv);
+  persiste `~\.local\bin` en el PATH del usuario.
+- **Instalador Linux/macOS (`install.sh`)**: misma limpieza de instalaciones
+  uv previas y añade `~/.local/bin` al perfil del shell (`.bashrc`/`.zshrc`)
+  si falta.
+- **Extensión VS Code v1.3.0**: `activationEvents` explícitos por comando
+  (corrige problemas de activación) y títulos de comandos sin duplicar el
+  prefijo en la paleta.
+
+### 📝 Documentación
+- Nueva sección en el README: **«🚀 Empezar un proyecto desde cero»** con
+  ejemplos de `--iniciar-proyecto` y `--local`.
+
+---
+
 ## [1.2.0] - 2026-08-22 · 🌐 Interfaz web avanzada (editor Monaco + dependencias)
 
 ### ✨ Nuevas funcionalidades (FEATURES)

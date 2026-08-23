@@ -92,7 +92,25 @@ try:
 except ImportError:  # pragma: no cover
     SentenceTransformer = None
 
-VERSION = "1.2.0"
+# Análisis sintáctico avanzado con tree-sitter (v1.3.0, extra `mcp_avanzado`).
+# Opcional: sin él, la herramienta `ast_avanzado` vuelve a `ast` (solo Python).
+try:
+    import tree_sitter  # type: ignore
+    from tree_sitter import Language  # type: ignore
+    try:
+        import tree_sitter_languages as _ts_lang  # type: ignore
+    except ImportError:  # pragma: no cover
+        _ts_lang = None
+except ImportError:  # pragma: no cover
+    tree_sitter = None
+    Language = None
+    _ts_lang = None
+
+# Ejecución en paralelo de pasos del plan (v1.3.0) — stdlib, sin deps extra.
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
+
+VERSION = "1.3.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
@@ -236,6 +254,18 @@ _LOGO_SMALL = f"""
 # ---------------------------------------------------------------------------
 CARPETAS_DEFECTO = ("lib", "supabase")   # carpetas que se escanean
 CARPETAS_PROYECTO_VALIDAS = ("lib", "src", "supabase", "app", "packages", "backend")
+# Archivos de configuración que indican un proyecto válido aunque estén vacíos
+# (v1.3.0: la validación ya no exige contenido, solo su presencia).
+ARCHIVOS_CONFIG_PROYECTO = frozenset((
+    "pubspec.yaml", "package.json", "requirements.txt", "go.mod",
+    "cargo.toml", "setup.py", "pyproject.toml",
+))
+# Extensiones de código que, presentes en la raíz (aunque el archivo esté
+# vacío), también validan la carpeta como proyecto.
+EXT_CODIGO_RAIZ = frozenset((
+    ".py", ".dart", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".java",
+    ".kt", ".swift", ".c", ".cpp", ".h", ".hpp", ".cs", ".rb", ".php",
+))
 PROVEEDOR_DEFECTO = os.environ.get("SNAPCONTEXT_PROVIDER", "gemini")
 # SNAPCONTEXT_MODELO (opcional) sobrescribe el modelo por defecto del proveedor.
 MODELO_DEFECTO = os.environ.get("SNAPCONTEXT_MODELO") or None
@@ -573,11 +603,36 @@ def resolver_raiz(directorio: str) -> Path:
 
 
 def _es_proyecto_valido(directorio: Union[str, Path]) -> bool:
-    """Devuelve True si 'directorio' contiene al menos una carpeta típica de proyecto."""
+    """Devuelve True si 'directorio' tiene indicios de ser un proyecto.
+
+    Criterios (v1.3.0, más permisivos para proyectos nuevos):
+      - Existe al menos una carpeta típica (lib/, src/, supabase/, app/,
+        packages/, backend/), AUNQUE ESTÉ VACÍA.
+      - O existe al menos un archivo de código en la raíz (.py, .dart, .js,
+        .ts, .go, .rs, .java, ...), AUNQUE ESTÉ VACÍO.
+      - O existe un archivo de configuración típico (pubspec.yaml,
+        package.json, requirements.txt, go.mod, Cargo.toml, setup.py,
+        pyproject.toml), AUNQUE ESTÉ VACÍO.
+    """
     ruta = Path(directorio)
     if not ruta.is_dir():
         return False
-    return any((ruta / carpeta).is_dir() for carpeta in CARPETAS_PROYECTO_VALIDAS)
+    # 1) Carpetas típicas (aunque estén vacías).
+    if any((ruta / carpeta).is_dir() for carpeta in CARPETAS_PROYECTO_VALIDAS):
+        return True
+    try:
+        entradas = list(ruta.iterdir())
+    except OSError:
+        return False
+    for entrada in entradas:
+        nombre = entrada.name.lower()
+        # 2) Archivo de configuración típico en la raíz (aunque vacío).
+        if nombre in ARCHIVOS_CONFIG_PROYECTO:
+            return True
+        # 3) Archivo de código en la raíz (aunque vacío).
+        if entrada.is_file() and entrada.suffix.lower() in EXT_CODIGO_RAIZ:
+            return True
+    return False
 
 
 def _normalizar_relativa(ruta: str) -> str:
@@ -2689,9 +2744,35 @@ def _normalizar_pasos(datos) -> List[dict]:
             "accion": accion,
             "archivos": [str(a) for a in archivos if str(a).strip()],
             "comando": str(crudo.get("comando") or "").strip(),
+            # v1.3.0: dependencias entre pasos y ejecución condicional.
+            "dependencias": _normalizar_dependencias(crudo.get("dependencias")),
+            "condicion": str(crudo.get("condicion") or "").strip(),
         }
         pasos.append(paso)
     return pasos
+
+
+def _normalizar_dependencias(valor) -> List[int]:
+    """Convierte el campo ``dependencias`` de un paso en una lista de índices.
+
+    Acepta lista de enteros/strings numéricos o un único valor. Se descartan
+    los índices no válidos (negativos o fuera de rango se validan en la
+    ejecución, aquí solo se normaliza el tipo).
+    """
+    if valor is None or valor == "":
+        return []
+    if not isinstance(valor, list):
+        valor = [valor]
+    indices: List[int] = []
+    for item in valor:
+        try:
+            indice = int(item)
+        except (TypeError, ValueError):
+            continue
+        if indice < 0:
+            continue
+        indices.append(indice)
+    return sorted(set(indices))
 
 
 def _generar_plan(consulta: str, proveedor: Optional[str] = None,
@@ -4395,7 +4476,15 @@ def crear_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--local", action="store_true",
         help="Selección local por heurística, sin llamar a Gemini "
-             "(útil para probar offline).",
+             "(útil para probar offline). También desactiva la validación "
+             "de carpeta de proyecto.",
+    )
+    parser.add_argument(
+        "--iniciar-proyecto", "--no-validar", dest="iniciar_proyecto",
+        action="store_true",
+        help="Desactiva por completo la validación de carpeta de proyecto: "
+             "trabaja en el directorio actual (o --directorio) aunque esté "
+             "vacío. Ideal para empezar un proyecto desde cero.",
     )
     parser.add_argument(
         "--vista-previa", action="store_true",
