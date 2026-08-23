@@ -87,7 +87,7 @@ class TestEstructuraVsCode(unittest.TestCase):
 
 class TestVersionCli(unittest.TestCase):
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "1.3.0")
+        self.assertEqual(sc.VERSION, "1.4.0")
 
 
 if __name__ == "__main__":

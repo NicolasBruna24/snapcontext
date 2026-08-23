@@ -110,7 +110,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
@@ -2180,6 +2180,9 @@ AYUDA_CHAT = """Comandos disponibles:
                            args en JSON también válidos: /tool read_file {"ruta": "a.py", "linea_inicio": 10}
   /search <consulta>     → búsqueda semántica de archivos (embeddings; requiere
                            pip install snapcontext[embeddings])
+  /buscar <consulta>     → alias de /search (v1.4.0)
+  /grafo                 → grafo de dependencias del proyecto en texto ASCII
+  /dependencias <archivo> → imports y dependencias inversas de un archivo
   /claude                → mostrar la memoria del proyecto (CLAUDE.md)
   /context               → mostrar memoria del proyecto y archivos en contexto
   /ayuda                 → mostrar esta ayuda
@@ -2342,9 +2345,11 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             _cmd_chat_save(historial_chat)
             continue
 
-        # ---- búsqueda semántica (v1.1.0) ----------------------------------
-        if linea.startswith("/search "):
-            consulta_busqueda = linea[len("/search "):].strip()
+        # ---- búsqueda semántica (v1.1.0; alias /buscar desde v1.4.0) -------
+        if linea.startswith("/search ") or linea.startswith("/buscar"):
+            prefijo_busqueda = ("/search" if linea.startswith("/search")
+                                else "/buscar")
+            consulta_busqueda = linea[len(prefijo_busqueda):].strip()
             if not consulta_busqueda:
                 aviso("Uso: /search <consulta>")
                 continue
@@ -2362,6 +2367,59 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
                 _emitir(sys.stdout, _pintar(
                     f"   • {resultado['archivo']}:{resultado['linea_inicio']} "
                     f"(similitud {resultado['similitud']})", _VERDE))
+            continue
+
+        # ---- grafo y dependencias (v1.4.0) --------------------------------
+        if linea == "/grafo":
+            grafo_chat = _grafo_dependencias(".")
+            nodos_chat = grafo_chat.get("nodos", [])
+            enlaces_chat = grafo_chat.get("enlaces", [])
+            if not nodos_chat:
+                aviso("Sin archivos de código detectados para construir el grafo.")
+                continue
+            exito(f"Grafo de dependencias ({len(nodos_chat)} nodo(s), "
+                  f"{len(enlaces_chat)} enlace(s)):")
+            salientes: dict = {}
+            for enlace in enlaces_chat:
+                salientes.setdefault(enlace["origen"], []).append(
+                    enlace["destino"])
+            for nodo in nodos_chat:
+                nodo_id = nodo["id"]
+                _emitir(sys.stdout, _pintar(f"  ▸ {nodo_id}", _CYAN))
+                for destino in salientes.get(nodo_id, []):
+                    _emitir(sys.stdout, f"      ──▶ {destino}")
+                if nodo_id not in salientes:
+                    _emitir(sys.stdout, "      (sin dependencias locales)")
+            continue
+
+        if linea.startswith("/dependencias"):
+            partes_dep = linea.split(maxsplit=1)
+            archivo_objetivo = partes_dep[1].strip() if len(partes_dep) > 1 else ""
+            if not archivo_objetivo:
+                aviso("Uso: /dependencias <archivo>")
+                continue
+            grafo_dep = _grafo_dependencias(".")
+            directas, inversas = [], []
+            for enlace in grafo_dep.get("enlaces", []):
+                if enlace["origen"] == archivo_objetivo:
+                    directas.append(enlace["destino"])
+                if enlace["destino"] == archivo_objetivo:
+                    inversas.append(enlace["origen"])
+            if not directas and not inversas:
+                aviso(f"Sin dependencias detectadas para '{archivo_objetivo}' "
+                      f"(¿existe el archivo y tiene imports?).")
+                continue
+            exito(f"Dependencias de {archivo_objetivo}:")
+            _emitir(sys.stdout, f"  Importa de ({len(directas)}):")
+            for destino in directas:
+                _emitir(sys.stdout, _pintar(f"    ──▶ {destino}", _VERDE))
+            if not directas:
+                _emitir(sys.stdout, "    (ninguna)")
+            _emitir(sys.stdout, f"  Importado por ({len(inversas)}):")
+            for origen in inversas:
+                _emitir(sys.stdout, _pintar(f"    ◀── {origen}", _AMARILLO))
+            if not inversas:
+                _emitir(sys.stdout, "    (ninguno)")
             continue
 
         # ---- herramientas MCP (v0.14.0) -----------------------------------
@@ -3027,6 +3085,170 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
     return (ok, f"Aider sobre {len(seleccion)} archivo(s)")
 
 
+# --- Condiciones y paralelismo del planificador (v1.4.0) --------------------
+def _evaluar_condicion(condicion: str, raiz: str = ".") -> bool:
+    """Evalúa la condición de un paso del plan. Devuelve True si se cumple.
+
+    Formatos soportados::
+
+        archivo_existe('src/main.py')
+        archivo_contiene('src/main.py', 'def main')
+        comando_exito('flutter test')
+
+    Las cadenas pueden ir con comillas simples o dobles. Cualquier condición
+    mal formada o función desconocida devuelve False con un aviso (fallo
+    elegante: el paso se salta, nunca se aborta el plan).
+    """
+    condicion = (condicion or "").strip()
+    if not condicion:
+        return True
+    coincidencia = re.match(r"^([a-zA-Z_]\w*)\s*\((.*)\)\s*$", condicion, re.S)
+    if not coincidencia:
+        aviso(f"Condición de paso mal formada: '{condicion}'. Se interpreta "
+              f"como no cumplida.")
+        return False
+    funcion, crudo_args = coincidencia.group(1), coincidencia.group(2)
+    try:
+        argumentos = [a.strip()
+                      for a in _partir_argumentos(crudo_args)]
+    except ValueError as exc:
+        aviso(f"Condición inválida '{condicion}': {exc}")
+        return False
+
+    if funcion == "archivo_existe":
+        return len(argumentos) == 1 and (Path(raiz) / argumentos[0]).exists()
+    if funcion == "archivo_contiene":
+        if len(argumentos) != 2:
+            return False
+        contenido = _leer_archivo(Path(raiz) / argumentos[0])
+        return contenido is not None and argumentos[1] in contenido
+    if funcion == "comando_exito":
+        if not argumentos or not argumentos[0]:
+            return False
+        codigo, _, _ = _ejecutar_comando(argumentos[0], raiz, timeout=300)
+        return codigo == 0
+
+    aviso(f"Función de condición desconocida: '{funcion}'. "
+          f"Soportadas: archivo_existe, archivo_contiene, comando_exito.")
+    return False
+
+
+def _partir_argumentos(texto: str) -> List[str]:
+    """Separa los argumentos de una condición respetando comillas."""
+    partes, actual, comilla = [], "", None
+    for caracter in texto:
+        if comilla:
+            if caracter == comilla:
+                comilla = None
+            else:
+                actual += caracter
+            continue
+        if caracter in ("'", '"'):
+            comilla = caracter
+            continue
+        if caracter == ",":
+            partes.append(actual)
+            actual = ""
+            continue
+        actual += caracter
+    if comilla:
+        raise ValueError("comillas sin cerrar")
+    partes.append(actual)
+    return [p for p in (p.strip() for p in partes)]
+
+
+_CANDADO_GIT_PLAN = threading.Lock()   # serializa commits en modo --paralelo
+
+
+def _ejecutar_paso_paralelo(paso: dict, args: argparse.Namespace,
+                            raiz: str, numero: int) -> dict:
+    """Ejecuta un paso en modo --paralelo (hilo secundario). Devuelve registro."""
+    prefijo = f"[paso {numero}]"
+    exito(f"{prefijo} [{paso['accion']}]: {paso['descripcion']}")
+
+    condicion = paso.get("condicion")
+    if condicion and not _evaluar_condicion(condicion, raiz):
+        aviso(f"{prefijo} condición no cumplida ({condicion}); se salta.")
+        return {"paso": numero, "descripcion": paso["descripcion"],
+                "accion": paso["accion"], "resultado": "saltado",
+                "detalle": f"condición no cumplida: {condicion}", "intentos": 0}
+    try:
+        ok, detalle = _ejecutar_paso_plan(paso, args, raiz)
+    except Exception as exc:                     # blindaje del hilo
+        ok, detalle = False, f"excepción: {exc}"
+    marca = "✔" if ok else "✖"
+    _emitir(sys.stdout, f"  {marca} {prefijo} terminado ({detalle})")
+    if ok and getattr(args, "git_commit", True):
+        with _CANDADO_GIT_PLAN:
+            _git_commit_paso(paso["descripcion"], raiz)
+    return {"paso": numero, "descripcion": paso["descripcion"],
+            "accion": paso["accion"], "resultado": "éxito" if ok else "fallo",
+            "detalle": detalle, "intentos": 1}
+
+
+def _ejecutar_plan_en_paralelo(pasos: List[dict], args: argparse.Namespace,
+                               raiz: str, max_hilos: int) -> List[dict]:
+    """Ejecuta el plan con ``--paralelo N`` (modo --auto).
+
+    Rondas de ejecución: en cada ronda se lanzan todos los pasos cuyas
+    dependencias ya tuvieron éxito (ThreadPoolExecutor limita la concurrencia
+    a ``max_hilos``); los pasos con dependencias fallidas o saltadas se marcan
+    como saltados. Los logs llevan el identificador ``[paso N]``.
+    """
+    estado: dict = {}                            # índice → resultado terminal
+    resultados: List[dict] = []
+    pendientes = set(range(len(pasos)))
+    MALOS_TERMINALES = ("fallo", "saltado")
+
+    with ThreadPoolExecutor(max_workers=max(1, max_hilos)) as pool:
+        while pendientes:
+            # 'dependencias' guarda números de paso (base 1): convertimos.
+            for i in sorted(pendientes):
+                deps = [d - 1 for d in (pasos[i].get("dependencias") or [])]
+                if any(estado.get(d) in MALOS_TERMINALES for d in deps):
+                    numero = i + 1
+                    aviso(f"[paso {numero}] saltado: dependencia(s) sin éxito "
+                          f"({[d + 1 for d in deps]}).")
+                    estado[i] = "saltado"
+                    resultados.append(
+                        {"paso": numero, "descripcion": pasos[i]["descripcion"],
+                         "accion": pasos[i]["accion"], "resultado": "saltado",
+                         "detalle": "dependencia sin éxito", "intentos": 0})
+                    pendientes.discard(i)
+
+            lanzables = [i for i in sorted(pendientes)
+                         if all(estado.get(d) == "éxito"
+                                for d in (d - 1 for d in
+                                          (pasos[i].get("dependencias")
+                                           or [])))]
+            if not lanzables:
+                if pendientes:                   # nada ejecutable → evitar bloqueo
+                    for i in sorted(pendientes):
+                        estado[i] = "saltado"
+                        resultados.append(
+                            {"paso": i + 1,
+                             "descripcion": pasos[i]["descripcion"],
+                             "accion": pasos[i]["accion"],
+                             "resultado": "saltado",
+                             "detalle": "dependencias insatisfechas",
+                             "intentos": 0})
+                    pendientes.clear()
+                continue
+
+            futuros = {pool.submit(_ejecutar_paso_paralelo, pasos[i], args,
+                                   raiz, i + 1): i for i in lanzables}
+            for i in lanzables:
+                pendientes.discard(i)
+            for futuro in concurrent.futures.as_completed(futuros):
+                i = futuros[futuro]
+                registro = futuro.result()
+                estado[i] = registro["resultado"]
+                resultados.append(registro)
+
+    resultados.sort(key=lambda r: r["paso"])
+    return resultados
+
+
 def _ejecutar_planificador(args: argparse.Namespace) -> int:
     """Modo planificador (`snapcontext --plan "tarea"`). Devuelve código 0/1.
 
@@ -3089,78 +3311,119 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
             aviso("Plan cancelado por el usuario.")
             return 0
 
-    # 3) Ejecución secuencial con control por paso.
+    # 3) Ejecución (v1.4.0): con --paralelo N (y --auto) se lanzan varios pasos
+    # sin dependencias mutuas a la vez; en caso contrario, secuencial.
+    max_hilos = max(1, int(getattr(args, "paralelo", 1) or 1))
     resultados: List[dict] = []
-    indice = 0
-    abortar = False
-    while indice < len(pasos) and not abortar:
-        paso = pasos[indice]
-        numero = indice + 1
-        _emitir(sys.stdout, "")
-        exito(f"Paso {numero}/{len(pasos)} [{paso['accion']}]: "
-              f"{paso['descripcion']}")
-        intentos = 0
-        while True:
-            intentos += 1
-            try:
-                ok, detalle = _ejecutar_paso_plan(paso, args, raiz)
-            except Exception as exc:        # blindaje del bucle interactivo
-                ok, detalle = False, f"excepción: {exc}"
-                error(f"El paso lanzó una excepción: {exc}")
-            if ok or not auto:
-                break
-            if intentos < MAX_REINTENTOS_AUTO:
-                aviso(f"Paso {numero} falló (intento {intentos}/"
-                      f"{MAX_REINTENTOS_AUTO}); reintentando automáticamente…")
-            else:
-                aviso(f"Paso {numero} agotó sus {MAX_REINTENTOS_AUTO} "
-                      f"intentos; se continúa con el siguiente paso.")
-                break
+    if auto and max_hilos > 1:
+        exito(f"Modo --paralelo: hasta {max_hilos} paso(s) simultáneo(s).")
+        resultados = _ejecutar_plan_en_paralelo(pasos, args, raiz, max_hilos)
+    else:
+        indice = 0
+        abortar = False
+        estado_seq: dict = {}   # índice → "éxito"|"fallo"|"saltado"
+        while indice < len(pasos) and not abortar:
+            paso = pasos[indice]
+            numero = indice + 1
 
-        if ok and getattr(args, "git_commit", True):
-            _git_commit_paso(paso["descripcion"], raiz)
-
-        if auto:
-            # Autónomo: cada paso se registra una única vez (último intento).
-            resultados.append({"paso": numero,
-                               "descripcion": paso["descripcion"],
-                               "accion": paso["accion"],
-                               "resultado": "éxito" if ok else "fallo",
-                               "detalle": detalle, "intentos": intentos})
-            indice += 1
-            continue
-
-        # Interactivo: menú post-paso y registro único al abandonar el paso.
-        while True:
-            try:
-                eleccion = input(_pintar(
-                    "[c]ontinuar · [r]eintentar · [s]altar · [x]abortar "
-                    "(c/r/s/x): ", _CYAN)).strip().lower()
-            except EOFError:
-                eleccion = "c"
-            if eleccion in ("", "c", "continuar"):
+            # v1.4.0: un paso solo se ejecuta si sus dependencias tuvieron éxito.
+            # 'dependencias' guarda números de paso (base 1); convertimos.
+            deps_paso = [d - 1 for d in (paso.get("dependencias") or [])]
+            fallidas = [d + 1 for d in deps_paso
+                        if estado_seq.get(d) != "éxito"]
+            if fallidas:
+                aviso(f"Paso {numero} saltado: dependencia(s) sin éxito "
+                      f"{fallidas}.")
                 resultados.append(
                     {"paso": numero, "descripcion": paso["descripcion"],
-                     "accion": paso["accion"],
-                     "resultado": "éxito" if ok else "fallo",
-                     "detalle": detalle, "intentos": intentos})
+                     "accion": paso["accion"], "resultado": "saltado",
+                     "detalle": f"dependencia(s) sin éxito: {fallidas}",
+                     "intentos": 0})
+                estado_seq[indice] = "saltado"
                 indice += 1
-                break
-            if eleccion in ("r", "reintentar"):
-                break                        # mismo índice: repetir el paso
-            if eleccion in ("s", "saltar"):
-                aviso(f"Paso {numero} saltado.")
+                continue
+
+            # v1.4.0: ejecución condicional del paso.
+            condicion = paso.get("condicion")
+            if condicion and not _evaluar_condicion(condicion, raiz):
+                aviso(f"Paso {numero} saltado: condición no cumplida "
+                      f"({condicion}).")
                 resultados.append(
                     {"paso": numero, "descripcion": paso["descripcion"],
-                     "accion": paso["accion"], "resultado": "fallo",
-                     "detalle": "saltado por el usuario", "intentos": intentos})
+                     "accion": paso["accion"], "resultado": "saltado",
+                     "detalle": f"condición no cumplida: {condicion}",
+                     "intentos": 0})
+                estado_seq[indice] = "saltado"
                 indice += 1
-                break
-            if eleccion in ("x", "abortar", "salir"):
-                aviso("Plan abortado por el usuario.")
-                abortar = True
-                break
-            aviso("Opción no válida; usa c, r, s o x.")
+                continue
+
+            _emitir(sys.stdout, "")
+            exito(f"Paso {numero}/{len(pasos)} [{paso['accion']}]: "
+                  f"{paso['descripcion']}")
+            intentos = 0
+            while True:
+                intentos += 1
+                try:
+                    ok, detalle = _ejecutar_paso_plan(paso, args, raiz)
+                except Exception as exc:        # blindaje del bucle interactivo
+                    ok, detalle = False, f"excepción: {exc}"
+                    error(f"El paso lanzó una excepción: {exc}")
+                if ok or not auto:
+                    break
+                if intentos < MAX_REINTENTOS_AUTO:
+                    aviso(f"Paso {numero} falló (intento {intentos}/"
+                          f"{MAX_REINTENTOS_AUTO}); reintentando automáticamente…")
+                else:
+                    aviso(f"Paso {numero} agotó sus {MAX_REINTENTOS_AUTO} "
+                          f"intentos; se continúa con el siguiente paso.")
+                    break
+
+            estado_seq[indice] = "éxito" if ok else "fallo"
+            if ok and getattr(args, "git_commit", True):
+                _git_commit_paso(paso["descripcion"], raiz)
+
+            if auto:
+                # Autónomo: cada paso se registra una única vez (último intento).
+                resultados.append({"paso": numero,
+                                   "descripcion": paso["descripcion"],
+                                   "accion": paso["accion"],
+                                   "resultado": "éxito" if ok else "fallo",
+                                   "detalle": detalle, "intentos": intentos})
+                indice += 1
+                continue
+
+            # Interactivo: menú post-paso y registro único al abandonar el paso.
+            while True:
+                try:
+                    eleccion = input(_pintar(
+                        "[c]ontinuar · [r]eintentar · [s]altar · [x]abortar "
+                        "(c/r/s/x): ", _CYAN)).strip().lower()
+                except EOFError:
+                    eleccion = "c"
+                if eleccion in ("", "c", "continuar"):
+                    resultados.append(
+                        {"paso": numero, "descripcion": paso["descripcion"],
+                         "accion": paso["accion"],
+                         "resultado": "éxito" if ok else "fallo",
+                         "detalle": detalle, "intentos": intentos})
+                    indice += 1
+                    break
+                if eleccion in ("r", "reintentar"):
+                    break                        # mismo índice: repetir el paso
+                if eleccion in ("s", "saltar"):
+                    aviso(f"Paso {numero} saltado.")
+                    estado_seq[indice] = "saltado"
+                    resultados.append(
+                        {"paso": numero, "descripcion": paso["descripcion"],
+                         "accion": paso["accion"], "resultado": "fallo",
+                         "detalle": "saltado por el usuario", "intentos": intentos})
+                    indice += 1
+                    break
+                if eleccion in ("x", "abortar", "salir"):
+                    aviso("Plan abortado por el usuario.")
+                    abortar = True
+                    break
+                aviso("Opción no válida; usa c, r, s o x.")
 
     # 4) Resumen final + memoria persistente.
     _emitir(sys.stdout, "")
@@ -3360,6 +3623,22 @@ HERRAMIENTAS_PREDEFINIDAS = {
         "parametros": {"ruta": "str"},
         "requiere_permiso": False,          # solo lectura
     },
+    # v1.4.0: análisis sintáctico multi-lenguaje (tree-sitter) y búsqueda
+    # semántica integrada en el sistema de herramientas MCP.
+    "ast_avanzado": {
+        "descripcion": "Análisis sintáctico multi-lenguaje con tree-sitter "
+                       "(funciones, clases, imports y llamadas); sin "
+                       "tree-sitter usa ast de Python.",
+        "parametros": {"ruta": "str"},
+        "requiere_permiso": False,          # solo lectura
+    },
+    "semantic_search": {
+        "descripcion": "Búsqueda semántica por embeddings; devuelve los "
+                       "fragmentos/archivos más relevantes para una consulta.",
+        "parametros": {"consulta": "str", "directorio": "str='.'",
+                       "max_resultados": "int=10"},
+        "requiere_permiso": False,          # solo lectura
+    },
     "git_status": {
         "descripcion": "Estado de Git (cambios sin commitear, rama actual).",
         "parametros": {"directorio": "str='.'"},
@@ -3555,6 +3834,144 @@ def _tool_execute_command(comando: str, directorio: str = ".") -> dict:
             "stdout": stdout.strip(), "stderr": stderr.strip()}
 
 
+# --- Herramientas avanzadas (v1.4.0): tree-sitter + búsqueda semántica ------
+# Tipos de nodo tree-sitter por categoría (nombres comunes entre gramáticas).
+_TS_NODOS_FUNCION = frozenset((
+    "function_definition", "function_declaration", "function_item",
+    "function_signature", "method_definition", "method_declaration",
+))
+_TS_NODOS_CLASE = frozenset((
+    "class_definition", "class_declaration", "class_specifier",
+    "struct_item", "interface_declaration",
+))
+_TS_NODOS_IMPORT = frozenset((
+    "import_statement", "import_from_statement", "import_specifier",
+    "import_declaration", "use_declaration", "package_clause",
+    "preproc_include", "import_directive",
+))
+_TS_NODOS_LLAMADA = frozenset(("call_expression", "call"))
+
+
+def _lenguaje_tree_sitter(ruta: str) -> Optional[str]:
+    """Adivina el nombre de gramática tree-sitter para ``ruta``."""
+    extension = Path(ruta).suffix.lower().lstrip(".")
+    mapa = {
+        "py": "python", "js": "javascript", "jsx": "javascript",
+        "mjs": "javascript", "ts": "typescript", "tsx": "tsx",
+        "dart": "dart", "go": "go", "rs": "rust", "java": "java",
+        "kt": "kotlin", "kts": "kotlin", "swift": "swift", "c": "c",
+        "h": "c", "cpp": "cpp", "cc": "cpp", "hpp": "cpp", "cs": "c_sharp",
+        "rb": "ruby", "php": "php", "sh": "bash", "bash": "bash",
+        "json": "json", "yaml": "yaml", "yml": "yaml", "toml": "toml",
+        "html": "html", "css": "css", "md": "markdown",
+    }
+    return mapa.get(extension)
+
+
+def _extraer_simbolos_ts(arbol, lenguaje: str) -> dict:
+    """Recorre el árbol tree-sitter y extrae funciones/clases/imports/llamadas."""
+    funciones: List[dict] = []
+    clases: List[dict] = []
+    imports: List[str] = []
+    llamadas: List[str] = []
+
+    def _texto(nodo) -> str:
+        return nodo.text.decode("utf-8", errors="replace") if nodo.text else ""
+
+    pila = [arbol.root_node]
+    while pila:
+        nodo = pila.pop()
+        tipo = nodo.type
+        if tipo in _TS_NODOS_FUNCION or tipo in _TS_NODOS_CLASE:
+            nombre = ""
+            for hijo in nodo.children:
+                if getattr(hijo, "type", "") in (
+                        "identifier", "name", "property_identifier",
+                        "type_identifier"):
+                    nombre = _texto(hijo)
+                    break
+            entrada = {"nombre": nombre or f"({tipo})",
+                       "linea": nodo.start_point[0] + 1}
+            (funciones if tipo in _TS_NODOS_FUNCION else clases).append(entrada)
+        elif tipo in _TS_NODOS_IMPORT:
+            fragmento = " ".join(_texto(nodo).split())
+            if fragmento and fragmento not in imports:
+                imports.append(fragmento[:200])
+        elif tipo in _TS_NODOS_LLAMADA:
+            for hijo in nodo.children:
+                if hijo.type in ("identifier", "attribute", "member_expression"):
+                    texto = " ".join(_texto(hijo).split())[:120]
+                    if texto and texto not in llamadas:
+                        llamadas.append(texto)
+                    break
+        pila.extend(nodo.children)
+    return {"funciones": funciones, "clases": clases,
+            "imports": imports[:100], "llamadas": llamadas[:200]}
+
+
+def _tool_ast_avanzado(ruta: str) -> dict:
+    """Herramienta `ast_avanzado` (v1.4.0).
+
+    Análisis sintáctico multi-lenguaje con **tree-sitter** si está instalado
+    (`pip install snapcontext[mcp_avanzado]`). Si no, hace fallback al módulo
+    `ast` de la stdlib (solo para archivos Python). Nunca lanza excepciones.
+    """
+    contenido = _leer_archivo(ruta)
+    if contenido is None:
+        return {"ok": False, "ruta": ruta, "error": "no se pudo leer"}
+    lenguaje = _lenguaje_tree_sitter(ruta)
+
+    # 1) Intento con tree-sitter (multi-lenguaje).
+    if tree_sitter is not None and _ts_lang is not None and lenguaje:
+        try:
+            idioma = _ts_lang.get_language(lenguaje)
+            parser = tree_sitter.Parser()
+            try:
+                parser.set_language(idioma)          # API antigua (<0.22)
+            except (AttributeError, TypeError):
+                parser.language = idioma             # API nueva (>=0.22)
+            arbol = parser.parse(contenido.encode("utf-8"))
+            simbolos = _extraer_simbolos_ts(arbol, lenguaje)
+            return {"ok": True, "ruta": ruta, "motor": "tree-sitter",
+                    "lenguaje": lenguaje, **simbolos}
+        except Exception as exc:                 # gramática ausente, API distinta...
+            depurar(f"[ast_avanzado] tree-sitter falló ({exc}); fallback a ast.")
+
+    # 2) Fallback: ast de la stdlib (solo Python).
+    if lenguaje == "python":
+        base = _tool_ast(ruta)
+        if base.get("ok"):
+            return {**base, "motor": "ast", "lenguaje": "python"}
+        return base
+    return {"ok": False, "ruta": ruta, "lenguaje": lenguaje,
+            "error": "sin analizador disponible para este lenguaje "
+                     "(instala tree-sitter: pip install snapcontext[mcp_avanzado])"}
+
+
+def _tool_semantic_search(consulta: str, directorio: str = ".",
+                          max_resultados: int = 10) -> dict:
+    """Herramienta `semantic_search` (v1.4.0).
+
+    Búsqueda semántica por embeddings integrada en el sistema MCP: el agente
+    puede usarla automáticamente como contexto. Falla elegantemente si el
+    extra `embeddings` no está instalado.
+    """
+    if not consulta.strip():
+        return {"ok": False, "error": "falta la consulta de búsqueda"}
+    if not _embeddings_disponibles():
+        return {"ok": False, "consulta": consulta,
+                "error": "búsqueda semántica no disponible; instala el extra "
+                         "'embeddings' (pip install snapcontext[embeddings])"}
+    try:
+        resultados = _buscar_semanticamente(consulta, directorio,
+                                            max_resultados=max(1, max_resultados))
+    except Exception as exc:                      # nunca romper al agente
+        return {"ok": False, "consulta": consulta, "error": str(exc)}
+    return {"ok": bool(resultados), "consulta": consulta,
+            "directorio": str(directorio), "total": len(resultados),
+            "resultados": resultados}
+
+
 # --- Dispatcher MCP: valida permisos y ejecuta la herramienta --------------
 def _ejecutar_herramienta_mcp(nombre: str, argumentos: Optional[dict] = None,
                               confirmar: Optional[bool] = None) -> dict:
@@ -3603,6 +4020,13 @@ def _ejecutar_herramienta_mcp(nombre: str, argumentos: Optional[dict] = None,
                 int(argumentos.get("max_archivos", 200)))
         elif nombre == "ast":
             resultado = _tool_ast(str(argumentos.get("ruta", "")))
+        elif nombre == "ast_avanzado":
+            resultado = _tool_ast_avanzado(str(argumentos.get("ruta", "")))
+        elif nombre == "semantic_search":
+            resultado = _tool_semantic_search(
+                str(argumentos.get("consulta", "")),
+                str(argumentos.get("directorio", ".")),
+                _entero_opcional(argumentos.get("max_resultados")) or 10)
         elif nombre == "git_status":
             resultado = _tool_git_status(str(argumentos.get("directorio", ".")))
         elif nombre == "git_diff":
@@ -4614,6 +5038,13 @@ def crear_parser() -> argparse.ArgumentParser:
              "(siguiendo respetando permisos.json) y reintenta automáticamente "
              "cada paso fallido hasta 3 veces antes de continuar. Con "
              "--no-confirmar no añade diferencia adicional.",
+    )
+    parser.add_argument(
+        "--paralelo", type=int, default=1, metavar="N",
+        help="En modo --plan --auto: ejecuta hasta N pasos sin dependencias "
+             "mutuas en paralelo (por defecto 1 = secuencial). Los logs de cada "
+             "paso llevan su identificador [paso N]. Los pasos con campo "
+             "'dependencias' esperan a que sus dependencias tengan éxito.",
     )
     return parser
 

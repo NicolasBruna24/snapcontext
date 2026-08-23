@@ -132,10 +132,12 @@ El agente puede usar herramientas externas con resultados estructurados:
 
 | Herramienta | Descripción | Permiso |
 |-------------|-------------|---------|
-| `grep` | Buscar patrón en el código (rg/grep/findstr) | no |
+| `grep` | Buscar patrón en el código (ripgrep `rg` preferente — ultrarrápido y respeta `.gitignore`; fallback a grep/findstr) | no |
 | `read_file` | Leer archivo completo o rango de líneas | no |
 | `list_files` | Listar archivos con filtro de extensión | no |
 | `ast` | Extraer imports/clases/funciones de un `.py` | no |
+| `ast_avanzado` (v1.4.0) | Análisis sintáctico multi-lenguaje con tree-sitter: funciones, clases, imports y llamadas. Fallback a `ast` (solo Python). Extra opcional: `pip install snapcontext[mcp_avanzado]` | no |
+| `semantic_search` (v1.4.0) | Búsqueda semántica por embeddings integrada en MCP; el agente la usa automáticamente como contexto. Requiere `pip install snapcontext[embeddings]` | no |
 | `git_status` | Rama actual y cambios sin commitear | no |
 | `git_diff` | Diff sin commitear | no |
 | `execute_command` | Ejecutar cualquier comando shell | **sí** |
@@ -191,13 +193,36 @@ snapcontext --plan "tarea" --no-confirmar
 `snapcontext --plan "añadir login con Google"` convierte SnapContext en un agente:
 
 1. El proveedor de IA descompone la tarea en pasos JSON:
-   `{"descripcion": "...", "accion": "editar|ejecutar|consultar", "archivos": [...], "comando": "..."}`
+   ```json
+   {"descripcion": "...", "accion": "editar|ejecutar|consultar",
+    "archivos": ["..."], "comando": "...",
+    "dependencias": [1, 2],
+    "condicion": "archivo_existe('src/main.py')"}
+   ```
 2. Los pasos se muestran numerados y se pide confirmación.
 3. Cada paso se ejecuta secuencialmente: **editar** usa el pipeline completo
    (`_planificar` + `_bucle_test`), **ejecutar** lanza comandos shell,
    **consultar** pregunta al proveedor.
 4. Tras cada paso eliges: continuar / reintentar / saltar / abortar. Al final
    hay un resumen que se guarda en `historial.json`.
+
+### Dependencias, condiciones y paralelismo (v1.4.0)
+
+- **Dependencias**: un paso con `"dependencias": [1, 3]` solo se ejecuta si los
+  pasos 1 y 3 tuvieron éxito. Si alguno falló o se saltó, el paso queda como
+  `saltado`.
+- **Condiciones**: campo `"condicion"` con una de estas funciones:
+  - `archivo_existe('src/main.py')`
+  - `archivo_contiene('src/main.py', 'def main')`
+  - `comando_exito('flutter test')`
+
+  Si la condición es falsa, el paso se salta (con aviso) y el plan continúa.
+- **Paralelismo**: con `--paralelo N` (junto a `--auto`) se ejecutan hasta N
+  pasos independientes a la vez; los logs llevan el identificador `[paso N]`:
+
+  ```bash
+  snapcontext --plan "tarea grande" --auto --paralelo 3 --no-confirmar
+  ```
 
 Opciones git:
 
@@ -226,7 +251,9 @@ snapcontext --plan "..."                                             # commits '
   `/run <comando>` (shell), `/read <archivo>`, `/explore <tema>` (búsqueda con
   rg/grep/findstr), `/fix | /review | /server <mensaje>` (alias del pipeline),
   `/edit <archivo>` (VSCode/nano/notepad/$EDITOR), `/context` (contexto actual),
-  `/search <consulta>` (búsqueda semántica de archivos), `/save` (guarda la
+  `/search <consulta>` (búsqueda semántica de archivos), `/buscar <consulta>`
+  (alias de /search), `/grafo` (grafo de dependencias en ASCII),
+  `/dependencias <archivo>` (imports y dependencias inversas), `/save` (guarda la
   sesión en historial.json) además de los comandos previos.
   Los comandos largos (`/run`, `/explore`, `/fix`, `/review`, `/server`) se
   ejecutan en un hilo separado para no bloquear el chat.

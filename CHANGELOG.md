@@ -6,6 +6,55 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [1.4.0] - 2026-08-23 · 🤖 MCP avanzado + planificador autónomo
+
+### ✨ Nuevas funcionalidades
+
+#### Herramientas MCP más potentes
+- **`ast_avanzado`**: análisis sintáctico multi-lenguaje con **tree-sitter**
+  (funciones, clases, imports y llamadas en Python, JS/TS, Dart, Go, Rust,
+  Java, C/C++, Ruby, PHP...). Import diferido; sin tree-sitter hace
+  *fallback* al módulo `ast` de la stdlib (solo Python) y para otros
+  lenguajes devuelve un error descriptivo sin romper al agente.
+  Dependencia opcional: `pip install snapcontext[mcp_avanzado]`.
+- **`semantic_search`**: la búsqueda semántica por embeddings (v1.1.0) queda
+  integrada en el registro de herramientas MCP, de modo que el agente puede
+  usarla automáticamente como contexto. Falla elegantemente si no está el
+  extra `embeddings`.
+- **ripgrep (`rg`) preferente** en `grep`: ya se detectaba con
+  `shutil.which('rg')`; ahora se documenta como alternativa ultrarrápida que
+  respeta `.gitignore`, con fallback a `grep`/`findstr`.
+
+#### Planificador autónomo
+- **Dependencias entre pasos**: cada paso admite `"dependencias": [índices]`.
+  Un paso solo se ejecuta si todas sus dependencias tuvieron éxito; si alguna
+  falló o se saltó, el paso queda marcado como `saltado`.
+- **Ejecución condicional**: campo `"condicion"` con las funciones
+  `archivo_existe('ruta')`, `archivo_contiene('ruta', 'texto')` y
+  `comando_exito('comando')`. Si la condición es falsa, el paso se salta.
+- **Paralelismo básico**: nuevo flag `--paralelo N` (por defecto 1). En modo
+  `--plan --auto`, lanza hasta N pasos independientes simultáneos con logs
+  identificados `[paso N]`; los pasos dependientes esperan a sus rondas.
+
+#### Chat (`--chat`)
+- **`/grafo`**: grafo de dependencias del proyecto en formato texto ASCII
+  (reutiliza `_grafo_dependencias` de v1.2.0).
+- **`/dependencias <archivo>`**: imports directos y dependencias inversas
+  («importado por») de un archivo.
+- **`/buscar <consulta>`**: alias de `/search` (búsqueda semántica).
+
+### 🔧 Compatibilidad
+- Si ripgrep o tree-sitter no están instalados, las herramientas avisan y
+  continúan sin errores (fallback a grep/findstr y ast respectivamente).
+- CLI, chat, web, extensión VS Code y el resto de funcionalidades no cambian.
+
+### 🧪 Tests
+- Nuevo `tests/test_mcp_140.py` (24 tests): condiciones del planificador,
+  normalización de dependencias, nuevas herramientas MCP, planificador
+  paralelo con dependencias, flag `--paralelo` y comandos del chat.
+
+---
+
 ## [1.3.0] - 2026-08-23 · 🚀 Proyectos desde cero + instaladores mejorados
 
 ### ✨ Nuevas funcionalidades
