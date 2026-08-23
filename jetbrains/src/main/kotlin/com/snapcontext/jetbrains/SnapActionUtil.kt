@@ -1,7 +1,5 @@
 package com.snapcontext.jetbrains
 
-import com.intellij.execution.ui.ConsoleView
-import com.intellij.execution.ui.ConsoleViewContentType
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
@@ -20,7 +18,7 @@ object AccionUtil {
     fun ejecutarSnap(evento: AnActionEvent, args: List<String>, titulo: String) {
         val project = evento.project ?: return
         val raiz = project.basePath ?: return
-        val consola = ConsolaHolder.consolaDe(project) ?: run {
+        val consola = ConsolaSnap.consolaDe(project) ?: run {
             Messages.showErrorDialog(
                 "No se pudo abrir la herramienta «SnapContext».", "SnapContext")
             return
@@ -32,8 +30,7 @@ object AccionUtil {
             return
         }
 
-        consola.print("\n\$ ${comando.joinToString(" ")}   (cwd: $raiz)\n",
-            ConsoleViewContentType.SYSTEM_OUTPUT)
+        consola.print("\n\$ ${comando.joinToString(" ")}   (cwd: $raiz)")
 
         ProgressManager.getInstance().run(object :
             Task.Backgroundable(project, "SnapContext: $titulo", true) {
@@ -55,8 +52,7 @@ object AccionUtil {
                 } catch (exc: Exception) {
                     imprimir(consola,
                         "✖ No se pudo lanzar SnapContext (${exc.message}).\n" +
-                        "  Revisa Settings → Tools → SnapContext → Comando.",
-                        ConsoleViewContentType.ERROR_OUTPUT)
+                        "  Revisa Settings → Tools → SnapContext → Comando.")
                     return
                 }
 
@@ -65,12 +61,11 @@ object AccionUtil {
                 while (true) {
                     if (indicador.isCanceled) {
                         proceso!!.destroy()
-                        imprimir(consola, "\n⚠ Tarea cancelada por el usuario.",
-                            ConsoleViewContentType.WARNING_OUTPUT)
+                        imprimir(consola, "\n⚠ Tarea cancelada por el usuario.")
                         break
                     }
                     val linea = lector.readLine() ?: break
-                    imprimir(consola, linea, ConsoleViewContentType.NORMAL_OUTPUT)
+                    imprimir(consola, linea)
                 }
             }
 
@@ -78,16 +73,13 @@ object AccionUtil {
 
             override fun onFinished() {
                 val codigo = proceso?.exitValue() ?: -1
-                val tipo = if (codigo == 0) ConsoleViewContentType.NORMAL_OUTPUT
-                           else ConsoleViewContentType.ERROR_OUTPUT
                 imprimir(consola,
                     if (codigo == 0) "\n✔ SnapContext terminó correctamente.\n"
-                    else "\n✖ SnapContext terminó con código $codigo.\n", tipo)
+                    else "\n✖ SnapContext terminó con código $codigo.\n")
             }
 
-            private fun imprimir(cons: ConsoleView, mensaje: String,
-                                 tipo: ConsoleViewContentType) {
-                SwingUtilities.invokeLater { cons.print(mensaje + "\n", tipo) }
+            private fun imprimir(cons: ConsolaSnap, mensaje: String) {
+                SwingUtilities.invokeLater { cons.print(mensaje) }
             }
         })
     }

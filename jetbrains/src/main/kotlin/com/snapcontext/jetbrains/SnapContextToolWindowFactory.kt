@@ -15,10 +15,10 @@ class SnapContextToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         // El ConsoleView real se crea perezosamente desde ConsolaHolder cuando
         // el usuario ejecuta su primera acción (evita costes al abrir el IDE).
-        val aviso = ContentFactory.SERVICE.getInstance()
-            .createContent(
-                "Ejecuta Tools → SnapContext → «Ejecutar consulta…» para empezar.",
-                "Inicio", false)
+        val aviso = ContentFactory.SERVICE.getInstance().createContent(
+            javax.swing.JLabel(
+                "Ejecuta Tools → SnapContext → «Ejecutar consulta…» para empezar."),
+            "Inicio", false)
         toolWindow.contentManager.addContent(aviso)
     }
 

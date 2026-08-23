@@ -57,7 +57,7 @@ class OpenWebAction : AnAction(
 
     override fun actionPerformed(evento: AnActionEvent) {
         val project = evento.project ?: return
-        val consola = ConsolaHolder.consolaDe(project)
+        val consola = ConsolaSnap.consolaDe(project)
         val raiz = project.basePath ?: return
 
         Thread {
@@ -72,9 +72,7 @@ class OpenWebAction : AnAction(
                 while (true) {
                     val linea = lector.readLine() ?: break
                     consola?.let { c ->
-                        SwingUtilities.invokeLater {
-                            c.print(linea + "\n", com.intellij.execution.ui.ConsoleViewContentType.NORMAL_OUTPUT)
-                        }
+                        SwingUtilities.invokeLater { c.print(linea) }
                     }
                     // Abre el navegador en cuanto Uvicorn está escuchando.
                     if (!abierto && ("Uvicorn running" in linea || "8000" in linea)) {
@@ -85,8 +83,7 @@ class OpenWebAction : AnAction(
                     }
                 }
             } catch (exc: Exception) {
-                consola?.print("✖ Error arrancando la web: ${exc.message}\n",
-                    com.intellij.execution.ui.ConsoleViewContentType.ERROR_OUTPUT)
+                consola?.print("✖ Error arrancando la web: ${exc.message}")
             }
         }.apply { isDaemon = true }.start()
 

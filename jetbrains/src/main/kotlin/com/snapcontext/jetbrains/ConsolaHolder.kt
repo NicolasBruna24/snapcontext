@@ -1,42 +1,61 @@
 package com.snapcontext.jetbrains
 
-import com.intellij.execution.ui.ConsoleView
-import com.intellij.execution.ui.ConsoleViewContentType
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.wm.ToolWindow
-import com.intellij.openapi.wm.ToolWindowAnchor
+import com.intellij.openapi.ui.MessageType
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.wm.ToolWindowManager
-import com.intellij.ui.content.Content
-import com.intellij.ui.content.ContentFactory
+import com.intellij.ui.JBColor
+import javax.swing.JScrollPane
+import javax.swing.JTextArea
+import javax.swing.SwingUtilities
 
 /**
- * Gestiona la consola «SnapContext» por proyecto: crea la tool window
- * registrada en plugin.xml y guarda el [ConsoleView] en los datos del proyecto.
+ * Consola propia y ligera de «SnapContext» por proyecto (área de texto con
+ * autoscroll). Evita depender de APIs opcionales del SDK de IntelliJ y funciona
+ * en cualquier IDE JetBrains.
  */
-object ConsolaHolder {
+class ConsolaSnap(private val area: JTextArea) {
 
-    private val CLAVE = com.intellij.openapi.util.Key.create<ConsoleView>(
-        "com.snapcontext.jetbrains.Consola")
+    /** Añade una línea a la consola (thread-safe). */
+    fun print(mensaje: String) {
+        SwingUtilities.invokeLater {
+            area.append(mensaje.ensureTrailingNewline)
+            area.caretPosition = area.document.length
+        }
+    }
 
-    /** Obtiene (o crea) la consola de SnapContext para el proyecto. */
-    fun consolaDe(project: Project): ConsoleView? {
-        project.getUserData(CLAVE)?.let { return it }
+    private val String.ensureTrailingNewline: String
+        get() = if (endsWith("\n")) this else this + "\n"
 
-        val herramienta: ToolWindow = ToolWindowManager.getInstance(project)
-            .getToolWindow("SnapContext") ?: return null
-        herramienta.anchor = ToolWindowAnchor.BOTTOM
-        herramienta.show()
+    companion object {
+        private val CLAVE = Key.create<ConsolaSnap>(
+            "com.snapcontext.jetbrains.Consola")
 
-        val factory = herramienta.contentManager.factory ?: return null
-        val consola = factory.createConsoleView("SnapContext") as? ConsoleView
-            ?: return null
+        /** Obtiene (o crea) la consola de SnapContext para el proyecto. */
+        fun consolaDe(project: Project): ConsolaSnap? {
+            project.getUserData(CLAVE)?.let { return it }
 
-        val contenido: Content = ContentFactory.SERVICE.getInstance()
-            .createContent(consola.component, "Salida", false)
-        herramienta.contentManager.addContent(contenido)
-        consola.print("🛠 SnapContext listo. Usa Tools → SnapContext para ejecutar consultas.\n",
-            ConsoleViewContentType.SYSTEM_OUTPUT)
-        project.putUserData(CLAVE, consola)
-        return consola
+            val herramienta = ToolWindowManager.getInstance(project)
+                .getToolWindow("SnapContext") ?: return null
+            herramienta.show()
+
+            val factory = herramienta.contentManager.factory ?: return null
+
+            val area = JTextArea().apply {
+                isEditable = false
+                lineWrap = true
+                wrapStyleWord = true
+                background = JBColor.background()
+                foreground = JBColor.foreground()
+            }
+            val consola = ConsolaSnap(area)
+            val contenido = factory.createContent(
+                JScrollPane(area), "Salida", false)
+            herramienta.contentManager.addContent(contenido)
+
+            consola.print("🛠 SnapContext listo. Usa Tools → SnapContext para ejecutar consultas.")
+            project.putUserData(CLAVE, consola)
+            return consola
+        }
     }
 }

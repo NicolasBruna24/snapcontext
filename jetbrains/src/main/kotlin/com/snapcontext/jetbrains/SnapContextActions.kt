@@ -34,9 +34,8 @@ class AddToContextAction : AnAction(
         }
 
         val lista = SnapContextService.archivosContexto.joinToString("\n")
-        ConsolaHolder.consolaDe(project)?.print(
-            "✔ Contexto (${SnapContextService.archivosContexto.size}):\n$lista\n",
-            ConsoleViewContentType.SYSTEM_OUTPUT)
+        ConsolaSnap.consolaDe(project)?.print(
+            "✔ Contexto (${SnapContextService.archivosContexto.size}):\n$lista")
         Messages.showInfoMessage(project,
             "Archivos en contexto (${SnapContextService.archivosContexto.size}):\n$lista",
             "SnapContext")
@@ -50,8 +49,7 @@ class ClearContextAction : AnAction(
     override fun actionPerformed(evento: AnActionEvent) {
         val project: Project = evento.project ?: return
         SnapContextService.limpiarContexto()
-        ConsolaHolder.consolaDe(project)?.print("✔ Contexto vaciado.\n",
-            ConsoleViewContentType.SYSTEM_OUTPUT)
+        ConsolaSnap.consolaDe(project)?.print("✔ Contexto vaciado.")
         Messages.showInfoMessage(project, "Contexto vaciado.", "SnapContext")
     }
 }
