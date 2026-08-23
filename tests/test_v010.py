@@ -167,8 +167,8 @@ class TestFlagsCLI(unittest.TestCase):
         self.assertEqual(args.provider, "anthropic")
         self.assertTrue(args.vista_previa)
 
-    def test_version_es_1_1_0(self):
-        self.assertEqual(sc.VERSION, "1.1.0")
+    def test_version_es_1_2_0(self):
+        self.assertEqual(sc.VERSION, "1.2.0")
 
 
 class TestComandosAgenteChat(unittest.TestCase):

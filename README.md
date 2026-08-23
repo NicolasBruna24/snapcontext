@@ -1,6 +1,6 @@
 # SnapContext
 
-![v1.1.0](https://img.shields.io/badge/version-1.1.0-blue.svg)
+![v1.2.0](https://img.shields.io/badge/version-1.2.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -840,6 +840,67 @@ Después abre `http://localhost:8000` en el navegador. La página ofrece:
 En la consola, si no hay dependencias web instaladas, `snapcontext --web`
 muestra el mensaje: *"La interfaz web necesita dependencias opcionales…"* y sale
 sin romper el resto de la CLI.
+
+---
+
+## 🌐 Interfaz web avanzada (v1.2.0)
+
+La web añade un **editor de código**, un **grafo de dependencias** y un **panel
+de acciones rápidas** para competir con interfaces como las de Claude Code. La
+UI ahora se organiza en dos columnas: **editor + dependencias** (izquierda) y
+**progreso + resultados** (derecha).
+
+### 📝 Editor de código (Monaco)
+
+- **Monaco Editor** (el mismo editor que VS Code) se carga desde CDN
+  (`cdnjs`) y muestra el contenido de los archivos seleccionados con
+  **resaltado de sintaxis** para Python, JavaScript, TypeScript, Dart, Go,
+  Rust, Java, C/C++, C#, Swift, etc.
+- **Edición en vivo** con guardado manual (botón *Guardar*) que escribe el
+  archivo en el proyecto vía WebSocket.
+- **Fallback limpio**: si Monaco no carga (sin red o CSP), se usa un
+  `<textarea>` funcional, así la web sigue operando.
+- **Abrir el archivo**:
+  - Haz clic en cualquier archivo del panel *Resultados* → se abre en el editor.
+  - Los nodos del grafo de dependencias también abren el archivo al hacer clic.
+  - En `--chat` el comando `/edit <archivo>` sigue abriendo el editor externo;
+    ahora además se puede abrir cada archivo directamente desde la web.
+
+### 🔗 Visualización de dependencias
+
+- Panel con pestaña **Dependencias** que dibuja un **grafo interactivo**
+  (force-directed con **d3.js**) de los archivos del proyecto.
+- Las aristas provienen de los **imports** reales del código (Python `import`,
+  JS/TS `import`/`require`, Dart `import`, Go `import`, Rust `use`, …),
+  resueltos contra los archivos del repositorio.
+- **Interactivo**: zoom, arrastre de nodos y **clic para abrir** el archivo en
+  el editor. Si d3 no carga, se muestra una lista de `<origen → destino>`.
+
+### ⚡ Panel de acciones rápidas
+
+| Botón | Acción |
+|---|---|
+| `⚙ Fix` | Ejecuta el alias `fix` (bucle de pruebas) sobre la consulta. |
+| `🔍 Review` | Ejecuta el alias `review` (vista previa + revisión experta). |
+| `🧭 Plan` | Abre el planificador (`--plan`) con la consulta actual. |
+| `▶ Run` | Ejecuta un comando personalizado (cartel con el comando). |
+| `🧠 Search` | Búsqueda semántica por embeddings (si el extra `embeddings` está instalado). |
+| `🔎 Explorar` | Busca la consulta en el código (`rg`/`grep`/`findstr`). |
+
+### 🔌 Comunicación con el orquestador (WebSockets)
+
+El servidor (`web/app.py`) amplía el protocolo del endpoint `/ws`:
+
+- `archivo_seleccionado` → contenido + lenguaje para el editor.
+- `archivo_guardado` → confirmación de escritura en disco.
+- `dependencias_actualizadas` → nodos + enlaces del grafo.
+- `semanticos` / `exploracion` → resultados de búsqueda.
+- `accion_ejecutada` → cierre de cada acción rápida.
+- `tarea` (o el `consulta` clásico) → pipeline del orquestador como siempre.
+
+La CLI y la extensión VS Code **no se ven afectadas**; la webview de VS Code
+sigue siendo una copia de `web/static/index.html` (`vscode/webview/`), y si el
+entorno de la webview bloquea los CDN se usa el respaldo sin romper nada.
 
 ---
 

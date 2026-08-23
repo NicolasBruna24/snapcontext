@@ -92,7 +92,7 @@ try:
 except ImportError:  # pragma: no cover
     SentenceTransformer = None
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
@@ -4130,6 +4130,190 @@ def _seleccionar_archivos_con_embeddings(consulta: str, directorio: str = ".",
             if candidato not in seleccion:
                 seleccion.append(candidato)
     return seleccion
+# ---------------------------------------------------------------------------
+# Editor web y visualización de dependencias — v1.2.0
+# ---------------------------------------------------------------------------
+# Mapa extensión → lenguaje de Monaco Editor (resaltado de sintaxis).
+_MAPA_LENGUAJE_MONACO = {
+    ".py": "python", ".pyi": "python", ".js": "javascript", ".mjs": "javascript",
+    ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript",
+    ".dart": "dart", ".go": "go", ".rs": "rust", ".java": "java",
+    ".kt": "kotlin", ".rb": "ruby", ".php": "php", ".c": "c", ".cpp": "cpp",
+    ".h": "cpp", ".hpp": "cpp", ".hxx": "cpp", ".cs": "csharp",
+    ".swift": "swift", ".md": "markdown", ".json": "json", ".yaml": "yaml",
+    ".yml": "yaml", ".toml": "ini", ".html": "html", ".css": "css",
+    ".sh": "shell", ".bash": "shell", ".sql": "sql", ".xml": "xml",
+}
+# Extensiones de código consideradas al construir el grafo de dependencias.
+_GRP_EXT_DEPS = {
+    ".py", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".dart", ".go", ".rs",
+    ".java", ".kt", ".rb", ".php", ".c", ".cpp", ".h", ".hpp", ".cs",
+    ".swift",
+}
+
+
+def _comando_para_monaco(archivo: str) -> str:
+    """Devuelve el id de lenguaje de Monaco para ``archivo`` (detección por ext.)."""
+    ext = Path(archivo).suffix.lower()
+    return _MAPA_LENGUAJE_MONACO.get(ext, "plaintext")
+
+
+def _extraer_dependencias(contenido: str, lenguaje: str) -> List[str]:
+    """Extrae las referencias de importación de ``contenido`` para ``lenguaje``.
+
+    Devuelve una lista ordenada y sin duplicados de módulos/símbolos importados.
+    No resuelve a rutas absolutas: eso lo hace :func:`_grafo_dependencias` junto
+    con el índice de archivos del proyecto.
+    """
+    dependencias: set = set()
+
+    if lenguaje == "python":
+        for m in re.finditer(
+                r"^\s*(?:from\s+([\w.]+)\s+import|\bimport\s+([\w.]+))",
+                contenido, re.M):
+            modulo = (m.group(1) or m.group(2) or "").split(".")[0]
+            if modulo:
+                dependencias.add(modulo)
+    elif lenguaje in ("javascript", "typescript"):
+        for m in re.finditer(
+                r"(?:from\s+['\"]([^'\"]+)['\"]"
+                r"|require\(\s*['\"]([^'\"]+)['\"]\s*\))", contenido):
+            modulo = (m.group(1) or m.group(2) or "")
+            if modulo:
+                dependencias.add(modulo)
+    elif lenguaje == "dart":
+        for m in re.finditer(r"^\s*import\s+['\"]([^'\"]+)['\"]", contenido, re.M):
+            if m.group(1):
+                dependencias.add(m.group(1))
+    elif lenguaje == "go":
+        for m in re.finditer(r"^\s*[\w.]+\s+\"([^\"]+)\"", contenido, re.M):
+            if m.group(1):
+                dependencias.add(m.group(1))
+    elif lenguaje == "rust":
+        for m in re.finditer(r"^\s*(?:use|extern crate)\s+([\w:]+)", contenido, re.M):
+            if m.group(1):
+                dependencias.add(m.group(1))
+    elif lenguaje in ("java", "kotlin"):
+        for m in re.finditer(r"^\s*import\s+([\w.]+)", contenido, re.M):
+            simbolo = (m.group(1) or "").split(".")[-1]
+            if simbolo:
+                dependencias.add(simbolo)
+
+    return sorted(d for d in dependencias if d and d != "__future__")
+
+
+def _resolver_dependencia(rel, camino, dep, por_ruta, por_stem, raiz):
+    """Intenta localizar un archivo del proyecto que satisfaga una dependencia.
+
+    Estrategias, en orden: ruta relativa (./foo), extensión directa,
+    coincidencia por nombre de archivo (stem) y coincidencia de prefijo de
+    carpeta (pagos → pagos/pago_service.dart). Devuelve la ruta POSIX relativa
+    o None si no se encuentra ningún candidato en el repo.
+    """
+    dep_limpia = dep.strip("'\"")
+    if dep_limpia.startswith("."):
+        base = camino.parent.resolve()
+        candidata = (base / dep_limpia).resolve()
+        for sufijo in _GRP_EXT_DEPS:
+            probar = candidata if candidata.suffix else candidata.with_suffix(sufijo)
+            if probar.is_file():
+                try:
+                    rel_nueva = probar.relative_to(raiz).as_posix()
+                    if rel_nueva in por_ruta:
+                        return rel_nueva
+                except ValueError:
+                    return None
+        for nombre in ("index.js", "index.ts", "index.dart", "main.dart"):
+            probar = (candidata / nombre) if candidata.is_dir() else candidata
+            if probar.is_file():
+                try:
+                    rel_nueva = probar.relative_to(raiz).as_posix()
+                    if rel_nueva in por_ruta:
+                        return rel_nueva
+                except ValueError:
+                    return None
+        return None
+    if Path(dep_limpia).suffix.lower() in _GRP_EXT_DEPS:
+        if dep_limpia.lstrip("./") in por_ruta:
+            return dep_limpia.lstrip("./")
+    stem = Path(dep_limpia).stem
+    if stem in por_stem:
+        return por_stem[stem]
+    for clave in por_ruta:
+        if clave.startswith(dep_limpia.rstrip("/") + "/"):
+            return clave
+    return None
+
+
+def _grafo_dependencias(directorio="."):
+    """Construye un grafo de dependencias entre archivos de código del proyecto.
+
+    Devuelve {"nodos": [{"id", "etiqueta", "lenguaje"}], "enlaces": [{"origen",
+    "destino"}]}. Los enlaces unen archivos del proyecto que se importan entre
+    sí. Es la fuente del panel de dependencias de la interfaz web.
+    """
+    raiz = Path(directorio).resolve()
+    if not raiz.is_dir():
+        return {"nodos": [], "enlaces": []}
+    archivos = []
+    for camino in sorted(raiz.rglob("*")):
+        if not camino.is_file() or camino.suffix.lower() not in _GRP_EXT_DEPS:
+            continue
+        if any(parte in CARPETAS_IGNORADAS for parte in camino.parts):
+            continue
+        archivos.append(camino)
+    por_ruta = {}
+    por_stem = {}
+    nodos = []
+    for camino in archivos:
+        rel = camino.relative_to(raiz).as_posix()
+        nodos.append({"id": rel, "etiqueta": camino.name,
+                      "lenguaje": _comando_para_monaco(rel)})
+        por_ruta[rel] = camino.name
+        por_stem.setdefault(camino.stem, rel)
+    enlaces = []
+    vistos = set()
+    for camino in archivos:
+        rel = camino.relative_to(raiz).as_posix()
+        try:
+            contenido = camino.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        lenguaje = _comando_para_monaco(rel)
+        for dep in _extraer_dependencias(contenido, lenguaje):
+            destino = _resolver_dependencia(rel, camino, dep, por_ruta,
+                                            por_stem, raiz)
+            if destino and destino != rel and destino in por_ruta:
+                clave = (rel, destino)
+                if clave not in vistos:
+                    vistos.add(clave)
+                    enlaces.append({"origen": rel, "destino": destino})
+    return {"nodos": nodos, "enlaces": enlaces}
+
+
+def _buscar_en_codigo(tema, directorio=".", max_resultados=50):
+    """Busca ``tema`` en el código del repositorio (rg/grep/findstr).
+
+    Devuelve una lista de líneas de coincidencia ya formateadas para poder
+    reutilizarlas en la interfaz web. [] si no hay buscador o coincidencias.
+    """
+    if not tema:
+        return []
+    herramienta = _herramienta_busqueda()
+    if herramienta is None:
+        return []
+    if herramienta == "rg":
+        comando = f'rg -n -i --max-count 5 "{tema}"'
+    elif herramienta == "grep":
+        comando = f'grep -rn -i -m 5 "{tema}" .'
+    else:
+        comando = (f'findstr /s /n /i "{tema}" '
+                   "*.py *.dart *.js *.ts *.go *.rs *.java *.kt *.rb *.php")
+    codigo, stdout, _stderr = _ejecutar_comando(comando, directorio, timeout=60)
+    if codigo != 0 or not stdout:
+        return []
+    lineas = [l for l in (stdout or "").splitlines() if l.strip()]
+    return lineas[:max_resultados]
 
 
 def crear_parser() -> argparse.ArgumentParser:

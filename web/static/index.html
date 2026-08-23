@@ -3,242 +3,403 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SnapContext · Interfaz Web</title>
+<title>SnapContext · Interfaz Web Avanzada</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.1/min/vs/editor/editor.main.min.css">
 <style>
-  :root {
-    --fondo: #0f1115; --panel: #171a21; --borde: #2a2f3a;
-    --texto: #d8dee9; --gris: #8b93a7;
-    --verde: #7ee081; --amarillo: #e3b341; --rojo: #f47174; --cian: #7dcfff;
-  }
-  * { box-sizing: border-box; }
+  :root { --fondo:#0f1115; --panel:#171a21; --borde:#2a2f3a; --texto:#d8dee9;
+          --gris:#8b93a7; --verde:#7ee081; --amarillo:#e3b341; --rojo:#f47174;
+          --cian:#7dcfff; }
+  * { box-sizing:border-box; }
   body { margin:0; font-family:'Segoe UI',system-ui,sans-serif; background:var(--fondo); color:var(--texto); }
   header { padding:1rem 1.6rem; border-bottom:1px solid var(--borde); background:var(--panel); font-weight:700; letter-spacing:.5px; }
-  .tarjeta { background:var(--panel); border:1px solid var(--borde); border-radius:10px; padding:1rem 1.2rem; }
+  header small { font-weight:400; color:var(--gris); }
+  main { max-width:1400px; margin:1.2rem auto; padding:0 1.2rem; }
+  .tarjeta { background:var(--panel); border:1px solid var(--borde); border-radius:10px; padding:1rem 1.2rem; margin-bottom:1.2rem; }
+  .tarjeta h3 { margin:0 0 .6rem; font-size:.95rem; color:var(--gris); text-transform:uppercase; letter-spacing:.6px; }
   .campo { display:flex; gap:12px; }
-  input[type=text] { flex:1; background:#0d1014; color:var(--texto); border:1px solid var(--borde); border-radius:8px; padding:.75rem 1rem; font-size:1rem; }
-  button { background:#2a6fdb; color:#fff; border:0; border-radius:8px; padding:.75rem 1.6rem; font-size:1rem; cursor:pointer; }
+  input[type=text], input[type=number] { background:#0d1014; color:var(--texto); border:1px solid var(--borde); border-radius:8px; padding:.7rem 1rem; font-size:1rem; }
+  #consulta { flex:1; }
+  button { background:#2a6fdb; color:#fff; border:0; border-radius:8px; padding:.6rem 1.1rem; font-size:.95rem; cursor:pointer; }
   button:disabled { background:#3a4250; color:#9aa3b2; cursor:default; }
-  .opciones { display:flex; flex-wrap:wrap; gap:10px; margin-top:.7rem; }
+  button.accion { background:#0e1a3a; border:1px solid var(--borde); color:var(--texto); }
+  button.accion:hover { border-color:var(--cian); }
+  .opciones { display:flex; flex-wrap:wrap; gap:10px; margin-top:.7rem; align-items:center; }
   label.check { display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:.9rem; }
   input[type=checkbox] { accent-color:var(--verde); }
-  input#directorio, input#maxArchivos { flex:1; }
-  .grid { display:grid; grid-template-columns:1fr 1fr; gap:1.2rem; margin-top:1.2rem; }
-  pre.logs { height:360px; overflow:auto; margin:0; padding:.8rem 1rem; background:#0b0e12; border:1px solid var(--borde); border-radius:8px; font-family:Consolas,monospace; font-size:.85rem; line-height:1.5; white-space:pre-wrap; }
+  #directorio, #maxArchivos { flex:1; min-width:120px; }
+  .acciones { display:flex; flex-wrap:wrap; gap:8px; margin-top:.9rem; padding-top:.9rem; border-top:1px dashed var(--borde); }
+  .acciones span.titulo { align-self:center; color:var(--gris); font-size:.8rem; margin-right:4px; text-transform:uppercase; letter-spacing:.5px; }
+  .grid-main { display:grid; grid-template-columns:1.6fr 1fr; gap:1.2rem; align-items:start; }
+  .stack > .tarjeta { margin-bottom:1.2rem; }
+  .tabs { display:flex; gap:6px; margin-bottom:.8rem; }
+  .tab { background:transparent; border:1px solid var(--borde); color:var(--gris); }
+  .tab.activa { background:#0e1a3a; color:var(--cian); border-color:var(--cian); }
+  #monaco { height:480px; border:1px solid var(--borde); border-radius:8px; overflow:hidden; }
+  #editorFallback { width:100%; height:480px; background:#0b0e12; color:var(--texto); border:1px solid var(--borde); border-radius:8px; font-family:Consolas,monospace; font-size:.85rem; padding:.8rem; resize:vertical; }
+  .editor-barra { display:flex; align-items:center; gap:12px; margin-top:.6rem; }
+  #editorRuta { flex:1; font-family:Consolas,monospace; font-size:.8rem; color:var(--gris); word-break:break-all; }
+  #grafoDeps { height:480px; border:1px solid var(--borde); border-radius:8px; background:#0b0e12; overflow:hidden; }
+  #depsFallback { max-height:480px; overflow:auto; font-family:Consolas,monospace; font-size:.8rem; white-space:pre-wrap; }
+  #grafoDeps svg text { fill:var(--texto); font-size:11px; font-family:'Segoe UI',sans-serif; }
+  #grafoDeps .enlace { stroke:#3a4250; stroke-width:1.4px; }
+  #grafoDeps .nodo rect { stroke:var(--cian); stroke-width:1.4px; fill:rgba(125,207,255,.14); cursor:pointer; }
+  #grafoDeps .nodo.central rect { stroke:var(--verde); fill:rgba(126,224,129,.18); }
+  pre.logs { height:300px; overflow:auto; margin:0; padding:.7rem 1rem; background:#0b0e12; border:1px solid var(--borde); border-radius:8px; font-family:Consolas,monospace; font-size:.82rem; line-height:1.5; white-space:pre-wrap; }
   .resumen { min-height:120px; border-radius:8px; }
   .pila { margin:.4rem 0; padding:.45rem .8rem; background:rgba(23,26,33,.6); border-radius:6px; font-family:Consolas,monospace; font-size:.85rem; }
-  footer { margin-top:1.2rem; color:var(--gris); font-size:.82rem; }
-  .chip { display:inline-flex; align-items:center; gap:6px; }
-  .punto { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px; }
-  .ok { background:var(--verde); } .bad { background:var(--rojo); }
-  .barra { display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-top:.8rem; padding:.55rem .8rem; background:#0b0e12; border:1px solid var(--borde); border-radius:8px; font-size:.85rem; }
+  .archivo-btn { display:block; width:100%; text-align:left; margin:.35rem 0; padding:.5rem .8rem; background:#0d1014; border:1px solid var(--borde); border-radius:8px; color:var(--texto); font-family:Consolas,monospace; font-size:.82rem; cursor:pointer; }
+  .archivo-btn:hover { border-color:var(--verde); }
+  .barra { display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:.7rem; padding:.5rem .8rem; background:#0b0e12; border:1px solid var(--borde); border-radius:8px; font-size:.85rem; }
   .spinner { width:16px; height:16px; border:3px solid var(--borde); border-top-color:var(--cian); border-radius:50%; animation:girar .8s linear infinite; display:inline-block; flex:0 0 auto; }
   @keyframes girar { to { transform: rotate(360deg); } }
   .oculto { display:none !important; }
-  .cuenta { font-variant-numeric: tabular-nums; color:var(--texto); }
-  .tag { padding:.12rem .45rem; border-radius:999px; font-size:.75rem; }
-  .tag-esc { background:rgba(125,207,255,.15); color:var(--cian); }
-  .tag-sel { background:rgba(126,224,129,.15); color:var(--verde); }
-  .tag-test { background:rgba(227,179,65,.15); color:var(--amarillo); }
+  .cuenta { font-variant-numeric:tabular-nums; color:var(--texto); }
+  .chip { display:inline-flex; align-items:center; gap:6px; }
+  .punto { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px; }
+  .ok { background:var(--verde); } .bad { background:var(--rojo); }
+  footer { margin-top:1.2rem; color:var(--gris); font-size:.82rem; }
+  #modalRun { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:50; }
+  #modalRun .caja { background:var(--panel); border:1px solid var(--borde); border-radius:10px; padding:1.2rem; width:520px; max-width:92vw; }
+  #modalRun .campo { margin-top:.6rem; }
+  @media (max-width:1000px){ .grid-main { grid-template-columns:1fr; } }
 </style>
 </head>
-<!-- __PARTE2__ -->
 <body>
-<header>🛠 SnapContext <small>· Interfaz Web · asistentes con contexto automático</small></header>
+<header>🛠 SnapContext <small>· Interfaz Web Avanzada · editor Monaco + dependencias + acciones rápidas</small></header>
 
-<main style="max-width:1100px; margin:1.4rem auto;">
+<main>
   <section class="tarjeta">
     <div class="campo">
-      <input type="text" id="consulta" placeholder='Escribe la tarea, p. ej. "el botón de pago no funciona"' autofocus
+      <input type="text" id="consulta" placeholder='Tarea, p. ej. "el botón de pago no funciona"' autofocus
              onkeydown="if(event.key==='Enter') ejecutar()">
       <button id="botonEjecutar" onclick="ejecutar()">Ejecutar</button>
     </div>
     <div class="opciones">
-      <label class="check"><input type="checkbox" id="local"> Selección local (sin IA)</label>
-      <label class="check"><input type="checkbox" id="vistaPrevia"> Vista previa (no ejecuta Aider)</label>
-      <label class="check"><input type="checkbox" id="testLoop"> Bucle de pruebas (--test-loop)</label>
+      <label class="check"><input type="checkbox" id="local"> --local</label>
+      <label class="check"><input type="checkbox" id="vistaPrevia"> --vista-previa</label>
+      <label class="check"><input type="checkbox" id="testLoop"> --test-loop</label>
       <input type="text" id="directorio" placeholder="directorio (opcional)">
-      <input type="text" id="maxArchivos" placeholder="max archivos (opcional)">
+      <input type="number" id="maxArchivos" min="1" max="20" placeholder="max-archivos">
+    </div>
+    <div class="acciones">
+      <span class="titulo">Acciones rápidas</span>
+      <button class="accion" onclick="accion('fix')">⚙ Fix</button>
+      <button class="accion" onclick="accion('review')">🔍 Review</button>
+      <button class="accion" onclick="accion('plan')">🧭 Plan</button>
+      <button class="accion" onclick="mostrarRun()">▶ Run</button>
+      <button class="accion" onclick="accion('search')">🧠 Search</button>
+      <button class="accion" onclick="accion('explorar')">🔎 Explorar</button>
     </div>
   </section>
 
-  <section class="barra">
-    <span id="spinner" class="spinner oculto"></span>
-    <span id="textoProgreso" style="color:var(--gris)">En espera de una tarea.</span>
-    <span style="color:var(--gris)">· Tiempo: <span id="tiempo" class="cuenta">0s</span></span>
-    <span style="color:var(--gris)">· Escaneados: <span id="contEscaneados" class="cuenta">0</span></span>
-    <span style="color:var(--gris)">· Seleccionados: <span id="contSeleccionados" class="cuenta">0</span></span>
-  </section>
+  <div class="grid-main">
+    <section class="tarjeta">
+      <div class="tabs">
+        <button id="tab-editor" class="tab activa" onclick="tab('editor')">📝 Editor</button>
+        <button id="tab-deps" class="tab" onclick="tab('deps')">🔗 Dependencias</button>
+      </div>
+      <div id="panel-editor">
+        <div id="monaco"></div>
+        <textarea id="editorFallback" class="oculto" spellcheck="false"></textarea>
+        <div class="editor-barra">
+          <span id="editorRuta">—</span>
+          <button onclick="guardarArchivo()">💾 Guardar</button>
+        </div>
+      </div>
+      <div id="panel-deps" class="oculto">
+        <div class="editor-barra">
+          <span id="depsInfo">Grafo de dependencias del proyecto.</span>
+          <button onclick="cargarDependencias()">↻ Refrescar</button>
+        </div>
+        <div id="grafoDeps"></div>
+        <div id="depsFallback" class="oculto"></div>
+      </div>
+    </section>
 
-  <div class="grid">
-    <section class="tarjeta">
-      <h3 style="margin:0 0 8px">📜 Logs (tiempo real)</h3>
-      <pre id="logs" class="logs"><span style="color:var(--gris)">Conectando al WebSocket…</span></pre>
-    </section>
-    <section class="tarjeta">
-      <h3 style="margin:0 0 8px">✅ Resultados</h3>
-      <div id="resultados" class="resumen"><p style="color:var(--gris)">Aquí aparecerán los archivos seleccionados y el cierre de la tarea.</p></div>
-    </section>
+    <div class="stack">
+      <section class="tarjeta">
+        <h3>Progreso</h3>
+        <div class="barra">
+          <span class="spinner oculto" id="spinner"></span>
+          <span class="chip"><span class="punto ok" id="estadoPunto"></span><span id="estadoTexto">Listo.</span></span>
+          <span>📂 <span id="contEscaneados" class="cuenta">0</span></span>
+          <span>✓ <span id="contSeleccionados" class="cuenta">0</span></span>
+          <span>⏱ <span id="tiempo" class="cuenta">0s</span></span>
+        </div>
+        <pre id="logs" class="logs"></pre>
+      </section>
+
+      <section class="tarjeta">
+        <h3>Archivos relevantes · <span id="contResumen" class="cuenta">0</span></h3>
+        <div id="resultados" class="resumen"></div>
+      </section>
+    </div>
   </div>
 
-  <footer>
-    <span id="chipEstado" class="chip"><span id="puntoEstado" class="punto bad"></span><span id="textoEstado">desconectado</span></span>
-    &nbsp;·&nbsp; FastAPI + WebSockets
-  </footer>
+  <footer>Haz clic en un archivo de los resultados para abrirlo en el editor · Monaco carga desde CDN (con <code>textarea</code> de respaldo).</footer>
 </main>
-<!-- __PARTE3__ -->
+
+<div id="modalRun" class="oculto">
+  <div class="caja">
+    <h3>▶ Ejecutar comando personalizado</h3>
+    <div class="campo">
+      <input type="text" id="runComando" placeholder="p. ej. flutter test" onkeydown="if(event.key==='Enter') lanzarRun()">
+      <button onclick="lanzarRun()">Ejecutar</button>
+      <button onclick="cerrarRun()">Cancelar</button>
+    </div>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.1/min/vs/loader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 <script>
-  var ws = null;
-  var tInicio = null;
-  var intervaloReloj = null;
-  const $id = (s) => document.getElementById(s);
+var ws=null, tInicio=null, editorMonaco=null, archivoActual=null, tabActual='editor';
+function $id(x){ return document.getElementById(x); }
+function escapar(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function formatearSegundos(s){ return s<60 ? Math.round(s)+'s' : Math.round(s/10)/10+' m'; }
+function directorioActual(){ return ($id('directorio').value||'').trim()||undefined; }
+function maxArchivos(){ var v=$id('maxArchivos').value; return v?parseInt(v,10):undefined; }
 
-  function estado(nombre) {
-    $id('puntoEstado').className = 'punto ' + (nombre === 'conectado' ? 'ok' : 'bad');
-    $id('textoEstado').textContent = nombre;
+function conectar(){
+  var proto = location.protocol==='https:'?'wss':'ws';
+  ws = new WebSocket(proto+'://'+location.host+'/ws');
+  ws.onmessage = function(ev){ try{ procesar(JSON.parse(ev.data)); }catch(e){} };
+  ws.onclose = function(){ if(ws) logRow('[web]','Conexión perdida. Recargue para reconectar.','var(--rojo)'); };
+  ws.onopen = function(){ logRow('[web]','WebSocket conectado.','var(--verde)'); };
+}
+
+function logRow(tag, texto, color){
+  var pre=$id('logs'), d=document.createElement('div');
+  d.style.color = color||'var(--texto)'; d.textContent=(tag?tag+' ':'')+texto;
+  pre.appendChild(d); pre.scrollTop=pre.scrollHeight;
+}
+function anexarResultado(texto, ok){
+  var r=$id('resultados'), d=document.createElement('div');
+  d.className='pila'; d.style.color = ok===false?'var(--rojo)':'var(--verde)';
+  d.textContent=texto; r.appendChild(d);
+}
+function setProgreso(activo, texto){
+  $id('spinner').classList.toggle('oculto', !activo);
+  $id('estadoTexto').textContent = texto||(activo?'Trabajando…':'Listo.');
+  var p=$id('estadoPunto'); p.className='punto '+(activo?'bad':'ok');
+  $id('botonEjecutar').disabled=activo;
+  document.querySelectorAll('button.accion').forEach(function(b){ b.disabled=activo; });
+}
+function arrancarReloj(){ tInicio=Date.now(); }
+function pararReloj(){ tInicio=null; $id('tiempo').textContent='0s'; }
+function setReloj(){ if(tInicio!==null) $id('tiempo').textContent=formatearSegundos((Date.now()-tInicio)/1000); }
+setInterval(setReloj,1000);
+
+function mostrarSeleccion(archivos){
+  var r=$id('resultados'); $id('contSeleccionados').textContent=archivos.length;
+  $id('contResumen').textContent=archivos.length; r.innerHTML='';
+  archivos.forEach(function(a){
+    var b=document.createElement('button');
+    b.className='archivo-btn'; b.textContent='📄 '+a;
+    b.title='Abrir en el editor'; b.onclick=function(){ abrirArchivo(a); };
+    r.appendChild(b);
+  });
+}
+function actualizarArchivosSeleccion(archivos){ $id('contSeleccionados').textContent=(archivos||[]).length; }
+function procesar(ev){
+  if (ev.tipo==='inicio'){ arrancarReloj(); setProgreso(true,'Preparando la tarea…'); }
+  else if (ev.tipo==='log'){ logRow('', ev.texto||'', ev.nivel==='error'?'var(--rojo)':null); }
+  else if (ev.tipo==='escaneo_inicio'){ setProgreso(true,'Escaneando el repositorio…'); logRow('[escaneo]','inicio','var(--cian)'); }
+  else if (ev.tipo==='escaneo_fin'){ $id('contEscaneados').textContent=ev.total||0; logRow('[escaneo]','fin — '+(ev.total||0)+' candidato(s).','var(--cian)'); }
+  else if (ev.tipo==='seleccion_inicio'){ setProgreso(true,'Seleccionando archivos relevantes…'); logRow('[selección]','inicio','var(--amarillo)'); }
+  else if (ev.tipo==='seleccion_fin'){
+    $id('contSeleccionados').textContent=ev.cantidad||0; $id('contResumen').textContent=ev.cantidad||0;
+    mostrarSeleccion(ev.archivos||[]); logRow('[selección]','fin — '+(ev.cantidad||0)+' archivo(s) (clic para abrir).','var(--verde)');
   }
-
-  function conectar() {
-    var proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    var url = proto + '://' + location.host + '/ws';
-    ws = new WebSocket(url);
-    ws.onopen = () => { estado('conectado'); logRow('', '✔ WebSocket conectado.'); };
-    ws.onclose = () => { estado('desconectado'); logRow('[servidor]', 'conexión cerrada.', 'var(--gris)'); pararReloj(); };
-    ws.onerror = () => { estado('desconectado'); };
-    ws.onmessage = (e) => procesar(JSON.parse(e.data));
+  else if (ev.tipo==='selección'){ if(ev.cantidad===undefined && ev.archivos) mostrarSeleccion(ev.archivos); }
+  else if (ev.tipo==='aider'){ if(ev.accion==='iniciar'){ setProgreso(true,'Ejecutando Aider…'); logRow('[Aider]','ejecutando…','var(--amarillo)'); } else anexarResultado(ev.ok?'✔ Aider terminó correctamente.':'✖ Aider terminó con error.', ev.ok); }
+  else if (ev.tipo==='test_inicio'){ setProgreso(true,'Bucle de pruebas…'); logRow('[test]','inicio — '+(ev.comando||''),'var(--amarillo)'); }
+  else if (ev.tipo==='test'){ logRow('[test]','iter. '+ev.iteracion+': '+ev.accion+' ('+(ev.ok?'ok':'falló')+')','var(--amarillo)'); }
+  else if (ev.tipo==='test_fin'){ logRow('[test]','fin — '+(ev.ok?'superado':'falló'), ev.ok?'var(--verde)':'var(--rojo)'); }
+  else if (ev.tipo==='final'){
+    var trans=tInicio!==null?(Date.now()-tInicio)/1000:0; pararReloj();
+    anexarResultado((ev.ok?'✔ Finalizado con éxito.':'✖ Finalizado con error.')+' ('+formatearSegundos(trans)+')', ev.ok);
+    setProgreso(false, ev.ok?'Tarea finalizada.':'La tarea terminó con errores.');
   }
-
-  function formatearSegundos(s) {
-    s = Math.max(0, Math.floor(s || 0));
-    if (s < 60) return s + 's';
-    var m = Math.floor(s / 60), r = s % 60;
-    return m + 'm ' + r + 's';
+  else if (ev.tipo==='archivo_seleccionado'){ abrirEditor(ev); }
+  else if (ev.tipo==='archivo_guardado'){
+    if(ev.ok){ logRow('[editor]','✔ Guardado: '+ev.ruta,'var(--verde)'); anexarResultado('✔ Guardado '+ev.ruta,true); }
+    else logRow('[editor]','✖ No se pudo guardar: '+(ev.error||''),'var(--rojo)');
   }
-
-  function arrancarReloj() {
-    if (tInicio !== null) return;
-    tInicio = Date.now();
-    intervaloReloj = setInterval(function () {
-      $id('tiempo').textContent = formatearSegundos((Date.now() - tInicio) / 1000);
-    }, 250);
+  else if (ev.tipo==='dependencias_actualizadas'){ mostrarDependencias(ev); }
+  else if (ev.tipo==='semanticos'){ mostrarSemanticos(ev.resultados||[]); }
+  else if (ev.tipo==='exploracion'){ mostrarExploracion(ev.lineas||[]); }
+  else if (ev.tipo==='accion_ejecutada'){
+    logRow('[acción:'+ev.accion+']', ev.ok?'✔ '+(ev.resumen||'ok'):'✖ '+(ev.error||ev.resumen||'error'), ev.ok?'var(--verde)':'var(--rojo)');
+    setProgreso(false, ev.ok?'Acción terminada.':'La acción terminó con errores.');
   }
+}
+function enviar(msg){ if(ws && ws.readyState===1){ ws.send(JSON.stringify(msg)); } else logRow('[web]','WebSocket no conectado.','var(--rojo)'); }
 
-  function pararReloj() {
-    if (intervaloReloj) clearInterval(intervaloReloj);
-    intervaloReloj = null;
-    tInicio = null;
+function ejecutar(){
+  var consulta=$id('consulta').value.trim();
+  if(!consulta){ logRow('[web]','✖ Introduce una consulta.','var(--rojo)'); return; }
+  if(!ws || ws.readyState!==1){ logRow('[web]','WebSocket no conectado.','var(--rojo)'); return; }
+  setProgreso(true,'Enviando consulta…'); $id('logs').innerHTML=''; $id('resultados').innerHTML='';
+  $id('contEscaneados').textContent='0'; $id('contSeleccionados').textContent='0'; $id('contResumen').textContent='0';
+  $id('tiempo').textContent='0s'; pararReloj(); arrancarReloj();
+  enviar({ consulta:consulta, local:$id('local').checked, vista_previa:$id('vistaPrevia').checked,
+           test_loop:$id('testLoop').checked, directorio:directorioActual(), max_archivos:maxArchivos() });
+}
+
+function accion(tipo){
+  if(!ws || ws.readyState!==1){ logRow('[web]','WebSocket no conectado.','var(--rojo)'); return; }
+  var consulta=$id('consulta').value.trim();
+  setProgreso(true,'Ejecutando acción: '+tipo+'…');
+  enviar({ tipo:'accion', accion:tipo, consulta:consulta, archivo:archivoActual,
+           directorio:directorioActual(), comando:'' });
+}
+function mostrarRun(){ $id('modalRun').classList.remove('oculto'); $id('runComando').focus(); }
+function cerrarRun(){ $id('modalRun').classList.add('oculto'); }
+function lanzarRun(){
+  var comando=$id('runComando').value.trim(); cerrarRun();
+  if(!comando){ logRow('[web]','✖ Introduce un comando.','var(--rojo)'); return; }
+  setProgreso(true,'Ejecutando comando: '+comando+'…');
+  enviar({ tipo:'accion', accion:'run', comando:comando, consulta:'', archivo:'', directorio:directorioActual() });
+}
+
+function tab(nombre){
+  tabActual=nombre;
+  $id('tab-editor').classList.toggle('activa', nombre==='editor');
+  $id('tab-deps').classList.toggle('activa', nombre==='deps');
+  $id('panel-editor').classList.toggle('oculto', nombre!=='editor');
+  $id('panel-deps').classList.toggle('oculto', nombre!=='deps');
+  if(nombre==='deps' && !$id('grafoDeps').children.length) cargarDependencias();
+  if(nombre==='editor' && editorMonaco && !editorMonaco.isDisposed()) setTimeout(function(){ editorMonaco.layout(); },30);
+}
+
+// ---- Resultados semánticos y exploración -------------------------------
+function mostrarSemanticos(resultados){
+  var r=$id('resultados'); r.innerHTML='';
+  if(!resultados.length){ anexarResultado('Sin resultados semánticos (¿extra embeddings instalado?).', false); return; }
+  resultados.forEach(function(ev){
+    var b=document.createElement('button');
+    b.className='archivo-btn'; b.textContent='🧠 '+(ev.archivo||ev.id||'')+'  ('+ (ev.similitud!=null?ev.similitud.toFixed(2):'?') +')';
+    b.onclick=function(){ abrirArchivo(ev.archivo||ev.id); };
+    r.appendChild(b);
+  });
+  logRow('[search]',resultados.length+' resultado(s) semántico(s).','var(--verde)');
+}
+function mostrarExploracion(lineas){
+  if(!lineas.length){ anexarResultado('Sin coincidencias de exploración.', false); return; }
+  var r=$id('resultados'); r.innerHTML='';
+  lineas.forEach(function(l){
+    var d=document.createElement('div'); d.className='pila'; d.textContent=l; r.appendChild(d);
+  });
+  logRow('[explorar]',lineas.length+' coincidencia(s).','var(--verde)');
+}
+// ---- Monaco Editor ------------------------------------------------------
+function abrirArchivo(ruta){
+  if(!ruta) return;
+  tablaEditor();
+  setProgreso(true,'Abriendo '+ruta+'…');
+  enviar({ tipo:'leer_archivo', ruta:ruta, directorio:directorioActual() });
+}
+function tablaEditor(){ tab('editor'); }
+
+function abrirEditor(ev){
+  archivoActual = ev.ruta || archivoActual;
+  $id('editorRuta').textContent = ev.ruta||'—';
+  var contenido = ev.contenido || '';
+  var lenguaje = ev.lenguaje || 'plaintext';
+  if(!ev.ruta){ logRow('[editor]','✖ '+(ev.error||'No se pudo leer el archivo.'),'var(--rojo)'); setProgreso(false); return; }
+  if(editorMonaco && !editorMonaco.isDisposed()){
+    var modelo = editorMonaco.getModel();
+    if(modelo){ modelo.setValue(contenido); monaco.editor.setModelLanguage(modelo, lenguaje); }
+    else editorMonaco.setValue(contenido);
+    editorMonaco.focus();
+  } else {
+    // Fallback: <textarea> si Monaco no cargó.
+    $id('monaco').classList.add('oculto');
+    $id('editorFallback').classList.remove('oculto');
+    $id('editorFallback').value = contenido;
+    $id('editorFallback').focus();
   }
+  setProgreso(false,'Archivo abierto en el editor.');
+  logRow('[editor]','Abierto: '+ev.ruta+' ('+lenguaje+').','var(--cian)');
+}
 
-  function setProgreso(activo, texto) {
-    if (activo) {
-      $id('spinner').classList.remove('oculto');
-      $id('textoProgreso').style.color = 'var(--cian)';
-      $id('textoProgreso').textContent = texto || 'Trabajando…';
-    } else {
-      $id('spinner').classList.add('oculto');
-      $id('textoProgreso').style.color = 'var(--gris)';
-      $id('textoProgreso').textContent = texto || 'En espera de una tarea.';
-    }
+function guardarArchivo(){
+  if(!archivoActual){ logRow('[editor]','✖ No hay archivo abierto.','var(--rojo)'); return; }
+  var contenido = (editorMonaco && !editorMonaco.isDisposed()) ? editorMonaco.getValue() : $id('editorFallback').value;
+  setProgreso(true,'Guardando '+archivoActual+'…');
+  enviar({ tipo:'guardar_archivo', ruta:archivoActual, contenido:contenido, directorio:directorioActual() });
+  setProgreso(false,'Guardando…');
+}
+
+function iniciarMonaco(){
+  if(typeof window.require==='undefined'){
+    // loader.js no cargó → usamos textarea de respaldo.
+    activarFallbackEditor();
+    return;
   }
-
-  function escapar(s) {
-    return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
-  function logRow(prefix, texto, color) {
-    var el = $id('logs');
-    var spanColor = color || 'var(--texto)';
-    el.innerHTML += '<span style="color:var(--cian)">' + escapar(prefix) + '</span> '
-      + '<span style="color:' + spanColor + '">' + escapar(texto) + '</span>\n';
-    el.scrollTop = el.scrollHeight;
-  }
-
-  function anexarResultado(texto, ok) {
-    var el = $id('resultados');
-    var col = ok ? 'var(--verde)' : 'var(--rojo)';
-    el.innerHTML += '<p style="color:' + col + '">' + escapar(texto) + '</p>';
-  }
-
-  function mostrarSeleccion(archivos) {
-    var el = $id('resultados');
-    el.innerHTML = '<b>Archivos seleccionados (' + (archivos||[]).length + '):</b>';
-    (archivos||[]).forEach(function(a) {
-      el.innerHTML += '<div class="pila">• ' + escapar(a) + '</div>';
+  window.require.config({ paths:{ vs:'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.1/min/vs' } });
+  window.require(['vs/editor/editor.main'], function(){
+    editorMonaco = monaco.editor.create($id('monaco'), {
+      value:'', language:'plaintext', theme:'vs-dark',
+      automaticLayout:true, minimap:{enabled:true}, fontSize:13
     });
-  }
+    logRow('[editor]','Monaco Editor cargado.','var(--verde)');
+  });
+}
+function activarFallbackEditor(){
+  $id('monaco').classList.add('oculto');
+  $id('editorFallback').classList.remove('oculto');
+  logRow('[editor]','Monaco no disponible; usando editor de texto simple.','var(--amarillo)');
+}
+// Detección de error de carga de Monaco con retardo.
+setTimeout(function(){ if(!editorMonaco) activarFallbackEditor(); }, 6000);
 
-  function procesar(ev) {
-    if (ev.tipo === 'inicio') {
-      arrancarReloj();
-      setProgreso(true, 'Preparando la tarea…');
-    } else if (ev.tipo === 'log') {
-      logRow('', ev.texto || '', ev.nivel === 'error' ? 'var(--rojo)' : null);
-    } else if (ev.tipo === 'escaneo_inicio') {
-      arrancarReloj();
-      setProgreso(true, 'Escaneando el repositorio…');
-      logRow('[escaneo]', 'inicio', 'var(--cian)');
-    } else if (ev.tipo === 'escaneo_fin') {
-      $id('contEscaneados').textContent = ev.total || 0;
-      logRow('[escaneo]', 'fin — ' + (ev.total || 0) + ' candidato(s) encontrado(s).', 'var(--cian)');
-    } else if (ev.tipo === 'seleccion_inicio') {
-      arrancarReloj();
-      setProgreso(true, 'Seleccionando archivos relevantes…');
-      logRow('[selección]', 'inicio', 'var(--amarillo)');
-    } else if (ev.tipo === 'seleccion_fin') {
-      $id('contSeleccionados').textContent = ev.cantidad || 0;
-      mostrarSeleccion(ev.archivos || []);
-      logRow('[selección]', 'fin — ' + (ev.cantidad || 0) + ' archivo(s).', 'var(--verde)');
-    } else if (ev.tipo === 'selección') {
-      if (ev.cantidad === undefined) mostrarSeleccion(ev.archivos || []);
-    } else if (ev.tipo === 'aider') {
-      if (ev.accion === 'iniciar') {
-        setProgreso(true, 'Ejecutando Aider…');
-        logRow('[Aider]', 'ejecutando…', 'var(--amarillo)');
-      } else anexarResultado(ev.ok ? '✔ Aider terminó correctamente.' : '✖ Aider terminó con error.', ev.ok);
-    } else if (ev.tipo === 'test_inicio') {
-      arrancarReloj();
-      setProgreso(true, 'Bucle de pruebas…');
-      logRow('[test]', 'inicio — comando: ' + (ev.comando || ''), 'var(--amarillo)');
-    } else if (ev.tipo === 'test') {
-      logRow('[test]', 'iter. ' + ev.iteracion + ': ' + ev.accion + ' (' + (ev.ok ? 'ok' : 'falló') + ')', 'var(--amarillo)');
-    } else if (ev.tipo === 'test_fin') {
-      logRow('[test]', 'fin — ' + (ev.ok ? 'superado' : 'falló'), ev.ok ? 'var(--verde)' : 'var(--rojo)');
-    } else if (ev.tipo === 'final') {
-      var transcurrido = tInicio !== null ? (Date.now() - tInicio) / 1000 : 0;
-      pararReloj();
-      anexarResultado((ev.ok ? '✔ Finalizado con éxito.' : '✖ Finalizado con error.') + ' (' + formatearSegundos(transcurrido) + ')', ev.ok);
-      setProgreso(false, ev.ok ? 'Tarea finalizada.' : 'La tarea terminó con errores.');
-      habilitar(true);
-    }
-  }
+// ---- Grafo de dependencias (d3) ---------------------------------------
+function cargarDependencias(){
+  setProgreso(true,'Calculando dependencias…');
+  enviar({ tipo:'dependencias', directorio:directorioActual(), ruta:archivoActual });
+}
+function mostrarDependencias(ev){
+  setProgreso(false,'Dependencias actualizadas.');
+  $id('depsInfo').textContent = ev.error ? ('Error: '+ev.error) : (ev.nodos.length+' nodo(s), '+ev.enlaces.length+' enlace(s).');
+  var nodos=ev.nodos||[], enlaces=ev.enlaces||[];
+  if(!nodos.length){ $id('grafoDeps').innerHTML=''; $id('depsFallback').textContent='Sin dependencias detectadas.'; $id('depsFallback').classList.remove('oculto'); return; }
+  if(typeof d3==='undefined'){ pintarDepsFallback(nodos,enlaces); return; }
+  if(archivoActual){ nodos = nodos.map(function(n){ n.central = (n.id===archivoActual); return n; }); }
+  var ancho=$id('grafoDeps').clientWidth||800, alto=480;
+  $id('grafoDeps').innerHTML='';
+  var svg=d3.select('#grafoDeps').append('svg').attr('width',ancho).attr('height',alto);
+  var cont=svg.append('g');
+  var sim=d3.forceSimulation(nodos)
+     .force('link', d3.forceLink(enlaces).id(function(d){return d.id;}).distance(90))
+     .force('charge', d3.forceManyBody().strength(-220))
+     .force('center', d3.forceCenter(ancho/2, alto/2))
+     .force('collide', d3.forceCollide(70));
+  var enlace_sel=cont.append('g').selectAll('line').data(enlaces).enter().append('line')
+     .attr('class','enlace');
+  var nodo_sel=cont.append('g').selectAll('.nodo').data(nodos).enter().append('g').attr('class',function(d){return 'nodo'+(d.central?' central':'');})
+     .call(d3.drag().on('start',arrastre).on('drag',arrastrando).on('end',arrastre));
+  nodo_sel.append('rect').attr('width',function(d){return d.etiqueta.length*6.5+20;}).attr('height',26).attr('rx',5).attr('y',-13);
+  nodo_sel.append('text').attr('x',10).attr('y',4).text(function(d){return d.etiqueta;});
+  nodo_sel.on('click', function(d){ abrirArchivo(d.id); });
+  function arrastrando(d){ sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; }
+  sim.on('tick', function(){
+    enlace_sel.attr('x1',function(d){return d.source.x;}).attr('y1',function(d){return d.source.y;})
+              .attr('x2',function(d){return d.target.x;}).attr('y2',function(d){return d.target.y;});
+    nodo_sel.attr('transform',function(d){return 'translate('+d.x+','+d.y+')';});
+  });
+  logRow('[deps]',nodos.length+' nodo(s), '+enlaces.length+' enlace(s).','var(--cian)');
+}
+function arrastre(){}
+function pintarDepsFallback(nodos,enlaces){
+  $id('grafoDeps').innerHTML=''; $id('depsFallback').classList.remove('oculto');
+  var t=''; enlaces.forEach(function(e){ t+= e.origen+' → '+e.destino+'\n'; });
+  $id('depsFallback').textContent = t || 'Sin enlaces (solo nodos: '+nodos.map(function(n){return n.id;}).join(', ')+')';
+  logRow('[deps]','d3 no disponible; se muestra la lista de enlaces.','var(--amarillo)');
+}
 
-  function anexar(texto, ok) { anexarResultado(texto, ok); }
-
-  function habilitar(on) { $id('botonEjecutar').disabled = !on; }
-
-  function ejecutar() {
-    var consulta = $id('consulta').value.trim();
-    if (!consulta) { logRow('[web]', '✖ Introduce una consulta.', 'var(--rojo)'); return; }
-    if (!ws) { logRow('[web]', 'WebSocket no conectado.', 'var(--rojo)'); return; }
-    habilitar(false);
-    $id('logs').innerHTML = '';
-    $id('resultados').innerHTML = '';
-    $id('contEscaneados').textContent = '0';
-    $id('contSeleccionados').textContent = '0';
-    $id('tiempo').textContent = '0s';
-    pararReloj();
-    setProgreso(true, 'Enviando consulta…');
-    var msg = {
-      consulta: consulta,
-      local: $id('local').checked,
-      vista_previa: $id('vistaPrevia').checked,
-      test_loop: $id('testLoop').checked,
-      directorio: $id('directorio').value.trim() || undefined,
-      max_archivos: $id('maxArchivos').value ? parseInt($id('maxArchivos').value, 10) : undefined
-    };
-    ws.send(JSON.stringify(msg));
-  }
-
-  conectar();
+iniciarMonaco();
+conectar();
 </script>
 </body>
 </html>

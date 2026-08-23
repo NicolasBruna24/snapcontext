@@ -6,7 +6,54 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
-## [1.1.0] - 2026-08-22 · 🧠 Búsqueda semántica con embeddings locales
+## [1.2.0] - 2026-08-22 · 🌐 Interfaz web avanzada (editor Monaco + dependencias)
+
+### ✨ Nuevas funcionalidades (FEATURES)
+
+#### Editor web (Monaco)
+- **Monaco Editor** (el mismo de VS Code) integrado en `web/static/index.html`
+  desde CDN, con resaltado de sintaxis para Python, JS/TS, Dart, Go, Rust,
+  Java, C/C++, C#, Swift, etc.
+- **Abrir archivo en el editor**: clic en un archivo del panel de resultados
+  y clic en un nodo del grafo de dependencias → nuevo evento
+  `archivo_seleccionado` con contenido + lenguaje.
+- **Edición en vivo** con guardado manual (`guardar_archivo`) que escribe en
+  disco; **fallback a `<textarea>`** si Monaco no carga.
+- Nuevas utilidades en `snapcontext`: `_comando_para_monaco()` (mapa
+  extensión → lenguaje) y el protocolo de lectura/escritura en `web/app.py`.
+
+#### Visualización de dependencias
+- Panel con pestaña **Dependencias** que dibuja un **grafo interactivo**
+  (force-directed con **d3.js**): zoom, arrastre y clic para abrir archivo.
+- `_extraer_dependencias()` extrae los imports por lenguaje (Python `import`,
+  JS/TS `import`/`require`, Dart, Go, Rust, Java/Kotlin).
+- `_grafo_dependencias()` construye nodos + enlaces resolviendo los imports
+  contra los archivos del repositorio (`_resolver_dependencia`).
+- `_buscar_en_codigo()` centraliza la exploración por `rg`/`grep`/`findstr`.
+
+#### Panel de acciones rápidas
+- Botones que lanzan acciones sin escribir comandos: **Fix**, **Review**,
+  **Plan**, **Run** (comando personalizado), **Search** (embeddings) y
+  **Explorar** (búsqueda de código). Emiten `accion_ejecutada`.
+
+### 🔌 Comunicación con el orquestador (INTEGRATION)
+- `web/app.py` amplía el protocolo WebSocket con `leer_archivo`,
+  `guardar_archivo`, `dependencias`, `semantica`, `explorar` y `accion`,
+  respondiendo `archivo_seleccionado`, `archivo_guardado`,
+  `dependencias_actualizadas`, `semanticos`, `exploracion` y `accion_ejecutada`.
+- Compatibilidad total con el protocolo `consulta`/`tarea` preexistente.
+- La CLI y la extensión VS Code no se ven afectadas; `vscode/webview/` sigue
+  siendo copia de `web/static/index.html`.
+
+### 🧪 Tests
+- Nuevo `tests/test_web_120.py` (mapa de lenguajes, extracción de imports,
+  grafo de dependencias, búsqueda en código, versionado).
+- Versionado actualizado a `1.2.0` en todos los tests.
+
+### 📝 Documentación (DOCUMENTATION)
+- README: badge 1.2.0 y nueva sección "🌐 Interfaz web avanzada".
+
+---
 
 ### ✨ Nuevas funcionalidades (FEATURES)
 
