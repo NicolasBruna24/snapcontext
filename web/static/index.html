@@ -61,6 +61,42 @@
   #modalRun { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:50; }
   #modalRun .caja { background:var(--panel); border:1px solid var(--borde); border-radius:10px; padding:1.2rem; width:520px; max-width:92vw; }
   #modalRun .campo { margin-top:.6rem; }
+  /* ---- v1.6.0: toasts, filtros del grafo, historial de sesión ---------- */
+  :root { --morado:#c792ea; --azul:#82aaff; }
+  body.tema { background:#1e1e1e; }               /* matiz VS Code Dark+ */
+  #toasts { position:fixed; top:14px; right:14px; display:flex; flex-direction:column;
+            gap:8px; z-index:100; max-width:360px; }
+  .toast { background:var(--panel); border:1px solid var(--borde); border-left-width:4px;
+           border-radius:8px; padding:.7rem 1rem; font-size:.9rem; box-shadow:0 4px 16px rgba(0,0,0,.4);
+           animation:entrada .18s ease-out; word-break:break-word; }
+  .toast.info    { border-left-color:var(--cian); }
+  .toast.ok      { border-left-color:var(--verde); }
+  .toast.error   { border-left-color:var(--rojo); }
+  .toast.aviso   { border-left-color:var(--amarillo); }
+  @keyframes entrada { from { transform:translateX(24px); opacity:0; } to { transform:none; opacity:1; } }
+  .filtros { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:.5rem 0; font-size:.85rem; }
+  .filtros label { color:var(--gris); }
+  .filtros select { background:#0d1014; color:var(--texto); border:1px solid var(--borde);
+                    border-radius:6px; padding:.35rem .5rem; font-size:.85rem; }
+  .leyenda { color:var(--gris); font-size:.78rem; margin-top:.4rem; }
+  #grafoDeps .nodo.atenuado { opacity:.18; }
+  #grafoDeps .nodo.resaltado rect { stroke:var(--verde); stroke-width:2px; fill:rgba(126,224,129,.18); }
+  #grafoDeps .enlace.atenuado { opacity:.10; }
+  #grafoDeps .enlace.ruta { stroke:var(--verde); stroke-width:2px; }
+  #resultados .fila { display:flex; align-items:center; gap:8px; padding:.3rem .2rem;
+                      border-bottom:1px dashed var(--borde); }
+  #resultados .fila:last-child { border-bottom:0; }
+  #resultados .fila .ruta { flex:1; cursor:pointer; font-family:Consolas,monospace; font-size:.83rem;
+                            color:var(--cian); word-break:break-all; }
+  #resultados .fila .ruta:hover { text-decoration:underline; }
+  #resultados .fila button { padding:.25rem .6rem; font-size:.78rem; }
+  #historial { max-height:260px; overflow:auto; }
+  .hitem { display:flex; gap:8px; align-items:center; padding:.35rem .2rem; cursor:pointer;
+           border-bottom:1px dashed var(--borde); font-size:.86rem; }
+  .hitem:hover { background:rgba(125,207,255,.08); }
+  .hitem time { color:var(--gris); font-size:.75rem; flex:0 0 auto; }
+  kbd { background:#0d1014; border:1px solid var(--borde); border-radius:4px; padding:0 .35rem;
+        font-family:Consolas,monospace; font-size:.78rem; color:var(--cian); }
   @media (max-width:1000px){ .grid-main { grid-template-columns:1fr; } }
 </style>
 </head>
@@ -83,12 +119,13 @@
     </div>
     <div class="acciones">
       <span class="titulo">Acciones rápidas</span>
-      <button class="accion" onclick="accion('fix')">⚙ Fix</button>
-      <button class="accion" onclick="accion('review')">🔍 Review</button>
-      <button class="accion" onclick="accion('plan')">🧭 Plan</button>
-      <button class="accion" onclick="mostrarRun()">▶ Run</button>
-      <button class="accion" onclick="accion('search')">🧠 Search</button>
-      <button class="accion" onclick="accion('explorar')">🔎 Explorar</button>
+      <button class="accion" title="Ejecuta Aider en modo bucle de pruebas (--test-loop) con la consulta actual" onclick="accion('fix')">⚙ Fix</button>
+      <button class="accion" title="Vista previa de la selección + revisión experta antes de editar" onclick="accion('review')">🔍 Review</button>
+      <button class="accion" title="Planificador: descompone la tarea en pasos editables" onclick="accion('plan')">🧭 Plan</button>
+      <button class="accion" title="Ejecutar un comando shell personalizado (Ctrl+R)" onclick="mostrarRun()">▶ Run</button>
+      <button class="accion" title="Generar tests para los archivos seleccionados: abre el modal de comandos pre-rellenado" onclick="abrirRun('flutter test')">🧪 Tests</button>
+      <button class="accion" title="Búsqueda semántica por embeddings en todo el proyecto" onclick="accion('search')">🧠 Search</button>
+      <button class="accion" title="Buscar texto literal en el código (ripgrep/grep/findstr)" onclick="accion('explorar')">🔎 Explorar</button>
     </div>
   </section>
 
@@ -108,8 +145,22 @@
       </div>
       <div id="panel-deps" class="oculto">
         <div class="editor-barra">
-          <span id="depsInfo">Grafo de dependencias del proyecto.</span>
+          <span id="depsInfo">Grafo de dependencias del proyecto completo.</span>
           <button onclick="cargarDependencias()">↻ Refrescar</button>
+        </div>
+        <div class="filtros">
+          <label>Lenguaje:</label>
+          <select id="filtroLenguaje" onchange="refrescarGrafo()">
+            <option value="">todos</option>
+          </select>
+          <label>Nivel de dependencia:</label>
+          <select id="filtroNivel" onchange="refrescarGrafo()">
+            <option value="0">todos</option>
+            <option value="1">1 (directos)</option>
+            <option value="2">≤ 2</option>
+            <option value="3">≤ 3</option>
+          </select>
+          <span class="leyenda">clic: abrir · doble clic: centrar y resaltar rutas · rueda: zoom · arrastrar: mover</span>
         </div>
         <div id="grafoDeps"></div>
         <div id="depsFallback" class="oculto"></div>
@@ -133,12 +184,18 @@
         <h3>Archivos relevantes · <span id="contResumen" class="cuenta">0</span></h3>
         <div id="resultados" class="resumen"></div>
       </section>
+
+      <section class="tarjeta">
+        <h3>Historial de sesión · <span id="contHistorial" class="cuenta">0</span></h3>
+        <div id="historial"></div>
+      </section>
     </div>
   </div>
 
-  <footer>Haz clic en un archivo de los resultados para abrirlo en el editor · Monaco carga desde CDN (con <code>textarea</code> de respaldo).</footer>
+  <footer>Atajos: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> ejecutar · <kbd>Ctrl</kbd>+<kbd>S</kbd> guardar · <kbd>Ctrl</kbd>+<kbd>D</kbd> dependencias · <kbd>Ctrl</kbd>+<kbd>R</kbd> comando · Monaco carga desde CDN (con <code>textarea</code> de respaldo).</footer>
 </main>
 
+<div id="toasts"></div>
 <div id="modalRun" class="oculto">
   <div class="caja">
     <h3>▶ Ejecutar comando personalizado</h3>
@@ -153,11 +210,44 @@
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 <script>
 var ws=null, tInicio=null, editorMonaco=null, archivoActual=null, tabActual='editor';
+var ultimoGrafo=null;                 // último grafo recibido (para filtros)
+var historialSesion=[];               // tareas ejecutadas en esta sesión
 function $id(x){ return document.getElementById(x); }
 function escapar(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function formatearSegundos(s){ return s<60 ? Math.round(s)+'s' : Math.round(s/10)/10+' m'; }
 function directorioActual(){ return ($id('directorio').value||'').trim()||undefined; }
 function maxArchivos(){ var v=$id('maxArchivos').value; return v?parseInt(v,10):undefined; }
+
+// ---- Notificaciones toast (v1.6.0) --------------------------------------
+function notificar(texto, tipo){
+  var cont=$id('toasts'), t=document.createElement('div');
+  t.className='toast '+(tipo||'info'); t.textContent=texto;
+  cont.appendChild(t);
+  setTimeout(function(){ t.style.opacity='0'; t.style.transition='opacity .4s'; }, 3800);
+  setTimeout(function(){ t.remove(); }, 4300);
+}
+
+// ---- Historial de sesión (v1.6.0) ---------------------------------------
+function agregarHistorial(texto){
+  if(!texto) return;
+  var ahora=new Date();
+  var hh=('0'+ahora.getHours()).slice(-2)+':'+('0'+ahora.getMinutes()).slice(-2);
+  historialSesion.unshift({ hora:hh, texto:texto });
+  if(historialSesion.length>30) historialSesion.pop();
+  pintarHistorial();
+}
+function pintarHistorial(){
+  var cont=$id('historial'); cont.innerHTML='';
+  $id('contHistorial').textContent=historialSesion.length;
+  historialSesion.forEach(function(h){
+    var d=document.createElement('div'); d.className='hitem';
+    d.title='Clic para reutilizar esta consulta';
+    d.onclick=function(){ $id('consulta').value=h.texto; $id('consulta').focus(); notificar('Consulta cargada del historial.','info'); };
+    var t=document.createElement('time'); t.textContent=h.hora;
+    var s=document.createElement('span'); s.textContent=h.texto;
+    d.appendChild(t); d.appendChild(s); cont.appendChild(d);
+  });
+}
 
 function conectar(){
   var proto = location.protocol==='https:'?'wss':'ws';
@@ -193,11 +283,16 @@ function mostrarSeleccion(archivos){
   var r=$id('resultados'); $id('contSeleccionados').textContent=archivos.length;
   $id('contResumen').textContent=archivos.length; r.innerHTML='';
   archivos.forEach(function(a){
-    var b=document.createElement('button');
-    b.className='archivo-btn'; b.textContent='📄 '+a;
-    b.title='Abrir en el editor'; b.onclick=function(){ abrirArchivo(a); };
-    r.appendChild(b);
+    // v1.6.0: fila con ruta completa + botón explícito para abrir el editor.
+    var fila=document.createElement('div'); fila.className='fila';
+    var ruta=document.createElement('span'); ruta.className='ruta';
+    ruta.textContent='📄 '+a; ruta.title='Ruta completa — clic para abrir en el editor';
+    ruta.onclick=function(){ abrirArchivo(a); };
+    var btn=document.createElement('button'); btn.textContent='Abrir';
+    btn.title='Abrir en el editor Monaco'; btn.onclick=function(){ abrirArchivo(a); };
+    fila.appendChild(ruta); fila.appendChild(btn); r.appendChild(fila);
   });
+  notificar(archivos.length+' archivo(s) seleccionado(s).','ok');
 }
 function actualizarArchivosSeleccion(archivos){ $id('contSeleccionados').textContent=(archivos||[]).length; }
 function procesar(ev){
@@ -222,8 +317,8 @@ function procesar(ev){
   }
   else if (ev.tipo==='archivo_seleccionado'){ abrirEditor(ev); }
   else if (ev.tipo==='archivo_guardado'){
-    if(ev.ok){ logRow('[editor]','✔ Guardado: '+ev.ruta,'var(--verde)'); anexarResultado('✔ Guardado '+ev.ruta,true); }
-    else logRow('[editor]','✖ No se pudo guardar: '+(ev.error||''),'var(--rojo)');
+    if(ev.ok){ logRow('[editor]','✔ Guardado: '+ev.ruta,'var(--verde)'); anexarResultado('✔ Guardado '+ev.ruta,true); notificar('Guardado: '+ev.ruta,'ok'); }
+    else { logRow('[editor]','✖ No se pudo guardar: '+(ev.error||''),'var(--rojo)'); notificar('Error al guardar: '+(ev.error||''),'error'); }
   }
   else if (ev.tipo==='dependencias_actualizadas'){ mostrarDependencias(ev); }
   else if (ev.tipo==='semanticos'){ mostrarSemanticos(ev.resultados||[]); }
@@ -233,12 +328,13 @@ function procesar(ev){
     setProgreso(false, ev.ok?'Acción terminada.':'La acción terminó con errores.');
   }
 }
-function enviar(msg){ if(ws && ws.readyState===1){ ws.send(JSON.stringify(msg)); } else logRow('[web]','WebSocket no conectado.','var(--rojo)'); }
+function enviar(msg){ if(ws && ws.readyState===1){ ws.send(JSON.stringify(msg)); } else { logRow('[web]','WebSocket no conectado.','var(--rojo)'); notificar('WebSocket no conectado. Recarga la página.','error'); } }
 
 function ejecutar(){
   var consulta=$id('consulta').value.trim();
-  if(!consulta){ logRow('[web]','✖ Introduce una consulta.','var(--rojo)'); return; }
+  if(!consulta){ logRow('[web]','✖ Introduce una consulta.','var(--rojo)'); notificar('Introduce una consulta primero.','aviso'); return; }
   if(!ws || ws.readyState!==1){ logRow('[web]','WebSocket no conectado.','var(--rojo)'); return; }
+  agregarHistorial(consulta);
   setProgreso(true,'Enviando consulta…'); $id('logs').innerHTML=''; $id('resultados').innerHTML='';
   $id('contEscaneados').textContent='0'; $id('contSeleccionados').textContent='0'; $id('contResumen').textContent='0';
   $id('tiempo').textContent='0s'; pararReloj(); arrancarReloj();
@@ -254,10 +350,18 @@ function accion(tipo){
            directorio:directorioActual(), comando:'' });
 }
 function mostrarRun(){ $id('modalRun').classList.remove('oculto'); $id('runComando').focus(); }
+// v1.6.0: modal pre-rellenado (p. ej. botón «🧪 Tests» → 'flutter test').
+function abrirRun(predefinido){
+  $id('modalRun').classList.remove('oculto');
+  $id('runComando').value = predefinido || '';
+  $id('runComando').focus();
+}
 function cerrarRun(){ $id('modalRun').classList.add('oculto'); }
 function lanzarRun(){
   var comando=$id('runComando').value.trim(); cerrarRun();
   if(!comando){ logRow('[web]','✖ Introduce un comando.','var(--rojo)'); return; }
+  agregarHistorial('▶ '+comando);
+  notificar('Ejecutando: '+comando,'info');
   setProgreso(true,'Ejecutando comando: '+comando+'…');
   enviar({ tipo:'accion', accion:'run', comando:comando, consulta:'', archivo:'', directorio:directorioActual() });
 }
@@ -324,8 +428,14 @@ function abrirEditor(ev){
 }
 
 function guardarArchivo(){
-  if(!archivoActual){ logRow('[editor]','✖ No hay archivo abierto.','var(--rojo)'); return; }
+  if(!archivoActual){ logRow('[editor]','✖ No hay archivo abierto.','var(--rojo)'); notificar('No hay archivo abierto en el editor.','aviso'); return; }
   var contenido = (editorMonaco && !editorMonaco.isDisposed()) ? editorMonaco.getValue() : $id('editorFallback').value;
+  // v1.6.0: confirmación antes de escribir en disco.
+  if(!confirm('¿Guardar cambios en "'+archivoActual+'"?\n\nEsta acción sobrescribe el archivo en disco.')){
+    logRow('[editor]','Guardado cancelado por el usuario.','var(--amarillo)');
+    notificar('Guardado cancelado.','aviso');
+    return;
+  }
   setProgreso(true,'Guardando '+archivoActual+'…');
   enviar({ tipo:'guardar_archivo', ruta:archivoActual, contenido:contenido, directorio:directorioActual() });
   setProgreso(false,'Guardando…');
@@ -354,21 +464,83 @@ function activarFallbackEditor(){
 // Detección de error de carga de Monaco con retardo.
 setTimeout(function(){ if(!editorMonaco) activarFallbackEditor(); }, 6000);
 
-// ---- Grafo de dependencias (d3) ---------------------------------------
+// ---- Grafo de dependencias (d3) — v1.6.0: zoom, filtros y resaltado -----
 function cargarDependencias(){
   setProgreso(true,'Calculando dependencias…');
   enviar({ tipo:'dependencias', directorio:directorioActual(), ruta:archivoActual });
 }
+// Nivel de dependencia (BFS) desde el archivo abierto o el primer nodo.
+function _niveles_desde(nodos, enlaces){
+  var niveles={}, adyac={};
+  nodos.forEach(function(n){ adyac[n.id]=[]; });
+  enlaces.forEach(function(e){
+    var o=e.origen||e.source, d=e.destino||e.target;
+    if(adyac[o]) adyac[o].push(d);
+    if(adyac[d]) adyac[d].push(o);          // no dirigido para calcular niveles
+  });
+  var raiz = (archivoActual && nodos.some(function(n){ return n.id===archivoActual; }))
+             ? archivoActual : (nodos[0] && nodos[0].id);
+  if(!raiz) return niveles;
+  niveles[raiz]=0;
+  var cola=[raiz];
+  while(cola.length){
+    var actual=cola.shift();
+    (adyac[actual]||[]).forEach(function(v){
+      if(niveles[v]===undefined){ niveles[v]=niveles[actual]+1; cola.push(v); }
+    });
+  }
+  return niveles;
+}
+function refrescarGrafo(){
+  if(ultimoGrafo) mostrarDependencias(ultimoGrafo);   // re-render con filtros
+}
 function mostrarDependencias(ev){
   setProgreso(false,'Dependencias actualizadas.');
-  $id('depsInfo').textContent = ev.error ? ('Error: '+ev.error) : (ev.nodos.length+' nodo(s), '+ev.enlaces.length+' enlace(s).');
-  var nodos=ev.nodos||[], enlaces=ev.enlaces||[];
-  if(!nodos.length){ $id('grafoDeps').innerHTML=''; $id('depsFallback').textContent='Sin dependencias detectadas.'; $id('depsFallback').classList.remove('oculto'); return; }
+  ultimoGrafo = ev;                          // guardado para refrescar con filtros
+  var todosNodos=ev.nodos||[], todosEnlaces=ev.enlaces||[];
+  if(!todosNodos.length){ $id('grafoDeps').innerHTML=''; $id('depsFallback').textContent='Sin dependencias detectadas.'; $id('depsFallback').classList.remove('oculto'); return; }
+
+  // ---- Filtros v1.6.0: lenguaje y nivel de dependencia ------------------
+  var niveles=_niveles_desde(todosNodos, todosEnlaces);
+  var lenguajes={};
+  todosNodos.forEach(function(n){ lenguajes[n.lenguaje||'otros']=true; });
+  var selL=$id('filtroLenguaje'), valorL=selL.value, opciones='';
+  Object.keys(lenguajes).sort().forEach(function(l){ opciones+='<option'+(l===valorL?' selected':'')+'>'+l+'</option>'; });
+  selL.innerHTML='<option value="">todos</option>'+opciones;
+
+  var fL=selL.value, fN=parseInt($id('filtroNivel').value,10)||0;
+  var nodos=todosNodos.filter(function(n){
+    return (!fL || (n.lenguaje||'otros')===fL) && (!fN || (niveles[n.id]||99)<=fN);
+  });
+  var ids={}; nodos.forEach(function(n){ ids[n.id]=true; });
+  var enlaces=todosEnlaces.filter(function(e){
+    return ids[e.origen||e.source] && ids[e.destino||e.target];
+  });
+  $id('depsInfo').textContent = ev.error ? ('Error: '+ev.error)
+      : (nodos.length+' nodo(s), '+enlaces.length+' enlace(s)'
+         +(fL||fN ? ' (filtrados)' : '')+'.');
+  if(!nodos.length){ $id('grafoDeps').innerHTML=''; $id('depsFallback').textContent='Ningún nodo tras aplicar los filtros.'; $id('depsFallback').classList.remove('oculto'); return; }
   if(typeof d3==='undefined'){ pintarDepsFallback(nodos,enlaces); return; }
-  if(archivoActual){ nodos = nodos.map(function(n){ n.central = (n.id===archivoActual); return n; }); }
+  $id('depsFallback').classList.add('oculto');
+_dibujar_grafo(nodos, enlaces, niveles);
+}
+function _dibujar_grafo(nodos, enlaces, niveles){
+  // Conjuntos de vecinos para el resaltado de rutas (v1.6.0).
+  function vecinos(id){
+    var s=new Set();
+    enlaces.forEach(function(e){
+      var o=e.origen||e.source, d=e.destino||e.target;
+      if(o===id) s.add(d);
+      if(d===id) s.add(o);
+    });
+    return s;
+  }
   var ancho=$id('grafoDeps').clientWidth||800, alto=480;
   $id('grafoDeps').innerHTML='';
   var svg=d3.select('#grafoDeps').append('svg').attr('width',ancho).attr('height',alto);
+  // v1.6.0: zoom + pan (rueda / arrastre del fondo).
+  svg.call(d3.zoom().scaleExtent([0.2,4])
+        .on('zoom', function(evento){ cont.attr('transform', evento.transform); }));
   var cont=svg.append('g');
   var sim=d3.forceSimulation(nodos)
      .force('link', d3.forceLink(enlaces).id(function(d){return d.id;}).distance(90))
@@ -377,11 +549,35 @@ function mostrarDependencias(ev){
      .force('collide', d3.forceCollide(70));
   var enlace_sel=cont.append('g').selectAll('line').data(enlaces).enter().append('line')
      .attr('class','enlace');
-  var nodo_sel=cont.append('g').selectAll('.nodo').data(nodos).enter().append('g').attr('class',function(d){return 'nodo'+(d.central?' central':'');})
+  var nodo_sel=cont.append('g').selectAll('.nodo').data(nodos).enter().append('g').attr('class',function(d){return 'nodo'+((archivoActual&&d.id===archivoActual)?' central':'');})
      .call(d3.drag().on('start',arrastre).on('drag',arrastrando).on('end',arrastre));
   nodo_sel.append('rect').attr('width',function(d){return d.etiqueta.length*6.5+20;}).attr('height',26).attr('rx',5).attr('y',-13);
   nodo_sel.append('text').attr('x',10).attr('y',4).text(function(d){return d.etiqueta;});
-  nodo_sel.on('click', function(d){ abrirArchivo(d.id); });
+  nodo_sel.append('title').text(function(d){
+    return d.id+'\nLenguaje: '+(d.lenguaje||'?')+
+           '\nNivel: '+(niveles[d.id]!=null?niveles[d.id]:'?')+
+           '\nClic: abrir · doble clic: resaltar rutas'; });
+
+  // v1.6.0: hover → atenuar no-vecinos; doble clic → resaltar rutas.
+  function resaltarRutas(id){
+    var vecinosId=vecinos(id);
+    nodo_sel.classed('resaltado', function(d){ return d.id===id; })
+            .classed('atenuado', function(d){ return d.id!==id && !vecinosId.has(d.id); });
+    enlace_sel.classed('ruta', function(l){
+        var o=l.origen||l.source, d=l.destino||l.target;
+        return o===id || d===id; })
+      .classed('atenuado', function(l){
+        var o=l.origen||l.source, d=l.destino||l.target;
+        return !(o===id || d===id); });
+    notificar('Rutas resaltadas alrededor de '+id,'info');
+  }
+  function limpiarResaltado(){
+    nodo_sel.classed('resaltado',false).classed('atenuado',false);
+    enlace_sel.classed('ruta',false).classed('atenuado',false);
+  }
+  nodo_sel.on('click', function(evento,d){ abrirArchivo(d.id); })
+          .on('dblclick', function(evento,d){ evento.stopPropagation(); resaltarRutas(d.id); });
+  svg.on('dblclick', limpiarResaltado);
   function arrastrando(d){ sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; }
   sim.on('tick', function(){
     enlace_sel.attr('x1',function(d){return d.source.x;}).attr('y1',function(d){return d.source.y;})
@@ -397,6 +593,20 @@ function pintarDepsFallback(nodos,enlaces){
   $id('depsFallback').textContent = t || 'Sin enlaces (solo nodos: '+nodos.map(function(n){return n.id;}).join(', ')+')';
   logRow('[deps]','d3 no disponible; se muestra la lista de enlaces.','var(--amarillo)');
 }
+
+// ---- Atajos de teclado (v1.6.0) -----------------------------------------
+//   Ctrl+Enter: ejecutar consulta · Ctrl+S: guardar archivo abierto
+//   Ctrl+D: pestaña Dependencias · Ctrl+R / Ctrl+O: modal de comandos · Esc: cerrar
+document.addEventListener('keydown', function(evento){
+  var ctrl = evento.ctrlKey || evento.metaKey;
+  if(ctrl && evento.key==='Enter'){ evento.preventDefault(); ejecutar(); return; }
+  if(ctrl && (evento.key==='s' || evento.key==='S')){ evento.preventDefault(); guardarArchivo(); return; }
+  if(ctrl && (evento.key==='d' || evento.key==='D')){ evento.preventDefault(); tab('deps'); return; }
+  if(ctrl && (evento.key==='r' || evento.key==='R' || evento.key==='o' || evento.key==='O')){
+    evento.preventDefault(); mostrarRun(); return;
+  }
+  if(evento.key==='Escape'){ cerrarRun(); }
+});
 
 iniciarMonaco();
 conectar();

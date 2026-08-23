@@ -6,6 +6,51 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [1.6.0] - 2026-08-23 · 🎨 Interfaz web más completa e interactiva
+
+### ✨ Nuevas funcionalidades
+
+#### Editor Monaco
+- **Guardar con confirmación**: al pulsar 💾 Guardar (o `Ctrl+S`) se pide
+  confirmación antes de sobrescribir el archivo en disco.
+- El resaltado multi-lenguaje ya existente (mapa `_comando_para_monaco`)
+  se aplica también a los archivos abiertos desde el grafo y el historial.
+
+#### Grafo de dependencias (D3.js)
+- **Zoom y pan** con la rueda y arrastre del fondo (`d3.zoom`, escala 0.2–4×).
+- **Resaltado de rutas**: doble clic en un nodo resalta sus conexiones
+  directas (verde) y atenúa el resto; doble clic en el fondo limpia.
+- **Filtros** por lenguaje (select poblado dinámicamente) y por nivel de
+  dependencia (BFS desde el archivo abierto): «todos», «1 (directos)», «≤2», «≤3».
+- Tooltips por nodo con ruta completa, lenguaje y nivel.
+
+#### Panel de acciones rápidas
+- Cada botón tiene **icono + descripción** (tooltip nativo).
+- Nuevo botón **«🧪 Tests»**: abre el modal de comandos pre-rellenado
+  (`flutter test`) para lanzar la suite del proyecto.
+
+#### Feedback visual y UX
+- **Notificaciones toast** (info/ok/aviso/error) para selecciones, guardados,
+  errores de conexión y acciones.
+- **Historial de sesión**: panel con las últimas tareas ejecutadas; clic para
+  reutilizar la consulta.
+- Panel de resultados con **ruta completa** + botón «Abrir» por archivo.
+- **Atajos de teclado**: `Ctrl+Enter` ejecutar · `Ctrl+S` guardar ·
+  `Ctrl+D` dependencias · `Ctrl+R`/`Ctrl+O` modal de comandos · `Esc` cerrar.
+
+### 🔧 Compatibilidad
+- Todo funciona con fallbacks: sin Monaco → `textarea`; sin d3 → lista de
+  enlaces en texto; sin filtros aplicados → grafo completo.
+- CLI sin cambios; extensión VS Code a v1.6.0 con su webview
+  (`vscode/webview/index.html`) sincronizada con la nueva interfaz.
+
+### 🧪 Tests
+- Nuevo `tests/test_web_160.py` (12 tests): confirmación de guardado, toasts,
+  historial, atajos, zoom, filtros y resaltado del grafo, botón Tests y campo
+  `lenguaje` en los nodos del grafo (base del filtro).
+
+---
+
 ## [1.5.0] - 2026-08-23 · 📦 Instalador .exe para Windows (sin Python)
 
 ### ✨ Nuevas funcionalidades

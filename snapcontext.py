@@ -110,7 +110,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────

@@ -953,7 +953,7 @@ sin romper el resto de la CLI.
 
 ---
 
-## 🌐 Interfaz web avanzada (v1.2.0)
+## 🎨 Interfaz web avanzada (v1.6.0)
 
 La web añade un **editor de código**, un **grafo de dependencias** y un **panel
 de acciones rápidas** para competir con interfaces como las de Claude Code. La
@@ -983,8 +983,15 @@ UI ahora se organiza en dos columnas: **editor + dependencias** (izquierda) y
 - Las aristas provienen de los **imports** reales del código (Python `import`,
   JS/TS `import`/`require`, Dart `import`, Go `import`, Rust `use`, …),
   resueltos contra los archivos del repositorio.
-- **Interactivo**: zoom, arrastre de nodos y **clic para abrir** el archivo en
-  el editor. Si d3 no carga, se muestra una lista de `<origen → destino>`.
+- **Interactivo (ampliado en v1.6.0)**: **zoom y pan** con la rueda
+  (`d3.zoom`, 0.2–4×), arrastre de nodos, **clic para abrir** el archivo en el
+  editor y **doble clic para resaltar rutas**: las conexiones directas del
+  nodo se pintan en verde y el resto se atenúa (doble clic en el fondo limpia).
+- **Filtros (v1.6.0)**: por **lenguaje** (select poblado con los lenguajes
+  presentes en el proyecto) y por **nivel de dependencia** respecto al archivo
+  abierto — «todos», «1 (directos)», «≤2», «≤3» (BFS).
+- Tooltips por nodo con ruta completa, lenguaje y nivel.
+- Si d3 no carga, se muestra una lista de `<origen → destino>`.
 
 ### ⚡ Panel de acciones rápidas
 
@@ -993,9 +1000,25 @@ UI ahora se organiza en dos columnas: **editor + dependencias** (izquierda) y
 | `⚙ Fix` | Ejecuta el alias `fix` (bucle de pruebas) sobre la consulta. |
 | `🔍 Review` | Ejecuta el alias `review` (vista previa + revisión experta). |
 | `🧭 Plan` | Abre el planificador (`--plan`) con la consulta actual. |
-| `▶ Run` | Ejecuta un comando personalizado (cartel con el comando). |
+| `▶ Run` | Ejecuta un comando personalizado (modal). Atajo: `Ctrl+R`. |
+| `🧪 Tests` (v1.6.0) | Abre el modal de comandos pre-rellenado (`flutter test`) para lanzar la suite. |
 | `🧠 Search` | Búsqueda semántica por embeddings (si el extra `embeddings` está instalado). |
 | `🔎 Explorar` | Busca la consulta en el código (`rg`/`grep`/`findstr`). |
+
+Todos los botones tienen **tooltip descriptivo** con lo que hacen.
+
+### ✨ UX (v1.6.0)
+
+- **Guardar con confirmación**: `💾 Guardar` o `Ctrl+S` pide confirmación antes
+  de sobrescribir el archivo en disco.
+- **Notificaciones toast** (info/ok/aviso/error) para selecciones, guardados,
+  errores de conexión y acciones.
+- **Historial de sesión**: las últimas tareas ejecutadas; clic para reutilizar
+  la consulta en el campo principal.
+- **Resultados mejorados**: ruta completa visible + botón «Abrir» por archivo.
+- **Atajos de teclado**: `Ctrl+Enter` ejecutar · `Ctrl+S` guardar ·
+  `Ctrl+D` pestaña Dependencias · `Ctrl+R`/`Ctrl+O` modal de comandos ·
+  `Esc` cerrar modales.
 
 ### 🔌 Comunicación con el orquestador (WebSockets)
 
