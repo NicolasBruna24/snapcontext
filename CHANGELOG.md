@@ -6,6 +6,50 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [1.1.0] - 2026-08-22 · 🧠 Búsqueda semántica con embeddings locales
+
+### ✨ Nuevas funcionalidades (FEATURES)
+
+#### Sistema de embeddings locales
+- **Indexación semántica**: `pip install "snapcontext[embeddings]"` activa un
+  indexador local basado en `sentence-transformers` (modelo `all-MiniLM-L6-v2`)
+  que genera embeddings para fragmentos de ~512 tokens de cada archivo de
+  código (`.py`, `.js`, `.ts`, `.dart`, `.go`, `.rs`, …).
+- **Búsqueda semántica**: nueva función `_buscar_semanticamente()` que genera un
+  embedding de la consulta y calcula la similitud de coseno con todos los
+  fragmentos indexados, devolviendo los archivos más relevantes.
+- **Selección con embeddings**: `_seleccionar_archivos_con_embeddings()`
+  filtra por un umbral de similitud (0.6 por defecto) y completa con resultados
+  locales si no alcanza `max_archivos`.
+- **Comando `/search`** en `--chat`: ejecuta búsqueda semántica interactiva y
+  muestra los archivos con su puntuación de similitud.
+- **Caché persistente con invalidación**: el índice se guarda en
+  `~/.snapcontext/index/` con un **hash del proyecto**; si detecta cambios,
+  reindexa automáticamente (con aviso). Los archivos sin cambios reutilizan sus
+  embeddings cacheados.
+
+### 🔧 Integración en el pipeline (INTEGRATION)
+- En `_planificar()` (orquestador), antes de llamar al proveedor de IA:
+  carga (o indexa) el índice, ejecuta `_seleccionar_archivos_con_embeddings()`
+  y reordena los candidatos locales para priorizar los archivos más similares a
+  la consulta, reduciendo la carga sobre el proveedor y mejorando la precisión.
+- Sin el extra de embeddings, SnapContext se comporta idénticamente a v1.0.0.
+
+### 📝 Documentación (DOCUMENTATION)
+- README: nueva sección "🧠 Búsqueda semántica con embeddings" con instalación,
+  funcionamiento, uso en el pipeline, comando `/search` y API directa desde
+  Python.
+- README: badge de versión actualizado a 1.1.0.
+- README: `pip install "snapcontext[embeddings]"` añadido a la sección de
+  instalación.
+
+### 🔴 Correcciones (BUGFIXES)
+- Eliminado código inalcanzable y corrupto (restos de `_patrones_gitignore`) en
+  `_guardar_indice()` que hacía referencia a la variable no definida
+  `patrones`.
+
+---
+
 ## [1.0.0] - 2026-08-22 · 🎉 Primera versión estable
 
 SnapContext 1.0.0 consolida todas las funcionalidades desarrolladas desde la

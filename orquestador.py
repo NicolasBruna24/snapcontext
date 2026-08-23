@@ -248,6 +248,26 @@ class Orquestador:
             return None
         sc.info(f"{len(candidatos)} candidato(s) relevante(s) localmente.")
 
+        # Pre-filtro semántico (v1.1.0): si hay embeddings disponibles, se
+        # reordenan los candidatos poniendo primero los archivos más similares
+        # a la consulta. Si falla o no hay librería, se continúa como siempre.
+        try:
+            if (not args.local and sc._embeddings_disponibles()
+                    and len(candidatos) > args.max_archivos):
+                relevantes = sc._seleccionar_archivos_con_embeddings(
+                    consulta, str(raiz),
+                    max_archivos=max(len(candidatos), args.max_archivos))
+                if relevantes:
+                    conjunto = set(relevantes)
+                    ordenados = ([c for c in candidatos if c in conjunto]
+                                 + [c for c in candidatos if c not in conjunto])
+                    sc.info(f"🧠 Pre-filtro semántico: {len(relevantes)} "
+                            f"archivo(s) priorizado(s) por embeddings.")
+                    sc.depurar(f"[embeddings] Orden semántico: {relevantes}")
+                    candidatos = ordenados
+        except Exception as exc:            # nunca romper el pipeline clásico
+            sc.aviso(f"[embeddings] Pre-filtro omitido ({exc})")
+
         # 3) Selección final (Agente de Contexto)
         self._emitir_tipo("seleccion_inicio", max_archivos=args.max_archivos,
                           directorio=str(raiz), carpetas=carpetas)

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 # Nombre verificado disponible en PyPI (18/08/2026): pypi.org/pypi/snapcontext → 404.
 # Alternativas si algún día estuviera ocupado: "snapcontext-cli" o "snapcontext-tool".
 name = "snapcontext"
-version = "1.0.0"
+version = "1.1.0"
 description = "SnapContext: Asistente de IA con contexto automático para desarrollo"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -57,6 +57,11 @@ anthropic = [
 web = [
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.29.0",
+]
+# Búsqueda semántica local con embeddings (--search, pre-filtro del planificador).
+embeddings = [
+    "sentence-transformers>=3.0.0",
+    "torch>=2.0.0",
 ]
 
 [project.urls]

@@ -1,6 +1,6 @@
 # SnapContext
 
-![v1.0.0](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![v1.1.0](https://img.shields.io/badge/version-1.1.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -33,6 +33,7 @@ O manualmente:
 
 ```bash
 pip install snapcontext                 # base
+pip install "snapcontext[embeddings]"   # búsqueda semántica local (opcional)
 pip install "snapcontext[anthropic]"    # Claude
 pip install "snapcontext[web]"          # interfaz web (--web)
 pip install aider-chat                  # ediciones de código
@@ -225,7 +226,8 @@ snapcontext --plan "..."                                             # commits '
   `/run <comando>` (shell), `/read <archivo>`, `/explore <tema>` (búsqueda con
   rg/grep/findstr), `/fix | /review | /server <mensaje>` (alias del pipeline),
   `/edit <archivo>` (VSCode/nano/notepad/$EDITOR), `/context` (contexto actual),
-  `/save` (guarda la sesión en historial.json) además de los comandos previos.
+  `/search <consulta>` (búsqueda semántica de archivos), `/save` (guarda la
+  sesión en historial.json) además de los comandos previos.
   Los comandos largos (`/run`, `/explore`, `/fix`, `/review`, `/server`) se
   ejecutan en un hilo separado para no bloquear el chat.
 
@@ -838,6 +840,85 @@ Después abre `http://localhost:8000` en el navegador. La página ofrece:
 En la consola, si no hay dependencias web instaladas, `snapcontext --web`
 muestra el mensaje: *"La interfaz web necesita dependencias opcionales…"* y sale
 sin romper el resto de la CLI.
+
+---
+
+## 🧠 Búsqueda semántica con embeddings (v1.1.0)
+
+SnapContext puede indexar tu proyecto con **embeddings semánticos locales**
+usando `sentence-transformers` + `torch` (modelo `all-MiniLM-L6-v2`). Esto
+permite buscar archivos por su significado —no solo por palabras clave—
+mejorando drásticamente la selección de contexto y acercándose a la calidad
+de Claude Code.
+
+### Instalación
+
+```bash
+pip install "snapcontext[embeddings]"   # incluye sentence-transformers + torch
+```
+
+> **Opcional**: sin este extra, SnapContext funciona exactamente como v1.0.0
+> (heurística + selección con IA). La búsqueda semántica se activa de forma
+> automática solo cuando la librería está disponible.
+
+### Cómo funciona
+
+1. **Indexación**: al primer uso (o cuando cambia el proyecto), SnapContext
+   escanea recursivamente los archivos de código (`.py`, `.js`, `.ts`,
+   `.dart`, `.go`, `.rs`, …), respetando `.gitignore`, divide cada archivo en
+   fragmentos de ~512 tokens y genera embeddings para cada uno.
+2. **Caché persistente**: el índice se guarda en `~/.snapcontext/index/`.
+   SnapContext almacena un **hash del proyecto** y, si detecta cambios,
+   **reindexa automáticamente** (con aviso). Los archivos sin cambios reutilizan
+   sus embeddings cacheados —solo se recomputan los fragmentos nuevos o
+   modificados.
+3. **Búsqueda**: en cada ejecución, SnapContext genera un embedding de la
+   consulta, calcula la **similitud de coseno** con todos los fragmentos y
+   prioriza los archivos más relevantes.
+
+### Uso en el pipeline
+
+Durante `snapcontext "<consulta>"` (o `--plan`, `--chat`, etc.), si está el
+extra de embeddings y hay más candidatos que `max_archivos`, SnapContext:
+
+1. Carga (o indexa) el proyecto.
+2. Ejecuta `_seleccionar_archivos_con_embeddings()` para obtener los archivos
+   más similares a la consulta (umbral configurable, por defecto 0.6).
+3. **Reordena** los candidatos locales poniendo primero los archivos priorizados
+   por embeddings, de modo que el proveedor de IA refine sobre un subconjunto
+   de alta calidad.
+
+Esto reduce drásticamente el número de llamadas al proveedor y mejora la
+precisión de la selección final.
+
+### Búsqueda desde el chat (`--chat`)
+
+En modo chat interactivo, el comando `/search <consulta>` ejecuta una búsqueda
+semántica y muestra los archivos más relevantes con su puntuación:
+
+```
+snapcontext --chat
+/search botón de pago no funciona
+📄 lib/pagos/pago_service.dart  (similitud: 0.89)
+📄 lib/ui/pago_form.dart        (similitud: 0.76)
+📄 test/pago_test.dart          (similitud: 0.65)
+```
+
+### Uso directo desde Python
+
+```python
+import snapcontext as sc
+
+if sc._embeddings_disponibles():
+    resultados = sc._buscar_semanticamente("gestión de usuarios", directorio=".")
+    for r in resultados:
+        print(r["archivo"], r["similitud"])
+
+    archivos = sc._seleccionar_archivos_con_embeddings(
+        "gestión de usuarios", directorio=".", max_archivos=3, umbral=0.6
+    )
+    print(archivos)
+```
 
 ---
 

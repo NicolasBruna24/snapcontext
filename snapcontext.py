@@ -39,6 +39,7 @@ Open-source y pensado para ser fácil de extender (ver ejecutar_bucle_test).
 
 import argparse
 import ast
+import fnmatch
 import json
 import os
 import re
@@ -84,7 +85,14 @@ try:
 except ImportError:  # pragma: no cover
     anthropic = None
 
-VERSION = "1.0.0"
+# Embeddings locales (búsqueda semántica, v1.1.0). Opcional: sin él, la
+# selección de archivos usa heurística + proveedor como siempre.
+try:
+    from sentence_transformers import SentenceTransformer  # type: ignore
+except ImportError:  # pragma: no cover
+    SentenceTransformer = None
+
+VERSION = "1.1.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
@@ -2115,6 +2123,8 @@ AYUDA_CHAT = """Comandos disponibles:
   /tool <nombre> <args>  → ejecutar una herramienta MCP
                            (p. ej.: /tool grep login · /tool read_file a.py)
                            args en JSON también válidos: /tool read_file {"ruta": "a.py", "linea_inicio": 10}
+  /search <consulta>     → búsqueda semántica de archivos (embeddings; requiere
+                           pip install snapcontext[embeddings])
   /claude                → mostrar la memoria del proyecto (CLAUDE.md)
   /context               → mostrar memoria del proyecto y archivos en contexto
   /ayuda                 → mostrar esta ayuda
@@ -2275,6 +2285,28 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
 
         if linea == "/save":
             _cmd_chat_save(historial_chat)
+            continue
+
+        # ---- búsqueda semántica (v1.1.0) ----------------------------------
+        if linea.startswith("/search "):
+            consulta_busqueda = linea[len("/search "):].strip()
+            if not consulta_busqueda:
+                aviso("Uso: /search <consulta>")
+                continue
+            try:
+                resultados = _buscar_semanticamente(consulta_busqueda,
+                                                    directorio=".")
+            except RuntimeError as exc:
+                error(str(exc))
+                continue
+            if not resultados:
+                aviso("Sin resultados semánticos.")
+                continue
+            exito(f"Resultados semánticos para '{consulta_busqueda}':")
+            for resultado in resultados[:10]:
+                _emitir(sys.stdout, _pintar(
+                    f"   • {resultado['archivo']}:{resultado['linea_inicio']} "
+                    f"(similitud {resultado['similitud']})", _VERDE))
             continue
 
         # ---- herramientas MCP (v0.14.0) -----------------------------------
@@ -3742,6 +3774,362 @@ def _actualizar_claude_md_automatico(resumen_tarea: str,
     camino.write_text(nuevo.strip() + "\n", encoding="utf-8")
     exito(f"Memoria actualizada: {camino}")
     return True
+
+
+# ---------------------------------------------------------------------------
+# Embeddings locales: búsqueda semántica de archivos — v1.1.0
+# ---------------------------------------------------------------------------
+MENSAJE_EMBEDDINGS_FALTANTE = (
+    "La búsqueda semántica requiere la librería 'sentence-transformers'.\n"
+    "Instálala con:  pip install snapcontext[embeddings]\n"
+    "  (descarga torch; primera ejecución descarga el modelo "
+    "all-MiniLM-L6-v2, ~90 MB)"
+)
+
+INDICE_DIR = CONFIG_DIR / "index"
+MODELO_EMBEDDINGS_NOMBRE = "all-MiniLM-L6-v2"
+EXTENSIONES_EMBEDDINGS = {
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".dart", ".go", ".rs", ".java",
+    ".kt", ".rb", ".php", ".c", ".cpp", ".h", ".hpp", ".cs", ".swift",
+    ".md", ".yaml", ".yml", ".toml",
+}
+CARPETAS_IGNORADAS = {".git", "__pycache__", "node_modules", "venv", ".venv",
+                      "dist", "build", ".idea", ".vscode"}
+CHUNK_CARACTERES = 2000          # ~512 tokens con heurística de 4 chars/token
+
+_MODELO_EMBEDDINGS = None        # singleton del modelo cargado
+
+
+def _embeddings_disponibles() -> bool:
+    """True si sentence-transformers está instalado."""
+    return SentenceTransformer is not None
+
+
+def _modelo_embeddings():
+    """Devuelve el modelo de embeddings (singleton) o None si no está instalado.
+
+    Si ``sc._MODELO_EMBEDDINGS`` ya fue establecido (p. ej. por tests o por una
+    carga previa), se reutiliza tal cual.
+    """
+    global _MODELO_EMBEDDINGS
+    if _MODELO_EMBEDDINGS is not None:
+        return _MODELO_EMBEDDINGS
+    if SentenceTransformer is None:
+        return None
+    try:
+        _MODELO_EMBEDDINGS = SentenceTransformer(MODELO_EMBEDDINGS_NOMBRE)
+    except Exception as exc:            # sin red para descargar el modelo, etc.
+        aviso(f"No se pudo cargar el modelo de embeddings: {exc}")
+        return None
+    return _MODELO_EMBEDDINGS
+
+
+def _calcular_embeddings(textos: List[str]) -> List[List[float]]:
+    """Calcula embeddings para una lista de textos (lista de vectores).
+
+    Lanza RuntimeError con MENSAJE_EMBEDDINGS_FALTANTE si la librería no está
+    disponible. Normaliza los vectores a longitud 1 para que la similitud de
+    coseno sea un simple producto escalar.
+    """
+    modelo = _modelo_embeddings()
+    if modelo is None:
+        raise RuntimeError(MENSAJE_EMBEDDINGS_FALTANTE)
+    vectores = modelo.encode(textos, normalize_embeddings=True)
+    return [[float(x) for x in vector] for vector in vectores]
+
+
+def _similitud_coseno(a: List[float], b: List[float]) -> float:
+    """Similitud de coseno entre dos vectores (sin depender de numpy)."""
+    punto = sum(x * y for x, y in zip(a, b))
+    norma_a = sum(x * x for x in a) ** 0.5
+    norma_b = sum(x * x for x in b) ** 0.5
+    if norma_a == 0 or norma_b == 0:
+        return 0.0
+    return punto / (norma_a * norma_b)
+
+
+def _hash_texto(texto: str) -> str:
+    import hashlib
+    return hashlib.sha256(texto.encode("utf-8")).hexdigest()[:16]
+
+
+def _dividir_en_fragmentos(texto: str,
+                           max_caracteres: int = CHUNK_CARACTERES) -> List[dict]:
+    """Divide el contenido en fragmentos de ~``max_caracteres`` (~512 tokens).
+
+    Corta por líneas para no partir sentencias a mitad y registra la línea de
+    inicio de cada fragmento (1-based).
+    """
+    fragmentos: List[dict] = []
+    actual: List[str] = []
+    linea_inicio = 1
+    linea_actual = 0
+    for numero, linea in enumerate(texto.splitlines(), start=1):
+        linea_actual = numero
+        actual.append(linea)
+        if sum(len(l) + 1 for l in actual) >= max_caracteres:
+            fragmentos.append({"linea_inicio": linea_inicio,
+                               "texto": "\n".join(actual)})
+            actual = []
+            linea_inicio = numero + 1
+    if actual:
+        fragmentos.append({"linea_inicio": linea_inicio,
+                           "texto": "\n".join(actual)})
+    if linea_actual == 0:               # archivo vacío
+        fragmentos.append({"linea_inicio": 1, "texto": ""})
+    return fragmentos
+
+
+def _patrones_gitignore(raiz: Path) -> List[str]:
+    """Lee .gitignore de ``raiz`` y devuelve patrones simples (fnmatch)."""
+    patrones: List[str] = []
+    gitignore = raiz / ".gitignore"
+    try:
+        if gitignore.is_file():
+            for linea in gitignore.read_text(encoding="utf-8",
+                                             errors="replace").splitlines():
+                linea = linea.strip()
+                if linea and not linea.startswith("#") and not linea.startswith("!"):
+                    patrones.append(linea.rstrip("/"))
+    except OSError:
+        pass
+    return patrones
+
+
+def _ruta_indice(directorio: str) -> Path:
+    """Ruta del índice en disco para ``directorio`` (hash de la ruta absoluta)."""
+    clave = _hash_texto(str(Path(directorio).resolve()))
+    return INDICE_DIR / f"{clave}.json"
+
+
+def _cargar_indice(directorio: str) -> dict:
+    """Lee el índice de embeddings de ``directorio`` ({} si no existe)."""
+    camino = _ruta_indice(directorio)
+    try:
+        if camino.is_file():
+            datos = json.loads(camino.read_text(encoding="utf-8"))
+            if isinstance(datos, dict) and "fragmentos" in datos:
+                return datos
+    except (json.JSONDecodeError, OSError) as exc:
+        aviso(f"Índice de embeddings corrupto ({camino}): {exc}")
+    return {}
+
+
+def _guardar_indice(directorio: str, indice: dict) -> bool:
+    """Persiste el índice en ~/.snapcontext/index/<hash>.json."""
+    try:
+        INDICE_DIR.mkdir(parents=True, exist_ok=True)
+        _ruta_indice(directorio).write_text(
+            json.dumps(indice, ensure_ascii=False), encoding="utf-8")
+        return True
+    except OSError as exc:
+        aviso(f"No se pudo guardar el índice: {exc}")
+        return False
+
+
+def _es_ignorado(relativo: str, patrones: List[str]) -> bool:
+    """True si ``relativo`` (ruta POSIX relativa) casa con algún patrón."""
+    partes = relativo.split("/")
+    for patron in patrones:
+        if fnmatch.fnmatch(relativo, patron) or fnmatch.fnmatch(
+                partes[-1], patron):
+            return True
+        # Patrón de directorio: ignorar todo lo que cuelga de él.
+        if any(fnmatch.fnmatch(parte, patron) for parte in partes):
+            return True
+    return False
+
+
+def _hash_proyecto(raiz) -> str:
+    """Computa un hash que representa el estado actual del proyecto.
+
+    Recorre los archivos de código (misma lógica que ``_indexar_proyecto`` pero
+    sin calcular embeddings) y devuelve un hash combinado de todos los hashes de
+    contenido. Muy rápido comparado con el indexado completo.
+    """
+    raiz = raiz if isinstance(raiz, Path) else Path(raiz)
+    patrones = _patrones_gitignore(raiz)
+    hashes: dict = {}
+    for camino in sorted(raiz.rglob("*")):
+        if not camino.is_file() or camino.suffix.lower() not in EXTENSIONES_EMBEDDINGS:
+            continue
+        if any(parte in CARPETAS_IGNORADAS for parte in camino.parts):
+            continue
+        relativo = camino.relative_to(raiz).as_posix()
+        if _es_ignorado(relativo, patrones):
+            continue
+        try:
+            contenido = camino.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        hashes[relativo] = _hash_texto(contenido)
+    return _hash_texto(json.dumps(hashes, sort_keys=True, ensure_ascii=False))
+
+
+def _indexar_proyecto(directorio: str = ".",
+                      extensiones: Optional[set] = None) -> dict:
+    """Indexa el proyecto: embeddings por fragmento de cada archivo de código.
+
+    - Escanea recursivamente respetando .gitignore y ``CARPETAS_IGNORADAS``.
+    - Divide cada archivo en fragmentos (~512 tokens) y calcula su embedding
+      con el modelo local (all-MiniLM-L6-v2).
+    - Cache por hash de contenido: los archivos sin cambios reutilizan los
+      embeddings del índice previo.
+
+    Lanza RuntimeError si los embeddings no están disponibles.
+    """
+    raiz = Path(directorio).resolve()
+    if not raiz.is_dir():
+        raise RuntimeError(f"El directorio no existe: {raiz}")
+    extensiones = extensiones or EXTENSIONES_EMBEDDINGS
+    patrones = _patrones_gitignore(raiz)
+    indice_previo = _cargar_indice(str(raiz))
+    fragmentos_previos = {(f["archivo"], f.get("hash_archivo")): f
+                          for f in indice_previo.get("fragmentos", [])}
+
+    # 1) Recolectar archivos candidatos (relativo, contenido, hash).
+    archivos: List[tuple] = []
+    for camino in sorted(raiz.rglob("*")):
+        if not camino.is_file() or camino.suffix.lower() not in extensiones:
+            continue
+        if any(parte in CARPETAS_IGNORADAS for parte in camino.parts):
+            continue
+        relativo = camino.relative_to(raiz).as_posix()
+        if _es_ignorado(relativo, patrones):
+            continue
+        try:
+            contenido = camino.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            aviso(f"No se pudo leer {relativo}: {exc}")
+            continue
+        archivos.append((relativo, contenido, _hash_texto(contenido)))
+
+    if not archivos:
+        raise RuntimeError("No se encontraron archivos de código para indexar.")
+
+    # 2) Separar fragmentos cacheados (mismo hash+texto) de los nuevos.
+    fragmentos: List[dict] = []
+    nuevos_textos: List[str] = []
+    nuevos_claves: List[tuple] = []
+    for relativo, contenido, hash_archivo in archivos:
+        for frag in _dividir_en_fragmentos(contenido):
+            previo = fragmentos_previos.get((relativo, hash_archivo))
+            if previo is not None and previo["texto"] == frag["texto"]:
+                fragmentos.append({**frag, "archivo": relativo,
+                                   "hash_archivo": hash_archivo,
+                                   "embedding": previo["embedding"]})
+            else:
+                nuevos_textos.append(frag["texto"])
+                nuevos_claves.append((relativo, hash_archivo,
+                                      frag["linea_inicio"]))
+                fragmentos.append({**frag, "archivo": relativo,
+                                   "hash_archivo": hash_archivo,
+                                   "embedding": None})   # marcador temporal
+
+    # 3) Calcular embeddings de los fragmentos nuevos en lote.
+    if nuevos_textos:
+        aviso(f"[embeddings] Calculando embeddings de {len(nuevos_textos)} "
+              f"fragmento(s) nuevo(s)…")
+        vectores = _calcular_embeddings(nuevos_textos)
+        pendientes = list(zip(nuevos_claves, vectores))
+        for frag in fragmentos:
+            if frag.get("embedding") is not None:
+                continue
+            for (relativo, hash_archivo, linea_inicio), vector in pendientes:
+                if (frag["archivo"] == relativo
+                        and frag["hash_archivo"] == hash_archivo
+                        and frag["linea_inicio"] == linea_inicio):
+                    frag["embedding"] = vector
+                    break
+            if frag.get("embedding") is None:
+                raise RuntimeError(
+                    "No se pudo asignar un embedding a un fragmento "
+                    f"({frag['archivo']}:{frag['linea_inicio']})")
+
+    indice = {"version": 1, "directorio": str(raiz),
+              "modelo": MODELO_EMBEDDINGS_NOMBRE,
+              "hash_proyecto": _hash_proyecto(raiz),
+              "hashes": {rel: h for rel, _, h in archivos},
+              "fragmentos": fragmentos}
+    _guardar_indice(str(raiz), indice)
+    return indice
+
+
+def _asegurar_indice(directorio: str) -> dict:
+    """Devuelve el índice del proyecto; lo crea o reindexa si ha cambiado.
+
+    Invalida el caché automáticamente cuando el proyecto cambia (se compara el
+    ``hash_proyecto`` almacenado con el hash actual) y reindexa con aviso.
+    """
+    indice = _cargar_indice(directorio)
+    if indice.get("fragmentos"):
+        hash_actual = _hash_proyecto(Path(directorio).resolve())
+        if indice.get("hash_proyecto") == hash_actual:
+            return indice
+        aviso("[embeddings] El proyecto ha cambiado; reindexando…")
+    info("[embeddings] Indexando el proyecto (primera vez o índice vacío)…")
+    return _indexar_proyecto(directorio)
+
+
+def _buscar_semanticamente(consulta: str, directorio: str = ".",
+                           max_resultados: int = 20) -> List[dict]:
+    """Búsqueda semántica: fragmentos más similares a ``consulta``.
+
+    Devuelve una lista ordenada por similitud::
+
+        [{"archivo", "linea_inicio", "similitud", "texto"}]
+
+    Lanza RuntimeError si los embeddings no están disponibles.
+    """
+    indice = _asegurar_indice(directorio)
+    fragmentos = [f for f in indice.get("fragmentos", [])
+                  if f.get("embedding")]
+    if not fragmentos:
+        return []
+    vector_consulta = _calcular_embeddings([consulta])[0]
+    puntuados = []
+    for frag in fragmentos:
+        similitud = _similitud_coseno(vector_consulta, frag["embedding"])
+        puntuados.append({"archivo": frag["archivo"],
+                          "linea_inicio": frag["linea_inicio"],
+                          "similitud": round(similitud, 4),
+                          "texto": frag["texto"]})
+    puntuados.sort(key=lambda f: f["similitud"], reverse=True)
+    return puntuados[:max_resultados]
+
+
+def _seleccionar_archivos_con_embeddings(consulta: str, directorio: str = ".",
+                                         max_archivos: int = 3,
+                                         umbral: float = 0.6) -> List[str]:
+    """Selecciona archivos relevantes por similitud semántica.
+
+    Agrupa las similitudes por archivo (sumando sus fragmentos), filtra por
+    ``umbral`` y devuelve hasta ``max_archivos`` rutas. Si no llegan a
+    ``max_archivos``, rellena con los mejores candidatos de la heurística
+    local (``escanear_repositorio``) que no estén ya incluidos.
+    """
+    resultados = _buscar_semanticamente(consulta, directorio,
+                                        max_resultados=50)
+    puntuaciones: dict = {}
+    for frag in resultados:
+        puntuaciones[frag["archivo"]] = (
+            puntuaciones.get(frag["archivo"], 0.0) + frag["similitud"])
+    ordenados = sorted(puntuaciones.items(), key=lambda kv: kv[1],
+                       reverse=True)
+    seleccion = [archivo for archivo, puntuacion in ordenados
+                 if puntuacion >= umbral][:max_archivos]
+
+    if len(seleccion) < max_archivos:
+        try:
+            candidatos = escanear_repositorio(consulta, directorio=directorio)
+        except Exception:
+            candidatos = []
+        for candidato in candidatos:
+            if len(seleccion) >= max_archivos:
+                break
+            if candidato not in seleccion:
+                seleccion.append(candidato)
+    return seleccion
 
 
 def crear_parser() -> argparse.ArgumentParser:
