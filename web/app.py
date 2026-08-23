@@ -44,7 +44,7 @@ _DIRECTORIO_DEFECTO = "."
 
 def crear_app() -> FastAPI:
     """Construye y devuelve la app FastAPI (rutas + WebSocket)."""
-    app = FastAPI(title="SnapContext Web", version="1.6.0")
+    app = FastAPI(title="SnapContext Web", version="1.7.0")
 
     @app.get("/")
     async def raiz():

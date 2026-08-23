@@ -907,6 +907,53 @@ describas el error y esa descripción se pasa a Aider
 
 ---
 
+## 🧠 Extensión para IntelliJ IDEA / PyCharm (v1.7.0)
+
+SnapContext también vive dentro del ecosistema **JetBrains** (IntelliJ IDEA,
+PyCharm, WebStorm…) con una extensión en Kotlin ubicada en `jetbrains/`.
+
+### Funcionalidades
+
+| Acción | Dónde | Qué hace |
+|---|---|---|
+| Ejecutar consulta… (`Alt+Shift+S`) | Tools → SnapContext | Pipeline completo de SnapContext sobre el proyecto abierto |
+| Planificar tarea… | Tools → SnapContext | Lanza `--plan --auto` con la consulta |
+| Corregir con bucle de pruebas… | Tools → SnapContext | Lanza la consulta con `--test-loop` |
+| Abrir interfaz web | Tools → SnapContext | Arranca `--web` y abre `http://localhost:8000` al estar listo |
+| Añadir al contexto | Menú contextual del explorador | Marca archivos prioritarios (equivalente a `/add`) |
+| Limpiar archivos de contexto | Tools → SnapContext | Vacía el contexto marcado |
+
+La salida se muestra en tiempo real en la herramienta inferior **«SnapContext»**
+con barra de progreso cancelable.
+
+### Instalación (desde código fuente)
+
+Requisitos: **JDK 17+** y conexión a Internet (Gradle descarga el SDK de
+IntelliJ Community la primera vez).
+
+```bash
+cd jetbrains
+./gradlew buildPlugin        # genera build/distributions/snapcontext-jetbrains-1.7.0.zip
+./gradlew runIde             # o prueba el plugin en un IDE sandbox
+```
+
+Para instalar el `.zip`: **Settings → Plugins → ⚙ → Install Plugin from Disk…**
+
+### Configuración
+
+**Settings → Tools → SnapContext**:
+
+- **Comando**: cómo invocar SnapContext (`python -m snapcontext` por defecto;
+  usa `snapcontext` si tienes el ejecutable/instalador .exe).
+- **Proveedor**: equivalente a `--provider` (vacío = el guardado en config).
+- **Confirmar**: desactívalo para pasar `--no-confirmar`.
+- **Clave API**: opcional; se exporta como `GEMINI_API_KEY` (y equivalentes).
+
+> Nota: el plugin llama a la CLI de SnapContext con `ProcessBuilder`; no
+> requiere Python embebido ni dependencias adicionales.
+
+---
+
 ## Interfaz Web (`--web`)
 
 SnapContext incluye una interfaz web ligera sobre la **arquitectura de agentes**

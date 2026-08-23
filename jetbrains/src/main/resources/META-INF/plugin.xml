@@ -1,0 +1,80 @@
+<idea-plugin>
+    <id>com.snapcontext.jetbrains</id>
+    <name>SnapContext</name>
+    <vendor url="https://github.com/NicolasBruna24/snapcontext">SnapContext Contributors</vendor>
+    <description><![CDATA[
+        <p><b>SnapContext</b> — Asistente de IA con contexto automático para
+        desarrollo dentro de IntelliJ IDEA, PyCharm y otros IDEs de JetBrains.</p>
+        <ul>
+            <li>Ejecuta consultas de SnapContext (pipeline completo con Aider)
+                desde el menú <b>Tools → SnapContext</b>.</li>
+            <li>Planifica tareas (<code>--plan</code>) y ejecuta bucles de pruebas
+                (<code>--test-loop</code>).</li>
+            <li>Abre la interfaz web (editor Monaco + grafo de dependencias) en
+                la herramienta «SnapContext».</li>
+            <li>Añade archivos del explorador al contexto (equivalente a
+                <code>/add</code> en la CLI) desde el menú contextual.</li>
+            <li>Salida en tiempo real en la consola «SnapContext».</li>
+        </ul>
+        <p>Requiere tener SnapContext instalado (<code>pip install snapcontext</code>)
+        o el ejecutable <code>snapcontext</code> disponible; configúralo en
+        <b>Settings → Tools → SnapContext</b>.</p>
+    ]]></description>
+
+    <!-- Compatible con cualquier IDE JetBrains basado en la plataforma. -->
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Herramienta "SnapContext": salida + acciones rápidas. -->
+        <toolWindow id="SnapContext"
+                    anchor="bottom"
+                    factoryClass="com.snapcontext.jetbrains.SnapContextToolWindowFactory"
+                    canCloseContents="false"/>
+        <!-- Configuración: Settings → Tools → SnapContext. -->
+        <applicationConfigurable parentId="tools"
+                                 instance="com.snapcontext.jetbrains.SnapContextConfigurable"
+                                 displayName="SnapContext"/>
+        <applicationService serviceImplementation="com.snapcontext.jetbrains.SnapContextSettings"/>
+    </extensions>
+
+    <actions>
+        <!-- Grupo principal: Tools → SnapContext. -->
+        <group id="SnapContext.MainMenu"
+               text="SnapContext"
+               description="Acciones de SnapContext"
+               popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <action id="SnapContext.EjecutarConsulta"
+                    class="com.snapcontext.jetbrains.RunQueryAction"
+                    text="Ejecutar consulta…"
+                    description="Ejecuta una consulta de SnapContext sobre el proyecto">
+                <keyboard-shortcut keymap="$default" first-keystroke="alt shift S"/>
+            </action>
+            <action id="SnapContext.Planificar"
+                    class="com.snapcontext.jetbrains.PlanAction"
+                    text="Planificar tarea…"
+                    description="Ejecuta el planificador (--plan) con la consulta indicada"/>
+            <action id="SnapContext.TestLoop"
+                    class="com.snapcontext.jetbrains.TestLoopAction"
+                    text="Corregir con bucle de pruebas…"
+                    description="Ejecuta la consulta con --test-loop (Aider → pruebas → reparar)"/>
+            <action id="SnapContext.AbrirWeb"
+                    class="com.snapcontext.jetbrains.OpenWebAction"
+                    text="Abrir interfaz web"
+                    description="Arranca snapcontext --web y lo abre en el navegador"/>
+            <separator/>
+            <action id="SnapContext.LimpiarContexto"
+                    class="com.snapcontext.jetbrains.ClearContextAction"
+                    text="Limpiar archivos de contexto"
+                    description="Vacía la lista de archivos añadidos al contexto"/>
+        </group>
+
+        <!-- Menú contextual del explorador de proyectos: añadir al contexto. -->
+        <action id="SnapContext.AnadirAlContexto"
+                class="com.snapcontext.jetbrains.AddToContextAction"
+                text="SnapContext: Añadir al contexto"
+                description="Marca estos archivos como contexto prioritario para las consultas">
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>

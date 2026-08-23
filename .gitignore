@@ -11,3 +11,8 @@ venv/
 .env
 .env.*
 
+
+# Artefactos de compilación de la extensión JetBrains
+jetbrains/build/
+jetbrains/.gradle/
+jetbrains/buildSearchableOptions/

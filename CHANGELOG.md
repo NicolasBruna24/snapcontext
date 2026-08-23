@@ -6,6 +6,38 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [1.7.0] - 2026-08-23 · 🧠 Extensión para IntelliJ IDEA / PyCharm
+
+### ✨ Nuevas funcionalidades
+- **Nueva extensión JetBrains** (`jetbrains/`, Kotlin + Gradle) con la misma
+  experiencia que la de VS Code:
+  - **Tools → SnapContext → «Ejecutar consulta…»** (`Alt+Shift+S`): pipeline
+    completo sobre el proyecto abierto.
+  - **«Planificar tarea…»**: lanza el planificador `--plan --auto`.
+  - **«Corregir con bucle de pruebas…»**: `--test-loop` (Aider → pruebas → reparar).
+  - **«Abrir interfaz web»**: arranca `snapcontext --web` y abre
+    `http://localhost:8000` en el navegador cuando Uvicorn está listo.
+  - **Añadir al contexto**: menú contextual del explorador de proyectos para
+    marcar archivos prioritarios (equivalente a `/add`; usa el mismo sufijo
+    «Revisa especialmente estos archivos: …» que la extensión VS Code).
+  - **Consola dedicada** en la herramienta inferior «SnapContext» con salida en
+    tiempo real y barra de progreso cancelable.
+- **Comunicación por CLI**: la extensión invoca `python -m snapcontext` (o el
+  comando configurado) con `ProcessBuilder`, pasando `--directorio <proyecto>`,
+  `--provider` y `--no-confirmar` según los ajustes, e inyecta la clave API
+  opcional como variables de entorno. Sin dependencias nuevas en tiempo de
+  ejecución del plugin.
+
+### 🔧 Compatibilidad
+- CLI, web, extensión VS Code e instalador .exe sin cambios funcionales.
+
+### 🧪 Tests
+- Nuevo `tests/test_jetbrains_170.py` (12 tests): estructura de ficheros,
+  validez de `plugin.xml` (tool window, configurable, acciones), coherencia
+  Gradle/Kotlin y paridad del mecanismo de contexto con VS Code.
+
+---
+
 ## [1.6.0] - 2026-08-23 · 🎨 Interfaz web más completa e interactiva
 
 ### ✨ Nuevas funcionalidades
