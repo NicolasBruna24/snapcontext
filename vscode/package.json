@@ -16,14 +16,6 @@
   "keywords": [
     "ai", "gemini", "claude", "ollama", "aider", "agente", "mcp"
   ],
-  "activationEvents": [
-    "onCommand:snapcontext.abrirChat",
-    "onCommand:snapcontext.ejecutarConsulta",
-    "onCommand:snapcontext.planificar",
-    "onCommand:snapcontext.configurarApiKey",
-    "onCommand:snapcontext.anadirAlContexto",
-    "onCommand:snapcontext.limpiarSeleccion"
-  ],
   "main": "./extension.js",
   "contributes": {
     "commands": [

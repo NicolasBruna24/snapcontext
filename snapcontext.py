@@ -183,10 +183,10 @@ _LOGO = r"""
    │                                                          │
    │    » Selección inteligente de archivos                  │
    │    » Soporte: Gemini · Ollama · DeepSeek · Groq        │
-   │    » v0.5.0                                             │
+   │    » __VERSION__                                             │
    │                                                          │
    └──────────────────────────────────────────────────────────┘
-"""
+""".replace("__VERSION__", "v" + VERSION)
 
 
 def _detectar_tipo_proyecto(directorio: str) -> Optional[str]:
