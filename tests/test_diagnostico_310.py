@@ -35,7 +35,7 @@ class TestFlagsCli310(unittest.TestCase):
                                                      ).bienvenida)
 
     def test_version_es_3_1_0(self):
-        self.assertEqual(sc.VERSION, "3.1.1")
+        self.assertEqual(sc.VERSION, "3.2.0")
 
 
 class TestApiKeyDetection(unittest.TestCase):

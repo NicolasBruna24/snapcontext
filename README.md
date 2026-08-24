@@ -89,6 +89,15 @@ El instalador NSIS (`installer.nsi`, generado con
   comando `snapcontext` disponible en cualquier terminal.
 - Sigue añadiendo la carpeta al PATH y creando accesos directos.
 
+### Extensión VS Code en TypeScript (v3.2.0)
+La extensión vive en `vscode/` y está escrita en TypeScript:
+- `vscode/src/extension.ts` — código fuente tipado (modo `strict`).
+- `vscode/tsconfig.json` — ES2020, commonjs, salida en `out/`.
+- Compilar: `cd vscode && npm install && npm run compile` (genera
+  `out/extension.js`, que es el entry point del manifiesto).
+- Empaquetar: `vscode/scripts/empaquetar.ps1` / `.sh` (compilan antes de
+  ejecutar `vsce package`).
+
 ## 🚀 Inicio rápido (5 minutos)
 
 ```bash

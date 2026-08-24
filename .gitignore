@@ -16,3 +16,8 @@ venv/
 jetbrains/build/
 jetbrains/.gradle/
 jetbrains/buildSearchableOptions/
+
+# Extension VS Code (v3.2.0): artefactos de compilacion y dependencias.
+vscode/node_modules/
+vscode/out/
+vscode/*.vsix

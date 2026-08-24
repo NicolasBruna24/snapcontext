@@ -2,7 +2,7 @@
   "name": "snapcontext-vscode",
   "displayName": "SnapContext",
   "description": "Asistente de IA con contexto automático para desarrollo: chat, planificador y selección inteligente de archivos.",
-  "version": "2.2.0",
+  "version": "3.2.0",
   "publisher": "NicolasBrunaFuentealbaIsaias",
   "license": "MIT",
   "engines": {
@@ -16,7 +16,7 @@
   "keywords": [
     "ai", "gemini", "claude", "ollama", "aider", "agente", "mcp"
   ],
-  "main": "./extension.js",
+  "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
@@ -91,8 +91,14 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "node -e \"console.log('Recuerda tener snapcontext instalado en el Python configurado.')\"",
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
     "package": "vsce package"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.4.0"
+  }
 }

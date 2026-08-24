@@ -13,9 +13,22 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "   Instálalo con: pip install -e $raiz"
 }
 
-Write-Host "==> Generando .vsix con vsce…" -ForegroundColor Cyan
+Write-Host "==> Instalando dependencias de la extensión (TypeScript)…" -ForegroundColor Cyan
 Push-Location "$raiz\vscode"
 try {
+    if (-not (Test-Path "node_modules")) {
+        npm install
+        if ($LASTEXITCODE -ne 0) { throw "npm install falló." }
+    }
+
+    Write-Host "==> Compilando TypeScript (tsc -p ./)…" -ForegroundColor Cyan
+    npm run compile
+    if ($LASTEXITCODE -ne 0) { throw "La compilación TypeScript falló." }
+    if (-not (Test-Path "out/extension.js")) {
+        throw "No se generó out/extension.js tras compilar."
+    }
+
+    Write-Host "==> Generando .vsix con vsce…" -ForegroundColor Cyan
     npx @vscode/vsce package --no-dependencies
 } finally {
     Pop-Location

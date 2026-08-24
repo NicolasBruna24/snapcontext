@@ -41,6 +41,32 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
   comandos y el modo offline; versiones actualizadas en tests existentes.
 - README e install.ps1/install.sh documentan el modo offline.
 
+## [3.2.0] - 2026-08-24 - Extensión VS Code en TypeScript
+
+### Migración JavaScript → TypeScript
+- `vscode/extension.js` → `vscode/src/extension.ts` con tipos completos
+  (`vscode.ExtensionContext`, `vscode.Disposable`, `vscode.OutputChannel`,
+  `ChildProcessWithoutNullStreams`, …) y modo `strict` activado.
+- Nueva configuración `vscode/tsconfig.json` (ES2020, commonjs, strict,
+  sourceMap, declaration, salida en `out/`, raíz `src/`).
+- Misma funcionalidad: abrirChat, ejecutarConsulta, planificar,
+  configurarApiKey, anadirAlContexto y limpiarSeleccion; el webview sigue
+  sirviendo el servidor web FastAPI en http://localhost:<puerto dinámico>.
+
+### Empaquetado
+- `package.json`: `"main": "./out/extension.js"` y scripts `compile`
+  (`tsc -p ./`), `watch`, `package` y `vscode:prepublish` que compila.
+- Nuevas devDependencies: `typescript`, `@types/vscode`, `@types/node`.
+- `scripts/empaquetar.ps1` / `.sh`: ejecutan `npm install` +
+  `npm run compile` antes de `vsce package` y verifican que exista
+  `out/extension.js`.
+
+### Tests
+- Nueva suite `tests/test_vscode_ts_320.py`: opciones obligatorias del
+  tsconfig, entry point, scripts, devDependencies, registro de comandos,
+  webview y compilación real (`tsc --noEmit`) cuando hay compilador.
+- `tests/test_vscode_016.py` actualizado a la nueva estructura.
+
 ## [3.1.1] - 2026-08-24 - Primer uso plug and play
 
 ### Ayuda al ejecutar sin argumentos

@@ -17,7 +17,7 @@ import snapcontext as sc  # noqa: E402
 
 class TestVersion(unittest.TestCase):
     def test_version_170_coherente(self):
-        self.assertEqual(sc.VERSION, "3.1.1")
+        self.assertEqual(sc.VERSION, "3.2.0")
 
 
 class TestEstructuraJetBrains(unittest.TestCase):
@@ -102,8 +102,10 @@ class TestGradleYKotlin(unittest.TestCase):
         self.assertIn("GEMINI_API_KEY", servicio)        # clave opcional
 
     def test_contexto_como_vscode(self):
-        # Mismo mecanismo de contexto visual que la extensión de VS Code.
-        vscode = (RAIZ / "vscode" / "extension.js").read_text(encoding="utf-8")
+        # Mismo mecanismo de contexto visual que la extensión de VS Code
+        # (migrada a TypeScript en v3.2.0).
+        vscode = (RAIZ / "vscode" / "src" / "extension.ts").read_text(
+            encoding="utf-8")
         kotlin = (JB / "src/main/kotlin/com/snapcontext/jetbrains/"
                   "SnapContextService.kt").read_text(encoding="utf-8")
         self.assertIn("Revisa especialmente estos archivos:", vscode)

@@ -111,7 +111,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "3.1.1"
+VERSION = "3.2.0"
 
 # v3.1.0 — Claves de API reconocidas para el modo por defecto (offline).
 CLAVES_API_CONOCIDAS = (

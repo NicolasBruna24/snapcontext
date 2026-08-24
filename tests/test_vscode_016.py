@@ -22,7 +22,8 @@ import snapcontext as sc
 
 class TestEstructuraVsCode(unittest.TestCase):
     def test_archivos_obligatorios_existen(self):
-        for relativo in ("package.json", "extension.js",
+        for relativo in ("package.json", "tsconfig.json",
+                         "src/extension.ts",
                          "webview/index.html", "webview/servidor_webview.py",
                          "scripts/empaquetar.ps1", "scripts/empaquetar.sh"):
             self.assertTrue((VSCODE / relativo).is_file(), relativo)
@@ -30,8 +31,8 @@ class TestEstructuraVsCode(unittest.TestCase):
     def test_package_json_valido(self):
         manifiesto = json.loads((VSCODE / "package.json").read_text("utf-8"))
         self.assertEqual(manifiesto["name"], "snapcontext-vscode")
-        self.assertEqual(manifiesto["version"], "2.2.0")
-        self.assertEqual(manifiesto["main"], "./extension.js")
+        self.assertEqual(manifiesto["version"], "3.2.0")
+        self.assertEqual(manifiesto["main"], "./out/extension.js")
 
     def test_comandos_contribuidos(self):
         manifiesto = json.loads((VSCODE / "package.json").read_text("utf-8"))
@@ -56,8 +57,8 @@ class TestEstructuraVsCode(unittest.TestCase):
                          "snapcontext.apiKey", "snapcontext.confirmar"):
             self.assertIn(esperada, propiedades)
 
-    def test_extension_js_registra_los_comandos(self):
-        codigo = (VSCODE / "extension.js").read_text(encoding="utf-8")
+    def test_extension_ts_registra_los_comandos(self):
+        codigo = (VSCODE / "src" / "extension.ts").read_text(encoding="utf-8")
         for comando in ("abrirChat", "ejecutarConsulta", "planificar",
                         "configurarApiKey", "anadirAlContexto",
                         "limpiarSeleccion"):
@@ -65,10 +66,13 @@ class TestEstructuraVsCode(unittest.TestCase):
         # Canal de salida dedicado.
         self.assertIn('"SnapContext Output"', codigo)
         # Usa la CLI/módulo python con el workspace como directorio.
-        self.assertIn("-m\", \"snapcontext", codigo.replace('", "', '", "'))
+        self.assertIn('"-m", "snapcontext"', codigo)
         self.assertIn("cwd: ws", codigo)
         self.assertIn("--no-confirmar", codigo)
         self.assertIn("--plan", codigo)
+        # Migración a TypeScript (v3.2.0).
+        self.assertIn("import * as vscode from \"vscode\"", codigo)
+        self.assertIn("vscode.ExtensionContext", codigo)
 
     def test_webview_es_copia_de_la_interfaz_web(self):
         web = (RAIZ / "web" / "static" / "index.html").read_text(
@@ -87,7 +91,7 @@ class TestEstructuraVsCode(unittest.TestCase):
 
 class TestVersionCli(unittest.TestCase):
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "3.1.1")
+        self.assertEqual(sc.VERSION, "3.2.0")
 
 
 if __name__ == "__main__":

@@ -96,7 +96,7 @@ class TestFlagsEdicion(unittest.TestCase):
         self.assertEqual(parser.parse_args(["--modo-edicion", "sobrescribir", "c"]).modo_edicion, "sobrescribir")
 
     def test_version_es_2_1_0(self):
-        self.assertEqual(sc.VERSION, "3.1.1")
+        self.assertEqual(sc.VERSION, "3.2.0")
 
 
 if __name__ == "__main__":
