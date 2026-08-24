@@ -14,7 +14,7 @@ err()   { printf "${RED}✖${NC} %s\n" "$*" >&2; }
 # ─── Banner ───────────────────────────────────────────────────────────────
 echo ""
 printf "${BLUE}╔══════════════════════════════════════════╗${NC}\n"
-printf "${BLUE}║        SnapContext Installer            ║${NC}\n"
+printf "${BLUE}║        SnapContext Installer             ║${NC}\n"
 printf "${BLUE}╚══════════════════════════════════════════╝${NC}\n"
 echo ""
 
@@ -28,7 +28,21 @@ for cmd in python3 python; do
 done
 
 if [ -z "$PYTHON" ]; then
-    err "Python no encontrado. Instala Python 3.9+ desde https://python.org"
+    err "Python no encontrado. Instala Python 3.9+ y vuelve a ejecutar este instalador."
+    echo ""
+    OS_UNAME="$(uname -s)"
+    if [ "$OS_UNAME" = "Darwin" ]; then
+        echo "  macOS (Homebrew):   brew install python"
+        echo "  macOS (python.org): https://www.python.org/downloads/"
+    elif command -v apt-get &>/dev/null; then
+        echo "  Debian/Ubuntu:  sudo apt update && sudo apt install python3 python3-pip"
+    elif command -v dnf &>/dev/null; then
+        echo "  Fedora:         sudo dnf install python3 python3-pip"
+    elif command -v pacman &>/dev/null; then
+        echo "  Arch:           sudo pacman -S python python-pip"
+    else
+        echo "  Descarga Python desde https://www.python.org/downloads/"
+    fi
     exit 1
 fi
 
@@ -38,6 +52,7 @@ MINOR=$(echo "$RAW_VERSION" | cut -d. -f2)
 
 if [ "$MAJOR" -lt 3 ] || { [ "$MAJOR" -eq 3 ] && [ "$MINOR" -lt 9 ]; }; then
     err "Se requiere Python ≥ 3.9. Versión actual: $RAW_VERSION"
+    echo "  Actualiza Python (por ej.: brew upgrade python o el gestor de tu distro)."
     exit 1
 fi
 ok "Python $RAW_VERSION encontrado ($PYTHON)"
@@ -63,7 +78,52 @@ else
     fi
 fi
 
-# ─── 2b. Limpiar instalaciones previas de SnapContext con uv ──────────────
+# ─── 2b. Limpiar entornos corruptos de uv (v2.3.0) ────────────────────────
+# Una instalación previa interrumpida puede dejar la carpeta del entorno de
+# 'uv tool' vacía o sin ejecutable, bloqueando nuevas instalaciones con el
+# error "Invalid environment ... directory is empty". La detectamos y borramos.
+UV_TOOLS_SNAP=""
+for candidato in \
+    "${XDG_DATA_HOME:-$HOME/.local/share}/uv/tools/snapcontext" \
+    "$HOME/.local/share/uv/tools/snapcontext" \
+    "$HOME/Library/Application Support/uv/tools/snapcontext"; do
+    if [ -d "$candidato" ]; then
+        UV_TOOLS_SNAP="$candidato"
+        break
+    fi
+done
+
+if [ -n "$UV_TOOLS_SNAP" ]; then
+    CORRUPTO=false
+    # Carpeta vacía.
+    if [ -z "$(ls -A "$UV_TOOLS_SNAP" 2>/dev/null)" ]; then
+        CORRUPTO=true
+    fi
+    # Sin intérprete de Python dentro del venv.
+    if [ "$CORRUPTO" = false ] \
+        && [ ! -x "$UV_TOOLS_SNAP/bin/python" ] \
+        && [ ! -x "$UV_TOOLS_SNAP/bin/python3" ] \
+        && [ ! -x "$UV_TOOLS_SNAP/Scripts/python.exe" ]; then
+        CORRUPTO=true
+    fi
+    # Sin entrypoint de snapcontext.
+    if [ "$CORRUPTO" = false ] \
+        && [ ! -e "$UV_TOOLS_SNAP/bin/snapcontext" ] \
+        && [ ! -e "$UV_TOOLS_SNAP/Scripts/snapcontext.exe" ]; then
+        CORRUPTO=true
+    fi
+
+    if [ "$CORRUPTO" = true ]; then
+        info "Limpiando instalación previa corrupta de SnapContext..."
+        if rm -rf "$UV_TOOLS_SNAP"; then
+            ok "Entorno corrupto eliminado: $UV_TOOLS_SNAP"
+        else
+            warn "No se pudo eliminar '$UV_TOOLS_SNAP'. Borra la carpeta manualmente."
+        fi
+    fi
+fi
+
+# ─── 2c. Limpiar instalaciones previas de SnapContext con uv ──────────────
 # Evita que un snapcontext antiguo (vía uv tool) en ~/.local/bin tape al nuevo.
 if command -v uv &>/dev/null && uv tool list 2>/dev/null | grep -q '^snapcontext'; then
     warn "Se detectó una instalación previa de SnapContext vía 'uv tool'."
@@ -89,18 +149,9 @@ elif [ -x "$HOME/.local/bin/snapcontext" ] && ! command -v uv &>/dev/null; then
         || warn "No se pudo eliminar automáticamente: $HOME/.local/bin/snapcontext"
 fi
 
-# ─── 3. Instalar SnapContext ──────────────────────────────────────────────
-info "Instalando SnapContext..."
-if [ "$UV_EXISTS" = true ]; then
-    uv tool install snapcontext 2>&1 | tail -1
+# ─── Helper: añadir ~/.local/bin al perfil del usuario si falta ───────────
+asegurar_path_perfil() {
     export PATH="$HOME/.local/bin:$PATH"
-
-    # Verificar que ~/.local/bin esté en el PATH persistente del shell; si no,
-    # añadirlo al perfil (.bashrc o .zshrc) para terminales nuevas.
-    case ":$PATH:" in
-        *":$HOME/.local/bin:"*) ;;
-        *) export PATH="$HOME/.local/bin:$PATH" ;;
-    esac
     PERFIL=""
     if [ -n "${ZSH_VERSION:-}" ] && [ -f "$HOME/.zshrc" ]; then
         PERFIL="$HOME/.zshrc"
@@ -109,33 +160,68 @@ if [ "$UV_EXISTS" = true ]; then
     elif [ -f "$HOME/.profile" ]; then
         PERFIL="$HOME/.profile"
     fi
-    if [ -n "$PERFIL" ] && ! grep -q '.local/bin' "$PERFIL" 2>/dev/null; then
+    [ -n "$PERFIL" ] || return 0
+    # grep comprueba si ya existe la línea (evita duplicados).
+    if ! grep -q '\.local/bin' "$PERFIL" 2>/dev/null; then
         printf '\n# Añadido por el instalador de SnapContext\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$PERFIL"
         ok "Añadido ~/.local/bin al PATH en $PERFIL (abre una terminal nueva para aplicarlo)."
+    else
+        info "~/.local/bin ya figura en $PERFIL."
     fi
-else
-    PYTHON -m pip install --upgrade pip 2>/dev/null || true
-    $PYTHON -m pip install snapcontext 2>&1 | tail -1
+}
+
+# ─── 3. Instalar SnapContext ──────────────────────────────────────────────
+info "Instalando SnapContext..."
+INSTALADO=false
+
+if [ "$UV_EXISTS" = true ]; then
+    if uv tool install snapcontext --upgrade 2>&1 | tail -1; then
+        INSTALADO=true
+    else
+        warn "La instalación con uv falló; probando con pip..."
+    fi
+    asegurar_path_perfil
+fi
+
+if [ "$INSTALADO" = false ]; then
+    # ── Fallback robusto a pip ──
+    info "Instalando con pip..."
+    "$PYTHON" -m pip install --upgrade pip 2>/dev/null || true
+    if ! "$PYTHON" -m pip install --upgrade snapcontext 2>&1 | tail -1; then
+        err "No se pudo instalar SnapContext ni con uv ni con pip."
+        echo "  Prueba manualmente:"
+        echo "    $PYTHON -m pip install --upgrade snapcontext"
+        exit 1
+    fi
 fi
 
 # ─── 4. Verificar ─────────────────────────────────────────────────────────
 echo ""
 if command -v snapcontext &>/dev/null; then
-    ok "SnapContext instalado correctamente"
+    ok "SnapContext instalado correctamente."
     VERSION_INSTALADA=$(snapcontext --version 2>&1 | head -1)
     info "Versión: $VERSION_INSTALADA"
 else
     warn "snapcontext no está en el PATH."
     echo "  Añade esta línea a tu ~/.bashrc o ~/.zshrc:"
-    echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+    echo '  export PATH="$HOME/.local/bin:$PATH"'
     echo "  Luego abre una nueva terminal o ejecuta: source ~/.bashrc"
 fi
 
 # ─── 5. Mensaje final ─────────────────────────────────────────────────────
 echo ""
 printf "${BLUE}╔══════════════════════════════════════════╗${NC}\n"
-printf "${BLUE}║     ¡Instalación completada! 🎉         ║${NC}\n"
+printf "${BLUE}║     ¡Instalación completada! 🎉          ║${NC}\n"
 printf "${BLUE}╚══════════════════════════════════════════╝${NC}\n"
+echo ""
+
+if command -v snapcontext &>/dev/null; then
+    ok "SnapContext instalado correctamente. Ejecuta 'snapcontext --help' para empezar."
+    info "Reinicia tu terminal o ejecuta 'source ~/.bashrc' para actualizar el PATH."
+else
+    warn "Instalación completada pero el comando aún no está disponible en esta sesión."
+fi
+
 echo ""
 echo "  Ejemplos de uso:"
 echo "    snapcontext --version"
@@ -143,5 +229,5 @@ echo '    snapcontext "el botón de pago no funciona"'
 echo '    snapcontext "revisar login" --experto'
 echo ""
 echo "  Configura tu API key:"
-echo "    export GEMINI_API_KEY=\"tu_clave\""
+echo '    export GEMINI_API_KEY="tu_clave"'
 echo ""

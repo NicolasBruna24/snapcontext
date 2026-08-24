@@ -1,4 +1,4 @@
-# SnapContext Installer — Windows
+﻿# SnapContext Installer - Windows
 # Uso: irm https://NicolasBruna24.github.io/snapcontext/install.ps1 | iex
 param([switch]$Help)
 
@@ -10,53 +10,121 @@ function Write-Color {
 }
 
 function Write-Info    { Write-Color "ℹ $args" "Cyan" }
-function Write-OK     { Write-Color "✔ $args" "Green" }
-function Write-Warn   { Write-Color "⚠ $args" "Yellow" }
-function Write-Err   { Write-Color "✖ $args" "Red" }
+function Write-OK      { Write-Color "✔ $args" "Green" }
+function Write-Warn    { Write-Color "⚠ $args" "Yellow" }
+function Write-Err     { Write-Color "✖ $args" "Red" }
 
-# ─── Banner ───────────────────────────────────────────────────────────────
+# ─── Banner ────────────────────────────────────────────────────────────────
 Write-Host ""
 Write-Color "╔══════════════════════════════════════════╗" "Blue"
-Write-Color "║        SnapContext Installer            ║" "Blue"
+Write-Color "║        SnapContext Installer             ║" "Blue"
 Write-Color "╚══════════════════════════════════════════╝" "Blue"
 Write-Host ""
 
-# ─── Ayuda ────────────────────────────────────────────────────────────────
+# ─── Ayuda ─────────────────────────────────────────────────────────────────
 if ($Help) {
     Write-Host "SnapContext Installer - Windows"
     Write-Host "Uso: irm https://NicolasBruna24.github.io/snapcontext/install.ps1 | iex"
     exit 0
 }
 
-# ─── 1. Verificar Python ──────────────────────────────────────────────────
-$python = $null
-foreach ($cmd in @("python", "python3")) {
+# ─── 1. Verificar Python (PATH, rutas comunes y lanzador py) ───────────────
+# Devuelve la ruta completa a un ejecutable de Python válido o $null.
+function Find-Python {
+    # 1a) En el PATH (descartando el stub de la Microsoft Store).
+    foreach ($cmd in @("python", "python3")) {
+        try {
+            $origen = (Get-Command $cmd -ErrorAction Stop).Source
+            if ($origen -and $origen -notlike "*WindowsApps*") {
+                return $origen
+            }
+        } catch { continue }
+    }
+    # 1b) Lanzador oficial 'py' (instalador de python.org).
     try {
-        $python = (Get-Command $cmd -ErrorAction Stop).Source
-        break
-    } catch { continue }
+        $salida = & py -3 -c "import sys; print(sys.executable)" 2>$null |
+            Select-Object -First 1
+        if ($LASTEXITCODE -eq 0 -and $salida -and (Test-Path $salida)) {
+            return $salida
+        }
+    } catch { }
+    # 1c) Rutas de instalación típicas.
+    $raices = @(
+        "$env:LOCALAPPDATA\Programs\Python",
+        "C:\Program Files\Python",
+        "C:\Program Files (x86)\Python"
+    )
+    foreach ($raiz in $raices) {
+        if (-not (Test-Path $raiz)) { continue }
+        $exe = Get-ChildItem $raiz -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            ForEach-Object { Join-Path $_.FullName "python.exe" } |
+            Where-Object { Test-Path $_ } |
+            Select-Object -First 1
+        if ($exe) { return $exe }
+    }
+    return $null
 }
+
+$python = Find-Python
 
 if (-not $python) {
     Write-Err "Python no encontrado. Instala Python 3.9+ desde https://python.org"
+    Write-Host ""
+    Write-Host "  Durante la instalación marca la casilla:"
+    Write-Color "    ☑ 'Add python.exe to PATH'" "Yellow"
+    Write-Host ""
+    Write-Host "  Alternativa por línea de comandos (winget):"
+    Write-Host "    winget install -e --id Python.Python.3.12"
+    Write-Host ""
+    Write-Host "  Después vuelve a ejecutar este instalador."
     exit 1
 }
 
+# Si Python existe pero no estaba en el PATH, intentar añadirlo.
+$pythonDir = Split-Path $python -Parent
+$enPath = $false
+foreach ($cmd in @("python", "python3")) {
+    if (Get-Command $cmd -ErrorAction SilentlyContinue) { $enPath = $true; break }
+}
+if (-not $enPath) {
+    Write-Warn "Python está instalado pero no está en el PATH: $python"
+    try {
+        $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+        if ($userPath -notlike "*$pythonDir*") {
+            [Environment]::SetEnvironmentVariable(
+                "Path", "$pythonDir;$userPath", "User")
+            $env:PATH = "$pythonDir;$env:PATH"
+            Write-OK "Ruta de Python añadida al PATH del usuario: $pythonDir"
+            Write-Warn "Abre una terminal nueva para que el cambio sea global."
+        } else {
+            Write-Info "La ruta de Python ya está en el PATH del usuario."
+        }
+    } catch {
+        Write-Warn "No se pudo modificar el PATH automáticamente ($_)."
+        Write-Host "  Añade manualmente '$pythonDir' al PATH del usuario:"
+        Write-Host ('    [Environment]::SetEnvironmentVariable("Path", "' +
+            "$pythonDir" + ';" + $env:Path + "", "User")')
+    }
+}
+
+# ─── 1b. Comprobar versión de Python ───────────────────────────────────────
 $rawVersion = & $python --version 2>&1
 if ($rawVersion -match "Python (\d+)\.(\d+)") {
     $major = [int]$Matches[1]
     $minor = [int]$Matches[2]
     if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 9)) {
         Write-Err "Se requiere Python ≥ 3.9. Versión actual: $rawVersion"
+        Write-Host "  Actualiza Python desde https://python.org y reintenta."
         exit 1
     }
     Write-OK "Python $($Matches[1]).$($Matches[2]) encontrado"
 } else {
-    Write-Err "No se pudo determinar la versión de Python"
+    Write-Err "No se pudo determinar la versión de Python ($rawVersion)"
     exit 1
 }
 
-# ─── 2. Instalar uv si no está ────────────────────────────────────────────
+# ─── 2. Instalar uv si no está ─────────────────────────────────────────────
 $uvExists = $false
 if (Get-Command uv -ErrorAction SilentlyContinue) {
     $uvExists = $true
@@ -65,11 +133,13 @@ if (Get-Command uv -ErrorAction SilentlyContinue) {
     Write-Info "Instalando uv (gestor rápido de paquetes Python)..."
     try {
         $tempScript = Join-Path $env:TEMP "install-uv.ps1"
-        Invoke-WebRequest -Uri "https://astral.sh/uv/install.ps1" -OutFile $tempScript -UseBasicParsing
+        Invoke-WebRequest -Uri "https://astral.sh/uv/install.ps1" `
+            -OutFile $tempScript -UseBasicParsing
         & $tempScript
         Remove-Item $tempScript -Force -ErrorAction SilentlyContinue
         # Añadir al PATH de la sesión
-        foreach ($path in @("$env:USERPROFILE\.local\bin", "$env:USERPROFILE\.cargo\bin")) {
+        foreach ($path in @("$env:USERPROFILE\.local\bin",
+                            "$env:USERPROFILE\.cargo\bin")) {
             if (Test-Path $path) { $env:PATH = "$path;$env:PATH" }
         }
         if (Get-Command uv -ErrorAction SilentlyContinue) {
@@ -84,7 +154,7 @@ if (Get-Command uv -ErrorAction SilentlyContinue) {
     }
 }
 
-# ─── 2b. Limpiar instalaciones previas de SnapContext con uv ──────────────
+# ─── 2b. Limpiar instalaciones previas de SnapContext con uv ───────────────
 # Un snapcontext antiguo instalado con 'uv tool' vive en %USERPROFILE%\.local\bin
 # y puede tapar al nuevo en el PATH (bug conocido de la v1.2.0).
 $uvPrevio = $false
@@ -119,135 +189,166 @@ if ($uvPrevio) {
     }
 }
 
-# ─── 3. Instalar SnapContext ──────────────────────────────────────────────
-Write-Info "Instalando SnapContext..."
-if ($uvExists) {
-    & uv tool install snapcontext 2>&1 | Select-Object -Last 1
-    $userBin = "$env:USERPROFILE\.local\bin"
-    if (Test-Path $userBin) { $env:PATH = "$userBin;$env:PATH" }
-
-    # Persistir %USERPROFILE%\.local\bin en el PATH del usuario si falta,
-    # para que 'snapcontext' funcione en terminales nuevas.
-    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    if ($userPath -notlike "*$userBin*") {
-        [Environment]::SetEnvironmentVariable("Path", "$userBin;$userPath", "User")
-        Write-OK "✓ Ruta '$userBin' añadida al PATH del usuario"
+# ─── Helper: añadir una ruta al PATH del usuario sin duplicados ────────────
+function Add-UserPath {
+    param([string]$Ruta)
+    if ([string]::IsNullOrWhiteSpace($Ruta) -or -not (Test-Path $Ruta)) {
+        return $false
     }
-} else {
-    & $python -m pip install --upgrade pip 2>&1 | Out-Null
-    & $python -m pip install snapcontext 2>&1 | Select-Object -Last 1
+    try {
+        $actual = [Environment]::GetEnvironmentVariable("Path", "User")
+        $partes = @()
+        if ($actual) { $partes = $actual -split ';' | Where-Object { $_ } }
+        if ($partes -contains $Ruta) {
+            Write-Info "'$Ruta' ya está en el PATH del usuario."
+            return $true
+        }
+        $nuevo = ($Ruta + ';' + $actual).Trim(';')
+        [Environment]::SetEnvironmentVariable("Path", $nuevo, "User")
+        if ("$env:PATH" -notlike "*$Ruta*") { $env:PATH = "$Ruta;$env:PATH" }
+        Write-OK "Ruta '$Ruta' añadida al PATH del usuario (permanente)."
+        return $true
+    } catch {
+        Write-Warn "No se pudo modificar el PATH del usuario ($_)."
+        return $false
+    }
 }
 
-# ─── Añadir automáticamente al PATH del usuario (pip) ──────────────────────
-if (-not $uvExists) {
-    Write-Info "Añadiendo carpeta de ejecutable al PATH del usuario permanentemente..."
-    
-    # Obtener la ruta del sitio de paquetes de usuario
-    try {
-        $sitePackages = & $python -c "import site; print(site.getusersitepackages())" 2>&1 | Select-Object -First 1 -Trim
-        
-        if (-not [string]::IsNullOrWhiteSpace($sitePackages)) {
-            # Reemplazar 'site-packages' por 'Scripts' para obtener la ruta del ejecutable
-            $scriptsPath = $sitePackages.Replace('site-packages', 'Scripts')
-            
-            # Verificar si el ejecutable existe
-            if (Test-Path "$scriptsPath\snapcontext.exe") {
-                # Añadir al PATH del usuario permanentemente (evitando duplicados)
-                $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
-                
-                if ($currentPath -notlike "*$scriptsPath*") {
-                    $newPath = "$scriptsPath;$currentPath"
-                    [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-                    Write-OK "✓ Ruta '$scriptsPath' añadida al PATH de usuario"
-                } else {
-                    Write-Info "Ruta ya presente en el PATH del usuario (sin cambios necesarios)"
-                }
-            } else {
-                Write-Warn "El ejecutable no se encuentra en: $scriptsPath\snapcontext.exe"
-                Write-Host "  Intentando localizar snapcontext.exe..."
-                
-                # Fallback: buscar en rutas comunes de pip
-                foreach ($candidate in @("$env:APPDATA\Python\Scripts", "$env:LOCALAPPDATA\Programs\Python\Python3*\Scripts", $scriptsPath)) {
-                    if (Test-Path "$candidate\snapcontext.exe") {
-                        # Añadir al PATH si no está presente
-                        $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
-                        if ($currentPath -notlike "*$candidate*") {
-                            $newPath = "$candidate;$currentPath"
-                            [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-                            Write-OK "✓ Ruta '$candidate' añadida al PATH de usuario (fallback)"
-                        } else {
-                            Write-Info "Ruta ya presente en el PATH del usuario"
-                        }
-                        break
-                    }
-                }
-            }
-        } else {
-            Write-Warn "No se pudo obtener la ruta del sitio de paquetes. Se omitirá la configuración automática."
-            Write-Host "  Nota: Para instalar sin usar el one-liner, usa 'snapcontext --setup-path' después de pip install"
+# ─── 2c. Limpiar entornos corruptos de uv (v2.3.0) ─────────────────────────
+# Una instalación previa interrumpida puede dejar %APPDATA%\uv\tools\
+# snapcontext vacía o sin ejecutable, y uv se niega a reinstalar sobre ella
+# ("Invalid environment ... directory is empty"). La detectamos y borramos.
+function Test-UvEnvCorrupto {
+    param([string]$Ruta)
+    if (-not (Test-Path $Ruta)) { return $false }
+    $hijos = Get-ChildItem $Ruta -Force -ErrorAction SilentlyContinue
+    if (-not $hijos -or $hijos.Count -eq 0) { return $true }   # carpeta vacía
+    # Un entorno sano tiene un venv con python.exe y el shim de snapcontext.
+    $exeVenv = @(
+        (Join-Path $Ruta "Scripts\python.exe"),
+        (Join-Path $Ruta "bin\python"),
+        (Join-Path $Ruta "bin\python3")
+    ) | Where-Object { Test-Path $_ }
+    if (-not $exeVenv) { return $true }                        # sin intérprete
+    $shims = @(
+        (Join-Path $Ruta "Scripts\snapcontext.exe"),
+        (Join-Path $Ruta "bin\snapcontext")
+    ) | Where-Object { Test-Path $_ }
+    if (-not $shims) { return $true }                          # sin entrypoint
+    return $false
+}
+
+$rutasUvTool = @(
+    (Join-Path $env:APPDATA "uv\tools\snapcontext"),
+    (Join-Path $env:LOCALAPPDATA "uv\tools\snapcontext")
+) | Where-Object { $_ -and (Test-Path $_) }
+
+foreach ($ruta in $rutasUvTool) {
+    if (Test-UvEnvCorrupto -Ruta $ruta) {
+        Write-Info "Limpiando instalación previa corrupta de SnapContext..."
+        try {
+            Remove-Item $ruta -Recurse -Force -ErrorAction Stop
+            Write-OK "Entorno corrupto eliminado: $ruta"
+        } catch {
+            Write-Warn "No se pudo eliminar '$ruta' ($_)."
+            Write-Host "  Cierra otras terminales y vuelve a ejecutar el instalador,"
+            Write-Host "  o borra la carpeta manualmente."
         }
+    }
+}
+
+# ─── 3. Instalar SnapContext ───────────────────────────────────────────────
+Write-Info "Instalando SnapContext..."
+$instalado = $false
+
+if ($uvExists) {
+    try {
+        & uv tool install snapcontext --upgrade 2>&1 | Select-Object -Last 1
+        if ($LASTEXITCODE -eq 0) { $instalado = $true }
     } catch {
-        Write-Warn "Error detectando PATH: $_"
-        Write-Info "La instalación funcionará normalmente; solo omite la configuración automática del PATH."
+        Write-Warn "'uv tool install' falló: $_"
+    }
+    $userBin = "$env:USERPROFILE\.local\bin"
+    if ($instalado) {
+        if (Test-Path $userBin) { $env:PATH = "$userBin;$env:PATH" }
+        # Persistir %USERPROFILE%\.local\bin en el PATH del usuario.
+        if (-not (Add-UserPath -Ruta $userBin)) {
+            Write-Warn "Añade '$userBin' al PATH manualmente o ejecuta:"
+            Write-Host "    snapcontext --setup-path"
+        }
+    } else {
+        Write-Warn "La instalación con uv no terminó bien; probando con pip..."
+    }
+}
+
+if (-not $instalado) {
+    # ── Fallback robusto a pip ──
+    Write-Info "Instalando con pip..."
+    & $python -m pip install --upgrade pip 2>&1 | Out-Null
+    & $python -m pip install --upgrade snapcontext 2>&1 | Select-Object -Last 1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "No se pudo instalar SnapContext ni con uv ni con pip."
+        Write-Host "  Revisa tu conexión y permisos, y prueba manualmente:"
+        Write-Host "    $python -m pip install --upgrade snapcontext"
+        exit 1
+    }
+
+    # Añadir la carpeta de Scripts del usuario al PATH (pip user installs).
+    $sitePackages = & $python -c `
+        "import site; print(site.getusersitepackages())" 2>$null |
+        Select-Object -First 1
+    $scriptsPath = $null
+    if ($sitePackages -and "$sitePackages".Contains("site-packages")) {
+        $scriptsPath = "$sitePackages".Replace("site-packages", "Scripts")
+    } else {
+        # Fallback: localizar snapcontext.exe en rutas típicas de pip.
+        foreach ($candidato in @("$env:APPDATA\Python\Scripts",
+                                 "$env:LOCALAPPDATA\Programs\Python\Python312\Scripts",
+                                 "$env:LOCALAPPDATA\Programs\Python\Python311\Scripts")) {
+            if (Test-Path "$candidato\snapcontext.exe") {
+                $scriptsPath = $candidato
+                break
+            }
+        }
+    }
+    if ($scriptsPath -and (Test-Path "$scriptsPath\snapcontext.exe")) {
+        if (-not (Add-UserPath -Ruta $scriptsPath)) {
+            Write-Warn "Añade '$scriptsPath' al PATH manualmente o ejecuta:"
+            Write-Host "    snapcontext --setup-path"
+        }
+    } else {
+        Write-Warn "No se localizó snapcontext.exe tras la instalación con pip."
+        Write-Host "  Ejecuta 'snapcontext --setup-path' o añade la carpeta"
+        Write-Host "  de Scripts de Python al PATH manualmente."
     }
 }
 
 # ─── 4. Verificar ──────────────────────────────────────────────────────────
-# ─── 4. Verificar ─────────────────────────────────────────────────────────
 Write-Host ""
-if (Get-Command snapcontext -ErrorAction SilentlyContinue) {
-    Write-OK "SnapContext instalado correctamente"
-    $versionLine = & snapcontext --version 2>&1 | Select-Object -First 1
-    Write-Info "Versión: $versionLine"
-} else {
-    Write-Warn "snapcontext no está en el PATH."
-    Write-Host "  Añade esta línea a tu perfil de PowerShell (`$PROFILE):"
-    Write-Host '    $env:PATH = "$env:USERPROFILE\.local\bin;$env:PATH"'
-    Write-Host "  Luego abre una nueva terminal."
-}
-
-# ─── 5. Mensaje final ─────────────────────────────────────────────────────
-Write-Host ""
-Write-Color "╔══════════════════════════════════════════╗" "Blue"
-Write-Color "║     ¡Instalación completada! 🎉         ║" "Blue"
-Write-Color "╚══════════════════════════════════════════╝" "Blue"
-Write-Host ""
-
-if (Get-Command snapcontext -ErrorAction SilentlyContinue) {
-    Write-OK "SnapContext instalado correctamente"
-    
-    # Verificar si PATH se configuró automáticamente
-    $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    if (-not $uvExists) {
-        $sitePackages = & $python -c "import site; print(site.getusersitepackages())" 2>&1 | Select-Object -First 1 -Trim
-        $scriptsPath = $sitePackages.Replace('site-packages', 'Scripts')
-        
-        if ($currentPath -like "*$scriptsPath*") {
-            Write-OK "✓ El PATH del usuario incluye la carpeta de SnapContext"
-            Write-Info "Reinicia tu terminal para que los cambios surtan efecto."
-            Write-Info "O ejecuta 'refreshenv' (si tienes Chocolatey instalado)."
-        } else {
-            Write-Info "ℹ SnapContext funciona, pero la carpeta no se encontró automáticamente en el PATH."
-            Write-Host "  Puedes añadir manualmente '$scriptsPath' al PATH de usuario:"
-            Write-Host '  [Environment]::SetEnvironmentVariable("Path", $env:Path + ";$scriptsPath", "User")'
-        }
-    } else {
-        Write-OK "✓ El PATH del usuario incluye la carpeta de SnapContext (ya configurado por uv)"
-        Write-Info "Reinicia tu terminal para que los cambios surtan efecto."
-        Write-Info "O ejecuta 'refreshenv' (si tienes Chocolatey instalado)."
-    }
-    
+$snapCmd = Get-Command snapcontext -ErrorAction SilentlyContinue
+if ($snapCmd) {
+    Write-OK "SnapContext instalado correctamente."
     $versionLine = & snapcontext --version 2>&1 | Select-Object -First 1
     Write-Info "Versión: $versionLine"
 } else {
     Write-Warn "snapcontext no está en el PATH de la sesión actual."
-    if (-not $uvExists) {
-        Write-Host "  Intenta ejecutar: snapcontext --setup-path"
-    } else {
-        Write-Host "  Añade esta línea a tu perfil de PowerShell (`$PROFILE):"
-        Write-Host '    $env:PATH = "$env:USERPROFILE\.local\bin;$env:PATH"'
-        Write-Host "  Luego abre una nueva terminal."
-    }
+    Write-Host "  Abre una terminal nueva, o ejecuta manualmente:"
+    Write-Host '    $env:PATH = "$env:USERPROFILE\.local\bin;$env:PATH"'
+    Write-Host "  También puedes usar: snapcontext --setup-path"
+}
+
+# ─── 5. Mensaje final ──────────────────────────────────────────────────────
+Write-Host ""
+Write-Color "╔══════════════════════════════════════════╗" "Blue"
+Write-Color "║     ¡Instalación completada! 🎉          ║" "Blue"
+Write-Color "╚══════════════════════════════════════════╝" "Blue"
+Write-Host ""
+
+if ($snapCmd) {
+    Write-OK "SnapContext instalado correctamente. Ejecuta 'snapcontext --help' para empezar."
+    Write-Info "Reinicia tu terminal para que los cambios del PATH surtan efecto."
+} else {
+    Write-Warn "Instalación completada pero el comando aún no está disponible en esta sesión."
 }
 
 Write-Host ""
@@ -259,3 +360,4 @@ Write-Host ""
 Write-Host "  Configura tu API key:"
 Write-Host '    $env:GEMINI_API_KEY = "tu_clave"'
 Write-Host ""
+
