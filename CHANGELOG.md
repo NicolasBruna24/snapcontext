@@ -41,6 +41,51 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
   comandos y el modo offline; versiones actualizadas en tests existentes.
 - README e install.ps1/install.sh documentan el modo offline.
 
+## [3.3.0] - 2026-08-24 - Editor propio refinado: AST multi-lenguaje, conflictos y skills
+
+### AST y parches
+- Detección de lenguaje refinada: mapa de extensiones ampliado (mts/cts/cjs,
+  cxx/hh/hxx, zsh, scss, scala, lua, sql, elixir, zig, haskell, r, vue,
+  svelte...) y nueva heurística por contenido (`_detectar_lenguaje_contenido`,
+  `_lenguaje_archivo`) para scripts sin extensión y proyectos mixtos.
+- `_resumen_ast` ahora detecta Python también por contenido (shebang/`def`).
+
+### Manejo de conflictos en parches
+- Nueva validación previa (`_validar_parche_previo`): comprueba que el
+  archivo coincide con el contenido usado para generar el parche antes de
+  aplicarlo (evita corrupción por cambios concurrentes).
+- Nueva resolución automática (`_aplicar_hunks_incremental`): si `git apply`
+  y `patch` fallan, aplica el parche línea a línea en Python puro con
+  búsqueda por desfase y contexto difuso; los hunks irresolubles se omiten
+  con aviso (aplicación parcial informada).
+- `_aplicar_parche_con_resolucion` orquesta validación → git apply → patch →
+  resolución incremental; ya no cae directamente a sobrescritura.
+
+### Prompt de edición enriquecido
+- El prompt del editor propio incluye ahora lenguaje detectado, tamaño del
+  archivo, resumen del AST con posiciones y reglas explícitas (conservar
+  estilo, cambios mínimos, anclarse a símbolos del AST).
+
+### Integración con skills (aprendizaje)
+- Clasificación de patrones de edición (`_editor_clasificar_tarea`):
+  renombrar, añadir_import, refactorizar_clase, añadir_funcion,
+  corregir_error o general.
+- Tras una edición exitosa se guarda/refuerza un skill `editor-<patrón>`
+  (`_skill_editor_guardar`) con la estrategia que funcionó.
+- En tareas nuevas, si existe un skill confiable (>=0.6), su estrategia se
+  prioriza automáticamente en la cadena de edición
+  (`_skill_editor_estrategia`) acelerando ediciones repetidas sin IA.
+
+### Compatibilidad
+- El editor propio sigue siendo opcional (`--editor propio`) y la cadena de
+  modos `auto` mantiene la heurística AST → parche → sobrescritura.
+
+### Tests
+- Nueva suite `tests/test_editor_330.py` (31 tests): clasificación de tareas,
+  detección de lenguaje, extracción de ruta del parche, validación previa,
+  parseo/aplicación incremental de hunks (incluido desfase), flujo de
+  resolución, skills del editor, integración en `ejecutar()` y prompts.
+
 ## [3.2.0] - 2026-08-24 - Extensión VS Code en TypeScript
 
 ### Migración JavaScript → TypeScript

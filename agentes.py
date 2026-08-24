@@ -181,15 +181,22 @@ class AgenteEditorPropio:
         self,
         parche: str,
         directorio: str = ".",
+        contenido_esperado: Optional[str] = None,
     ) -> bool:
-        """Aplica un parche unificado en ``directorio``.
+        """Aplica un parche unificado en ``directorio`` (v3.3.0).
+
+        Con ``contenido_esperado`` se valida antes que el archivo coincida
+        con el usado para generar el parche y, si hay conflicto, se intenta
+        la resolución incremental línea a línea.
 
         Devuelve ``True`` si se aplicó con éxito, ``False`` si falló.
         """
         import snapcontext as sc
 
         sc.depurar(f"[AgenteEditorPropio] Aplicando parche en '{directorio}'")
-        return sc._aplicar_parche(parche, directorio=directorio)
+        return sc._aplicar_parche_con_resolucion(
+            parche, directorio=directorio,
+            contenido_esperado=contenido_esperado)
 
     def _cadena_modos(self, archivo: str, mensaje: str,
                       modo_edicion: str) -> List[str]:
@@ -233,12 +240,21 @@ class AgenteEditorPropio:
 
         pref = sc.cargar_configuracion()
         proveedor = pref.get("provider") or sc.PROVEEDOR_DEFECTO
+        lenguaje = sc._lenguaje_archivo(archivo, contenido_actual) or "?"
+        num_lineas = (contenido_actual.count("\n") + 1
+                      if contenido_actual else 0)
         prompt = (
-            f"Genera un parche unificado (unified diff) que modifique el archivo para cumplir con la tarea. "
-            f"El parche debe ser aplicable con 'patch -p1' o 'git apply' (encabezados --- a/{archivo} y +++ b/{archivo}).\n\n"
+            f"Genera un parche unificado (unified diff) que modifique el archivo "
+            f"para cumplir con la tarea con precisión máxima.\n"
+            f"El parche debe ser aplicable con 'patch -p1' o 'git apply' "
+            f"(encabezados --- a/{archivo} y +++ b/{archivo}).\n\n"
             f"Tarea: {mensaje}\n"
-            f"Archivo: {archivo}\n\n"
-            f"Contenido actual:\n```\n{contenido_actual}\n```\n\n"
+            f"Archivo: {archivo}  (lenguaje: {lenguaje}, {num_lineas} líneas)\n\n"
+            f"Instrucciones:\n"
+            f"- Incluye suficiente contexto (3 líneas) para anclar cada hunk.\n"
+            f"- Conserva el estilo existente (indentación, comillas).\n"
+            f"- Modifica SOLO lo necesario; no reorganices el resto del archivo.\n\n"
+            f"Contenido actual completo:\n```{lenguaje}\n{contenido_actual}\n```\n\n"
             f"Devuelve ÚNICAMENTE el diff unificado, sin explicaciones ni rodeos."
         )
         respuesta = sc._enviar_al_proveedor(
@@ -250,7 +266,9 @@ class AgenteEditorPropio:
             if "```" in diff_limpio:
                 diff_limpio = diff_limpio[:diff_limpio.find("```")]
         if "--- " in diff_limpio and "+++ " in diff_limpio and "@@" in diff_limpio:
-            return self.aplicar_parche(diff_limpio, directorio)
+            # v3.3.0: validación previa + resolución de conflictos.
+            return self.aplicar_parche(diff_limpio, directorio,
+                                       contenido_esperado=contenido_actual)
         return False
 
     def _aplicar_modo_sobrescribir(self, archivo: str, mensaje: str,
@@ -261,11 +279,13 @@ class AgenteEditorPropio:
 
         pref = sc.cargar_configuracion()
         proveedor = pref.get("provider") or sc.PROVEEDOR_DEFECTO
+        lenguaje = sc._lenguaje_archivo(archivo, contenido_actual) or "?"
         prompt = (
-            f"Modifica el siguiente archivo para cumplir con la tarea.\n\n"
+            f"Modifica el siguiente archivo ({lenguaje}) para cumplir con la "
+            f"tarea, conservando el estilo existente y cambiando solo lo necesario.\n\n"
             f"Tarea: {mensaje}\n"
-            f"Archivo: {archivo}\n\n"
-            f"Contenido actual:\n```\n{contenido_actual}\n```\n\n"
+            f"Archivo: {archivo}  (lenguaje: {lenguaje})\n\n"
+            f"Contenido actual completo:\n```{lenguaje}\n{contenido_actual}\n```\n\n"
             f"Devuelve ÚNICAMENTE el código completo resultante, sin explicaciones ni markdown."
         )
         nuevo_contenido = sc._enviar_al_proveedor(
@@ -298,6 +318,18 @@ class AgenteEditorPropio:
         raiz = Path(directorio).resolve()
         todo_ok = True
 
+        # v3.3.0 — Integración con skills: si ya existe un patrón de edición
+        # aprendido para esta tarea, se prioriza su estrategia (sin pasar por
+        # el proveedor de IA cuando el skill lo permita).
+        estrategia_aprendida = None
+        try:
+            estrategia_aprendida = sc._skill_editor_estrategia(mensaje)
+            if estrategia_aprendida:
+                sc.info("[skills] Reutilizando patrón de edición aprendido: "
+                        f"'{estrategia_aprendida}'.")
+        except Exception as exc:
+            sc.depurar(f"[skills] Búsqueda de skill falló: {exc}")
+
         for arch in archivos:
             camino = (raiz / arch).resolve()
             contenido_actual = ""
@@ -309,6 +341,10 @@ class AgenteEditorPropio:
                     pass
 
             cadena = self._cadena_modos(arch, mensaje, modo_edicion)
+            # El skill aprendido se coloca el primero en la cadena.
+            if estrategia_aprendida and estrategia_aprendida in cadena:
+                cadena.remove(estrategia_aprendida)
+                cadena.insert(0, estrategia_aprendida)
             conseguido = False
             for estrategia in cadena:
                 try:
@@ -329,7 +365,18 @@ class AgenteEditorPropio:
                     conseguido = False
                 if conseguido:
                     break
-            if not conseguido:
+
+            if conseguido:
+                # v3.3.0 — Aprendizaje: guardar/reforzar el patrón de edición.
+                patron = sc._editor_clasificar_tarea(mensaje)
+                sid = sc._skill_editor_guardar(
+                    mensaje, arch, patron, estrategia=estrategia)
+                if sid is not None:
+                    try:
+                        sc._skill_registrar_exito(sid)
+                    except Exception as exc:
+                        sc.depurar(f"[skills] Refuerzo falló: {exc}")
+            else:
                 sc.error(f"[AgenteEditorPropio] No se pudo editar '{arch}'.")
                 todo_ok = False
 

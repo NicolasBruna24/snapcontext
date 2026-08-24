@@ -98,6 +98,18 @@ La extensión vive en `vscode/` y está escrita en TypeScript:
 - Empaquetar: `vscode/scripts/empaquetar.ps1` / `.sh` (compilan antes de
   ejecutar `vsce package`).
 
+### Editor propio refinado (v3.3.0)
+- **Detección de lenguaje robusta**: extensión + heurística por contenido
+  (shebang, patrones de código) para proyectos mixtos.
+- **Manejo de conflictos en parches**: validación previa del contenido del
+  archivo y resolución automática línea a línea si `git apply`/`patch`
+  fallan (con aviso de aplicación parcial); ya no se sobrescribe a ciegas.
+- **Prompt de edición mejorado**: lenguaje, tamaño, resumen AST con
+  posiciones y reglas de precisión (estilo conservado, cambios mínimos).
+- **Aprendizaje de patrones**: las ediciones exitosas se guardan como skills
+  (`editor-<patrón>`) y su estrategia se reutiliza automáticamente en
+  tareas similares.
+
 ## 🚀 Inicio rápido (5 minutos)
 
 ```bash

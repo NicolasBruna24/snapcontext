@@ -79,6 +79,8 @@ class TestDiffYParches(unittest.TestCase):
         codigo_completo = "def fn(): return 2\n"
 
         with mock.patch.object(sc, "_enviar_al_proveedor", side_effect=["no es un diff", codigo_completo]), \
+             mock.patch.object(sc, "_skill_editor_estrategia", return_value=None), \
+             mock.patch.object(sc, "_skill_editor_guardar", return_value=None), \
              mock.patch.object(agente, "sobrescribir", return_value=True) as sob_mock:
             ok = agente.ejecutar([archivo], "cambiar retorno a 2", directorio=str(self.raiz), modo_edicion="auto")
             self.assertTrue(ok)
@@ -96,7 +98,7 @@ class TestFlagsEdicion(unittest.TestCase):
         self.assertEqual(parser.parse_args(["--modo-edicion", "sobrescribir", "c"]).modo_edicion, "sobrescribir")
 
     def test_version_es_2_1_0(self):
-        self.assertEqual(sc.VERSION, "3.2.0")
+        self.assertEqual(sc.VERSION, "3.3.0")
 
 
 if __name__ == "__main__":

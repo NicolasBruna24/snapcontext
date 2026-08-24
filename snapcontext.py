@@ -111,7 +111,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "3.2.0"
+VERSION = "3.3.0"
 
 # v3.1.0 — Claves de API reconocidas para el modo por defecto (offline).
 CLAVES_API_CONOCIDAS = (
@@ -1802,6 +1802,214 @@ def _aplicar_parche(parche: str, directorio: str = ".") -> bool:
             os.remove(temp_path)
         except OSError:
             pass
+
+
+# ---------------------------------------------------------------------------
+# Manejo de conflictos y aplicación incremental (v3.3.0)
+# ---------------------------------------------------------------------------
+def _ruta_del_parche(parche: str) -> Optional[str]:
+    """Extrae la ruta del archivo objetivo del encabezado del parche.
+
+    Acepta encabezados ``--- a/ruta`` / ``+++ b/ruta`` y variantes sin
+    prefijo. Devuelve None si no se encuentra.
+    """
+    for linea in (parche or "").splitlines():
+        if linea.startswith("+++ "):
+            ruta = linea[4:].strip().split("\t")[0]
+            if ruta.startswith("b/"):
+                ruta = ruta[2:]
+            return ruta or None
+        if linea.startswith("--- "):
+            candidata = linea[4:].strip().split("\t")[0]
+            if candidata.startswith("a/"):
+                candidata = candidata[2:]
+            if candidata and candidata not in ("/dev/null",):
+                return candidata
+    return None
+
+
+def _validar_parche_previo(parche: str, directorio: str,
+                           contenido_esperado: Optional[str]) -> tuple:
+    """Verifica que el archivo coincide con lo usado para generar el parche.
+
+    Evita conflictos por cambios concurrentes: si el contenido actual del
+    archivo difiere del que se pasó al proveedor, aplicar a ciegas corrompería
+    la edición. Devuelve ``(ok, detalle)``.
+    """
+    if contenido_esperado is None:
+        return True, "sin validación (no hay contenido de referencia)"
+    ruta = _ruta_del_parche(parche)
+    if not ruta:
+        return True, "parche sin encabezado reconocible; se omite la validación"
+    destino = Path(directorio or ".").resolve() / ruta
+    if not destino.is_file():
+        return False, f"el archivo '{ruta}' ya no existe"
+    try:
+        actual = destino.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return False, f"no se pudo leer '{ruta}': {exc}"
+    if actual != contenido_esperado:
+        return False, (f"'{ruta}' cambió desde que se generó el parche "
+                       "(posible cambio concurrente)")
+    return True, "el archivo coincide con la referencia"
+
+
+def _parsear_hunks(parche: str) -> List[tuple]:
+    """Divide un diff unificado en hunks ``(linea_inicio_original, cambios)``.
+
+    ``cambios`` es una lista de ``(marca, texto)`` con marca ' ', '-' o '+'.
+    Se omiten los hunks sin líneas modificadas. Devuelve [] si no hay ninguno.
+    """
+    hunks: List[tuple] = []
+    hunk_actual: Optional[List[tuple]] = None
+    inicio_orig = 0
+    for linea in (parche or "").splitlines(keepends=True):
+        texto = linea.rstrip("\r\n")
+        m = re.match(r"@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@", texto)
+        if m:
+            if hunk_actual:
+                hunks.append((inicio_orig, hunk_actual))
+            inicio_orig = int(m.group(1))
+            hunk_actual = []
+            continue
+        if hunk_actual is None:
+            continue                      # encabezados ---/+++/ruido
+        if texto.startswith("+"):
+            hunk_actual.append(("+", texto[1:]))
+        elif texto.startswith("-"):
+            hunk_actual.append(("-", texto[1:]))
+        else:
+            hunk_actual.append((" ", texto[1:] if texto else ""))
+    if hunk_actual:
+        hunks.append((inicio_orig, hunk_actual))
+    return [(i, l) for i, l in hunks if any(marca != " " for marca, _ in l)]
+
+
+def _aplicar_hunks_incremental(parche: str, directorio: str) -> bool:
+    """Resolución automática de conflictos: aplica el parche línea a línea.
+
+    Estrategia puramente Python (sin git/patch): para cada hunk busca el
+    bloque original con tolerancia a desfases (posiciones cercanas + búsqueda
+    difusa por contexto con difflib) y aplica solo las líneas modificadas.
+    Los hunks irresolubles se omiten con aviso; se escribe el resultado si al
+    menos un hunk se aplicó, siempre con copia de seguridad previa.
+
+    Devuelve True si se aplicó algún cambio.
+    """
+    ruta = _ruta_del_parche(parche)
+    if not ruta:
+        aviso("[EditorPropio] No se pudo deducir el archivo del parche.")
+        return False
+    destino = Path(directorio or ".").resolve() / ruta
+    if not destino.is_file():
+        aviso(f"[EditorPropio] El archivo del parche no existe: {ruta}")
+        return False
+    try:
+        original = destino.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        error(f"[EditorPropio] No se pudo leer '{ruta}': {exc}")
+        return False
+
+    resultado = original.splitlines()
+    hunks = _parsear_hunks(parche)
+    if not hunks:
+        aviso("[EditorPropio] El parche no contiene hunks aplicables.")
+        return False
+
+    def _coincide(desde: int, bloque: List[tuple]) -> bool:
+        """True si ``resultado[desde:]`` encaja con las líneas no-'+'."""
+        idx = desde
+        for marca, texto in bloque:
+            if marca == "+":
+                continue
+            if idx >= len(resultado) or resultado[idx] != texto:
+                return False
+            idx += 1
+        return True
+
+    def _n_borrar(bloque: List[tuple]) -> int:
+        return sum(1 for marca, _ in bloque if marca != "+")
+
+    aplicados = 0
+    desplazamiento = 0                     # acumulado por hunks previos
+    for inicio_orig, cambios in hunks:
+        base = max(inicio_orig - 1 + desplazamiento, 0)
+        n_borrados = _n_borrar(cambios)
+
+        posicion = -1
+        # 1) Coincidencia exacta cerca de la posición declarada.
+        offsets = sorted({0, 1, -1, 2, -2, 3, -3, 5, -5, 10, -10, 20, -20})
+        for delta in offsets:
+            candidato = base + delta
+            if 0 <= candidato <= len(resultado) and \
+                    _coincide(candidato, cambios):
+                posicion = candidato
+                break
+        # 2) Búsqueda difusa por líneas de contexto con difflib.
+        if posicion < 0:
+            contexto_idx = [i for i, (m, _) in enumerate(cambios)
+                            if m == " " and _.strip()]
+            if contexto_idx:
+                primera_ctx = cambios[contexto_idx[0]][1].strip()
+                for idx_linea, linea in enumerate(resultado):
+                    if linea.strip() == primera_ctx:
+                        candidato = idx_linea - contexto_idx[0]
+                        if _coincide(max(candidato, 0), cambios):
+                            posicion = max(candidato, 0)
+                            break
+        if posicion < 0 or not _coincide(posicion, cambios):
+            aviso(f"[EditorPropio] Hunk en línea {inicio_orig} no aplicable; "
+                  "se omite (resolución automática).")
+            continue
+
+        nuevo_bloque = [texto for marca, texto in cambios if marca != "-"]
+        resultado[posicion:posicion + n_borrados] = nuevo_bloque
+        desplazamiento += len(nuevo_bloque) - n_borrados
+        aplicados += 1
+
+    if not aplicados:
+        aviso("[EditorPropio] Ningún hunk pudo aplicarse; archivo intacto.")
+        return False
+    if aplicados < len(hunks):
+        aviso(f"[EditorPropio] Aplicación parcial: {aplicados}/{len(hunks)} "
+              "hunks. Revisa el resultado antes de confirmar.")
+
+    exito(f"[EditorPropio] Parche aplicado con resolución incremental "
+          f"(línea a línea) sobre '{ruta}'.")
+    return _editor_sobrescribir(ruta, "\n".join(resultado) + "\n",
+                                directorio=directorio)
+
+
+def _aplicar_parche_con_resolucion(parche: str, directorio: str = ".",
+                                   contenido_esperado: Optional[str] = None
+                                   ) -> bool:
+    """Aplica un parche con validación previa y resolución de conflictos.
+
+    Flujo (v3.3.0):
+      1. Validación previa: si se pasa ``contenido_esperado`` (el contenido
+         usado para generar el parche), comprueba que el archivo actual
+         coincida para evitar conflictos concurrentes.
+      2. Intento estándar: ``git apply`` → ``patch -p1``.
+      3. Resolución automática: aplicación incremental línea a línea.
+      4. Si todo falla, avisa para resolución manual (ya no sobrescribe a
+         ciegas).
+    """
+    ok_validacion, detalle = _validar_parche_previo(
+        parche, directorio, contenido_esperado)
+    if not ok_validacion:
+        aviso(f"[EditorPropio] Validación previa fallida: {detalle}. "
+              "Se intentará la resolución automática.")
+    elif contenido_esperado is not None:
+        depurar(f"[EditorPropio] Validación previa OK: {detalle}")
+
+    if _aplicar_parche(parche, directorio=directorio):
+        return True
+    info("[EditorPropio] Conflicto detectado; probando resolución "
+         "incremental (línea a línea)...")
+    return _aplicar_hunks_incremental(parche, directorio)
+
+
+
 # ---------------------------------------------------------------------------
 # Editor propio (Fase 3 — Edición basada en AST)  — v2.2.0
 # ---------------------------------------------------------------------------
@@ -1873,8 +2081,8 @@ def _resumen_ast(contenido: str, ruta: str) -> dict:
     Devuelve un dict con ``ok``, ``motor``, ``lenguaje`` y una proyección simple
     (funciones/clases/imports/variables/llamadas). Nunca lanza excepciones.
     """
-    lenguaje = _lenguaje_tree_sitter(ruta) or ""
-    if _es_extension_python(ruta):
+    lenguaje = _lenguaje_archivo(ruta, contenido) or ""
+    if _es_extension_python(ruta) or lenguaje == "python":
         return _resumen_ast_python(contenido)
     if tree_sitter is not None and _ts_lang is not None and lenguaje:
         try:
@@ -2096,12 +2304,21 @@ def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
         return False
 
     proveedor = proveedor or cargar_configuracion().get("provider") or PROVEEDOR_DEFECTO
+    lenguaje = resumen.get("lenguaje") or _lenguaje_archivo(ruta_posix,
+                                                            contenido) or "?"
+    num_lineas = contenido.count("\n") + 1
     prompt = (
-        f"Vas a modificar un archivo comprendiendo su estructura sintáctica (AST).\n\n"
+        f"Vas a modificar un archivo comprendiendo su estructura sintáctica "
+        f"(AST). Objetivo: precisión máxima y cambios mínimos.\n\n"
         f"Tarea: {tarea}\n"
-        f"Archivo: {ruta_posix}\n\n"
-        f"Resumen del AST:\n{_formatear_resumen_ast(resumen, ruta_posix)}\n\n"
-        f"Contenido actual:\n```\n{contenido}\n```\n\n"
+        f"Archivo: {ruta_posix}  (lenguaje: {lenguaje}, {num_lineas} líneas)\n\n"
+        f"Resumen del AST (símbolos disponibles y sus posiciones):\n"
+        f"{_formatear_resumen_ast(resumen, ruta_posix)}\n\n"
+        f"Contenido actual completo:\n```\n{contenido}\n```\n\n"
+        f"Reglas de edición:\n"
+        f"- Conserva el estilo existente (indentación, comillas, convenciones).\n"
+        f"- Modifica SOLO lo necesario para la tarea; no reorganices el resto.\n"
+        f"- Usa los símbolos del resumen del AST para anclar tus cambios.\n\n"
         f"Responde ÚNICAMENTE con una lista JSON de operaciones de edición, por ejemplo:\n"
         f'[{{"tipo": "renombrar", "nombre": "viejo", "nuevo": "nuevo"}}]\n'
         f'O, si prefieres devolver el código completo resultante:\n'
@@ -4684,6 +4901,92 @@ def _skill_obtener(skill_id: int) -> Optional[dict]:
     return skill
 
 
+# ─── Skills del editor propio: patrones de edición (v3.3.0) ────────────────
+_EDITOR_PATRONES = (
+    ("renombrar", re.compile(
+        r"\b(renombrar|rename|cambia(r| el nombre)( de| la)? (la )?(función|"
+        r"funcion|variable|clase|método|metodo))\b", re.IGNORECASE)),
+    ("añadir_import", re.compile(
+        r"\b(a[nñ]ad(i|ir)|importar|import|agregar)\s+(el\s+|la\s+)?"
+        r"(import|módulo|modulo|librería|libreria|paquete)\b", re.IGNORECASE)),
+    ("refactorizar_clase", re.compile(
+        r"\b(refactoriza(r)?|reestructura|rdivide|extraer\s+clase|"
+        r"reorganiza(r)?)\b.*\b(clase|class|módulo|modulo)\b", re.IGNORECASE)),
+    ("añadir_funcion", re.compile(
+        r"\b(a[nñ]ade?|a[nñ]adir|crear?|agrega(r)?)\s+(una?\s+)?"
+        r"(función|funcion|función nueva|nueva funci|nuevo m[ée]todo|"
+        r"m[ée]todo)\b", re.IGNORECASE)),
+    ("corregir_error", re.compile(
+        r"\b(arregla|r|corrige|fix|bug|error|fallo|excepci[oó]n)\b",
+        re.IGNORECASE)),
+)
+
+
+def _editor_clasificar_tarea(tarea: str) -> str:
+    """Clasifica una tarea de edición en un patrón conocido (v3.3.0).
+
+    Devuelve uno de: 'renombrar', 'añadir_import', 'refactorizar_clase',
+    'añadir_funcion', 'corregir_error' o 'general'.
+    """
+    texto = (tarea or "").strip()
+    if not texto:
+        return "general"
+    for patron, regex in _EDITOR_PATRONES:
+        if regex.search(texto):
+            return patron
+    return "general"
+
+
+def _skill_editor_guardar(tarea: str, archivo: str, patron: str,
+                          estrategia: str = "parche") -> Optional[int]:
+    """Guarda/actualiza un skill con el patrón de edición exitoso (v3.3.0).
+
+    Idempotente por nombre (`editor-<patrón>`): si ya existe se actualiza.
+    Nunca lanza excepciones (los errores de memoria solo avisan).
+    """
+    try:
+        return _skill_guardar(
+            nombre=f"editor-{patron}",
+            consulta=tarea or f"editar {archivo}",
+            pasos=[{
+                "descripcion": (f"Edición '{patron}' aplicada con éxito "
+                                f"sobre {archivo}"),
+                "accion": "editor_propio",
+                "estrategia": estrategia,
+            }],
+            contexto={"archivo": archivo, "patron": patron,
+                      "estrategia": estrategia},
+            descripcion=f"Patrón de edición del editor propio: {patron}")
+    except Exception as exc:                   # pragma: no cover
+        depurar(f"[skills-editor] No se pudo guardar el skill: {exc}")
+        return None
+
+
+def _skill_editor_estrategia(tarea: str, umbral: float = 0.6) -> Optional[str]:
+    """Busca un skill de edición previo y devuelve su estrategia (v3.3.0).
+
+    Permite que el editor propio aplique directamente la estrategia que ya
+    funcionó para tareas similares, sin pasar por el proveedor de IA.
+    Solo se aceptan skills de editor no archivados y con confiabilidad >= 0.6.
+    """
+    try:
+        skill = _skill_buscar(f"editor {(tarea or '').strip()}", umbral=umbral)
+    except Exception as exc:
+        depurar(f"[skills-editor] Búsqueda falló: {exc}")
+        return None
+    if not skill or not str(skill.get("nombre", "")).startswith("editor-"):
+        return None
+    if float(skill.get("confiabilidad") or 0) < 0.6:
+        return None
+    for paso in skill.get("pasos") or []:
+        estrategia = paso.get("estrategia")
+        if estrategia in ("parche", "sobrescribir", "ast"):
+            depurar(f"[skills-editor] Reutilizando estrategia "
+                    f"'{estrategia}' del skill #{skill.get('id')}.")
+            return estrategia
+    return None
+
+
 def _skill_listar(incluir_archivados: bool = False,
                   solo_confiables: bool = False) -> List[dict]:
     """Lista skills ordenados por confiabilidad descendente."""
@@ -5457,16 +5760,67 @@ def _lenguaje_tree_sitter(ruta: str) -> Optional[str]:
     """Adivina el nombre de gramática tree-sitter para ``ruta``."""
     extension = Path(ruta).suffix.lower().lstrip(".")
     mapa = {
-        "py": "python", "js": "javascript", "jsx": "javascript",
-        "mjs": "javascript", "ts": "typescript", "tsx": "tsx",
+        "py": "python", "pyi": "python", "js": "javascript", "jsx": "javascript",
+        "mjs": "javascript", "cjs": "javascript", "ts": "typescript",
+        "mts": "typescript", "cts": "typescript", "tsx": "tsx",
         "dart": "dart", "go": "go", "rs": "rust", "java": "java",
         "kt": "kotlin", "kts": "kotlin", "swift": "swift", "c": "c",
-        "h": "c", "cpp": "cpp", "cc": "cpp", "hpp": "cpp", "cs": "c_sharp",
-        "rb": "ruby", "php": "php", "sh": "bash", "bash": "bash",
+        "h": "c", "cpp": "cpp", "cc": "cpp", "cxx": "cpp", "hpp": "cpp",
+        "hh": "cpp", "hxx": "cpp", "cs": "c_sharp", "rb": "ruby",
+        "php": "php", "sh": "bash", "bash": "bash", "zsh": "bash",
         "json": "json", "yaml": "yaml", "yml": "yaml", "toml": "toml",
-        "html": "html", "css": "css", "md": "markdown",
+        "html": "html", "htm": "html", "css": "css", "scss": "css",
+        "md": "markdown", "scala": "scala", "lua": "lua", "sql": "sql",
+        "ex": "elixir", "exs": "elixir", "zig": "zig", "hs": "haskell",
+        "r": "r", "vue": "vue", "svelte": "svelte",
     }
     return mapa.get(extension)
+
+
+# ─── Detección de lenguaje por contenido (v3.3.0) ──────────────────────────
+_PATRONES_LENGUAJE_CONTENIDO = (
+    (re.compile(r"^#!.*\bpython\S*", re.MULTILINE), "python"),
+    (re.compile(r"^#!.*\b(bash|sh|zsh)\b", re.MULTILINE), "bash"),
+    (re.compile(r"^#!.*\bnode\b", re.MULTILINE), "javascript"),
+    (re.compile(r"^package\s+\w+", re.MULTILINE), "go"),
+    (re.compile(r"<\?php", re.IGNORECASE), "php"),
+    (re.compile(r"^\s*def\s+\w+\s*\(.*\)\s*:", re.MULTILINE), "python"),
+    (re.compile(r"\bfunc(?:tion)?\s+\w*\s*\(", re.MULTILINE), "javascript"),
+    (re.compile(r"^\s*(public|private)?\s*class\s+\w+", re.MULTILINE), "java"),
+    (re.compile(r"\bfn\s+\w+\s*\(", re.MULTILINE), "rust"),
+)
+
+
+def _detectar_lenguaje_contenido(contenido: str) -> Optional[str]:
+    """Intenta adivinar el lenguaje a partir del contenido del archivo.
+
+    Se usa como refuerzo cuando la extensión es ambigua o desconocida
+    (p. ej. scripts sin extensión, archivos generados, proyectos mixtos).
+    """
+    if not contenido:
+        return None
+    muestra = contenido[:4096]
+    for patron, lenguaje in _PATRONES_LENGUAJE_CONTENIDO:
+        if patron.search(muestra):
+            return lenguaje
+    return None
+
+
+def _lenguaje_archivo(ruta: str,
+                      contenido: Optional[str] = None) -> Optional[str]:
+    """Detecta el lenguaje de ``ruta`` combinando extensión y contenido.
+
+    Prioridad: extensión conocida → heurística de contenido → None.
+    Más robusto que la detección solo por extensión en proyectos mixtos.
+    """
+    por_extension = _lenguaje_tree_sitter(ruta)
+    if por_extension:
+        return por_extension
+    if contenido is None:
+        leido = _leer_archivo(ruta)
+        contenido = leido or ""
+    return _detectar_lenguaje_contenido(contenido)
+
 
 
 def _extraer_simbolos_ts(arbol, lenguaje: str) -> dict:
