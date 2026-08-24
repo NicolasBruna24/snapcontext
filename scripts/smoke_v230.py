@@ -70,6 +70,8 @@ pasos_par = [
 llamadas = []
 def falso_paso(paso, args, raiz):
     llamadas.append(paso["descripcion"])
+    if paso.get("accion") == "mcp":
+        sc._contexto_plan_variable("git_status", {"rama": "main"})
     return (True, "ok")
 with mock.patch.object(sc, "_ejecutar_paso_plan", side_effect=falso_paso), \
      mock.patch.object(sc, "_ejecutar_herramienta_mcp",
