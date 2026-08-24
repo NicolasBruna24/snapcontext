@@ -59,12 +59,18 @@ snapcontext interactive  # o snapcontext --web
 Auto-detección de proyecto (Flutter, Node/React, Python, Go, Rust…) que ajusta
 carpetas, extensiones y comandos de test por defecto.
 
-## 🛠️ Editor Integrado Propio (v2.1.0)
+## 🛠️ Editor Integrado Propio (v2.2.0)
 
-SnapContext incluye su propio editor integrado con soporte de parches unificados:
+SnapContext incluye su propio editor integrado con soporte de parches unificados
+y edición basada en AST (Árbol Sintáctico) para refactorizaciones precisas:
 - **`--editor propio`**: Aplica cambios directamente y crea copias de seguridad automáticas en `~/.snapcontext/backups/`.
-- **`--modo-edicion {auto,parche,sobrescribir}`**:
-  - `auto` (por defecto): Genera un parche unificado (`git apply` / `patch`) y hace fallback a sobrescritura si no es aplicable.
+- **`--modo-edicion {auto,parche,sobrescribir,ast}`**:
+  - `auto` (por defecto): Genera un parche unificado (`git apply` / `patch`), pero
+    para refactorizaciones estructurales intenta primero la edición **AST** y cae a
+    sobrescritura si nada es aplicable.
+  - `ast`: Edita comprendiendo la estructura sintáctica del archivo (Python con
+    `ast`, otros lenguajes con `tree-sitter` si está instalado). Soporta renombrar
+    símbolos, insertar imports y recibir el código completo resultante.
   - `parche`: Fuerza la aplicación de parches unificados para ediciones precisas.
   - `sobrescribir`: Sobrescribe el archivo completo.
 - **`--editor aider`** (por defecto): Mantiene el flujo de edición con Aider para máxima compatibilidad.
@@ -75,6 +81,9 @@ snapcontext "añadir endpoint de métricas" --editor propio
 
 # Forzar modo parche
 snapcontext "corregir tipado en login" --editor propio --modo-edicion parche
+
+# Refactorización estructural con AST
+snapcontext "renombrar la variable 'usuario' a 'cuenta'" --editor propio --modo-edicion ast
 ```
 
 ## 🧭 Modos y alias

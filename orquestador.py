@@ -20,7 +20,8 @@ import shlex
 import sys
 from typing import List, Optional, Tuple
 
-from agentes import AgenteContexto, AgenteEditor, AgenteEditorPropio, AgenteTester
+from agentes import (AgenteContexto, AgenteEditor, AgenteEditorAST,
+                     AgenteEditorPropio, AgenteTester)
 
 # Centinela diferenciado del None de "aborto": _planificar lo devuelve cuando
 # el pipeline termina de forma exitosa y temprana (p. ej. --vista-previa).
@@ -40,6 +41,7 @@ class Orquestador:
         self.agente_contexto = AgenteContexto()
         self.agente_editor = AgenteEditor()
         self.agente_editor_propio = AgenteEditorPropio()
+        self.agente_editor_ast = AgenteEditorAST()
         self.agente_tester = AgenteTester()
         self.evento_callback = evento_callback
 

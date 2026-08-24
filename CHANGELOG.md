@@ -6,6 +6,47 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [2.2.0] - 2026-08-23 · 🌳 Editor Propio Fase 3: Edición basada en AST
+
+### ✨ Nuevas funcionalidades
+
+#### 🎯 Refactorizaciones Estructurales con Árbol Sintáctico (AST)
+- **Nuevo modo `--modo-edicion ast`** (además de `sobrescribir`, `parche` y `auto`):
+  - `ast`: edita comprendiendo la estructura sintáctica del archivo y cae a
+    sobrescritura si no se puede aplicar.
+- **Editor con AST (`_editor_ast`)**:
+  - Lee el contenido, genera el AST (Python con `ast`; otros lenguajes con
+    `tree-sitter` si está instalado) y lo pasa al proveedor junto con la tarea.
+  - El proveedor devuelve un *parche AST* (lista de operaciones de modificación
+    del árbol) o el código completo resultante.
+  - Aplica los cambios y convierte de vuelta a código fuente (con backup).
+- **Operaciones de refactorización**:
+  - Renombrar símbolos (variables, funciones, clases, parámetros) en todo el
+    archivo con `_renombrar_identificador` (por token, sin tocar cadenas).
+  - Inserción de imports con `_insertar_import`.
+  - Reemplazo completo vía `{"tipo": "completo", "codigo": "..."}` (extraer
+    función, mover código, añadir funciones, etc.).
+- **Soporte multi-lenguaje**: `_resumen_ast` usa `tree-sitter` (si está
+  instalado) para archivos no-Python y hace fallback a `ast`/parche/sobrescritura.
+
+#### 🧩 Heurística en modo `auto`
+- En modo `auto`, el agente elige estrategia según el lenguaje y la tarea:
+  - Tarea estructural (renombrar/refactorizar/extraer/mover/insertar función)
+    en archivo con AST → `ast` → `parche` → `sobrescribir`.
+  - Restaurantos → `parche` → `sobrescribir`.
+
+#### 🤖 Compilación
+- Nueva clase `AgenteEditorAST` en `agentes.py` e integrada en el `Orquestador`.
+- `AgenteEditorPropio` ahora soporta el modo `ast` con fallback.
+- Flag `--modo-edicion` ampliado a `{sobrescribir,parche,auto,ast}`.
+
+### 🧪 Tests
+- Nuevo `tests/test_editor_ast_220.py` (16 tests): resumen AST, renombrado,
+  interpretación de operaciones, `_editor_ast` (renombrar/completo/fallbacks),
+  clase `AgenteEditorAST`, cadenas de estrategias, heurística `auto` y flags.
+- Suite completa pasando con 302+ pruebas unitarias.
+
+---
 ## [2.1.0] - 2026-08-23 · 🧩 Editor Propio Fase 2: Diffs y Parches Unificados
 
 ### ✨ Nuevas funcionalidades

@@ -56,7 +56,7 @@ import unicodedata
 import warnings
 import webbrowser
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 from urllib.parse import urlparse
 
 # `google-generativeai` es la dependencia del proveedor por defecto (Gemini).
@@ -111,7 +111,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
@@ -1603,6 +1603,329 @@ def _aplicar_parche(parche: str, directorio: str = ".") -> bool:
             os.remove(temp_path)
         except OSError:
             pass
+# ---------------------------------------------------------------------------
+# Editor propio (Fase 3 — Edición basada en AST)  — v2.2.0
+# ---------------------------------------------------------------------------
+def _es_extension_python(ruta: str) -> bool:
+    """True si ``ruta`` parece un archivo de Python editable con ``ast``."""
+    return str(ruta).lower().endswith((".py", ".pyx", ".pxd"))
+
+
+def _ast_disponible(ruta: str) -> bool:
+    """True si se puede generar un AST para ``ruta`` (Python o tree-sitter)."""
+    if not ruta or not str(ruta).strip():
+        return False
+    if _es_extension_python(ruta):
+        return True
+    lenguaje = _lenguaje_tree_sitter(str(ruta))
+    return bool(tree_sitter is not None and _ts_lang is not None and lenguaje)
+
+
+def _resumen_ast_python(contenido: str) -> dict:
+    """Resumen del AST de un archivo Python (funciones, clases, variables, imports)."""
+    resumen: dict = {
+        "ok": False, "motor": "ast", "lenguaje": "python",
+        "funciones": [], "clases": [], "variables": [], "imports": [],
+        "error": None,
+    }
+    try:
+        arbol = ast.parse(contenido)
+    except SyntaxError as exc:
+        resumen["error"] = f"sintaxis inválida: {exc}"
+        return resumen
+    resumen["ok"] = True
+    variables: List[str] = []
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            resumen["funciones"].append({
+                "nombre": nodo.name,
+                "linea": nodo.lineno,
+                "argumentos": [a.arg for a in nodo.args.args],
+                "es_metodo": bool(nodo.col_offset > 0),
+            })
+        elif isinstance(nodo, ast.ClassDef):
+            metodos = [n.name for n in nodo.body
+                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+            resumen["clases"].append(
+                {"nombre": nodo.name, "linea": nodo.lineno, "metodos": metodos})
+        elif isinstance(nodo, ast.Name) and isinstance(nodo.ctx, ast.Store):
+            if nodo.id not in variables:
+                variables.append(nodo.id)
+                resumen["variables"].append({"nombre": nodo.id, "linea": nodo.lineno})
+        elif isinstance(nodo, ast.Import):
+            for alias in nodo.names:
+                resumen["imports"].append({"tipo": "import", "nombre": alias.name,
+                                           "linea": nodo.lineno})
+        elif isinstance(nodo, ast.ImportFrom):
+            modulo = nodo.module or ""
+            for alias in nodo.names:
+                resumen["imports"].append(
+                    {"tipo": "from", "modulo": modulo, "nombre": alias.name,
+                     "linea": nodo.lineno})
+    return resumen
+
+
+def _resumen_ast(contenido: str, ruta: str) -> dict:
+    """Genera un resumen del AST de ``ruta`` para pasárselo al proveedor de IA.
+
+    - Python: usa el módulo ``ast`` de la stdlib.
+    - Otros lenguajes: usa ``tree_sitter`` si está instalado.
+
+    Devuelve un dict con ``ok``, ``motor``, ``lenguaje`` y una proyección simple
+    (funciones/clases/imports/variables/llamadas). Nunca lanza excepciones.
+    """
+    lenguaje = _lenguaje_tree_sitter(ruta) or ""
+    if _es_extension_python(ruta):
+        return _resumen_ast_python(contenido)
+    if tree_sitter is not None and _ts_lang is not None and lenguaje:
+        try:
+            idioma = _ts_lang.get_language(lenguaje)
+            parser = tree_sitter.Parser()
+            try:
+                parser.set_language(idioma)          # API antigua (<0.22)
+            except (AttributeError, TypeError):
+                parser.language = idioma             # API nueva (>=0.22)
+            arbol = parser.parse(contenido.encode("utf-8"))
+            simbolos = _extraer_simbolos_ts(arbol, lenguaje)
+            return {
+                "ok": True, "motor": "tree-sitter", "lenguaje": lenguaje,
+                "funciones": simbolos.get("funciones", []),
+                "clases": simbolos.get("clases", []),
+                "imports": simbolos.get("imports", []),
+                "llamadas": simbolos.get("llamadas", []),
+                "variables": [], "error": None,
+            }
+        except Exception as exc:                     # gramática ausente, API distinta…
+            return {"ok": False, "motor": "tree-sitter", "lenguaje": lenguaje,
+                    "error": f"tree-sitter falló para {lenguaje}: {exc}"}
+    return {"ok": False, "motor": None, "lenguaje": lenguaje,
+            "error": "sin analizador AST disponible para este lenguaje "
+                     "(usa .py o instala tree-sitter)"}
+
+def _formatear_resumen_ast(resumen: dict, ruta: str) -> str:
+    """Devuelve una representación textual compacta del resumen para el prompt."""
+    lineas = [
+        f"Lenguaje: {resumen.get('lenguaje') or '?'}  "
+        f"(motor: {resumen.get('motor') or 'ninguno'})",
+        "",
+    ]
+    for clave, titulo in (("imports", "Imports"), ("clases", "Clases"),
+                          ("funciones", "Funciones"), ("variables", "Variables"),
+                          ("llamadas", "Llamadas")):
+        items = resumen.get(clave) or []
+        if not items:
+            continue
+        lineas.append(f"  {titulo}:")
+        for it in items:
+            if isinstance(it, dict):
+                nombre = it.get("nombre") or it.get("atributo") or ""
+                linea_n = it.get("linea")
+                extraa = it.get("argumentos") or it.get("metodos")
+                sufijo = f" (línea {linea_n})" if linea_n else ""
+                if extraa:
+                    sufijo += f" {extraa}"
+                lineas.append(f"    - {nombre}{sufijo}")
+            else:
+                lineas.append(f"    - {it}")
+        lineas.append("")
+    return "\n".join(lineas)
+
+
+def _limpiar_fenced_codigo(texto: str) -> str:
+    """Quita los delimitadores ``` ... ``` (y la etiqueta de lenguaje) de un bloque."""
+    if not texto:
+        return ""
+    texto = texto.strip()
+    if not texto.startswith("```"):
+        return texto
+    lineas = texto.splitlines()
+    if lineas and lineas[0].strip().startswith("```"):
+        lineas = lineas[1:]
+    if lineas and lineas[-1].strip().startswith("```"):
+        lineas = lineas[:-1]
+    linea0 = lineas[0].strip() if lineas else ""
+    if linea0 and re.match(r"^[a-zA-Z][\w+-]*$", linea0) and len(linea0) <= 16:
+        lineas = lineas[1:]
+    return "\n".join(lineas).strip()
+
+
+def _interpretar_operaciones_ast(respuesta: str) -> Optional[List[dict]]:
+    """Interpreta la respuesta del proveedor como operaciones AST.
+
+    Prefiere una lista JSON de operaciones; si no es JSON válido, la trata como
+    el código completo resultante (envuelto en una operación ``completo``).
+    Devuelve ``None`` si no se pudo interpretar nada.
+    """
+    limpio = _limpiar_fenced_codigo(respuesta or "")
+    if not limpio:
+        return None
+    inicio = limpio.find("[")
+    fin = limpio.rfind("]")
+    if inicio != -1 and fin > inicio:
+        try:
+            dato = json.loads(limpio[inicio:fin + 1])
+            if isinstance(dato, list) and dato:
+                return dato
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return [{"tipo": "completo", "codigo": limpio}]
+
+
+def _offset_caracteres(contenido: str, fila: int, col: int) -> Optional[int]:
+    """Convierte (fila 1-based, col 0-based) a índice de caracteres del código."""
+    if fila < 1 or col < 0:
+        return None
+    pos = 0
+    fila_actual = 1
+    for linea in contenido.splitlines(keepends=True):
+        if fila_actual == fila:
+            return pos + col
+        pos += len(linea)
+        fila_actual += 1
+    return None
+
+def _renombrar_identificador(contenido: str, viejo: str, nuevo: str) -> str:
+    """Renombra un identificador (variable, función, clase, parámetro) en ``contenido``.
+
+    Usa ``tokenize`` para no tocar cadenas ni comentarios y preservar el formateo.
+    """
+    if not viejo or not nuevo or viejo == nuevo:
+        return contenido
+    try:
+        import io as _io
+        from tokenize import NAME, generate_tokens
+
+        tokens = list(generate_tokens(_io.StringIO(contenido).readline))
+    except Exception:
+        return contenido
+    cambios: List[tuple] = []
+    for tok in tokens:
+        if tok.type == NAME and tok.string == viejo:
+            inicio = _offset_caracteres(contenido, tok.start[0], tok.start[1])
+            fin = _offset_caracteres(contenido, tok.end[0], tok.end[1])
+            if inicio is not None and fin is not None and fin > inicio:
+                cambios.append((inicio, fin, nuevo))
+    for s, e, n in sorted(cambios, key=lambda t: t[0], reverse=True):
+        contenido = contenido[:s] + n + contenido[e:]
+    return contenido
+
+
+def _insertar_import(contenido: str, importacion: str) -> str:
+    """Inserta ``importacion`` tras los imports de la cabecera si aún no existe."""
+    imp = (importacion or "").strip()
+    if not imp:
+        return contenido
+    lineas = contenido.split("\n")
+    if any(l.strip() == imp for l in lineas):
+        return contenido
+    idx = 0
+    while idx < len(lineas):
+        e = lineas[idx].lstrip()
+        if e.startswith(("import ", "from ")) or not e.strip():
+            idx += 1
+        else:
+            break
+    lineas.insert(idx, imp)
+    return "\n".join(lineas)
+
+
+def _aplicar_operaciones_ast(contenido: str, operaciones: List[dict]) -> Optional[str]:
+    """Aplica una lista de operaciones AST al código.
+
+    Soporta al menos:
+      - ``{"tipo": "completo", "codigo": "..."}`` → reemplaza todo el archivo.
+      - ``{"tipo": "renombrar", "nombre": "x", "nuevo": "y"}`` → renombra símbolo.
+      - ``{"tipo": "insertar_import", "codigo": "import os"}`` → añade import.
+
+    Devuelve el código resultante o ``None`` si no hubo cambio aplicable.
+    """
+    if not operaciones:
+        return None
+    for op in operaciones:
+        if op.get("tipo") == "completo" and op.get("codigo"):
+            return _limpiar_fenced_codigo(op["codigo"])
+
+    resultado = contenido
+    for op in operaciones:
+        tipo = op.get("tipo")
+        if tipo == "renombrar":
+            viejo = op.get("nombre") or op.get("antiguo")
+            nuevo = op.get("nuevo")
+            if viejo and nuevo:
+                resultado = _renombrar_identificador(resultado, viejo, nuevo)
+        elif tipo == "insertar_import":
+            resultado = _insertar_import(
+                resultado, op.get("importacion") or op.get("codigo") or "")
+    return resultado if resultado != contenido else None
+
+def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
+                proveedor: Optional[str] = None,
+                modelo: Optional[str] = None) -> bool:
+    """Editor propio (Fase 3 — Edición basada en AST).
+
+    1) Lee el contenido del archivo.
+    2) Genera el AST (Python con ``ast``; otros lenguajes con ``tree-sitter``).
+    3) Pasa un resumen del AST + la tarea al proveedor de IA.
+    4) El proveedor devuelve un *parche AST* (instrucciones de modificación del
+       árbol) o el código nuevo completo.
+    5) Aplica los cambios y guarda el archivo modificado (con copia de seguridad).
+
+    Devuelve ``True`` si tuvo éxito; ``False`` si no se pudo editar (para que el
+    agente haga fallback a parche o sobrescritura).
+    """
+    if not archivo or not str(archivo).strip():
+        error("La ruta del archivo no puede estar vacía.")
+        return False
+    ruta_posix = _normalizar_relativa(str(archivo).replace("\\", "/").strip())
+    if not ruta_posix:
+        return False
+    raiz = Path(directorio or ".").resolve()
+    destino = (raiz / ruta_posix).resolve()
+    if not destino.is_file():
+        aviso(f"[EditorAST] No existe el archivo: {ruta_posix}")
+        return False
+    contenido = _leer_archivo(destino)
+    if contenido is None:
+        return False
+    if not _ast_disponible(ruta_posix):
+        aviso(f"[EditorAST] Sin analizador AST para '{ruta_posix}'; se delega el cambio.")
+        return False
+    resumen = _resumen_ast(contenido, ruta_posix)
+    if not resumen.get("ok"):
+        depurar(f"[EditorAST] No se pudo generar AST de '{ruta_posix}': "
+                f"{resumen.get('error')}")
+        return False
+
+    proveedor = proveedor or cargar_configuracion().get("provider") or PROVEEDOR_DEFECTO
+    prompt = (
+        f"Vas a modificar un archivo comprendiendo su estructura sintáctica (AST).\n\n"
+        f"Tarea: {tarea}\n"
+        f"Archivo: {ruta_posix}\n\n"
+        f"Resumen del AST:\n{_formatear_resumen_ast(resumen, ruta_posix)}\n\n"
+        f"Contenido actual:\n```\n{contenido}\n```\n\n"
+        f"Responde ÚNICAMENTE con una lista JSON de operaciones de edición, por ejemplo:\n"
+        f'[{{"tipo": "renombrar", "nombre": "viejo", "nuevo": "nuevo"}}]\n'
+        f'O, si prefieres devolver el código completo resultante:\n'
+        f'[{{"tipo": "completo", "codigo": "def fn(): ...\\n..."}}]\n'
+        f"Sin explicaciones ni markdown fuera del JSON."
+    )
+    try:
+        respuesta = _enviar_al_proveedor(
+            proveedor, modelo, [{"role": "user", "content": prompt}])
+    except Exception as exc:
+        error(f"[EditorAST] Error generando cambios para {ruta_posix}: {exc}")
+        return False
+
+    opos = _interpretar_operaciones_ast(respuesta)
+    if not opos:
+        depurar(f"[EditorAST] El proveedor no devolvió operaciones AST para '{ruta_posix}'.")
+        return False
+    nuevo_contenido = _aplicar_operaciones_ast(contenido, opos)
+    if not nuevo_contenido or nuevo_contenido == contenido:
+        aviso(f"[EditorAST] No hubo cambio neto aplicable en '{ruta_posix}'.")
+        return False
+    exito(f"[EditorAST] Edición AST aplicada sobre {ruta_posix} (método AST).")
+    return _editor_sobrescribir(ruta_posix, nuevo_contenido, directorio=directorio)
 
 
 def _extraer_error(resultado: "subprocess.CompletedProcess") -> str:
@@ -5477,10 +5800,12 @@ def crear_parser() -> argparse.ArgumentParser:
              "SnapContext con soporte de parches unificados y backups automáticos).",
     )
     parser.add_argument(
-        "--modo-edicion", choices=["sobrescribir", "parche", "auto"], default="auto",
+        "--modo-edicion",
+        choices=["sobrescribir", "parche", "auto", "ast"], default="auto",
         help="Estrategia del editor propio: 'auto' (intenta aplicar parche unificado, "
-             "fallback a sobrescritura), 'parche' (solo parches unificados) o "
-             "'sobrescribir' (sobrescritura completa del archivo).",
+             "fallback a sobrescritura), 'parche' (solo parches unificados), "
+             "'sobrescribir' (sobrescritura completa del archivo) o 'ast' "
+             "(edición basada en el árbol sintáctico con fallback a sobrescritura).",
     )
     # Ayuda agrupada por categorías (-h/--help) — v1.7.
     parser.add_argument(

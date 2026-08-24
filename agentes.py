@@ -21,6 +21,22 @@ logs de depuración visibles con ``--depurar`` (marcas ``[Agente…]``).
 import subprocess
 from typing import List, Optional, Union
 
+def _tarea_estructura(tarea: str) -> bool:
+    """Heurística simple para `auto`: ¿la tarea parece una refactorización estructural?
+
+    Si es así, merece la pena intentar primero la edición basada en AST.
+    Se normalizan acentos para tolerar variaciones ("renombra"/"renombrar", etc.).
+    """
+    if not tarea:
+        return False
+    import unicodedata as _u
+
+    t = _u.normalize("NFD", tarea.lower())
+    t = "".join(c for c in t if not _u.combining(c))
+    claves = ("refactor", "renombra", "renombrar", "extra", "extraer",
+              "mueve", "mover", "inserta", "insertar", "nueva funcion",
+              "crear funcion", "funcion", "extraccion")
+    return any(k in t for k in claves)
 
 class AgenteContexto:
     """Agente de Contexto: selecciona los archivos relevantes para la consulta.
@@ -175,6 +191,91 @@ class AgenteEditorPropio:
         sc.depurar(f"[AgenteEditorPropio] Aplicando parche en '{directorio}'")
         return sc._aplicar_parche(parche, directorio=directorio)
 
+    def _cadena_modos(self, archivo: str, mensaje: str,
+                      modo_edicion: str) -> List[str]:
+        """Devuelve la cadena de estrategias de edición a intentar para un archivo.
+
+        - 'sobrescribir' → solo sobrescritura.
+        - 'parche'       → solo parche unificado (sin fallback).
+        - 'ast'          → AST y, si falla, sobrescritura.
+        - 'auto'         → AST (si el lenguaje lo permite y la tarea es estructural),
+                           luego parche y, por último, sobrescritura.
+        """
+        import snapcontext as sc
+
+        if modo_edicion == "sobrescribir":
+            return ["sobrescribir"]
+        if modo_edicion == "parche":
+            return ["parche"]
+        if modo_edicion == "ast":
+            return ["ast", "sobrescribir"]
+        # auto: heurística simple según lenguaje y tarea
+        if sc._ast_disponible(archivo) and _tarea_estructura(mensaje):
+            return ["ast", "parche", "sobrescribir"]
+        return ["parche", "sobrescribir"]
+
+    def editar_ast(self, archivo: str, tarea: str,
+                   directorio: str = ".", modelo: Optional[str] = None) -> bool:
+        """Edita ``archivo`` con base en su AST usando el proveedor de IA."""
+        import snapcontext as sc
+
+        pref = sc.cargar_configuracion()
+        proveedor = pref.get("provider") or sc.PROVEEDOR_DEFECTO
+        sc.depurar(f"[AgenteEditorPropio] Editando por AST '{archivo}' en '{directorio}'")
+        return sc._editor_ast(archivo, tarea, directorio=directorio,
+                              proveedor=proveedor, modelo=modelo)
+
+    def _aplicar_modo_parche(self, archivo: str, mensaje: str,
+                             contenido_actual: str, modelo: Optional[str],
+                             directorio: str) -> bool:
+        """Intenta editar `archivo` pidiendo un parche unificado al proveedor."""
+        import snapcontext as sc
+
+        pref = sc.cargar_configuracion()
+        proveedor = pref.get("provider") or sc.PROVEEDOR_DEFECTO
+        prompt = (
+            f"Genera un parche unificado (unified diff) que modifique el archivo para cumplir con la tarea. "
+            f"El parche debe ser aplicable con 'patch -p1' o 'git apply' (encabezados --- a/{archivo} y +++ b/{archivo}).\n\n"
+            f"Tarea: {mensaje}\n"
+            f"Archivo: {archivo}\n\n"
+            f"Contenido actual:\n```\n{contenido_actual}\n```\n\n"
+            f"Devuelve ÚNICAMENTE el diff unificado, sin explicaciones ni rodeos."
+        )
+        respuesta = sc._enviar_al_proveedor(
+            proveedor, modelo, [{"role": "user", "content": prompt}])
+        diff_limpio = respuesta
+        if "--- " in diff_limpio and "+++ " in diff_limpio:
+            idx_inicio = diff_limpio.find("--- ")
+            diff_limpio = diff_limpio[idx_inicio:]
+            if "```" in diff_limpio:
+                diff_limpio = diff_limpio[:diff_limpio.find("```")]
+        if "--- " in diff_limpio and "+++ " in diff_limpio and "@@" in diff_limpio:
+            return self.aplicar_parche(diff_limpio, directorio)
+        return False
+
+    def _aplicar_modo_sobrescribir(self, archivo: str, mensaje: str,
+                                   contenido_actual: str, modelo: Optional[str],
+                                   directorio: str) -> bool:
+        """Sobrescribe `archivo` con el código completo que devuelve el proveedor."""
+        import snapcontext as sc
+
+        pref = sc.cargar_configuracion()
+        proveedor = pref.get("provider") or sc.PROVEEDOR_DEFECTO
+        prompt = (
+            f"Modifica el siguiente archivo para cumplir con la tarea.\n\n"
+            f"Tarea: {mensaje}\n"
+            f"Archivo: {archivo}\n\n"
+            f"Contenido actual:\n```\n{contenido_actual}\n```\n\n"
+            f"Devuelve ÚNICAMENTE el código completo resultante, sin explicaciones ni markdown."
+        )
+        nuevo_contenido = sc._enviar_al_proveedor(
+            proveedor, modelo, [{"role": "user", "content": prompt}])
+        if nuevo_contenido.startswith("```"):
+            lineas = nuevo_contenido.splitlines()
+            if len(lineas) >= 2 and lineas[-1].startswith("```"):
+                nuevo_contenido = "\n".join(lineas[1:-1])
+        return self.sobrescribir(archivo, nuevo_contenido, directorio)
+
     def ejecutar(
         self,
         archivos: List[str],
@@ -187,14 +288,13 @@ class AgenteEditorPropio:
 
         - modo_edicion == 'parche': intenta aplicar parche unificado (falla si no puede).
         - modo_edicion == 'sobrescribir': aplica directamente sobrescritura de archivo.
-        - modo_edicion == 'auto': intenta primero parche unificado; si falla o no es diff,
-          hace fallback a sobrescritura.
+        - modo_edicion == 'ast': edita con base en el AST y cae a sobrescritura si falla.
+        - modo_edicion == 'auto': decide por heurística (AST para refactorizaciones,
+          parche, y fallback a sobrescritura).
         """
         import snapcontext as sc
         from pathlib import Path
 
-        pref = sc.cargar_configuracion()
-        proveedor = pref.get("provider") or sc.PROVEEDOR_DEFECTO
         raiz = Path(directorio).resolve()
         todo_ok = True
 
@@ -203,75 +303,77 @@ class AgenteEditorPropio:
             contenido_actual = ""
             if camino.is_file():
                 try:
-                    contenido_actual = camino.read_text(encoding="utf-8", errors="replace")
+                    contenido_actual = camino.read_text(encoding="utf-8",
+                                                        errors="replace")
                 except Exception:
                     pass
 
-            if modo_edicion in ("parche", "auto"):
-                prompt = (
-                    f"Genera un parche unificado (unified diff) que modifique el archivo para cumplir con la tarea. "
-                    f"El parche debe ser aplicable con 'patch -p1' o 'git apply' (encabezados --- a/{arch} y +++ b/{arch}).\n\n"
-                    f"Tarea: {mensaje}\n"
-                    f"Archivo: {arch}\n\n"
-                    f"Contenido actual:\n```\n{contenido_actual}\n```\n\n"
-                    f"Devuelve ÚNICAMENTE el diff unificado, sin explicaciones ni rodeos."
-                )
+            cadena = self._cadena_modos(arch, mensaje, modo_edicion)
+            conseguido = False
+            for estrategia in cadena:
                 try:
-                    respuesta = sc._enviar_al_proveedor(
-                        proveedor, modelo,
-                        [{"role": "user", "content": prompt}]
-                    )
-                    # Limpiar delimitadores markdown si vinieron
-                    diff_limpio = respuesta
-                    if "--- " in diff_limpio and "+++ " in diff_limpio:
-                        # Extraer solo desde ---
-                        idx_inicio = diff_limpio.find("--- ")
-                        diff_limpio = diff_limpio[idx_inicio:]
-                        if "```" in diff_limpio:
-                            diff_limpio = diff_limpio[:diff_limpio.find("```")]
-
-                    # Si parece un diff unificado válido, intentar aplicarlo
-                    if ("--- " in diff_limpio and "+++ " in diff_limpio and "@@" in diff_limpio):
-                        if self.aplicar_parche(diff_limpio, str(raiz)):
-                            continue
-                        sc.aviso(f"[AgenteEditorPropio] Parche para '{arch}' falló al aplicarse.")
-                        if modo_edicion == "parche":
-                            todo_ok = False
-                            continue
+                    if estrategia == "ast":
+                        conseguido = self.editar_ast(arch, mensaje,
+                                                     str(raiz), modelo)
+                    elif estrategia == "parche":
+                        conseguido = self._aplicar_modo_parche(
+                            arch, mensaje, contenido_actual, modelo, str(raiz))
+                    elif estrategia == "sobrescribir":
+                        conseguido = self._aplicar_modo_sobrescribir(
+                            arch, mensaje, contenido_actual, modelo, str(raiz))
+                    else:
+                        conseguido = False
                 except Exception as exc:
-                    sc.depurar(f"[AgenteEditorPropio] Error pidiendo parche para '{arch}': {exc}")
-                    if modo_edicion == "parche":
-                        sc.error(f"Error generando parche para {arch}: {exc}")
-                        todo_ok = False
-                        continue
-
-            # Fallback o modo sobrescribir
-            sc.depurar(f"[AgenteEditorPropio] Aplicando edición por sobrescritura para '{arch}'...")
-            prompt_sobrescribir = (
-                f"Modifica el siguiente archivo para cumplir con la tarea.\n\n"
-                f"Tarea: {mensaje}\n"
-                f"Archivo: {arch}\n\n"
-                f"Contenido actual:\n```\n{contenido_actual}\n```\n\n"
-                f"Devuelve ÚNICAMENTE el código completo resultante, sin explicaciones ni markdown."
-            )
-            try:
-                nuevo_contenido = sc._enviar_al_proveedor(
-                    proveedor, modelo,
-                    [{"role": "user", "content": prompt_sobrescribir}]
-                )
-                if nuevo_contenido.startswith("```"):
-                    lineas = nuevo_contenido.splitlines()
-                    if len(lineas) >= 2 and lineas[-1].startswith("```"):
-                        nuevo_contenido = "\n".join(lineas[1:-1])
-                if not self.sobrescribir(arch, nuevo_contenido, str(raiz)):
-                    todo_ok = False
-            except Exception as exc:
-                sc.error(f"Error generando cambios por sobrescritura para {arch}: {exc}")
+                    sc.depurar(
+                        f"[AgenteEditorPropio] {estrategia} falló para '{arch}': {exc}")
+                    conseguido = False
+                if conseguido:
+                    break
+            if not conseguido:
+                sc.error(f"[AgenteEditorPropio] No se pudo editar '{arch}'.")
                 todo_ok = False
 
         return todo_ok
 
 
+class AgenteEditorAST:
+    """Agente Editor AST (Fase 3): ediciones precisas basadas en árbol sintáctico.
+
+    Trabaja directamente con el AST del archivo (Python con ``ast``; otros
+    lenguajes con ``tree-sitter`` si está instalado) pidiendo al proveedor
+    operaciones de modificación del árbol o el código completo resultante.
+    """
+
+    def editar(
+        self,
+        archivos: List[str],
+        mensaje: str,
+        directorio: str = ".",
+        modelo: Optional[str] = None,
+    ) -> bool:
+        """Aplica a cada archivo una edición guiada por AST. Devuelve bool."""
+        todo = True
+        for archivo in archivos:
+            if not self.editar_archivo(archivo, mensaje,
+                                       directorio=directorio, modelo=modelo):
+                todo = False
+        return todo
+
+    def editar_archivo(
+        self,
+        archivo: str,
+        tarea: str,
+        directorio: str = ".",
+        modelo: Optional[str] = None,
+    ) -> bool:
+        """Edita un único archivo con AST. Devuelve ``True`` si tuvo éxito."""
+        import snapcontext as sc
+
+        pref = sc.cargar_configuracion()
+        proveedor = pref.get("provider") or sc.PROVEEDOR_DEFECTO
+        sc.depurar(f"[AgenteEditorAST] AST sobre '{archivo}' en '{directorio}'")
+        return sc._editor_ast(archivo, tarea, directorio=directorio,
+                              proveedor=proveedor, modelo=modelo)
 
 
 class AgenteTester:
