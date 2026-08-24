@@ -111,7 +111,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
@@ -2577,13 +2577,16 @@ def _leer_archivo(ruta: Union[str, Path]) -> Optional[str]:
 
 
 def _ejecutar_comando(comando: str, directorio: str = ".",
-                      timeout: int = 120) -> tuple:
+                      timeout: int = 120, capture_output: bool = True) -> tuple:
     """Ejecuta ``comando`` (str de shell) en ``directorio``.
 
     Devuelve ``(codigo_retorno, stdout, stderr)``. Usa ``shell=True`` en todas
     las plataformas (cmd.exe en Windows, sh en Linux/macOS). Errores comunes
     (timeout, directorio inválido) devuelven ``(-1, "", mensaje_de_error)``
     sin lanzar excepciones.
+
+    Con ``capture_output=False`` la salida se muestra en tiempo real en la
+    consola (no se captura), y ``stdout``/``stderr`` devueltos serán vacíos.
     """
     raiz = Path(directorio).expanduser()
     if not raiz.is_dir():
@@ -2593,17 +2596,85 @@ def _ejecutar_comando(comando: str, directorio: str = ".",
             comando,
             cwd=str(raiz),
             shell=True,
-            capture_output=True,
-            text=True,
-            errors="replace",
+            capture_output=capture_output,
+            text=bool(capture_output),
+            errors="replace" if capture_output else None,
             timeout=timeout,
         )
+        if not capture_output:
+            return (proc.returncode, "", "")
         return (proc.returncode, proc.stdout or "", proc.stderr or "")
     except subprocess.TimeoutExpired:
         return (-1, "", f"El comando tardó demasiado (timeout={timeout}s)")
     except OSError as exc:
         return (-1, "", f"Error ejecutando '{comando}': {exc}")
 
+# --- Procesos en segundo plano para execute_command (v2.3.0) -----------------
+_PROCESOS_FONDO: dict = {}   # pid → estado (para ejecución en background)
+
+
+def _lanzar_proceso_fondo(comando: str, directorio: str = ".",
+                          capture_output: bool = True) -> dict:
+    """Lanza ``comando`` en segundo plano (Popen). Devuelve un registro con el PID.
+
+    El proceso queda registrado en ``_PROCESOS_FONDO`` para poder consultarlo
+    después con :func:`_estado_proceso_fondo`. Nunca lanza excepciones.
+    """
+    raiz = Path(directorio).expanduser()
+    if not raiz.is_dir():
+        return {"ok": False, "error": f"El directorio no existe: {raiz}"}
+    try:
+        if capture_output:
+            proc = subprocess.Popen(
+                comando, cwd=str(raiz), shell=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, errors="replace")
+        else:
+            proc = subprocess.Popen(comando, cwd=str(raiz), shell=True)
+        registro = {"ok": True, "pid": proc.pid,
+                    "proceso": proc, "estado": "ejecutando",
+                    "comando": comando, "codigo_retorno": None,
+                    "stdout": "", "stderr": ""}
+        _PROCESOS_FONDO[proc.pid] = registro
+        return {"ok": True, "pid": proc.pid, "comando": comando}
+    except OSError as exc:
+        return {"ok": False, "error": f"Error lanzando '{comando}': {exc}"}
+
+
+def _estado_proceso_fondo(pid: int) -> dict:
+    """Consulta el estado de un proceso lanzado en segundo plano.
+
+    Si ya terminó, captura su stdout/stderr (si se pidió captura) y lo marca
+    como finalizado. Devuelve un dict con ``estado``, ``pid`` y (si terminó)
+    ``codigo_retorno``, ``stdout`` y ``stderr``.
+    """
+    registro = _PROCESOS_FONDO.get(pid)
+    if registro is None:
+        return {"ok": False, "estado": "desconocido", "pid": pid,
+                "error": f"no hay proceso en segundo plano con pid {pid}"}
+    proc = registro.get("proceso")
+    if proc is None:
+        return {"ok": True, "estado": registro.get("estado", "desconocido"),
+                "pid": pid}
+    if proc.poll() is None:
+        registro["estado"] = "ejecutando"
+        return {"ok": True, "estado": "ejecutando", "pid": pid}
+    # Ya terminó: capturar salida si se pidió.
+    if proc.stdout is not None:
+        try:
+            registro["stdout"] = (proc.stdout.read() or "") if proc.stdout else ""
+        except Exception:
+            registro["stdout"] = ""
+    if proc.stderr is not None:
+        try:
+            registro["stderr"] = (proc.stderr.read() or "") if proc.stderr else ""
+        except Exception:
+            registro["stderr"] = ""
+    registro["codigo_retorno"] = proc.returncode
+    registro["estado"] = "finalizado"
+    return {"ok": True, "estado": "finalizado", "pid": pid,
+            "codigo_retorno": proc.returncode,
+            "stdout": registro["stdout"], "stderr": registro["stderr"]}
 
 # ---------------------------------------------------------------------------
 # Modo chat interactivo (--chat) — v0.10.0
@@ -3213,17 +3284,27 @@ PROMPT_PLAN = (
     "Devuelve SOLO un objeto JSON con esta forma exacta (sin explicaciones):\n"
     '{{"pasos": [{{\n'
     '  "descripcion": "qué hace este paso",\n'
-    '  "accion": "editar" | "ejecutar" | "consultar",\n'
+    '  "accion": "editar" | "ejecutar" | "consultar" | "mcp",\n'
     '  "archivos": ["ruta/relativa.py"],   // solo para accion "editar"\n'
-    '  "comando": "comando shell"          // solo para accion "ejecutar"\n'
+    '  "comando": "comando shell",         // solo para accion "ejecutar"\n'
+    '  "herramienta": "grep|read_file|list_files|ast|git_status|git_diff|\n'
+    '                 "execute_command|...",   // solo para accion "mcp"\n'
+    '  "args": {{"patron": "..."}},        // solo para accion "mcp"\n'
+    '  "variable": "mi_resultado",        // opcional (mcp): nombre del resultado\n'
     "}}]}}\n\n"
     "Significado de las acciones:\n"
     ' - "editar": modificar código (Aider). Indica los archivos implicados.\n'
     ' - "ejecutar": lanzar un comando (tests, build, migraciones...).\n'
     ' - "consultar": aclarar una duda sobre el proyecto sin cambiar nada.\n'
+    ' - "mcp": ejecutar una herramienta MCP (campos "herramienta" y "args") y\n'
+    '   usar su resultado en pasos posteriores con {{{{resultado}}}} o {{{{mi_variable}}}}.\n'
+    "Condiciones admitidas (el paso se salta si son falsas):\n"
+    ' - archivo_existe(ruta), archivo_contiene(ruta, texto), comando_exito(cmd),\n'
+    "   variable_existe(nombre) o comparaciones como\n"
+    "   \"pasos[0].resultado == 'ok'\"  ·  \"resultados.mi_variable != ''\".\n"
 )
 
-ACCIONES_VALIDAS = {"editar", "ejecutar", "consultar"}
+ACCIONES_VALIDAS = {"editar", "ejecutar", "consultar", "mcp"}
 
 
 def _normalizar_pasos(datos) -> List[dict]:
@@ -3257,6 +3338,11 @@ def _normalizar_pasos(datos) -> List[dict]:
             # v1.3.0: dependencias entre pasos y ejecución condicional.
             "dependencias": _normalizar_dependencias(crudo.get("dependencias")),
             "condicion": str(crudo.get("condicion") or "").strip(),
+            # v2.3.0: pasos de tipo "mcp".
+            "herramienta": str(crudo.get("herramienta") or "").strip(),
+            "args": crudo.get("args") if isinstance(
+                crudo.get("args"), dict) else {},
+            "variable": str(crudo.get("variable") or "").strip(),
         }
         pasos.append(paso)
     return pasos
@@ -3465,6 +3551,17 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
 
     accion = paso["accion"]
     descripcion = paso["descripcion"]
+    # v2.3.0: sustitución de marcadores {{variable}} / {{resultado}} en los
+    # campos del paso usando el contexto dinámico del plan.
+    descripcion = _resolver_marcadores(descripcion)
+    for _clave in ("comando", "herramienta", "contenido"):
+        _valor = paso.get(_clave)
+        if isinstance(_valor, str) and "{{" in _valor:
+            paso[_clave] = _resolver_marcadores(_valor)
+    if isinstance(paso.get("archivos"), list):
+        paso["archivos"] = [_resolver_marcadores(a) for a in paso["archivos"]]
+    if isinstance(paso.get("args"), dict) and paso["args"]:
+        paso["args"] = _resolver_marcadores_args(paso["args"])
 
     # Confirmación de permisos (v0.13.0) antes de cualquier acción.
     # En modo autónomo (--auto, v0.17.0) no se pregunta: solo se respetan las
@@ -3473,6 +3570,8 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
         detalles_paso = paso.get("comando") or None
     elif accion == "editar":
         detalles_paso = "\n".join(paso.get("archivos", [])) or None
+    elif accion == "mcp":
+        detalles_paso = str(paso.get("herramienta") or "")
     else:
         detalles_paso = None
     if getattr(args, "auto", False):
@@ -3495,6 +3594,31 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
         if stderr.strip():
             _emitir(sys.stdout, _pintar(stderr.rstrip(), _AMARILLO))
         return (codigo == 0, f"código {codigo}")
+
+    # accion == "mcp" (v2.3.0): ejecuta una herramienta MCP y deja su
+    # resultado en el contexto del plan para los pasos siguientes.
+    if accion == "mcp":
+        herramienta = paso.get("herramienta")
+        if not herramienta:
+            return (False, 'el paso no indica "herramienta"')
+        argumentos = _resolver_marcadores_args(paso.get("args") or {})
+        info(("[mcp] " + herramienta + " " + str(argumentos)).rstrip())
+        llamada = _ejecutar_herramienta_mcp(herramienta, argumentos)
+        res = llamada.get("resultado", {})
+        try:
+            muestra = json.dumps(res, ensure_ascii=False)
+        except Exception:
+            muestra = str(res)
+        if len(muestra) > 400:
+            muestra = muestra[:400] + "…"
+        if llamada.get("ok"):
+            exito("[mcp] resultado: " + muestra)
+            _contexto_plan_variable(str(paso.get("variable") or herramienta),
+                                    res)
+            return (True, herramienta + ": ok")
+        error("[mcp] falló: " + muestra)
+        return (False, herramienta + ": "
+                + str(res.get("error", "fallo")))
 
     if accion == "consultar":
         preferencias = cargar_configuracion()
@@ -3562,23 +3686,52 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
 
 
 # --- Condiciones y paralelismo del planificador (v1.4.0) --------------------
-def _evaluar_condicion(condicion: str, raiz: str = ".") -> bool:
+def _evaluar_condicion(condicion: str, raiz: str = ".",
+                      contexto: Optional[dict] = None) -> bool:
     """Evalúa la condición de un paso del plan. Devuelve True si se cumple.
 
-    Formatos soportados::
+    Formatos soportados:
 
+      Funciones (v1.4.0):
         archivo_existe('src/main.py')
         archivo_contiene('src/main.py', 'def main')
         comando_exito('flutter test')
+        variable_existe('mi_variable')            # v2.3.0
+
+      Comparaciones dinámicas (v2.3.0), con resultados de pasos previos o
+      variables dejadas en el contexto (p. ej. por pasos "mcp"):
+        pasos[0].resultado == 'ok'
+        pasos[2].resultado != 'fallo'
+        resultados.mi_variable == 'listo'
+        mi_variable != ''                         # forma abreviada
 
     Las cadenas pueden ir con comillas simples o dobles. Cualquier condición
-    mal formada o función desconocida devuelve False con un aviso (fallo
-    elegante: el paso se salta, nunca se aborta el plan).
+    mal formada o desconocida devuelve False con un aviso (fallo elegante:
+    el paso se salta, nunca se aborta el plan).
     """
+    if contexto is None:
+        contexto = _CONTEXTO_PLAN
     condicion = (condicion or "").strip()
     if not condicion:
         return True
-    coincidencia = re.match(r"^([a-zA-Z_]\w*)\s*\((.*)\)\s*$", condicion, re.S)
+
+    # 1) Comparaciones dinámicas (== / !=).
+    comparacion = re.match(r"^(.+?)\s*(==|!=)\s*(.+)$", condicion, re.S)
+    if comparacion and "(" not in condicion.split("==")[0].split("!=")[0]:
+        izquierdo = _resolver_operando_condicion(
+            comparacion.group(1).strip(), contexto)
+        derecho = _resolver_operando_condicion(
+            comparacion.group(3).strip(), contexto)
+        if izquierdo is _DESCONOCIDO or derecho is _DESCONOCIDO:
+            aviso(f"Condición con referencia desconocida: '{condicion}'.")
+            return False
+        iguales = (_normalizar_comparacion(izquierdo)
+                   == _normalizar_comparacion(derecho))
+        return iguales if comparacion.group(2) == "==" else not iguales
+
+    # 2) Formas funcionales clásicas.
+    coincidencia = re.match(r"^([a-zA-Z_]\w*)\s*\((.*)\)\s*$",
+                            condicion, re.S)
     if not coincidencia:
         aviso(f"Condición de paso mal formada: '{condicion}'. Se interpreta "
               f"como no cumplida.")
@@ -3603,10 +3756,83 @@ def _evaluar_condicion(condicion: str, raiz: str = ".") -> bool:
             return False
         codigo, _, _ = _ejecutar_comando(argumentos[0], raiz, timeout=300)
         return codigo == 0
+    if funcion == "variable_existe":
+        with _CANDADO_CONTEXTO_PLAN:
+            variables = dict(contexto.get("variables", {}))
+        return bool(argumentos) and argumentos[0] in variables
 
-    aviso(f"Función de condición desconocida: '{funcion}'. "
-          f"Soportadas: archivo_existe, archivo_contiene, comando_exito.")
+    aviso(f"Función de condición desconocida: '{funcion}'. Soportadas: "
+          f"archivo_existe, archivo_contiene, comando_exito, "
+          f"variable_existe.")
     return False
+
+
+# Sentinela fin de evaluador# Sentinela fin de evaluador
+_DESCONOCIDO = object()
+
+
+def _resolver_operando_condicion(operando: str, contexto: dict):
+    """Convierte un operando de condición en un valor Python concreto.
+
+    Acepta literales ('texto', números, true/false/null) y referencias al
+    contexto: pasos[N].campo, resultados.nombre o un identificador simple.
+    Devuelve _DESCONOCIDO si no se puede resolver.
+    """
+    operando = operando.strip()
+    if len(operando) >= 2 and operando[0] in "'\"" \
+            and operando[-1] == operando[0]:
+        return operando[1:-1]
+    if operando.lower() in ("true", "verdad"):
+        return True
+    if operando.lower() in ("false", "falso"):
+        return False
+    if operando.lower() in ("none", "null", "nulo"):
+        return None
+    try:
+        return int(operando)
+    except ValueError:
+        pass
+    try:
+        return float(operando)
+    except ValueError:
+        pass
+
+    m = re.match(r"^pasos\[(\d+)\]\.(\w+)$", operando)
+    if m:
+        numero, campo = int(m.group(1)), m.group(2)
+        with _CANDADO_CONTEXTO_PLAN:
+            paso_ctx = contexto.get("pasos", {}).get(str(numero))
+        if not isinstance(paso_ctx, dict) or campo not in paso_ctx:
+            return _DESCONOCIDO
+        return paso_ctx[campo]
+
+    m = re.match(r"^resultados?\.(\w+)$", operando)
+    if m:
+        with _CANDADO_CONTEXTO_PLAN:
+            variables = contexto.get("variables", {})
+        return variables.get(m.group(1), _DESCONOCIDO)
+
+    if re.match(r"^[a-z_][\w]*$", operando):
+        with _CANDADO_CONTEXTO_PLAN:
+            variables = contexto.get("variables", {})
+        return variables.get(operando, _DESCONOCIDO)
+
+    return _DESCONOCIDO
+
+
+def _normalizar_comparacion(valor):
+    """Normaliza valores para poder compararlos entre sí."""
+    if isinstance(valor, bool):
+        return "ok" if valor else "fallo"
+    if isinstance(valor, (int, float)):
+        return str(valor)
+    if isinstance(valor, (dict, list)):
+        try:
+            import json as _json
+            return _json.dumps(valor, sort_keys=True, ensure_ascii=False)
+        except Exception:
+            return str(valor)
+    return str(valor)
 
 
 def _partir_argumentos(texto: str) -> List[str]:
@@ -3633,6 +3859,99 @@ def _partir_argumentos(texto: str) -> List[str]:
     return [p for p in (p.strip() for p in partes)]
 
 
+# --- Contexto dinámico del plan (v2.3.0) ------------------------------------
+# Los pasos pueden dejar resultados (p. ej. herramientas MCP) en este contexto
+# y los pasos posteriores los consumen con {{resultado}}, {{mi_variable}} o
+# condiciones como "pasos[0].resultado == 'ok'" / "resultados.mi_var == 'x'".
+_CONTEXTO_PLAN = {"variables": {}, "pasos": {}}
+_CANDADO_CONTEXTO_PLAN = threading.Lock()
+
+
+def _contexto_plan_reiniciar() -> None:
+    """Limpia el contexto dinámico al empezar cada ejecución del plan."""
+    with _CANDADO_CONTEXTO_PLAN:
+        _CONTEXTO_PLAN["variables"].clear()
+        _CONTEXTO_PLAN["pasos"].clear()
+
+
+def _contexto_plan_variable(nombre: str, valor) -> None:
+    """Guarda ``valor`` bajo ``nombre`` (y como último ``resultado``)."""
+    if not nombre:
+        return
+    with _CANDADO_CONTEXTO_PLAN:
+        _CONTEXTO_PLAN["variables"][nombre] = valor
+        _CONTEXTO_PLAN["variables"]["resultado"] = valor
+
+
+def _registrar_resultado_plan(numero: int, ok: bool, detalle: str,
+                              estado: str = "") -> None:
+    """Registra el resultado de un paso (base 1) para condiciones dinámicas."""
+    with _CANDADO_CONTEXTO_PLAN:
+        _CONTEXTO_PLAN["pasos"][str(numero)] = {
+            "resultado": estado or ("ok" if ok else "fallo"),
+            "ok": ok, "detalle": detalle}
+
+
+def _resolver_marcadores(texto: str):
+    """Sustituye la marca de doble llave {{clave}} por el valor que
+    tenga esa clave en el contexto dinámico del plan. Si la clave
+    no existe o el texto no es una cadena, se devuelve sin cambios.
+
+    Si ``texto`` no es una cadena se devuelve tal cual. Las claves desconocidas
+    se dejan sin sustituir (fallo elegante).
+    """
+    if not isinstance(texto, str) or "{{" not in texto:
+        return texto
+    import json as _json
+    with _CANDADO_CONTEXTO_PLAN:
+        variables = dict(_CONTEXTO_PLAN["variables"])
+
+    def _sustituir(coincidencia):
+        clave = coincidencia.group(1).strip()
+        if clave not in variables:
+            return coincidencia.group(0)
+        valor = variables[clave]
+        if isinstance(valor, str):
+            return valor
+        try:
+            return _json.dumps(valor, ensure_ascii=False)
+        except Exception:
+            return str(valor)
+
+    return re.sub(r"\{\{\s*([\w.]+)\s*\}\}", _sustituir, texto)
+
+
+def _refs_de_condicion(condicion: str) -> tuple:
+    """Extrae los índices de pasos y nombres de variables que usa una condición."""
+    condicion = condicion or ""
+    indices = set()
+    for m in re.findall(r"pasos\[(\d+)\]", condicion):
+        try:
+            indices.add(int(m) - 1)
+        except ValueError:
+            continue
+    nombres = set(re.findall(r"resultados?\.(\w+)", condicion))
+    for m in re.findall(r"(?:^|\(|&&|\|)\s*([a-z_][\w]*)"
+                        r"\s*(?:==|!=)", condicion):
+        nombre = m[1] if isinstance(m, tuple) else m
+        if nombre not in ("true", "false", "none", "ok"):
+            nombres.add(nombre)
+    return indices, nombres
+
+
+def _resolver_marcadores_args(argumentos: dict) -> dict:
+    """Aplica la sustitución de marcadores a los valores string de un dict."""
+    resuelto = {}
+    for clave, valor in (argumentos or {}).items():
+        if isinstance(valor, str):
+            resuelto[clave] = _resolver_marcadores(valor)
+        elif isinstance(valor, list):
+            resuelto[clave] = [_resolver_marcadores(v) for v in valor]
+        else:
+            resuelto[clave] = valor
+    return resuelto
+
+
 _CANDADO_GIT_PLAN = threading.Lock()   # serializa commits en modo --paralelo
 
 
@@ -3652,6 +3971,7 @@ def _ejecutar_paso_paralelo(paso: dict, args: argparse.Namespace,
         ok, detalle = _ejecutar_paso_plan(paso, args, raiz)
     except Exception as exc:                     # blindaje del hilo
         ok, detalle = False, f"excepción: {exc}"
+    _registrar_resultado_plan(numero, ok, detalle)
     marca = "✔" if ok else "✖"
     _emitir(sys.stdout, f"  {marca} {prefijo} terminado ({detalle})")
     if ok and getattr(args, "git_commit", True):
@@ -3692,11 +4012,39 @@ def _ejecutar_plan_en_paralelo(pasos: List[dict], args: argparse.Namespace,
                          "detalle": "dependencia sin éxito", "intentos": 0})
                     pendientes.discard(i)
 
-            lanzables = [i for i in sorted(pendientes)
-                         if all(estado.get(d) == "éxito"
-                                for d in (d - 1 for d in
-                                          (pasos[i].get("dependencias")
-                                           or [])))]
+            # v2.3.0: además de las dependencias explícitas, un paso queda
+            # bloqueado mientras su condición referencie variables que algún
+            # paso pendiente aún puede producir (p. ej. un paso "mcp").
+            producibles = set()
+            for j in pendientes:
+                _pj = pasos[j]
+                _ri, _rv = _refs_de_condicion(_pj.get("condicion") or "")
+                producibles |= _rv
+                if _pj.get("accion") == "mcp":
+                    producibles.add(str(_pj.get("variable")
+                                        or _pj.get("herramienta") or ""))
+                    producibles.add("resultado")
+
+            def _listo(i):
+                deps = [d - 1 for d in (pasos[i].get("dependencias") or [])]
+                if any(estado.get(d) != "éxito" for d in deps):
+                    return False
+                ref_i, ref_v = _refs_de_condicion(
+                    pasos[i].get("condicion") or "")
+                if any(estado.get(d) != "éxito" for d in ref_i):
+                    return False
+                with _CANDADO_CONTEXTO_PLAN:
+                    disponibles = set(_CONTEXTO_PLAN["variables"])
+                    registrados = set(_CONTEXTO_PLAN["pasos"])
+                for v in ref_v:
+                    if v not in disponibles and v in producibles:
+                        return False       # esperar a que se produzca
+                for d in ref_i:
+                    if str(d + 1) not in registrados:
+                        return False
+                return True
+
+            lanzables = [i for i in sorted(pendientes) if _listo(i)]
             if not lanzables:
                 if pendientes:                   # nada ejecutable → evitar bloqueo
                     for i in sorted(pendientes):
@@ -3789,6 +4137,7 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
 
     # 3) Ejecución (v1.4.0): con --paralelo N (y --auto) se lanzan varios pasos
     # sin dependencias mutuas a la vez; en caso contrario, secuencial.
+    _contexto_plan_reiniciar()   # v2.3.0: contexto dinámico por plan
     max_hilos = max(1, int(getattr(args, "paralelo", 1) or 1))
     resultados: List[dict] = []
     if auto and max_hilos > 1:
@@ -3854,6 +4203,7 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
                           f"intentos; se continúa con el siguiente paso.")
                     break
 
+            _registrar_resultado_plan(numero, ok, detalle)
             estado_seq[indice] = "éxito" if ok else "fallo"
             if ok and getattr(args, "git_commit", True):
                 _git_commit_paso(paso["descripcion"], raiz)
@@ -4127,8 +4477,16 @@ HERRAMIENTAS_PREDEFINIDAS = {
     },
     "execute_command": {
         "descripcion": "Ejecuta cualquier comando shell (confirmación estricta).",
-        "parametros": {"comando": "str", "directorio": "str='.'"},
+        "parametros": {"comando": "str", "directorio": "str='.'",
+                       "background": "bool=False",
+                       "capture_output": "bool=True"},
         "requiere_permiso": True,
+    },
+    "execute_command_status": {
+        "descripcion": "Consulta el estado de un comando lanzado en segundo plano "
+                       "(devuelve stdout/stderr/código si terminó).",
+        "parametros": {"pid": "int"},
+        "requiere_permiso": False,
     },
 }
 
@@ -4298,16 +4656,32 @@ def _tool_git_diff(directorio: str = ".", archivo: Optional[str] = None,
             "error": None if codigo == 0 else stderr.strip()}
 
 
-def _tool_execute_command(comando: str, directorio: str = ".") -> dict:
+def _tool_execute_command(comando: str, directorio: str = ".",
+                          background: bool = False,
+                          capture_output: bool = True) -> dict:
     """Herramienta `execute_command`: ejecuta un comando shell arbitrario.
+
+    - ``background=True`` lanza el proceso en segundo plano y devuelve un
+      ``pid`` para consultarlo después.
+    - ``capture_output=False`` muestra la salida en tiempo real (en su lugar
+      ``stdout``/``stderr`` quedan vacíos).
 
     Requiere confirmación estricta (se valida en el dispatcher).
     """
     if not comando:
         return {"ok": False, "error": "falta el comando a ejecutar"}
-    codigo, stdout, stderr = _ejecutar_comando(comando, directorio)
+    if background:
+        res = _lanzar_proceso_fondo(comando, directorio,
+                                    capture_output=capture_output)
+        if not res.get("ok"):
+            return {"ok": False, "error": res.get("error", "no se pudo lanzar")}
+        return {"ok": True, "pid": res["pid"], "comando": comando,
+                "estado": "ejecutando"}
+    codigo, stdout, stderr = _ejecutar_comando(
+        comando, directorio, capture_output=capture_output)
     return {"ok": codigo == 0, "codigo_retorno": codigo,
-            "stdout": stdout.strip(), "stderr": stderr.strip()}
+            "stdout": stdout.strip() if stdout else "",
+            "stderr": stderr.strip() if stderr else ""}
 
 
 # --- Herramientas avanzadas (v1.4.0): tree-sitter + búsqueda semántica ------
@@ -4512,7 +4886,12 @@ def _ejecutar_herramienta_mcp(nombre: str, argumentos: Optional[dict] = None,
         elif nombre == "execute_command":
             resultado = _tool_execute_command(
                 str(argumentos.get("comando", "")),
-                str(argumentos.get("directorio", ".")))
+                str(argumentos.get("directorio", ".")),
+                background=bool(argumentos.get("background", False)),
+                capture_output=bool(argumentos.get("capture_output", True)))
+        elif nombre == "execute_command_status":
+            resultado = _estado_proceso_fondo(_entero_opcional(
+                argumentos.get("pid")))
         else:
             # Herramienta de usuario definida en mcp_tools.json → comando.
             resultado = _tool_execute_command(cfg["comando"],
