@@ -126,7 +126,7 @@ class TestIniciarProyecto(unittest.TestCase):
 class TestVersion(unittest.TestCase):
     def test_version_130_coherente(self):
         import snapcontext as sc
-        self.assertEqual(sc.VERSION, "2.2.0")
+        self.assertEqual(sc.VERSION, "2.3.0")
 
 
 if __name__ == "__main__":

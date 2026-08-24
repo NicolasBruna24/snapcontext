@@ -3767,7 +3767,7 @@ def _evaluar_condicion(condicion: str, raiz: str = ".",
     return False
 
 
-# Sentinela fin de evaluador# Sentinela fin de evaluador
+# Resultados desconocidos para condiciones dinamicas.
 _DESCONOCIDO = object()
 
 
@@ -6170,7 +6170,9 @@ def crear_parser() -> argparse.ArgumentParser:
         help="En modo --plan --auto: ejecuta hasta N pasos sin dependencias "
              "mutuas en paralelo (por defecto 1 = secuencial). Los logs de cada "
              "paso llevan su identificador [paso N]. Los pasos con campo "
-             "'dependencias' esperan a que sus dependencias tengan éxito.",
+             "'dependencias' esperan a que sus dependencias tengan éxito y "
+             "las condiciones que referencien resultados de pasos previos o "
+             "variables MCP bloquean al paso hasta estar disponibles.",
     )
     parser.add_argument(
         "--editor", choices=["aider", "propio"], default="aider",

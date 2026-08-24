@@ -4,6 +4,49 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [2.3.0] - 2026-08-24 - Integracion MCP-Planificador + dependencias dinamicas
+
+### Nuevas funcionalidades
+
+#### Paso mcp en el planificador
+- Nuevo tipo de paso `"accion": "mcp"`: ejecuta cualquier herramienta MCP
+  del registro (campos `herramienta` y `args`) y guarda el resultado en el
+  contexto del plan.
+- El resultado se expone como `{{resultado}}` y, si el paso define
+  `variable`, tambien bajo ese nombre; los pasos siguientes sustituyen
+  marcadores `{{...}}` en `descripcion`, `comando`, `archivos`,
+  `contenido` y `args`.
+- `_generar_plan()` / prompt actualizado para que el proveedor pueda
+  proponer pasos `mcp` con dependencias, condiciones y variables.
+
+#### Condiciones dinamicas
+- `_evaluar_condicion()` acepta comparaciones `==` / `!=` sobre:
+  - Resultados de pasos previos: `pasos[0].resultado == 'ok'`.
+  - Variables del contexto: `resultados.mi_variable != ''`.
+- Nueva funcion de condicion `variable_existe('nombre')`.
+- Las formas clasicas (`archivo_existe`, `archivo_contiene`,
+  `comando_exito`) siguen funcionando igual.
+
+#### execute_command mas flexible (MCP)
+- `background=True` devuelve un `pid` consultable con
+  `execute_command_status`.
+- `capture_output=True` (por defecto) decide entre capturar
+  `stdout`/`stderr` o mostrar la salida en tiempo real.
+- En el planificador, el resultado queda en el contexto dinamico para
+  pasos posteriores.
+
+#### Paralelismo con dependencias dinamicas
+- Con `--paralelo N`, un paso cuya condicion referencia una variable que
+  otro paso pendiente puede producir se bloquea hasta que este
+  disponible (sin deadlocks: si nada es lanzable, se marca saltado).
+
+### Tests
+- Nuevo `tests/test_plan_mcp_230.py` (21 tests): contexto dinamico,
+  pasos MCP, condiciones dinamicas, marcadores `{{...}}`,
+  `execute_command` background/capture y planificador paralelo con
+  dependencias dinamicas.
+- Suite completa: 323 pruebas pasando.
+
 ---
 
 ## [2.2.0] - 2026-08-23 · 🌳 Editor Propio Fase 3: Edición basada en AST

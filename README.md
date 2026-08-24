@@ -230,7 +230,7 @@ snapcontext --plan "tarea" --no-confirmar
 
 1. El proveedor de IA descompone la tarea en pasos JSON:
    ```json
-   {"descripcion": "...", "accion": "editar|ejecutar|consultar",
+   {"descripcion": "...", "accion": "editar|ejecutar|consultar|mcp",
     "archivos": ["..."], "comando": "...",
     "dependencias": [1, 2],
     "condicion": "archivo_existe('src/main.py')"}
@@ -238,7 +238,8 @@ snapcontext --plan "tarea" --no-confirmar
 2. Los pasos se muestran numerados y se pide confirmación.
 3. Cada paso se ejecuta secuencialmente: **editar** usa el pipeline completo
    (`_planificar` + `_bucle_test`), **ejecutar** lanza comandos shell,
-   **consultar** pregunta al proveedor.
+   **consultar** pregunta al proveedor y **mcp** (v2.3.0) ejecuta una
+   herramienta MCP guardando su resultado en el contexto del plan.
 4. Tras cada paso eliges: continuar / reintentar / saltar / abortar. Al final
    hay un resumen que se guarda en `historial.json`.
 
@@ -251,10 +252,40 @@ snapcontext --plan "tarea" --no-confirmar
   - `archivo_existe('src/main.py')`
   - `archivo_contiene('src/main.py', 'def main')`
   - `comando_exito('flutter test')`
+  - `variable_existe('mi_variable')` *(v2.3.0)*
+
+  Además, desde v2.3.0 acepta **comparaciones dinámicas** con resultados
+  de pasos previos o variables dejadas en el contexto (por pasos `mcp`):
+
+  ```json
+  {"condicion": "pasos[0].resultado == 'ok'"}
+  {"condicion": "resultados.mi_variable != ''"}
+  ```
 
   Si la condición es falsa, el paso se salta (con aviso) y el plan continúa.
+### Pasos MCP y contexto dinámico (v2.3.0)
+
+Un paso con `"accion": "mcp"` ejecuta una herramienta MCP del registro
+(`grep`, `read_file`, `list_files`, `ast`, `git_status`, `git_diff`,
+`execute_command`, ...) usando los campos `"herramienta"` y `"args"`.
+El resultado queda disponible para los pasos posteriores:
+
+```json
+ {"descripcion": "buscar referencias", "accion": "mcp",
+  "herramienta": "grep", "args": {"patron": "def main"},
+  "variable": "coincidencias"}
+ {"descripcion": "usar resultado", "accion": "ejecutar",
+  "comando": "echo {{coincidencias}}"}
+```
+
+- El resultado siempre se guarda también como `{{resultado}}`; si el paso
+  define `"variable"`, se guarda bajo ese nombre.
+- `execute_command` soporta `background=true` (devuelve un `pid`
+  consultable con `execute_command_status`) y `capture_output=false` para
+  mostrar la salida en tiempo real.
+
 - **Paralelismo**: con `--paralelo N` (junto a `--auto`) se ejecutan hasta N
-  pasos independientes a la vez; los logs llevan el identificador `[paso N]`:
+  pasos independientes a la vez; los logs llevan el identificador `[paso N]`. Desde v2.3.0 el planificador también respeta las dependencias dinámicas: un paso cuya condición usa una variable que otro paso aún no ha producido espera a que esté disponible:
 
   ```bash
   snapcontext --plan "tarea grande" --auto --paralelo 3 --no-confirmar
