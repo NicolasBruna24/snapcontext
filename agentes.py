@@ -138,8 +138,10 @@ class AgenteEditorPropio:
     """Agente Editor Propio: editor integrado de SnapContext.
 
     Aplica cambios directamente sobre el sistema de archivos sin depender de
-    herramientas externas. En Fase 1 realiza sobrescritura segura con copia de
-    seguridad previa automática en ``~/.snapcontext/backups/``.
+    herramientas externas obligatorias.
+    - Fase 1: Sobrescritura segura con copia de seguridad previa en ``~/.snapcontext/backups/``.
+    - Fase 2: Generación y aplicación de parches unificados (unified diffs) con ``git apply`` / ``patch``
+      y fallback automático a sobrescritura.
     """
 
     def sobrescribir(
@@ -158,6 +160,116 @@ class AgenteEditorPropio:
             f"[AgenteEditorPropio] Sobrescribiendo '{archivo}' en '{directorio}'"
         )
         return sc._editor_sobrescribir(archivo, contenido, directorio=directorio)
+
+    def aplicar_parche(
+        self,
+        parche: str,
+        directorio: str = ".",
+    ) -> bool:
+        """Aplica un parche unificado en ``directorio``.
+
+        Devuelve ``True`` si se aplicó con éxito, ``False`` si falló.
+        """
+        import snapcontext as sc
+
+        sc.depurar(f"[AgenteEditorPropio] Aplicando parche en '{directorio}'")
+        return sc._aplicar_parche(parche, directorio=directorio)
+
+    def ejecutar(
+        self,
+        archivos: List[str],
+        mensaje: str,
+        directorio: str = ".",
+        modo_edicion: str = "auto",
+        modelo: Optional[str] = None,
+    ) -> bool:
+        """Aplica las modificaciones para `archivos` con el `mensaje` especificado.
+
+        - modo_edicion == 'parche': intenta aplicar parche unificado (falla si no puede).
+        - modo_edicion == 'sobrescribir': aplica directamente sobrescritura de archivo.
+        - modo_edicion == 'auto': intenta primero parche unificado; si falla o no es diff,
+          hace fallback a sobrescritura.
+        """
+        import snapcontext as sc
+        from pathlib import Path
+
+        pref = sc.cargar_configuracion()
+        proveedor = pref.get("provider") or sc.PROVEEDOR_DEFECTO
+        raiz = Path(directorio).resolve()
+        todo_ok = True
+
+        for arch in archivos:
+            camino = (raiz / arch).resolve()
+            contenido_actual = ""
+            if camino.is_file():
+                try:
+                    contenido_actual = camino.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    pass
+
+            if modo_edicion in ("parche", "auto"):
+                prompt = (
+                    f"Genera un parche unificado (unified diff) que modifique el archivo para cumplir con la tarea. "
+                    f"El parche debe ser aplicable con 'patch -p1' o 'git apply' (encabezados --- a/{arch} y +++ b/{arch}).\n\n"
+                    f"Tarea: {mensaje}\n"
+                    f"Archivo: {arch}\n\n"
+                    f"Contenido actual:\n```\n{contenido_actual}\n```\n\n"
+                    f"Devuelve ÚNICAMENTE el diff unificado, sin explicaciones ni rodeos."
+                )
+                try:
+                    respuesta = sc._enviar_al_proveedor(
+                        proveedor, modelo,
+                        [{"role": "user", "content": prompt}]
+                    )
+                    # Limpiar delimitadores markdown si vinieron
+                    diff_limpio = respuesta
+                    if "--- " in diff_limpio and "+++ " in diff_limpio:
+                        # Extraer solo desde ---
+                        idx_inicio = diff_limpio.find("--- ")
+                        diff_limpio = diff_limpio[idx_inicio:]
+                        if "```" in diff_limpio:
+                            diff_limpio = diff_limpio[:diff_limpio.find("```")]
+
+                    # Si parece un diff unificado válido, intentar aplicarlo
+                    if ("--- " in diff_limpio and "+++ " in diff_limpio and "@@" in diff_limpio):
+                        if self.aplicar_parche(diff_limpio, str(raiz)):
+                            continue
+                        sc.aviso(f"[AgenteEditorPropio] Parche para '{arch}' falló al aplicarse.")
+                        if modo_edicion == "parche":
+                            todo_ok = False
+                            continue
+                except Exception as exc:
+                    sc.depurar(f"[AgenteEditorPropio] Error pidiendo parche para '{arch}': {exc}")
+                    if modo_edicion == "parche":
+                        sc.error(f"Error generando parche para {arch}: {exc}")
+                        todo_ok = False
+                        continue
+
+            # Fallback o modo sobrescribir
+            sc.depurar(f"[AgenteEditorPropio] Aplicando edición por sobrescritura para '{arch}'...")
+            prompt_sobrescribir = (
+                f"Modifica el siguiente archivo para cumplir con la tarea.\n\n"
+                f"Tarea: {mensaje}\n"
+                f"Archivo: {arch}\n\n"
+                f"Contenido actual:\n```\n{contenido_actual}\n```\n\n"
+                f"Devuelve ÚNICAMENTE el código completo resultante, sin explicaciones ni markdown."
+            )
+            try:
+                nuevo_contenido = sc._enviar_al_proveedor(
+                    proveedor, modelo,
+                    [{"role": "user", "content": prompt_sobrescribir}]
+                )
+                if nuevo_contenido.startswith("```"):
+                    lineas = nuevo_contenido.splitlines()
+                    if len(lineas) >= 2 and lineas[-1].startswith("```"):
+                        nuevo_contenido = "\n".join(lineas[1:-1])
+                if not self.sobrescribir(arch, nuevo_contenido, str(raiz)):
+                    todo_ok = False
+            except Exception as exc:
+                sc.error(f"Error generando cambios por sobrescritura para {arch}: {exc}")
+                todo_ok = False
+
+        return todo_ok
 
 
 

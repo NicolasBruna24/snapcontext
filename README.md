@@ -1,6 +1,6 @@
 # SnapContext
 
-![v2.0.0](https://img.shields.io/badge/version-2.0.0-blue.svg)
+![v2.1.0](https://img.shields.io/badge/version-2.1.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -59,14 +59,22 @@ snapcontext interactive  # o snapcontext --web
 Auto-detección de proyecto (Flutter, Node/React, Python, Go, Rust…) que ajusta
 carpetas, extensiones y comandos de test por defecto.
 
-## 🛠️ Editor Integrado Propio (v2.0.0)
+## 🛠️ Editor Integrado Propio (v2.1.0)
 
-SnapContext v2.0.0 incluye su propio editor integrado:
+SnapContext incluye su propio editor integrado con soporte de parches unificados:
 - **`--editor propio`**: Aplica cambios directamente y crea copias de seguridad automáticas en `~/.snapcontext/backups/`.
+- **`--modo-edicion {auto,parche,sobrescribir}`**:
+  - `auto` (por defecto): Genera un parche unificado (`git apply` / `patch`) y hace fallback a sobrescritura si no es aplicable.
+  - `parche`: Fuerza la aplicación de parches unificados para ediciones precisas.
+  - `sobrescribir`: Sobrescribe el archivo completo.
 - **`--editor aider`** (por defecto): Mantiene el flujo de edición con Aider para máxima compatibilidad.
 
 ```bash
+# Edición precisa mediante diffs unificados
 snapcontext "añadir endpoint de métricas" --editor propio
+
+# Forzar modo parche
+snapcontext "corregir tipado en login" --editor propio --modo-edicion parche
 ```
 
 ## 🧭 Modos y alias

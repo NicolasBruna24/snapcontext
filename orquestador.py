@@ -180,38 +180,14 @@ class Orquestador:
                 if editor_tipo == "propio":
                     sc.depurar("[Orquestador] Modo edición directa (AgenteEditorPropio).")
                     self._emitir_tipo("editor", accion="iniciar", archivos=seleccion)
-                    pref = sc.cargar_configuracion()
-                    proveedor = pref.get("provider") or sc.PROVEEDOR_DEFECTO
-                    ok = True
-                    for arch in seleccion:
-                        camino = (raiz / arch).resolve()
-                        contenido_actual = ""
-                        if camino.is_file():
-                            try:
-                                contenido_actual = camino.read_text(encoding="utf-8", errors="replace")
-                            except Exception:
-                                pass
-                        prompt_editor = (
-                            f"Modifica el siguiente archivo para cumplir con la tarea.\n\n"
-                            f"Tarea: {consulta}\n"
-                            f"Archivo: {arch}\n\n"
-                            f"Contenido actual:\n```\n{contenido_actual}\n```\n\n"
-                            f"Devuelve ÚNICAMENTE el código completo resultante, sin explicaciones ni markdown."
-                        )
-                        try:
-                            nuevo_contenido = sc._enviar_al_proveedor(
-                                proveedor, getattr(args, "modelo", None),
-                                [{"role": "user", "content": prompt_editor}]
-                            )
-                            if nuevo_contenido.startswith("```"):
-                                lineas = nuevo_contenido.splitlines()
-                                if len(lineas) >= 2 and lineas[-1].startswith("```"):
-                                    nuevo_contenido = "\n".join(lineas[1:-1])
-                            if not self.agente_editor_propio.sobrescribir(arch, nuevo_contenido, str(raiz)):
-                                ok = False
-                        except Exception as exc:
-                            sc.error(f"Error generando cambios para {arch}: {exc}")
-                            ok = False
+                    modo_ed = getattr(args, "modo_edicion", "auto") or "auto"
+                    ok = self.agente_editor_propio.ejecutar(
+                        seleccion,
+                        consulta,
+                        directorio=str(raiz),
+                        modo_edicion=modo_ed,
+                        modelo=getattr(args, "modelo", None),
+                    )
                     self._emitir_tipo("editor", accion="fin", ok=ok)
                 else:
                     sc.depurar("[Orquestador] Modo edición directa (AgenteEditor).")

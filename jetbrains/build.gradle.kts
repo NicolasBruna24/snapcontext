@@ -1,5 +1,5 @@
 // ============================================================================
-// SnapContext — Extensión para IntelliJ IDEA / PyCharm (v2.0.0)
+// SnapContext — Extensión para IntelliJ IDEA / PyCharm (v2.1.0)
 //
 // Compilar plugin:   .\gradlew buildPlugin      → build/distributions/*.zip
 // Probar en IDE:     .\gradlew runIde
@@ -15,7 +15,7 @@ plugins {
 }
 
 group = "com.snapcontext"
-version = "2.0.0"
+version = "2.1.0"
 
 repositories {
     mavenCentral()

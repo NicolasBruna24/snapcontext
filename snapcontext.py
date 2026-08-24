@@ -39,6 +39,7 @@ Open-source y pensado para ser fácil de extender (ver ejecutar_bucle_test).
 
 import argparse
 import ast
+import difflib
 import fnmatch
 import json
 import os
@@ -110,7 +111,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
@@ -1530,6 +1531,78 @@ def _editor_sobrescribir(archivo: str, contenido: str,
     except Exception as exc:
         error(f"[EditorPropio] Error al escribir {limpia}: {exc}")
         return False
+
+
+def _generar_parche(original: str, nuevo: str, ruta_archivo: str) -> str:
+    """Genera un parche unificado (unified diff) entre `original` y `nuevo`.
+
+    El encabezado cumple con el estándar de `patch` y `git apply` (a/ruta b/ruta).
+    """
+    ruta_posix = str(ruta_archivo).replace("\\", "/").strip()
+    if ruta_posix.startswith("./"):
+        ruta_posix = ruta_posix[2:]
+
+    lineas_orig = original.splitlines(keepends=True)
+    lineas_nuevo = nuevo.splitlines(keepends=True)
+
+    diff = difflib.unified_diff(
+        lineas_orig,
+        lineas_nuevo,
+        fromfile=f"a/{ruta_posix}",
+        tofile=f"b/{ruta_posix}",
+    )
+    return "".join(diff)
+
+
+def _aplicar_parche(parche: str, directorio: str = ".") -> bool:
+    """Aplica un parche unificado en `directorio` usando `git apply` o `patch`.
+
+    1. Escribe el parche en un archivo temporal.
+    2. Intenta aplicar con `git apply --whitespace=nowarn <temp_file>`.
+    3. Si `git` falla o no está disponible, intenta con `patch -p1 -i <temp_file>`.
+    4. Devuelve True si se aplicó limpiamente, False si hubo error o conflicto.
+    """
+    if not parche or not parche.strip():
+        aviso("[EditorPropio] Parche vacío; no se aplicaron cambios.")
+        return False
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".diff", encoding="utf-8", delete=False) as f:
+        f.write(parche)
+        temp_path = f.name
+
+    try:
+        flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        raiz_res = str(Path(directorio).resolve())
+
+        # Intentar primero con git apply (muy estándar en repos de desarrollo)
+        if shutil.which("git"):
+            cmd_git = ["git", "apply", "--whitespace=nowarn", temp_path]
+            res_git = subprocess.run(
+                cmd_git, cwd=raiz_res, capture_output=True, text=True, creationflags=flags
+            )
+            if res_git.returncode == 0:
+                exito("[EditorPropio] Parche unificado aplicado correctamente con git apply.")
+                return True
+            depurar(f"[EditorPropio] git apply falló (código {res_git.returncode}): {res_git.stderr}")
+
+        # Fallback a patch
+        if shutil.which("patch"):
+            cmd_patch = ["patch", "-p1", "-i", temp_path]
+            res_patch = subprocess.run(
+                cmd_patch, cwd=raiz_res, capture_output=True, text=True, creationflags=flags
+            )
+            if res_patch.returncode == 0:
+                exito("[EditorPropio] Parche unificado aplicado correctamente con patch.")
+                return True
+            depurar(f"[EditorPropio] patch falló (código {res_patch.returncode}): {res_patch.stderr}")
+
+        aviso("[EditorPropio] No se pudo aplicar el parche automáticamente (ni git apply ni patch tuvieron éxito).")
+        return False
+    finally:
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
 
 
 def _extraer_error(resultado: "subprocess.CompletedProcess") -> str:
@@ -3139,40 +3212,14 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
     _, ruta_raiz, _, seleccion = plan
 
     if editor_elegido == "propio":
-        # Con editor propio sin contenido predefinido, pedimos al proveedor que genere el contenido
-        preferencias = cargar_configuracion()
-        proveedor = preferencias.get("provider") or PROVEEDOR_DEFECTO
-        todo_ok = True
-        for arch in seleccion:
-            camino = (Path(ruta_raiz) / arch).resolve()
-            contenido_actual = ""
-            if camino.is_file():
-                try:
-                    contenido_actual = camino.read_text(encoding="utf-8", errors="replace")
-                except Exception:
-                    pass
-            prompt_editor = (
-                f"Modifica el siguiente archivo para cumplir con la tarea.\n\n"
-                f"Tarea: {descripcion}\n"
-                f"Archivo: {arch}\n\n"
-                f"Contenido actual:\n```\n{contenido_actual}\n```\n\n"
-                f"Devuelve ÚNICAMENTE el código completo resultante, sin explicaciones ni markdown."
-            )
-            try:
-                nuevo_contenido = _enviar_al_proveedor(
-                    proveedor, getattr(args, "modelo", None),
-                    [{"role": "user", "content": prompt_editor}]
-                )
-                # Limpiar bloques de código si vinieron envueltos en ```
-                if nuevo_contenido.startswith("```"):
-                    lineas = nuevo_contenido.splitlines()
-                    if len(lineas) >= 2 and lineas[-1].startswith("```"):
-                        nuevo_contenido = "\n".join(lineas[1:-1])
-                if not _editor_sobrescribir(arch, nuevo_contenido, str(ruta_raiz)):
-                    todo_ok = False
-            except Exception as exc:
-                error(f"Error generando cambios para {arch}: {exc}")
-                todo_ok = False
+        modo_ed = getattr(args, "modo_edicion", "auto") or "auto"
+        todo_ok = orch.agente_editor_propio.ejecutar(
+            seleccion,
+            descripcion,
+            directorio=str(ruta_raiz),
+            modo_edicion=modo_ed,
+            modelo=getattr(args, "modelo", None),
+        )
         return (todo_ok, f"EditorPropio sobre {len(seleccion)} archivo(s)")
 
     if getattr(args, "test_loop", False):
@@ -4988,7 +5035,7 @@ def _pintar(texto: str, clave: str) -> str:
 # Categorías en orden de aparición; cada opción se muestra una sola vez.
 CATEGORIAS_AYUDA = (
     ("Modos de ejecución",
-     ("--plan", "--auto", "--editor", "--chat", "--web", "--web-puerto", "--demo",
+     ("--plan", "--auto", "--editor", "--modo-edicion", "--chat", "--web", "--web-puerto", "--demo",
       "--init", "--init-claude", "--historial", "--historial-limpiar")),
     ("Selección de archivos",
      ("consulta", "--local", "--iniciar-proyecto", "--experto",
@@ -5427,7 +5474,13 @@ def crear_parser() -> argparse.ArgumentParser:
         "--editor", choices=["aider", "propio"], default="aider",
         help="Editor a usar para aplicar cambios: 'aider' (por defecto, "
              "requiere Aider instalado) o 'propio' (editor integrado de "
-             "SnapContext, sobrescribe archivos directamente con backup automático).",
+             "SnapContext con soporte de parches unificados y backups automáticos).",
+    )
+    parser.add_argument(
+        "--modo-edicion", choices=["sobrescribir", "parche", "auto"], default="auto",
+        help="Estrategia del editor propio: 'auto' (intenta aplicar parche unificado, "
+             "fallback a sobrescritura), 'parche' (solo parches unificados) o "
+             "'sobrescribir' (sobrescritura completa del archivo).",
     )
     # Ayuda agrupada por categorías (-h/--help) — v1.7.
     parser.add_argument(

@@ -6,6 +6,28 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [2.1.0] - 2026-08-23 · 🧩 Editor Propio Fase 2: Diffs y Parches Unificados
+
+### ✨ Nuevas funcionalidades
+
+#### 🎯 Parches Unificados y Ediciones Precisas
+- **Generación y aplicación de diffs unificados**:
+  - Función `_generar_parche(original, nuevo, ruta_archivo)` con `difflib.unified_diff()`.
+  - Función `_aplicar_parche(parche, directorio)` que intenta aplicar con `git apply --whitespace=nowarn` y fallback a `patch -p1`.
+- **Nuevo flag `--modo-edicion {sobrescribir,parche,auto}`** (por defecto `auto`):
+  - `auto`: intenta primero aplicar parche unificado; si falla o no es diff, hace fallback a sobrescritura.
+  - `parche`: aplica exclusivamente parches unificados.
+  - `sobrescribir`: sobrescritura completa directa de archivos (Fase 1).
+- **Mejoras en `AgenteEditorPropio` y `Orquestador`**:
+  - Prompts refinados para pedir diffs unificados al proveedor de IA con encabezados estándar (`--- a/` y `+++ b/`).
+  - Reducción del ruido en los commits y modificaciones más limpias y quirúrgicas.
+
+### 🧪 Tests
+- Nuevo `tests/test_diff_editor_210.py` (9 tests): generación de diffs unificados, aplicación con mocks de `git apply` / `patch`, ejecución de `AgenteEditorPropio` en modo parche y fallback a sobrescritura, y validación de flags.
+- Toda la suite del proyecto actualizada y pasando con 280+ pruebas unitarias.
+
+---
+
 ## [2.0.0] - 2026-08-23 · 🚀 Versión Estable & Editor Integrado Propio
 
 ### ✨ Nuevas funcionalidades

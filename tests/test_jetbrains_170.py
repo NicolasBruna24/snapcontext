@@ -17,7 +17,7 @@ import snapcontext as sc  # noqa: E402
 
 class TestVersion(unittest.TestCase):
     def test_version_170_coherente(self):
-        self.assertEqual(sc.VERSION, "2.0.0")
+        self.assertEqual(sc.VERSION, "2.1.0")
 
 
 class TestEstructuraJetBrains(unittest.TestCase):
@@ -90,7 +90,7 @@ class TestGradleYKotlin(unittest.TestCase):
     def test_gradle_configura_intellij(self):
         gradle = (JB / "build.gradle.kts").read_text(encoding="utf-8")
         self.assertIn("org.jetbrains.intellij", gradle)
-        self.assertIn('version = "2.0.0"', gradle)
+        self.assertIn('version = "2.1.0"', gradle)
         self.assertIn("patchPluginXml", gradle)
 
     def test_kotlin_usa_processbuilder(self):
