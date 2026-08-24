@@ -21,7 +21,7 @@ import sys
 from typing import List, Optional, Tuple
 
 from agentes import (AgenteContexto, AgenteEditor, AgenteEditorAST,
-                     AgenteEditorPropio, AgenteTester)
+                     AgenteEditorPropio, AgenteAprendizaje, AgenteTester)
 
 # Centinela diferenciado del None de "aborto": _planificar lo devuelve cuando
 # el pipeline termina de forma exitosa y temprana (p. ej. --vista-previa).
@@ -43,6 +43,7 @@ class Orquestador:
         self.agente_editor_propio = AgenteEditorPropio()
         self.agente_editor_ast = AgenteEditorAST()
         self.agente_tester = AgenteTester()
+        self.agente_aprendizaje = AgenteAprendizaje()
         self.evento_callback = evento_callback
 
     def _on_evento(self, evento: dict) -> None:
@@ -200,6 +201,17 @@ class Orquestador:
                     )
                     self._emitir_tipo("aider", accion="fin", ok=ok)
             self._emitir_tipo("final", ok=ok)
+            # Aprendizaje continuo (v3.0.0): registrar el resultado de la
+            # tarea en la memoria persistente y generar/reforzar skills.
+            try:
+                if not getattr(args, "sin_aprendizaje", False):
+                    self.agente_aprendizaje.aprender_de_tarea(
+                        consulta, bool(ok),
+                        [{"descripcion": consulta, "accion": "editar",
+                          "archivos": seleccion}],
+                        raiz=str(raiz))
+            except Exception as exc:
+                sc.aviso(f"[aprendizaje] No se pudo registrar ({exc})")
             return 0 if ok else 1
         finally:
             # Si este orquestador fue quien registró el callback global, lo limpia.

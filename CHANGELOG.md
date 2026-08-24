@@ -4,6 +4,45 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [3.0.0] - 2026-08-24 - Aprendizaje autonomo: memoria SQLite, skills, curador y daemon
+
+### Memoria persistente avanzada (SQLite)
+- Nueva base `~/.snapcontext/memoria.db` (stdlib `sqlite3`: cero dependencias
+  nuevas) con tablas `skills`, `historial_aprendizaje`, `contexto_kv` y `cola`.
+- API de bajo nivel: `_db_init()`, `_db_query()`, `_db_insert()` y
+  `_db_ejecutar()` (RLock reentrante, WAL, filas como dict).
+
+### Skills (procedimientos reutilizables)
+- Al completar una tarea con exito se genera un skill con los pasos clave
+  (descripcion IA opcional; fallback local sin red).
+- `_skill_buscar()` encuentra el skill mas similar (embeddings o
+  Jaccard/contencion) y lo reutiliza en tareas repetidas.
+- Refuerzo/castigo: los exitos suben la confiabilidad (+0.15); 3 usos sin
+  fallos marcan el skill como confiable (1.0); los fallos lo bajan (-0.25)
+  y con baja confiabilidad queda marcado para revision.
+
+### Curador autonomo
+- `_curador_ejecutar()` archiva skills sin uso > 30 dias, fusiona similares
+  (sim >= 0.90, conserva el mas usado) y notifica skills en revision por la
+  CLI. Manual (`--curador`) o programado via daemon.
+
+### Daemon (--daemon)
+- Bucle en segundo plano (`_daemon_tick` / `_daemon_bucle`) que corre el
+  curador segun `--daemon-intervalo` (168 h = semanal) y procesa la cola de
+  skills pendientes (`_cola_encolar()`), descartando los archivados.
+
+### Integracion
+- Gancho de aprendizaje al final del planificador (`_aprender_de_tarea`) y
+  del orquestador; desactivable con `--sin-aprendizaje`. Nunca rompe el
+  pipeline (errores de memoria solo avisan).
+- Nuevo `AgenteAprendizaje` en `agentes.py`; integrado en el `Orquestador`.
+
+### Tests
+- Nuevo `tests/test_memoria_300.py` (27 tests): capa DB, skills, busqueda,
+  aprendizaje, curador, daemon, agente de aprendizaje y flags CLI.
+- Suite completa: 350 pruebas pasando.
+
+---
 ## [2.3.0] - 2026-08-24 - Integracion MCP-Planificador + dependencias dinamicas
 
 ### Nuevas funcionalidades

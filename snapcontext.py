@@ -111,7 +111,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "2.3.0"
+VERSION = "3.0.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
@@ -4279,6 +4279,17 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
         "pasos": resultados,
     })
 
+    # Aprendizaje continuo (v3.0.0): registrar la tarea y generar/reforzar
+    # skills. Desactivable con --sin-aprendizaje. Nunca rompe el planificador.
+    if not getattr(args, "sin_aprendizaje", False):
+        try:
+            _aprender_de_tarea(
+                consulta, todo_ok, resultados, raiz=str(raiz),
+                detalle=("plan: " + str(exitos) + "/"
+                         + str(len(resultados)) + " pasos"))
+        except Exception as exc:
+            aviso(f"[aprendizaje] No se pudo registrar la tarea ({exc})")
+
     # Memoria de proyecto (v0.15.0): tras un plan exitoso se propone (con
     # confirmación) actualizar CLAUDE.md con lo aprendido.
     if todo_ok and MEMORIA_PROYECTO:
@@ -4292,6 +4303,547 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # Permisos y confirmaciones (--confirmar / --no-confirmar) — v0.13.0
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Memoria persistente avanzada (SQLite) y aprendizaje autónomo — v3.0.0
+# ---------------------------------------------------------------------------
+# Sustituye/complementa el historial JSON con una base de datos robusta en
+# ~/.snapcontext/memoria.db. sqlite3 forma parte de la stdlib: sin dependencias.
+import sqlite3
+import datetime
+
+DB_PATH = CONFIG_DIR / "memoria.db"
+_DB_CONEXION = None                    # conexión singleton (check_same_thread=False)
+_CANDADO_DB = threading.RLock()        # reentrante: _db_insert → _db → _db_init
+
+
+def _db_init() -> str:
+    """Crea la base de datos y sus tablas si no existen. Devuelve la ruta.
+
+    Tablas:
+      skills               → procedimientos reutilizables aprendidos.
+      historial_aprendizaje → tareas completadas (éxito/fallo/correcciones).
+      contexto_kv          → preferencias del usuario y metadatos (clave/valor).
+      cola                 → skills pendientes de ejecutar por el daemon.
+    """
+    ruta = Path(DB_PATH)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    with _CANDADO_DB:
+        global _DB_CONEXION
+        if _DB_CONEXION is None:
+            _DB_CONEXION = sqlite3.connect(
+                str(ruta), check_same_thread=False)
+            _DB_CONEXION.row_factory = sqlite3.Row
+            _DB_CONEXION.execute("PRAGMA journal_mode=WAL")
+        _DB_CONEXION.executescript("""
+            CREATE TABLE IF NOT EXISTS skills (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre         TEXT UNIQUE NOT NULL,
+                consulta       TEXT NOT NULL,
+                descripcion    TEXT DEFAULT '',
+                pasos_json     TEXT DEFAULT '[]',
+                contexto_json  TEXT DEFAULT '{}',
+                creado         TEXT NOT NULL,
+                ultimo_exito   TEXT DEFAULT '',
+                usos           INTEGER DEFAULT 0,
+                fallos         INTEGER DEFAULT 0,
+                confiabilidad  REAL DEFAULT 0.5,
+                archivado      INTEGER DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS historial_aprendizaje (
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                consulta TEXT NOT NULL,
+                exito    INTEGER NOT NULL,
+                detalle  TEXT DEFAULT '',
+                fecha    TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS contexto_kv (
+                clave TEXT PRIMARY KEY,
+                valor TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS cola (
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                skill_id INTEGER NOT NULL,
+                estado   TEXT DEFAULT 'pendiente',
+                fecha    TEXT NOT NULL
+            );
+        """)
+        _DB_CONEXION.commit()
+    return str(ruta)
+
+
+def _db():
+    """Devuelve la conexión activa, inicializando la base si hace falta."""
+    if _DB_CONEXION is None:
+        _db_init()
+    return _DB_CONEXION
+
+
+def _db_cerrar() -> None:
+    """Cierra la conexión (útil en tests tras re-apuntar DB_PATH)."""
+    global _DB_CONEXION
+    with _CANDADO_DB:
+        if _DB_CONEXION is not None:
+            try:
+                _DB_CONEXION.close()
+            except Exception:
+                pass
+            _DB_CONEXION = None
+
+
+def _db_query(sql: str, params: tuple = ()) -> List[dict]:
+    """Ejecuta un SELECT y devuelve las filas como lista de diccionarios."""
+    filas = _db().execute(sql, params).fetchall()
+    return [dict(f) for f in filas]
+
+
+def _db_insert(sql: str, params: tuple = ()) -> int:
+    """Ejecuta un INSERT y devuelve el rowid generado."""
+    with _CANDADO_DB:
+        cursor = _db().execute(sql, params)
+        _db().commit()
+        return int(cursor.lastrowid)
+
+
+def _db_ejecutar(sql: str, params: tuple = ()) -> int:
+    """Ejecuta UPDATE/DELETE y devuelve el número de filas afectadas."""
+    with _CANDADO_DB:
+        cursor = _db().execute(sql, params)
+        _db().commit()
+        return cursor.rowcount
+
+
+def _kv_obtener(clave: str, defecto: str = "") -> str:
+    """Lee un valor del contexto persistente (tabla contexto_kv)."""
+    filas = _db_query("SELECT valor FROM contexto_kv WHERE clave = ?",
+                      (clave,))
+    return filas[0]["valor"] if filas else defecto
+
+
+def _kv_fijar(clave: str, valor: str) -> None:
+    """Guarda (o actualiza) un valor del contexto persistente."""
+    _db_ejecutar(
+        "INSERT INTO contexto_kv (clave, valor) VALUES (?, ?) "
+        "ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor",
+        (clave, valor))
+
+
+# ─── Skills: procedimientos reutilizables ──────────────────────────────────
+def _skill_normalizar_nombre(consulta: str, max_len: int = 60) -> str:
+    """Genera un nombre estable a partir de la consulta del usuario.
+
+    Translitera acentos y eñes (á→a, ñ→n) para que el nombre sea estable
+    e independiente del teclado del usuario.
+    """
+    texto = unicodedata.normalize("NFD", consulta.lower())
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = re.sub(r"[^a-z0-9]+", "-", texto).strip("-")
+    return (texto[:max_len].rstrip("-")) or "skill-sin-nombre"
+
+
+def _skill_guardar(nombre: str, consulta: str, pasos: List[dict],
+                   contexto: Optional[dict] = None,
+                   descripcion: str = "") -> int:
+    """Inserta (o actualiza) un skill y devuelve su id.
+
+    Si ya existe un skill con el mismo nombre se actualiza en lugar de
+    duplicarlo (idempotencia).
+    """
+    ahora = time.strftime("%Y-%m-%dT%H:%M:%S")
+    existente = _db_query(
+        "SELECT id FROM skills WHERE nombre = ?", (nombre,))
+    pasos_json = json.dumps(pasos, ensure_ascii=False)
+    contexto_json = json.dumps(contexto or {}, ensure_ascii=False)
+    if existente:
+        sid = int(existente[0]["id"])
+        _db_ejecutar(
+            "UPDATE skills SET consulta = ?, descripcion = ?, "
+            "pasos_json = ?, contexto_json = ? WHERE id = ?",
+            (consulta, descripcion, pasos_json, contexto_json, sid))
+        return sid
+    return _db_insert(
+        "INSERT INTO skills (nombre, consulta, descripcion, pasos_json, "
+        "contexto_json, creado, ultimo_exito, usos, fallos, confiabilidad, "
+        "archivado) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0.5, 0)",
+        (nombre, consulta, descripcion, pasos_json, contexto_json,
+         ahora, ahora))
+
+
+def _skill_obtener(skill_id: int) -> Optional[dict]:
+    """Devuelve un skill como diccionario (con pasos/contexto parseados)."""
+    filas = _db_query("SELECT * FROM skills WHERE id = ?", (skill_id,))
+    if not filas:
+        return None
+    skill = dict(filas[0])
+    try:
+        skill["pasos"] = json.loads(skill.get("pasos_json") or "[]")
+    except json.JSONDecodeError:
+        skill["pasos"] = []
+    try:
+        skill["contexto"] = json.loads(skill.get("contexto_json") or "{}")
+    except json.JSONDecodeError:
+        skill["contexto"] = {}
+    return skill
+
+
+def _skill_listar(incluir_archivados: bool = False,
+                  solo_confiables: bool = False) -> List[dict]:
+    """Lista skills ordenados por confiabilidad descendente."""
+    sql = ("SELECT id, nombre, consulta, descripcion, creado, ultimo_exito, "
+           "usos, fallos, confiabilidad, archivado FROM skills")
+    condiciones = []
+    if not incluir_archivados:
+        condiciones.append("archivado = 0")
+    if solo_confiables:
+        condiciones.append("confiabilidad >= 0.9 AND usos >= 3")
+    if condiciones:
+        sql += " WHERE " + " AND ".join(condiciones)
+    sql += " ORDER BY confiabilidad DESC, usos DESC, id DESC"
+    return _db_query(sql)
+
+
+def _skill_registrar_exito(skill_id: int) -> float:
+    """Refuerza un skill tras un uso exitoso. Devuelve la nueva confiabilidad.
+
+    Con 3+ usos sin fallos el skill se considera 'confiable' (confiabilidad
+    1.0) y el planificador lo prioriza.
+    """
+    ahora = time.strftime("%Y-%m-%dT%H:%M:%S")
+    _db_ejecutar(
+        "UPDATE skills SET usos = usos + 1, ultimo_exito = ?, "
+        "confiabilidad = MIN(1.0, confiabilidad + 0.15) WHERE id = ?",
+        (ahora, skill_id))
+    _db_ejecutar(
+        "UPDATE skills SET confiabilidad = 1.0 "
+        "WHERE id = ? AND usos >= 3 AND fallos = 0", (skill_id,))
+    filas = _db_query("SELECT confiabilidad FROM skills WHERE id = ?",
+                      (skill_id,))
+    return float(filas[0]["confiabilidad"]) if filas else 0.5
+
+
+def _skill_registrar_fallo(skill_id: int) -> float:
+    """Penaliza un skill tras un fallo. Devuelve la nueva confiabilidad.
+
+    A partir de 2 fallos la confiabilidad cae por debajo de 0.4 y el skill
+    queda marcado para revisión por el curador/agente.
+    """
+    _db_ejecutar(
+        "UPDATE skills SET fallos = fallos + 1, "
+        "confiabilidad = MAX(0.0, confiabilidad - 0.25) WHERE id = ?",
+        (skill_id,))
+    filas = _db_query("SELECT confiabilidad FROM skills WHERE id = ?",
+                      (skill_id,))
+    return float(filas[0]["confiabilidad"]) if filas else 0.5
+
+
+def _skill_similitud(texto_a: str, texto_b: str) -> float:
+    """Similitud [0..1] entre dos textos.
+
+    Usa embeddings (coseno) si sentence-transformers está disponible; si no,
+    cae a similitud Jaccard de palabras (fallo elegante, cero dependencias).
+    """
+    modelo = _modelo_embeddings()
+    if modelo is not None:
+        try:
+            import numpy as _np
+            vectores = modelo.encode([texto_a.lower(), texto_b.lower()])
+            va = _np.asarray(vectores[0])
+            vb = _np.asarray(vectores[1])
+            denom = float(_np.linalg.norm(va) * _np.linalg.norm(vb))
+            if denom == 0:
+                return 0.0
+            return max(0.0, min(1.0, float(_np.dot(va, vb)) / denom))
+        except Exception:
+            pass
+    palabras_a = set(re.findall(r"\w+", texto_a.lower()))
+    palabras_b = set(re.findall(r"\w+", texto_b.lower()))
+    if not palabras_a or not palabras_b:
+        return 0.0
+    interseccion = len(palabras_a & palabras_b)
+    union = len(palabras_a | palabras_b)
+    jaccard = interseccion / union if union else 0.0
+    # Contención: captura frases donde una contiene a la otra ("... ya",
+    # "... ahora"), que Jaccard penaliza en exceso. Exige >= 2 palabras en
+    # común para evitar falsos positivos con consultas muy cortas.
+    contencion = (interseccion / min(len(palabras_a), len(palabras_b))
+                  if interseccion >= 2 else 0.0)
+    return min(1.0, max(jaccard, contencion))
+
+
+def _skill_buscar(consulta: str, umbral: float = 0.75) -> Optional[dict]:
+    """Busca el skill activo más similar a ``consulta``.
+
+    Compara con similitud semántica (embeddings o Jaccard como fallback)
+    contra las consultas de los skills no archivados. Devuelve el skill
+    completo con su campo extra 'similitud', o None si ninguno supera el
+    umbral.
+    """
+    candidatos = _db_query(
+        "SELECT * FROM skills WHERE archivado = 0 ORDER BY usos DESC")
+    mejor = None
+    for fila in candidatos:
+        sim = _skill_similitud(consulta, fila["consulta"])
+        if mejor is None or sim > mejor["similitud"]:
+            skill = dict(fila)
+            skill["similitud"] = sim
+            mejor = skill
+    if mejor is None or mejor["similitud"] < umbral:
+        return None
+    completo = _skill_obtener(int(mejor["id"]))
+    if completo is not None:
+        completo["similitud"] = mejor["similitud"]
+    return completo
+
+
+def _skill_generar(consulta: str, resultados: List[dict],
+                   raiz: str = ".") -> Optional[int]:
+    """Genera un skill a partir de una tarea completada con éxito.
+
+    Extrae los pasos clave de ``resultados`` (del planificador). Si hay
+    proveedor de IA disponible, pide una descripción breve; si no, construye
+    el skill directamente de los resultados (modo local, sin red).
+    Devuelve el id del skill o None si no hay material suficiente.
+    """
+    pasos_utiles = []
+    for r in resultados or []:
+        paso = {"descripcion": r.get("descripcion") or "",
+                "accion": r.get("accion") or ""}
+        if r.get("comando"):
+            paso["comando"] = r["comando"]
+        if r.get("archivos"):
+            paso["archivos"] = r["archivos"]
+        if paso["descripcion"] and paso["accion"]:
+            pasos_utiles.append(paso)
+    if not pasos_utiles:
+        return None
+
+    descripcion = ""
+    try:
+        resumen = "; ".join(
+            f"{r.get('descripcion')} [{r.get('accion')}]"
+            for r in resultados or [])
+        respuesta = _enviar_al_proveedor(
+            "Resume en UNA frase corta que hace este procedimiento de "
+            "desarrollo (sin detalles de archivos): " + resumen,
+            args=None)
+        if respuesta and respuesta.strip():
+            descripcion = respuesta.strip().splitlines()[0][:300]
+    except Exception:
+        descripcion = ""          # modo local / sin red: seguimos sin resumen
+
+    nombre = _skill_normalizar_nombre(consulta)
+    contexto = {"raiz": str(raiz),
+                "fecha": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    return _skill_guardar(nombre, consulta, pasos_utiles, contexto,
+                          descripcion)
+
+
+def _aprender_de_tarea(consulta: str, todo_ok: bool,
+                       resultados: List[dict], raiz: str = ".",
+                       detalle: str = "") -> Optional[int]:
+    """Gancho central de aprendizaje continuo (v3.0.0).
+
+    Registra la tarea en historial_aprendizaje y:
+      - exito → refuerza el skill similar existente o genera uno nuevo.
+      - fallo → penaliza el skill similar (queda marcado para revisión).
+    Devuelve el id del skill afectado/generado, o None.
+    """
+    _db_init()
+    _db_insert(
+        "INSERT INTO historial_aprendizaje (consulta, exito, detalle, fecha) "
+        "VALUES (?, ?, ?, ?)",
+        (consulta, 1 if todo_ok else 0, detalle,
+         time.strftime("%Y-%m-%dT%H:%M:%S")))
+    try:
+        skill_previo = _skill_buscar(consulta, umbral=0.75)
+    except Exception as exc:
+        aviso(f"[aprendizaje] No se pudo buscar skills ({exc})")
+        return None
+
+    if todo_ok:
+        if skill_previo is not None:
+            conf = _skill_registrar_exito(int(skill_previo["id"]))
+            depurar(f"[aprendizaje] Skill #{skill_previo['id']} reforzado "
+                    f"(confiabilidad {conf:.2f})")
+            return int(skill_previo["id"])
+        nuevo_id = _skill_generar(consulta, resultados, raiz)
+        if nuevo_id is not None:
+            info(f"[aprendizaje] Nuevo skill guardado: "
+                 f"{_skill_normalizar_nombre(consulta)} (#{nuevo_id})")
+        return nuevo_id
+
+    if skill_previo is not None:
+        conf = _skill_registrar_fallo(int(skill_previo["id"]))
+        aviso(f"[aprendizaje] Skill #{skill_previo['id']} marcado para "
+              f"revision (confiabilidad {conf:.2f})")
+        return int(skill_previo["id"])
+    return None
+
+
+def _cola_encolar(skill_id: int) -> int:
+    """Encola un skill para ejecución en segundo plano por el daemon."""
+    return _db_insert(
+        "INSERT INTO cola (skill_id, estado, fecha) VALUES (?, 'pendiente', ?)",
+        (skill_id, time.strftime("%Y-%m-%dT%H:%M:%S")))
+
+
+# ─── Curador autónomo ──────────────────────────────────────────────────────
+CURADOR_DIAS_SIN_USO = 30          # skills sin uso > 30 días → archivados
+CURADOR_UMBRAL_FUSION = 0.90       # similitud mínima para fusionar skills
+CLAVE_CURADOR_ULTIMA = "curador_ultima_ejecucion"
+
+
+def _curador_ejecutar(dias_sin_uso: int = CURADOR_DIAS_SIN_USO,
+                      umbral_fusion: float = CURADOR_UMBRAL_FUSION) -> dict:
+    """Ejecuta una pasada del curador. Devuelve un resumen de acciones.
+
+    Acciones:
+      - Archiva skills activos cuyo ultimo_exito (o creado) sea anterior a
+        ``dias_sin_uso`` días.
+      - Fusiona pares de skills muy similares (sim >= ``umbral_fusion``):
+        conserva el más usado sumando usos/fallos y archiva el otro.
+      - Notifica por la CLI los skills con baja confiabilidad (revisión).
+    """
+    _db_init()
+    acciones = {"archivados": [], "fusiones": [], "revision": []}
+    ahora = datetime.datetime.now()
+
+    def _antiguedad_dias(valor):
+        if not valor:
+            return dias_sin_uso + 1.0     # nunca usado → candidato
+        try:
+            fecha = datetime.datetime.fromisoformat(valor)
+            return (ahora - fecha).total_seconds() / 86400.0
+        except ValueError:
+            return dias_sin_uso + 1.0
+
+    # 1) Archivar skills sin uso reciente.
+    for fila in _skill_listar():
+        referencia = fila["ultimo_exito"] or fila["creado"]
+        if _antiguedad_dias(referencia) > dias_sin_uso:
+            _db_ejecutar("UPDATE skills SET archivado = 1 WHERE id = ?",
+                         (fila["id"],))
+            acciones["archivados"].append(
+                {"id": fila["id"], "nombre": fila["nombre"]})
+
+    # 2) Fusionar skills muy similares entre sí.
+    activos = _skill_listar()
+    vistos = set()
+    for i, a in enumerate(activos):
+        if a["id"] in vistos:
+            continue
+        for b in activos[i + 1:]:
+            if b["id"] in vistos:
+                continue
+            try:
+                sim = _skill_similitud(a["consulta"], b["consulta"])
+            except Exception:
+                continue
+            if sim < umbral_fusion:
+                continue
+            conservar, fusionar = (
+                (a, b) if a["usos"] >= b["usos"] else (b, a))
+            _db_ejecutar(
+                "UPDATE skills SET usos = usos + ?, fallos = fallos + ?, "
+                "confiabilidad = MAX(confiabilidad, ?), "
+                "archivado = 0 WHERE id = ?",
+                (fusionar["usos"], fusionar["fallos"],
+                 fusionar["confiabilidad"], conservar["id"]))
+            _db_ejecutar(
+                "UPDATE skills SET archivado = 1 WHERE id = ?",
+                (fusionar["id"],))
+            vistos.add(fusionar["id"])
+            acciones["fusiones"].append({
+                "conservado": conservar["id"],
+                "archivado": fusionar["id"],
+                "similitud": round(sim, 3)})
+
+    # 3) Notificar skills marcados para revisión (muchos fallos).
+    for fila in _db_query(
+            "SELECT id, nombre FROM skills "
+            "WHERE archivado = 0 AND confiabilidad < 0.4"):
+        acciones["revision"].append({"id": fila["id"],
+                                     "nombre": fila["nombre"]})
+    for r in acciones["revision"]:
+        aviso("[curador] Skill #" + str(r["id"]) + " '" + r["nombre"]
+              + "' tiene baja confiabilidad; revisar o regenerar.")
+
+    _kv_fijar(CLAVE_CURADOR_ULTIMA, time.strftime("%Y-%m-%dT%H:%M:%S"))
+    total = len(acciones["archivados"]) + len(acciones["fusiones"])
+    if total:
+        exito("[curador] " + str(len(acciones["archivados"]))
+              + " skill(s) archivado(s), "
+              + str(len(acciones["fusiones"])) + " fusion/fusiones.")
+    else:
+        depurar("[curador] Sin acciones necesarias.")
+    return acciones
+
+
+# ─── Daemon: proceso en segundo plano (--daemon) ───────────────────────────
+DAEMON_INTERVALO_HORAS_DEFECTO = 168     # curador cada 7 días
+DAEMON_PAUSA_SEGUNDOS = 60               # frecuencia de sondeo del bucle
+
+
+def _daemon_tick(intervalo_horas: int = DAEMON_INTERVALO_HORAS_DEFECTO,
+                 ahora=None) -> dict:
+    """Una iteración del daemon (función aislada para facilitar los tests).
+
+    Ejecuta el curador si ha pasado ``intervalo_horas`` desde su última
+    pasada (registrada en contexto_kv) y procesa la cola de skills
+    pendientes marcándolos como 'hecho' (o 'descartado').
+    """
+    _db_init()
+    resultado = {"curador": False, "procesados": []}
+    ultima = _kv_obtener(CLAVE_CURADOR_ULTIMA, "")
+    vencido = True
+    if ultima:
+        try:
+            fecha = datetime.datetime.fromisoformat(ultima)
+            referencia = ahora or datetime.datetime.now()
+            vencido = ((referencia - fecha).total_seconds()
+                       >= intervalo_horas * 3600)
+        except ValueError:
+            vencido = True
+    if vencido:
+        info("[daemon] Ejecutando curador programado...")
+        _curador_ejecutar()
+        resultado["curador"] = True
+
+    pendientes = _db_query(
+        "SELECT id, skill_id FROM cola WHERE estado = 'pendiente' "
+        "ORDER BY id LIMIT 10")
+    for tarea in pendientes:
+        skill = _skill_obtener(int(tarea["skill_id"]))
+        if skill is None or skill.get("archivado"):
+            _db_ejecutar(
+                "UPDATE cola SET estado = 'descartado' WHERE id = ?",
+                (tarea["id"],))
+            continue
+        _db_ejecutar("UPDATE cola SET estado = 'ejecutando' WHERE id = ?",
+                     (tarea["id"],))
+        depurar("[daemon] Skill #" + str(skill["id"]) + " '"
+                + skill["nombre"] + "' listo para ejecución en segundo "
+                "plano (" + str(len(skill.get("pasos") or [])) + " pasos)")
+        _db_ejecutar("UPDATE cola SET estado = 'hecho' WHERE id = ?",
+                     (tarea["id"],))
+        resultado["procesados"].append(skill["id"])
+    return resultado
+
+
+def _daemon_bucle(intervalo_horas: int = DAEMON_INTERVALO_HORAS_DEFECTO,
+                  pausa_segundos: int = DAEMON_PAUSA_SEGUNDOS) -> None:
+    """Bucle principal del daemon (`snapcontext --daemon`)."""
+    ok("Daemon iniciado (curador cada " + str(intervalo_horas)
+       + " h, sondeo cada " + str(pausa_segundos) + " s). Ctrl+C para salir.")
+    while True:
+        try:
+            _daemon_tick(intervalo_horas=intervalo_horas)
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
+            aviso("[daemon] Error en tick (" + str(exc) + "); se reintenta.")
+        time.sleep(pausa_segundos)
+
+
 PERMISOS_PATH = CONFIG_DIR / "permisos.json"
 
 # Interruptor global: main() lo sincroniza con args.confirmar (por defecto
@@ -6188,6 +6740,33 @@ def crear_parser() -> argparse.ArgumentParser:
              "'sobrescribir' (sobrescritura completa del archivo) o 'ast' "
              "(edición basada en el árbol sintáctico con fallback a sobrescritura).",
     )
+    # Aprendizaje autónomo / memoria avanzada (v3.0.0)
+    parser.add_argument(
+        "--daemon", action="store_true",
+        help="Ejecuta el daemon en segundo plano: corre el curador cada "
+             "--daemon-intervalo horas y procesa la cola de skills pendientes.",
+    )
+    parser.add_argument(
+        "--daemon-intervalo", type=int,
+        default=DAEMON_INTERVALO_HORAS_DEFECTO, metavar="HORAS",
+        help="Horas entre pasadas del curador cuando el daemon está activo "
+             "(por defecto 168 = 7 días).",
+    )
+    parser.add_argument(
+        "--curador", action="store_true",
+        help="Ejecuta una pasada única del curador (archiva skills antiguos, "
+             "fusiona duplicados) y termina.",
+    )
+    parser.add_argument(
+        "--skills", action="store_true",
+        help="Lista los skills aprendidos guardados en la memoria SQLite y "
+             "termina.",
+    )
+    parser.add_argument(
+        "--sin-aprendizaje", action="store_true",
+        help="Desactiva el aprendizaje continuo (no genera ni refuerza "
+             "skills al terminar las tareas).",
+    )
     # Ayuda agrupada por categorías (-h/--help) — v1.7.
     parser.add_argument(
         "-h", "--help", action=_AyudaAccion,
@@ -6648,6 +7227,30 @@ def main(argv: Optional[List[str]] = None) -> int:
         # --historial muestra las últimas tareas guardadas y termina.
         if getattr(args, "historial", False):
             _mostrar_historial()
+            return 0
+        # Memoria avanzada / aprendizaje (v3.0.0). El daemon corre hasta Ctrl+C.
+        if getattr(args, "daemon", False):
+            _daemon_bucle(
+                intervalo_horas=getattr(args, "daemon_intervalo",
+                                        DAEMON_INTERVALO_HORAS_DEFECTO))
+            return 0
+        # --curador ejecuta una pasada única del curador y termina.
+        if getattr(args, "curador", False):
+            _curador_ejecutar()
+            return 0
+        # --skills lista los skills aprendidos y termina.
+        if getattr(args, "skills", False):
+            filas = _skill_listar(incluir_archivados=True)
+            if not filas:
+                info("Aún no hay skills aprendidos. Se crean al completar "
+                     "tareas con --plan.")
+            for f in filas:
+                estado = "archivado" if f["archivado"] else "activo"
+                exito(f"#{f['id']} [{estado}] {f['nombre']} "
+                      f"(confiabilidad {f['confiabilidad']:.2f}, "
+                      f"{f['usos']} usos, {f['fallos']} fallos)")
+                if f["descripcion"]:
+                    print(f"      {f['descripcion']}")
             return 0
         # --chat abre el REPL interactivo (no requiere consulta).
         if getattr(args, "chat", False):

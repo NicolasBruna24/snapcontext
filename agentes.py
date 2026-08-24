@@ -421,3 +421,75 @@ class AgenteTester:
         if len(limpieza) > limite:
             limpieza = "\n--- (salida recortada) ---\n" + limpieza[-limite:]
         return limpieza
+
+
+class AgenteAprendizaje:
+    """Agente de Aprendizaje (v3.0.0): memoria persistente y skills.
+
+    Encapsula la memoria SQLite de SnapContext (skills, historial de
+    aprendizaje, contexto clave/valor) y el curador autónomo. Delega en las
+    funciones del módulo :mod:`snapcontext` para mantener una única fuente
+    de verdad; esta clase aporta la capa de alto nivel que consumen el
+    orquestador y futuras integraciones (chat, web).
+    """
+
+    def inicializar(self) -> str:
+        """Crea la base de datos de memoria si no existe. Devuelve su ruta."""
+        import snapcontext as sc
+
+        return sc._db_init()
+
+    def buscar_skill(self, consulta: str,
+                     umbral: float = 0.75) -> Optional[dict]:
+        """Busca un skill similar a ``consulta`` (embeddings o fallback)."""
+        import snapcontext as sc
+
+        return sc._skill_buscar(consulta, umbral=umbral)
+
+    def generar_skill(self, consulta: str, resultados: List[dict],
+                      raiz: str = ".") -> Optional[int]:
+        """Genera y guarda un skill a partir de una tarea exitosa."""
+        import snapcontext as sc
+
+        return sc._skill_generar(consulta, resultados, raiz=raiz)
+
+    def registrar_exito(self, skill_id: int) -> float:
+        """Refuerza un skill tras reutilizarlo con éxito."""
+        import snapcontext as sc
+
+        return sc._skill_registrar_exito(skill_id)
+
+    def registrar_fallo(self, skill_id: int) -> float:
+        """Penaliza un skill tras un fallo (queda marcado para revisión)."""
+        import snapcontext as sc
+
+        return sc._skill_registrar_fallo(skill_id)
+
+    def aprender_de_tarea(self, consulta: str, todo_ok: bool,
+                          resultados: List[dict], raiz: str = ".",
+                          detalle: str = "") -> Optional[int]:
+        """Gancho principal: registra la tarea y aprende de ella."""
+        import snapcontext as sc
+
+        return sc._aprender_de_tarea(consulta, todo_ok, resultados,
+                                     raiz=raiz, detalle=detalle)
+
+    def encolar_skill(self, skill_id: int) -> int:
+        """Encola un skill para ejecución en segundo plano por el daemon."""
+        import snapcontext as sc
+
+        return sc._cola_encolar(skill_id)
+
+    def curar(self, dias_sin_uso: int = 30,
+              umbral_fusion: float = 0.90) -> dict:
+        """Ejecuta el curador autónomo y devuelve el resumen de acciones."""
+        import snapcontext as sc
+
+        return sc._curador_ejecutar(dias_sin_uso=dias_sin_uso,
+                                    umbral_fusion=umbral_fusion)
+
+    def listar_skills(self, incluir_archivados: bool = False) -> List[dict]:
+        """Lista los skills almacenados en la memoria persistente."""
+        import snapcontext as sc
+
+        return sc._skill_listar(incluir_archivados=incluir_archivados)

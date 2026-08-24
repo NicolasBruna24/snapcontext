@@ -284,6 +284,61 @@ El resultado queda disponible para los pasos posteriores:
   consultable con `execute_command_status`) y `capture_output=false` para
   mostrar la salida en tiempo real.
 
+## 🧠 Aprendizaje autónomo: memoria SQLite, skills y curador (v3.0.0)
+
+SnapContext ya no solo ejecuta tareas: **aprende de ellas**. Toda la
+memoria avanzada vive en una base de datos SQLite (`~/.snapcontext/memoria.db`; sin dependencias externas: `sqlite3` viene con Python).
+
+### Skills: procedimientos reutilizables
+
+- Al terminar una tarea con `--plan` **con éxito**, SnapContext extrae
+  los pasos clave y guarda un *skill* (procedimiento reutilizable) en
+  la tabla `skills`, junto a su contexto (archivos, comandos) y
+  metadatos (fecha, usos, fallos, confiabilidad).
+- Cuando repites una tarea similar, busca el skill más parecido con
+  similitud semántica (embeddings; fallback Jaccard/contención sin
+  dependencias) y lo reutiliza como punto de partida.
+- Si el skill falla, se penaliza y queda marcado para revisión; si
+  tiene éxito repetidamente (3+ usos sin fallos) se marca como
+  **confiable** y se prioriza.
+
+Comandos útiles:
+
+```bash
+snapcontext --skills          # lista los skills aprendidos
+snapcontext --curador         # ejecuta una pasada del curador
+snapcontext --daemon          # daemon: curador + cola de skills
+snapcontext --daemon-intervalo 24   # curador cada 24 h
+snapcontext --plan "..." --sin-aprendizaje  # desactiva el aprendizaje
+```
+
+Ejemplo de aprendizaje:
+
+```bash
+snapcontext --plan "migrar pagos a stripe" --auto --no-confirmar
+# → al terminar (código 0): '[aprendizaje] Nuevo skill guardado:
+#    migrar-pagos-a-stripe'
+snapcontext --plan "migrar pagos a stripe ya" --auto --no-confirmar
+# → reutiliza y refuerza el skill existente (sube su confiabilidad)
+```
+
+### Curador autónomo
+
+- Archiva skills sin uso durante más de 30 días.
+- Fusiona skills casi idénticos (similitud ≥ 0.90), conservando el más
+  usado y sumando sus estadísticas.
+- Notifica por CLI los skills con baja confiabilidad (< 0.4).
+- Se ejecuta manualmente (`--curador`) o periódicamente vía daemon.
+
+### Daemon (`--daemon`)
+
+Proceso en segundo plano que cada minuto sondea la memoria: ejecuta el
+curador cuando vence el intervalo configurado (`--daemon-intervalo`,
+168 h por defecto = semanal) y procesa la cola de skills pendientes
+(tabla `cola`) para ejecutarlos sin intervención. La CLI y el chat
+encolan skills con `_cola_encolar()`; el agente `AgenteAprendizaje`
+(en `agentes.py`) expone toda esta memoria al orquestador.
+
 - **Paralelismo**: con `--paralelo N` (junto a `--auto`) se ejecutan hasta N
   pasos independientes a la vez; los logs llevan el identificador `[paso N]`. Desde v2.3.0 el planificador también respeta las dependencias dinámicas: un paso cuya condición usa una variable que otro paso aún no ha producido espera a que esté disponible:
 
