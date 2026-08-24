@@ -111,7 +111,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "3.1.0"
+VERSION = "3.1.1"
 
 # v3.1.0 — Claves de API reconocidas para el modo por defecto (offline).
 CLAVES_API_CONOCIDAS = (
@@ -294,6 +294,8 @@ MODELO_DEFECTO = os.environ.get("SNAPCONTEXT_MODELO") or None
 # Preferencias guardadas (~/.snapcontext/config.json): proveedor y modelo.
 CONFIG_DIR = Path.home() / ".snapcontext"
 CONFIG_PATH = CONFIG_DIR / "config.json"
+# v3.1.1: estado ligero de primer uso (~/.snapcontext/estado.json).
+ESTADO_PATH = CONFIG_DIR / "estado.json"
 BACKUPS_DIR = CONFIG_DIR / "backups"
 MAX_ARCHIVOS_DEFECTO = 3                           # archivos que recibe Aider
 MAX_CANDIDATOS_DEFECTO = 80                        # candidatos que se envían al selector IA
@@ -1086,6 +1088,54 @@ def seleccionar_archivos_con_anthropic(consulta: str, archivos: List[str],
     depurar(f"Respuesta de Claude ({len(texto)} caracteres): {texto[:200]}")
 
     return normalizar_seleccion(parsear_json(texto), archivos, max_archivos)
+
+
+# ---------------------------------------------------------------------------
+# Estado de primer uso (v3.1.1): ~/.snapcontext/estado.json
+# ---------------------------------------------------------------------------
+def _cargar_estado() -> dict:
+    """Lee ~/.snapcontext/estado.json. Devuelve {} si no existe o falla."""
+    try:
+        if ESTADO_PATH.is_file():
+            datos = json.loads(ESTADO_PATH.read_text(encoding="utf-8"))
+            if isinstance(datos, dict):
+                return datos
+    except (json.JSONDecodeError, OSError):
+        pass
+    return {}
+
+
+def _guardar_estado(datos: dict) -> bool:
+    """Escribe el dict de estado en ESTADO_PATH. True si tuvo éxito."""
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        ESTADO_PATH.write_text(
+            json.dumps(datos, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8")
+        return True
+    except OSError:
+        return False
+
+
+def _primer_uso_pendiente() -> bool:
+    """True si la bienvenida aún no se ha mostrado (estado ausente o True)."""
+    estado = _cargar_estado()
+    return bool(estado.get("primer_uso", True))
+
+
+def _marcar_primer_uso_completado() -> None:
+    """Guarda primer_uso=False (nunca rompe el flujo principal)."""
+    estado = _cargar_estado()
+    estado["primer_uso"] = False
+    _guardar_estado(estado)
+
+
+def _entrada_interactiva() -> bool:
+    """True si stdin es un terminal (evita bloqueos en tests/CI/scripts)."""
+    try:
+        return sys.stdin is not None and sys.stdin.isatty()
+    except (AttributeError, ValueError):       # pragma: no cover
+        return False
 
 
 def cargar_configuracion() -> dict:
@@ -6633,6 +6683,42 @@ def _construir_ayuda(parser: argparse.ArgumentParser) -> str:
 
 
 
+def _mostrar_ayuda_resumida() -> None:
+    """Ayuda amigable cuando se ejecuta `snapcontext` sin argumentos (v3.1.1).
+
+    Más corta que --help: comandos de uso común con ejemplos listos para
+    copiar y pegar.
+    """
+    print(_LOGO_SMALL)
+    lineas = [
+        "Bienvenido a SnapContext — tu asistente de IA con contexto automático.",
+        "",
+        _pintar("Uso básico:", _CYAN),
+        '  snapcontext "describe lo que quieres cambiar"',
+        "",
+        _pintar("Comandos más útiles:", _CYAN),
+        "  snapcontext --bienvenida     Tutorial interactivo de primeros pasos",
+        "  snapcontext --init           Configurar claves API y proveedor",
+        "  snapcontext --diagnostico    Revisar tu instalación",
+        "  snapcontext --reparar        Arreglar una instalación rota",
+        "  snapcontext --demo           Demo autónoma (sin API key)",
+        "  snapcontext --chat           Conversar con el proveedor de IA",
+        "  snapcontext --plan \"tarea\"   Planificar y ejecutar paso a paso",
+        "  snapcontext --help           Ayuda completa agrupada",
+        "",
+        _pintar("Ejemplos:", _CYAN),
+        '  snapcontext "el botón de pago no funciona"',
+        '  snapcontext "añadir login" --test-loop',
+        '  snapcontext "revisar pago" --vista-previa   # solo ver, no editar',
+        "",
+        _pintar("Sin API key", _CYAN) +
+        ": SnapContext usa Ollama local automáticamente (modo offline).",
+        "Instala Ollama desde https://ollama.com y ejecuta: ollama pull llama3.2",
+        "",
+    ]
+    print("\n".join(lineas))
+
+
 class _AyudaAccion(argparse.Action):
     """Muestra la ayuda agrupada por categorías y termina."""
 
@@ -7672,12 +7758,31 @@ def main(argv: Optional[List[str]] = None) -> int:
         # Al ejecutar como script (`python snapcontext.py ...`) argparse debe
         # ver los argumentos reales; si pasáramos [] vacío, se perderían.
         argv = sys.argv[1:]
+    # v3.1.1: sin argumentos → ayuda resumida y amigable (no un error).
+    if not argv:
+        _mostrar_ayuda_resumida()
+        return 0
     args = crear_parser().parse_args(_preparar_argv_aliases(argv))
     try:
         # Permisos (v0.13.0): sincroniza el interruptor global con --confirmar
         # para todos los modos (chat, planificador, ...).
         global CONFIRMAR_ACCIONES
         CONFIRMAR_ACCIONES = getattr(args, "confirmar", True)
+        # v3.1.1: --bienvenida explícito ejecuta el tutorial y marca el
+        # primer uso como completado (por si quiere volver a verlo).
+        if getattr(args, "bienvenida", False):
+            codigo = _tutorial_interactivo()
+            _marcar_primer_uso_completado()
+            return codigo
+        # v3.1.1: primer uso → tutorial automático y se continúa con el
+        # comando pedido. Solo en terminales interactivos (nunca en tests,
+        # CI o scripts) para evitar bloqueos.
+        if _primer_uso_pendiente() and _entrada_interactiva():
+            info("👋 Parece que es tu primera vez con SnapContext. "
+                 "Mostrando el tutorial (--bienvenida)...")
+            print()
+            _tutorial_interactivo()
+            _marcar_primer_uso_completado()
         # --init-claude es independiente: crea la memoria del proyecto y sale.
         if getattr(args, "init_claude", False):
             _generar_claude_md(getattr(args, "provider", None),
@@ -7702,8 +7807,6 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _ejecutar_diagnostico(args)
         if getattr(args, "reparar", False):
             return _ejecutar_reparacion(args)
-        if getattr(args, "bienvenida", False):
-            return _tutorial_interactivo()
         # --web inicia la interfaz web (FastAPI + WebSockets) y bloquea hasta parar.
         if getattr(args, "web", False):
             return iniciar_servidor_web(args)

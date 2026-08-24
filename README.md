@@ -40,7 +40,7 @@ pip install aider-chat                  # ediciones de código
 snapcontext --init                      # asistente inicial + API key
 ```
 
-## 🧰 Instalación y onboarding sin fricción (v3.1.0)
+## 🧰 Instalación y onboarding sin fricción (v3.1.x)
 
 Objetivo: instalar SnapContext y empezar a usarlo en menos de 5 minutos.
 
@@ -72,6 +72,11 @@ Arregla instalaciones rotas:
 
 ### Tutorial y asistente mejorados
 - `snapcontext --bienvenida`: tutorial interactivo de primeros pasos.
+- **(v3.1.1)** `snapcontext` sin argumentos muestra una ayuda resumida y
+  amigable con ejemplos (código 0), en lugar de un error.
+- **(v3.1.1)** En el primer uso se ejecuta la bienvenida automáticamente:
+  se registra en `~/.snapcontext/estado.json` (`"primer_uso": false`) para
+  no repetirla; `--bienvenida` explícito permite volver a verla.
 - `snapcontext --init` ahora también pregunta si quieres configurar Ollama
   (ofreciendo abrir <https://ollama.com>), crear un proyecto de prueba y
   ejecutar el tutorial interactivo.

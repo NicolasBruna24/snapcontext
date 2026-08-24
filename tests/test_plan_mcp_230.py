@@ -210,7 +210,7 @@ class TestEjecutarToolExecuteCommand(unittest.TestCase):
 
 class TestVersionYFlags(unittest.TestCase):
     def test_version_230(self):
-        self.assertEqual(sc.VERSION, "3.1.0")
+        self.assertEqual(sc.VERSION, "3.1.1")
 
     def test_flag_paralelo(self):
         args = sc.crear_parser().parse_args(["--plan", "t", "--paralelo", "3"])

@@ -41,6 +41,28 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
   comandos y el modo offline; versiones actualizadas en tests existentes.
 - README e install.ps1/install.sh documentan el modo offline.
 
+## [3.1.1] - 2026-08-24 - Primer uso plug and play
+
+### Ayuda al ejecutar sin argumentos
+- `snapcontext` sin consulta ni flags muestra ahora una ayuda resumida y
+  amigable (comandos comunes + ejemplos listos para copiar) con código 0,
+  en lugar del error de argparse por falta de consulta.
+
+### Bienvenida automática en el primer uso
+- Nuevo estado ligero `~/.snapcontext/estado.json` con la clave
+  `primer_uso` (`_cargar_estado()`, `_guardar_estado()`,
+  `_primer_uso_pendiente()`).
+- La primera vez que se ejecuta cualquier comando, se muestra el tutorial
+  interactivo (`--bienvenida`) y se guarda `primer_uso = False`.
+- `--bienvenida` explícito también actualiza el estado.
+- Solo se lanza en terminales interactivos (nunca en tests, CI o scripts)
+  para no bloquear flujos automatizados.
+
+### Tests
+- Nueva suite `tests/test_bienvenida_311.py` (10 tests): ayuda sin
+  argumentos, helpers de estado, bienvenida automática (primera vez,
+  segunda vez y entrada no interactiva) y flag explícito.
+
 ## [3.0.0] - 2026-08-24 - Aprendizaje autonomo: memoria SQLite, skills, curador y daemon
 
 ### Memoria persistente avanzada (SQLite)
