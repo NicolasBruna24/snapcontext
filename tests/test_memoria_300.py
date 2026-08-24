@@ -312,7 +312,7 @@ class TestFlagsCLI(unittest.TestCase):
         self.assertEqual(args.daemon_intervalo, 24)
 
     def test_version_300(self):
-        self.assertEqual(sc.VERSION, "3.0.0")
+        self.assertEqual(sc.VERSION, "3.1.0")
 
 
 if __name__ == "__main__":

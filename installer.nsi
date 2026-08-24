@@ -1,8 +1,10 @@
 ; ============================================================================
-; SnapContext — Instalador NSIS (v1.5.0)
+; SnapContext — Instalador NSIS (v3.1.0)
 ; Empaqueta dist\snapcontext.exe en SnapContext-Setup-<version>.exe
 ;
 ;   - Instala en %LOCALAPPDATA%\Programs\SnapContext (por usuario).
+;   - Detecta Python: si no existe, guía al usuario (python.org).
+;   - Sección opcional: instala/actualiza SnapContext con pip.
 ;   - Añade la carpeta de instalación al PATH del usuario.
 ;   - Accesos directos opcionales en Menú Inicio y Escritorio.
 ;   - Desinstalador completo (borra PATH, accesos y archivos).
@@ -11,7 +13,7 @@
 ; ============================================================================
 
 !define PRODUCTO      "SnapContext"
-!define VERSION       "1.5.0"
+!define VERSION       "3.1.0"
 !define EDITOR        "SnapContext Contributors"
 !define WEB           "https://github.com/NicolasBruna24/snapcontext"
 !define EXE           "snapcontext.exe"
@@ -32,6 +34,23 @@ SetCompressor /SOLID lzma
 !define MUI_ABORTWARNING
 !define MUI_ICON "${NSISDIR}\Contrib\Graphics\Icons\nsis3-install.ico"
 !define MUI_UNICON "${NSISDIR}\Contrib\Graphics\Icons\nsis3-uninstall.ico"
+
+; ── Detección de Python (v3.1.0) ────────────────────────────────────────────
+Function .onInit
+    ; Busca python.exe en el PATH y en las ubicaciones típicas de PyLauncher.
+    nsExec::ExecToLog 'python --version'   ; solo comprueba que exista
+    Pop $0
+    ${If} $0 != 0
+        ClearErrors
+        ReadRegStr $R0 HKCU "Software\Python\PythonCore" "Version"
+        ${If} ${Errors}
+            MessageBox MB_YESNO|MB_ICONQUESTION \
+                "No se detectó Python en este equipo.$\n$\nSnapContext necesita Python 3.9 o superior para el modo pip (el ejecutable incluido funciona sin él).$\n$\n¿Abrir https://www.python.org/downloads/ para descargarlo?" \
+                IDNO +2
+            ExecShell "open" "https://www.python.org/downloads/"
+        ${EndIf}
+    ${EndIf}
+FunctionEnd
 
 ; ── Páginas ─────────────────────────────────────────────────────────────────
 !insertmacro MUI_PAGE_WELCOME
@@ -88,12 +107,31 @@ Section /o "Acceso directo en Escritorio" SecEscritorio
     CreateShortCut "$DESKTOP\${PRODUCTO}.lnk" "$INSTDIR\${EXE}"
 SectionEnd
 
+; v3.1.0: instalación vía pip (requiere Python). Con esto el comando
+; `snapcontext` queda disponible en cualquier terminal, no solo el .exe.
+Section /o "Instalar/actualizar con pip (recomendado)" SecPip
+    DetailPrint "Instalando SnapContext desde PyPI con pip..."
+    nsExec::ExecToLog 'python -m pip install --upgrade snapcontext'
+    Pop $0
+    ${If} $0 = 0
+        DetailPrint "pip: SnapContext instalado correctamente."
+        ; Añadir %USERPROFILE%\.local\bin y Scripts de Python al PATH si
+        ; `snapcontext` no es accesible todavía.
+        nsExec::ExecToLog 'python -m snapcontext --setup-path'
+        Pop $1
+    ${Else}
+        DetailPrint "pip falló ($0). Instala Python 3.9+ y ejecuta: python -m pip install snapcontext"
+    ${EndIf}
+SectionEnd
+
 ; Descripciones de componentes.
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
     !insertmacro MUI_DESCRIPTION_TEXT ${SecMenu} \
         "Crea un acceso directo en el Menú Inicio."
     !insertmacro MUI_DESCRIPTION_TEXT ${SecEscritorio} \
         "Crea un acceso directo en el Escritorio."
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecPip} \
+        "Instala/actualiza SnapContext con pip (requiere Python 3.9+). Deja el comando 'snapcontext' disponible en cualquier terminal."
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 ; ── Desinstalador ───────────────────────────────────────────────────────────

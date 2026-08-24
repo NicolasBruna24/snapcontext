@@ -40,6 +40,50 @@ pip install aider-chat                  # ediciones de código
 snapcontext --init                      # asistente inicial + API key
 ```
 
+## 🧰 Instalación y onboarding sin fricción (v3.1.0)
+
+Objetivo: instalar SnapContext y empezar a usarlo en menos de 5 minutos.
+
+### Modo offline con Ollama por defecto
+Si no hay ninguna API key (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`,
+`DEEPSEEK_API_KEY`, `GROQ_API_KEY`, …), SnapContext usa **Ollama
+automáticamente** eligiendo el modelo más ligero disponible (`llama3.2`,
+`phi3`, …). Si tampoco hay Ollama, muestra un mensaje claro:
+
+> No se encontró una API key ni Ollama. Puedes instalar Ollama desde
+> <https://ollama.com> o configurar una API key con `snapcontext --init`.
+
+### `snapcontext --diagnostico`
+Revisa tu instalación con resumen en colores (verde OK / amarillo aviso /
+rojo error):
+- Versión de Python y si está en el PATH.
+- Instalación de SnapContext (`python -m snapcontext --version`).
+- Dependencias opcionales (`questionary`, `fastapi`, `sentence-transformers`, …).
+- Estado del PATH (si `snapcontext` es accesible como comando).
+- Memoria: integridad de la base SQLite y número de skills.
+Cada problema incluye su solución sugerida.
+
+### `snapcontext --reparar`
+Arregla instalaciones rotas:
+- Limpia entornos corruptos de `uv` (carpetas vacías en `~/.snapcontext`).
+- Reinstala SnapContext con `pip`.
+- Recrea la base SQLite si está corrupta (respaldando la anterior).
+- Si el PATH no incluye la carpeta de scripts, ejecuta `--setup-path`.
+
+### Tutorial y asistente mejorados
+- `snapcontext --bienvenida`: tutorial interactivo de primeros pasos.
+- `snapcontext --init` ahora también pregunta si quieres configurar Ollama
+  (ofreciendo abrir <https://ollama.com>), crear un proyecto de prueba y
+  ejecutar el tutorial interactivo.
+
+### Instalador gráfico para Windows
+El instalador NSIS (`installer.nsi`, generado con
+`scripts/empaquetar_exe.ps1`) ahora:
+- Detecta Python y guía al usuario (abre python.org si falta).
+- Añade una sección opcional "Instalar/actualizar con pip" que deja el
+  comando `snapcontext` disponible en cualquier terminal.
+- Sigue añadiendo la carpeta al PATH y creando accesos directos.
+
 ## 🚀 Inicio rápido (5 minutos)
 
 ```bash

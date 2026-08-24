@@ -357,7 +357,14 @@ Write-Host "    snapcontext --version"
 Write-Host '    snapcontext "el botón de pago no funciona"'
 Write-Host '    snapcontext "revisar login" --experto'
 Write-Host ""
-Write-Host "  Configura tu API key:"
+Write-Host "  Configura tu API key (opcional):"
 Write-Host '    $env:GEMINI_API_KEY = "tu_clave"'
+Write-Host ""
+Write-Host "  Sin API key, SnapContext 3.1.0 usa Ollama en modo offline"
+Write-Host "  automaticamente. Instalalo desde https://ollama.com y ejecuta:"
+Write-Host "    ollama pull llama3.2"
+Write-Host ""
+Write-Host "  Verifica tu instalacion:"
+Write-Host "    snapcontext --diagnostico"
 Write-Host ""
 

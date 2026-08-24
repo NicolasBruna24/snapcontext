@@ -4,6 +4,43 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [3.1.0] - 2026-08-24 - Instalación y onboarding sin fricción
+
+### Modo offline por defecto (Ollama)
+- Sin ninguna API key (GEMINI/ANTHROPIC/DEEPSEEK/GROQ/OPENAI), SnapContext
+  usa Ollama automaticamente eligiendo el modelo mas ligero disponible
+  (`llama3.2:1b`, `llama3.2`, `phi3`, `gemma2:2b`, `qwen2.5:0.5b`).
+- Si no hay ni API key ni Ollama, mensaje claro con instrucciones
+  (https://ollama.com o `snapcontext --init`).
+- Nuevas funciones: `hay_api_key_configurada()`, `_estado_ollama()`,
+  `_elegir_modelo_ligero()` y `_proveedor_offline()`.
+
+### Diagnostico (--diagnostico)
+- Revision completa de la instalacion con resumen en colores: Python,
+  instalacion del paquete, dependencias opcionales, PATH, proveedor de IA
+  y memoria SQLite (PRAGMA quick_check + conteo de skills).
+- Cada problema muestra su solucion sugerida. Codigos: 0 OK, 2 avisos,
+  1 errores.
+
+### Reparacion (--reparar)
+- Limpia entornos uv corruptos (carpetas vacias en ~/.snapcontext),
+  reinstala con pip, recrea la base SQLite corrupta (con respaldo
+  `.db.corrupto`) y ajusta el PATH en Windows via --setup-path.
+
+### Onboarding mejorado
+- Nuevo `--bienvenida`: tutorial interactivo de primeros pasos.
+- `--init` ampliado: configurar Ollama (ofrece abrir ollama.com), crear un
+  proyecto de prueba y lanzar el tutorial interactivo.
+
+### Instalador Windows (NSIS)
+- Deteccion de Python en .onInit (guia al usuario hacia python.org).
+- Seccion opcional de instalacion/actualizacion con pip + --setup-path.
+
+### Tests y docs
+- Nueva suite `tests/test_diagnostico_310.py` (19 tests) para los nuevos
+  comandos y el modo offline; versiones actualizadas en tests existentes.
+- README e install.ps1/install.sh documentan el modo offline.
+
 ## [3.0.0] - 2026-08-24 - Aprendizaje autonomo: memoria SQLite, skills, curador y daemon
 
 ### Memoria persistente avanzada (SQLite)

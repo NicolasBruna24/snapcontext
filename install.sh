@@ -228,6 +228,13 @@ echo "    snapcontext --version"
 echo '    snapcontext "el botón de pago no funciona"'
 echo '    snapcontext "revisar login" --experto'
 echo ""
-echo "  Configura tu API key:"
+echo "  Configura tu API key (opcional):"
 echo '    export GEMINI_API_KEY="tu_clave"'
+echo ""
+echo "  Sin API key, SnapContext 3.1.0 usa Ollama en modo offline"
+echo "  automáticamente. Instálalo desde https://ollama.com y ejecuta:"
+echo "    ollama pull llama3.2"
+echo ""
+echo "  Verifica tu instalación:"
+echo "    snapcontext --diagnostico"
 echo ""

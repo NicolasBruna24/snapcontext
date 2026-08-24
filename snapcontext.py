@@ -111,7 +111,28 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "3.0.0"
+VERSION = "3.1.0"
+
+# v3.1.0 — Claves de API reconocidas para el modo por defecto (offline).
+CLAVES_API_CONOCIDAS = (
+    "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY",
+    "GROQ_API_KEY", "OPENAI_API_KEY",
+)
+
+# v3.1.0 — Modelos ligeros preferidos en modo offline (por orden de prioridad).
+MODELOS_LIGEROS_OLLAMA = ("llama3.2:1b", "llama3.2", "phi3", "gemma2:2b",
+                          "qwen2.5:0.5b")
+
+# v3.1.0 — Mensaje cuando no hay ni API key ni Ollama disponible.
+MENSAJE_SIN_CLAVE_NI_OLLAMA = (
+    "No se encontró una API key ni Ollama.\n"
+    "Puedes instalar Ollama desde https://ollama.com o configurar una API\n"
+    "key con 'snapcontext --init'.\n"
+    "Alternativas:\n"
+    "  PowerShell :  $env:GEMINI_API_KEY=\"tu_clave\"\n"
+    "  Linux/Mac  :  export GEMINI_API_KEY=tu_clave\n"
+    "  Diagnóstico:  snapcontext --diagnostico"
+)
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
@@ -1366,7 +1387,126 @@ def asistente_configuracion_inicial() -> int:
         else:
             error("No se pudo conectar con la API. Revisa la clave.")
             return 1
+
+    # ── v3.1.0: Ollama, proyecto de prueba y tutorial ─────────────────────
+    if questionary.confirm(
+        "¿Quieres configurar Ollama (modo offline, sin API key)?"
+    ).ask():
+        estado_ol = _estado_ollama()
+        if estado_ol["modelos"]:
+            ligero = _elegir_modelo_ligero(estado_ol["modelos"])
+            exito(f"Ollama ya está listo (modelo más ligero: '{ligero}').")
+            if questionary.confirm(
+                "¿Usar Ollama como proveedor por defecto?"
+            ).ask():
+                guardar_configuracion("ollama", ligero, api_keys)
+                proveedor, modelo = "ollama", ligero
+                exito(f"Proveedor guardado: ollama / {ligero}.")
+        else:
+            aviso("Ollama no está instalado o no tiene modelos descargados.")
+            info("Descárgalo desde https://ollama.com y después ejecuta:")
+            info("  ollama pull llama3.2")
+            try:
+                import webbrowser
+                if questionary.confirm(
+                    "¿Abrir https://ollama.com en el navegador?"
+                ).ask():
+                    webbrowser.open("https://ollama.com")
+            except Exception:
+                pass
+
+    if questionary.confirm(
+        "¿Quieres crear un proyecto de prueba para empezar?"
+    ).ask():
+        try:
+            destino = input(_pintar(
+                "Carpeta del proyecto de prueba "
+                "(Enter = ./snapcontext-prueba): ", _CYAN)).strip() or \
+                "snapcontext-prueba"
+        except EOFError:
+            destino = ""
+        if destino:
+            ruta = Path(destino).expanduser().resolve()
+            try:
+                _crear_demo_proyecto(ruta)
+                exito(f"Proyecto de prueba creado en: {ruta}")
+                info("Pruébalo con:")
+                info(f'  cd "{ruta}" && snapcontext '
+                     '"describe este proyecto" --vista-previa --local')
+            except OSError as exc:
+                error(f"No se pudo crear el proyecto: {exc}")
+
+    if questionary.confirm(
+        "¿Quieres ejecutar el tutorial interactivo ahora (--bienvenida)?"
+    ).ask():
+        return _tutorial_interactivo()
     return 0
+
+
+# ---------------------------------------------------------------------------
+# Modo offline por defecto (v3.1.0): sin API key → Ollama automáticamente
+# ---------------------------------------------------------------------------
+def hay_api_key_configurada() -> bool:
+    """True si hay alguna clave de API en el entorno o en la configuración.
+
+    Comprueba las variables GEMINI_API_KEY / ANTHROPIC_API_KEY /
+    DEEPSEEK_API_KEY / GROQ_API_KEY / OPENAI_API_KEY y, además, las claves
+    guardadas en ~/.snapcontext/config.json (sección 'api_keys').
+    """
+    for env in CLAVES_API_CONOCIDAS:
+        if (os.environ.get(env) or "").strip():
+            return True
+    try:
+        claves = cargar_configuracion().get("api_keys") or {}
+    except Exception:
+        claves = {}
+    for valor in claves.values():
+        if isinstance(valor, str) and valor.strip():
+            return True
+    return False
+
+
+def _estado_ollama() -> dict:
+    """Devuelve {'instalado': bool, 'modelos': [str], 'error': str|None}."""
+    modelos, fallo = _listar_modelos_ollama()
+    return {
+        "instalado": bool(modelos) or (fallo is not None and "PATH" not in fallo),
+        "modelos": modelos,
+        "error": fallo,
+    }
+
+
+def _elegir_modelo_ligero(modelos: List[str]) -> Optional[str]:
+    """Elige el modelo más ligero disponible según MODELOS_LIGEROS_OLLAMA.
+
+    Devuelve None si la lista está vacía.
+    """
+    if not modelos:
+        return None
+    for preferido in MODELOS_LIGEROS_OLLAMA:
+        for m in modelos:
+            if m == preferido or m.startswith(preferido + ":"):
+                return m
+    # Coincidencia parcial (p. ej. "llama3.2:latest").
+    for preferido in MODELOS_LIGEROS_OLLAMA:
+        for m in modelos:
+            if preferido in m:
+                return m
+    return modelos[0]
+
+
+def _proveedor_offline() -> Optional[dict]:
+    """Intenta configurar Ollama como proveedor offline.
+
+    Devuelve {'provider': 'ollama', 'model': <ligero>} si Ollama tiene
+    modelos descargados; None en caso contrario (sin mostrar error fatal).
+    """
+    estado = _estado_ollama()
+    modelo = _elegir_modelo_ligero(estado["modelos"])
+    if not modelo:
+        return None
+    aviso("Sin API key: usando modo OFFLINE con Ollama ('" + modelo + "').")
+    return {"provider": "ollama", "model": modelo}
 
 
 def _determinar_proveedor(args: argparse.Namespace) -> dict:
@@ -1401,7 +1541,16 @@ def _determinar_proveedor(args: argparse.Namespace) -> dict:
             guardar_configuracion(proveedor_env, modelo_cli)
             return {"provider": proveedor_env, "model": modelo_cli}
 
-    # 4) Primer uso sin configuración: menú interactivo + preguntar si guardar.
+    # 4) Primer uso sin configuración. v3.1.0: si no hay ninguna API key,
+    #    se intenta Ollama automáticamente antes del menú interactivo.
+    if not hay_api_key_configurada():
+        offline = _proveedor_offline()
+        if offline:
+            if persistir and _preguntar_guardar_config():
+                guardar_configuracion(offline["provider"], offline["model"])
+            return offline
+        raise RuntimeError(MENSAJE_SIN_CLAVE_NI_OLLAMA)
+
     proveedor, modelo = seleccionar_proveedor_interactivo()
     if persistir and _preguntar_guardar_config():
         guardar_configuracion(proveedor, modelo)
@@ -6290,7 +6439,8 @@ def _pintar(texto: str, clave: str) -> str:
 CATEGORIAS_AYUDA = (
     ("Modos de ejecución",
      ("--plan", "--auto", "--editor", "--modo-edicion", "--chat", "--web", "--web-puerto", "--demo",
-      "--init", "--init-claude", "--historial", "--historial-limpiar")),
+      "--init", "--init-claude", "--historial", "--historial-limpiar",
+      "--diagnostico", "--reparar", "--bienvenida")),
     ("Selección de archivos",
      ("consulta", "--local", "--iniciar-proyecto", "--experto",
       "--vista-previa", "--carpetas", "--max-archivos", "--candidatos")),
@@ -6653,6 +6803,22 @@ def crear_parser() -> argparse.ArgumentParser:
              "'pip install snapcontext' sin usar el one-liner. Solo funciona en Windows.",
     )
     parser.add_argument(
+        "--diagnostico", action="store_true",
+        help="(v3.1.0) Revisa la instalación: Python, paquete, dependencias "
+             "opcionales, PATH, proveedor de IA (API key / Ollama) y memoria "
+             "SQLite, con resumen en colores y soluciones sugeridas.",
+    )
+    parser.add_argument(
+        "--reparar", action="store_true",
+        help="(v3.1.0) Repara una instalación rota: limpia entornos uv "
+             "corruptos, reinstala SnapContext con pip, recrea la base de "
+             "datos SQLite si está corrupta y ajusta el PATH (Windows).",
+    )
+    parser.add_argument(
+        "--bienvenida", action="store_true",
+        help="(v3.1.0) Muestra el tutorial interactivo de primeros pasos.",
+    )
+    parser.add_argument(
         "--web", action="store_true",
         help="Inicia la interfaz web en http://localhost:8000 (FastAPI + WebSockets "
              "con logs en tiempo real). Requiere: pip install snapcontext[web].",
@@ -6910,6 +7076,322 @@ def _guardar_path_windows(nuevo_path: str) -> bool:
         pass
 
     return False
+
+
+# ---------------------------------------------------------------------------
+# Diagnóstico y reparación (v3.1.0)
+# ---------------------------------------------------------------------------
+def _diagnostico_item(nombre: str, ok: bool, detalle: str,
+                      solucion: Optional[str] = None) -> bool:
+    """Imprime una línea de diagnóstico con color según el estado."""
+    if ok:
+        exito(f"{nombre}: {detalle}")
+    elif solucion:
+        aviso(f"{nombre}: {detalle}")
+        print(_pintar("    → Solución: " + solucion, _AMARILLO))
+    else:
+        error(f"{nombre}: {detalle}")
+    return ok
+
+
+def _comprobar_dependencias_opcionales() -> List[tuple]:
+    """Devuelve (modulo, instalado, instalacion) para dependencias opcionales."""
+    modulos = [
+        ("questionary", "questionary", "pip install snapcontext[interactive]"),
+        ("fastapi", "fastapi", "pip install snapcontext[web]"),
+        ("uvicorn", "uvicorn", "pip install snapcontext[web]"),
+        ("sentence_transformers", "sentence-transformers",
+         "pip install sentence-transformers"),
+        ("openai", "openai", "pip install openai"),
+        ("google.generativeai", "google-generativeai",
+         "pip install google-generativeai"),
+        ("aider", "aider-chat", "pip install aider-chat"),
+    ]
+    resultados = []
+    for modulo, paquete, extra in modulos:
+        try:
+            __import__(modulo)
+            resultados.append((paquete, True, extra))
+        except ImportError:
+            resultados.append((paquete, False, extra))
+    return resultados
+
+
+def snapcontext_en_path() -> bool:
+    """True si el comando 'snapcontext' es accesible desde el PATH."""
+    return shutil.which("snapcontext") is not None
+
+
+def _estado_memoria() -> dict:
+    """Comprueba la base SQLite y el número de skills.
+
+    Devuelve {'ok': bool, 'skills': int, 'error': str|None}.
+    """
+    if not os.path.exists(DB_PATH):
+        return {"ok": False, "skills": 0,
+                "error": f"No existe {DB_PATH} (se crea al primer uso)."}
+    try:
+        import sqlite3
+        con = sqlite3.connect(str(DB_PATH))
+        try:
+            try:
+                resultado = con.execute("PRAGMA quick_check").fetchone()
+                if not resultado or resultado[0] != "ok":
+                    return {"ok": False, "skills": 0,
+                            "error": "La base de datos está corrupta."}
+            except sqlite3.DatabaseError:
+                return {"ok": False, "skills": 0,
+                        "error": "La base de datos está corrupta."}
+            try:
+                skills = con.execute(
+                    "SELECT COUNT(*) FROM skills").fetchone()[0]
+            except sqlite3.Error:
+                skills = 0
+            return {"ok": True, "skills": skills, "error": None}
+        finally:
+            con.close()
+    except Exception as exc:
+        return {"ok": False, "skills": 0, "error": str(exc)}
+
+
+def _ejecutar_diagnostico(args: argparse.Namespace) -> int:
+    """Modo --diagnostico: revisa la instalación y muestra un resumen.
+
+    Comprueba Python, instalación del paquete, dependencias opcionales,
+    PATH, proveedor de IA (API key / Ollama) y memoria SQLite.
+    Devuelve 0 si todo está OK, 1 si hay errores y 2 si solo hay avisos.
+    """
+    info("=== SnapContext · Diagnóstico ===")
+    problemas = 0
+    avisos = 0
+
+    # 1) Python
+    version_py = sys.version.split()[0]
+    en_path = any(shutil.which(cmd) for cmd in ("python", "python3", "py"))
+    if not _diagnostico_item(
+            "Python", en_path,
+            f"v{version_py} ({sys.executable})" if en_path
+            else "no se encontró 'python' en el PATH",
+            "Instala Python 3.9+ desde https://python.org y marca "
+            "'Add to PATH'"):
+        problemas += 1
+
+    # 2) Instalación de SnapContext
+    if getattr(sys, "frozen", False):
+        exito("SnapContext: instalado como ejecutable empaquetado.")
+    else:
+        try:
+            from importlib.metadata import version as _meta_version
+            instalada = _meta_version("snapcontext")
+            exito(f"SnapContext: instalado (v{instalada}). "
+                  "`python -m snapcontext --version` disponible.")
+        except Exception:
+            aviso("SnapContext no consta como paquete instalado.")
+            print(_pintar("    → Solución: pip install snapcontext "
+                          "(o python -m pip install -e .)", _AMARILLO))
+            avisos += 1
+
+    # 3) Dependencias opcionales
+    for paquete, presente, extra in _comprobar_dependencias_opcionales():
+        if presente:
+            exito(f"Dependencia '{paquete}': OK.")
+        else:
+            aviso(f"Dependencia opcional '{paquete}' no instalada.")
+            print(_pintar(f"    → Instalar con: {extra}", _AMARILLO))
+            avisos += 1
+
+    # 4) PATH
+    if snapcontext_en_path():
+        exito("PATH: el comando 'snapcontext' es accesible.")
+    else:
+        aviso("PATH: 'snapcontext' no es accesible como comando global.")
+        print(_pintar("    → Solución: ejecuta 'snapcontext --setup-path' "
+                      "(Windows) o reinstala con install.ps1/install.sh",
+                      _AMARILLO))
+        avisos += 1
+
+    # 5) Proveedor de IA / modo offline
+    if hay_api_key_configurada():
+        exito("Proveedor de IA: API key configurada.")
+    else:
+        estado_ol = _estado_ollama()
+        if estado_ol["modelos"]:
+            ligero = _elegir_modelo_ligero(estado_ol["modelos"])
+            exito("Proveedor de IA: sin API key, pero Ollama está listo "
+                  f"(modo offline con '{ligero}').")
+        elif estado_ol["instalado"]:
+            aviso("Ollama instalado pero sin modelos descargados.")
+            print(_pintar("    → Solución: ollama pull llama3.2", _AMARILLO))
+            avisos += 1
+        else:
+            error("No se encontró una API key ni Ollama.")
+            print(_pintar("    → Solución: instala Ollama desde "
+                          "https://ollama.com o ejecuta 'snapcontext --init'.",
+                          _ROJO))
+            problemas += 1
+
+    # 6) Memoria (SQLite + skills)
+    memoria = _estado_memoria()
+    if memoria["ok"]:
+        exito(f"Memoria: base de datos OK ({memoria['skills']} skills).")
+    elif memoria["error"] and "corrupta" in (memoria["error"] or ""):
+        error(f"Memoria: {memoria['error']}")
+        print(_pintar("    → Solución: ejecuta 'snapcontext --reparar'",
+                      _ROJO))
+        problemas += 1
+    else:
+        aviso(f"Memoria: {memoria['error']}")
+        avisos += 1
+
+    print()
+    if problemas:
+        error(f"Diagnóstico completado con {problemas} problema(s) y "
+              f"{avisos} aviso(s). Ejecuta 'snapcontext --reparar' si lo "
+              "necesitas.")
+        return 1
+    if avisos:
+        aviso(f"Diagnóstico completado: todo funcional, {avisos} aviso(s).")
+        return 2
+    exito("Diagnóstico completado: todo correcto ✔")
+    return 0
+
+
+def _limpiar_entorno_uv_corrupto() -> bool:
+    """Elimina carpetas de entorno de 'uv' vacías/corruptas (v3.1.0).
+
+    Un fallo conocido deja entornos vacíos que rompen reintentos.
+    Devuelve True si se limpió algo.
+    """
+    limpio = False
+    for carpeta in (CONFIG_DIR / ".venv-uv", CONFIG_DIR / ".venv"):
+        try:
+            if carpeta.is_dir() and not any(carpeta.iterdir()):
+                carpeta.rmdir()
+                info(f"Entorno uv vacío eliminado: {carpeta}")
+                limpio = True
+        except OSError:
+            pass
+    return limpio
+
+
+def _reinstalar_snapcontext() -> bool:
+    """Reinstala SnapContext con pip (con fallback a `uv pip`)."""
+    comando = [sys.executable, "-m", "pip", "install", "--upgrade",
+               "--force-reinstall", "--no-deps", "snapcontext"]
+    info("Reinstalando SnapContext con pip...")
+    try:
+        proc = subprocess.run(comando, capture_output=True, text=True,
+                              timeout=600)
+        if proc.returncode == 0:
+            exito("SnapContext reinstalado correctamente.")
+            return True
+        aviso("pip devolvió un error: " +
+              ((proc.stderr or proc.stdout or "").strip()[-300:]))
+    except (OSError, subprocess.SubprocessError) as exc:
+        aviso(f"No se pudo ejecutar pip: {exc}")
+    return False
+
+
+def _reparar_memoria_si_corrupta() -> bool:
+    """Recrea la base SQLite si está corrupta. True si quedó operativa."""
+    estado = _estado_memoria()
+    if estado["ok"]:
+        return True
+    if estado["error"] and "corrupta" in estado["error"]:
+        try:
+            copia = DB_PATH.with_suffix(".db.corrupto")
+            if os.path.exists(copia):
+                copia.unlink()
+            DB_PATH.rename(copia)
+            _db_init()
+            aviso(f"Base de datos corrupta respaldada como '{copia.name}' "
+                  "y recreada.")
+            return True
+        except OSError as exc:
+            error(f"No se pudo reparar la base de datos: {exc}")
+            return False
+    # No existe aún: crearla.
+    try:
+        _db_init()
+        exito("Memoria inicializada.")
+        return True
+    except Exception as exc:                       # pragma: no cover
+        error(f"No se pudo inicializar la memoria: {exc}")
+        return False
+
+
+def _ejecutar_reparacion(args: argparse.Namespace) -> int:
+    """Modo --reparar: arregla instalaciones rotas paso a paso.
+
+    Pasos: limpiar entornos uv corruptos, reinstalar con pip, reparar la
+    base SQLite y añadir la carpeta de scripts al PATH (Windows).
+    """
+    info("=== SnapContext · Reparación ===")
+    ok_global = True
+
+    if _limpiar_entorno_uv_corrupto():
+        exito("Entornos uv corruptos eliminados.")
+
+    if not _reinstalar_snapcontext():
+        ok_global = False
+
+    if _reparar_memoria_si_corrupta():
+        exito("Memoria verificada/reparada.")
+    else:
+        ok_global = False
+
+    if sys.platform.startswith("win") and not snapcontext_en_path():
+        aviso("El comando 'snapcontext' sigue sin estar en el PATH; "
+              "ejecutando --setup-path...")
+        if configurar_path() != 0:
+            ok_global = False
+    elif snapcontext_en_path():
+        exito("PATH correcto: 'snapcontext' accesible.")
+
+    if ok_global:
+        exito("Reparación completada. Prueba 'snapcontext --diagnostico'.")
+        return 0
+    error("La reparación terminó con incidencias; revisa los mensajes.")
+    return 1
+
+
+def _tutorial_interactivo() -> int:
+    """Tutorial interactivo (--bienvenida): guía de primeros pasos."""
+    info("=== SnapContext · Tutorial interactivo ===")
+    pasos = [
+        ("1. Comprueba tu instalación",
+         "  Ejecuta 'snapcontext --version' y 'snapcontext --diagnostico'\n"
+         "  para verificar que todo está listo."),
+        ("2. Configura tu cerebro",
+         "  Sin API key, SnapContext usa Ollama local automáticamente.\n"
+         "  Con clave: 'snapcontext --init' guarda tu proveedor favorito."),
+        ("3. Tu primera tarea",
+         '  En tu proyecto ejecuta:\n'
+         '    snapcontext "describe brevemente este proyecto" --vista-previa\n'
+         "  Verás qué archivos seleccionaría la IA sin tocar nada."),
+        ("4. Deja que trabaje",
+         "  Quita --vista-previa y SnapContext usará Aider para editar.\n"
+         "  Añade --test-loop para que verifique con tus pruebas."),
+        ("5. Aprende más",
+         "  'snapcontext --help' (ayuda agrupada), 'snapcontext --demo'\n"
+         '  y \'snapcontext --plan "tarea"\' (planificador).'),
+    ]
+    for titulo, detalle in pasos:
+        exito(titulo)
+        print(detalle)
+        print()
+        try:
+            respuesta = input(
+                _pintar("  [Enter] continuar ('q' para salir)... ",
+                        _CYAN)).strip().lower()
+        except EOFError:
+            break
+        if respuesta in ("q", "quit", "salir"):
+            info("Tutorial interrumpido. Puedes volver a verlo con "
+                 "'snapcontext --bienvenida'.")
+            return 0
+    exito("¡Tutorial completado! Bienvenido a SnapContext 🎉")
+    return 0
 
 
 def configurar_path() -> int:
@@ -7215,6 +7697,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         # y termina sin recorrer el pipeline (ni pedir consulta).
         if getattr(args, "setup_path", False):
             return configurar_path()
+        # v3.1.0: diagnóstico, reparación y tutorial son independientes.
+        if getattr(args, "diagnostico", False):
+            return _ejecutar_diagnostico(args)
+        if getattr(args, "reparar", False):
+            return _ejecutar_reparacion(args)
+        if getattr(args, "bienvenida", False):
+            return _tutorial_interactivo()
         # --web inicia la interfaz web (FastAPI + WebSockets) y bloquea hasta parar.
         if getattr(args, "web", False):
             return iniciar_servidor_web(args)
