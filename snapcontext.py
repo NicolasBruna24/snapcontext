@@ -110,7 +110,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "1.7.0"
+VERSION = "2.0.0"
 
 
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
@@ -272,6 +272,7 @@ MODELO_DEFECTO = os.environ.get("SNAPCONTEXT_MODELO") or None
 # Preferencias guardadas (~/.snapcontext/config.json): proveedor y modelo.
 CONFIG_DIR = Path.home() / ".snapcontext"
 CONFIG_PATH = CONFIG_DIR / "config.json"
+BACKUPS_DIR = CONFIG_DIR / "backups"
 MAX_ARCHIVOS_DEFECTO = 3                           # archivos que recibe Aider
 MAX_CANDIDATOS_DEFECTO = 80                        # candidatos que se envían al selector IA
 MAX_ITERACIONES_TEST_DEFECTO = 3
@@ -1474,6 +1475,61 @@ def ejecutar_aider(archivos: List[str], consulta: str, directorio: str,
         return True
     aviso(f"Aider terminó con código {resultado.returncode}.")
     return False
+
+
+def _editor_sobrescribir(archivo: str, contenido: str,
+                          directorio: str = ".") -> bool:
+    """Editor propio (Fase 1 — Sobrescritura de archivos).
+
+    Escribe `contenido` en `archivo` dentro de `directorio`.
+    - Valida que la ruta esté dentro del repositorio.
+    - Crea copia de seguridad en ~/.snapcontext/backups/ antes de sobrescribir.
+    - Crea carpetas intermedias si no existen.
+    - Devuelve True si tuvo éxito, False en caso de error.
+    """
+    if not archivo or not str(archivo).strip():
+        error("La ruta del archivo no puede estar vacía.")
+        return False
+
+    raw = str(archivo).replace("\\", "/").strip()
+    partes_raw = raw.split("/")
+    if ".." in partes_raw or raw.startswith("/"):
+        error(f"Acceso denegado: el archivo '{archivo}' contiene referencias a directorios padre o raíz.")
+        return False
+
+    raiz_res = Path(directorio).resolve()
+    limpia = _normalizar_relativa(raw)
+    if not limpia:
+        error(f"Ruta no válida: {archivo}")
+        return False
+
+    destino = (raiz_res / limpia).resolve()
+    try:
+        destino.relative_to(raiz_res)
+    except ValueError:
+        error(f"Acceso denegado: el archivo '{archivo}' está fuera del repositorio.")
+        return False
+
+    # Si el archivo ya existe, guardar backup
+    if destino.exists() and destino.is_file():
+        try:
+            BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            nombre_backup = f"{ts}_{destino.name}"
+            backup_path = BACKUPS_DIR / nombre_backup
+            shutil.copy2(destino, backup_path)
+            depurar(f"[EditorPropio] Backup guardado en {backup_path}")
+        except Exception as exc:
+            aviso(f"[EditorPropio] No se pudo crear backup de {limpia}: {exc}")
+
+    try:
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_text(contenido, encoding="utf-8")
+        exito(f"[EditorPropio] Archivo actualizado: {limpia}")
+        return True
+    except Exception as exc:
+        error(f"[EditorPropio] Error al escribir {limpia}: {exc}")
+        return False
 
 
 def _extraer_error(resultado: "subprocess.CompletedProcess") -> str:
@@ -3061,7 +3117,19 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
             error(str(exc))
             return (False, str(exc))
 
-    # accion == "editar": reutiliza el pipeline existente con este paso.
+    # accion == "editar": reutiliza el pipeline existente o usa el editor propio
+    editor_elegido = getattr(args, "editor", "aider") or "aider"
+    if editor_elegido == "propio":
+        archivos_paso = paso.get("archivos", [])
+        contenido_paso = paso.get("contenido")
+        if archivos_paso and contenido_paso is not None:
+            # Si el paso trae archivo y contenido explícito
+            todo_ok = True
+            for arch in archivos_paso:
+                if not _editor_sobrescribir(arch, contenido_paso, raiz):
+                    todo_ok = False
+            return (todo_ok, f"EditorPropio sobre {len(archivos_paso)} archivo(s)")
+
     paso_args = argparse.Namespace(**vars(args))
     paso_args.consulta = descripcion
     orch = Orquestador()
@@ -3069,6 +3137,44 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
     if plan is None:
         return (False, "no se pudo planificar la edición (sin candidatos)")
     _, ruta_raiz, _, seleccion = plan
+
+    if editor_elegido == "propio":
+        # Con editor propio sin contenido predefinido, pedimos al proveedor que genere el contenido
+        preferencias = cargar_configuracion()
+        proveedor = preferencias.get("provider") or PROVEEDOR_DEFECTO
+        todo_ok = True
+        for arch in seleccion:
+            camino = (Path(ruta_raiz) / arch).resolve()
+            contenido_actual = ""
+            if camino.is_file():
+                try:
+                    contenido_actual = camino.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    pass
+            prompt_editor = (
+                f"Modifica el siguiente archivo para cumplir con la tarea.\n\n"
+                f"Tarea: {descripcion}\n"
+                f"Archivo: {arch}\n\n"
+                f"Contenido actual:\n```\n{contenido_actual}\n```\n\n"
+                f"Devuelve ÚNICAMENTE el código completo resultante, sin explicaciones ni markdown."
+            )
+            try:
+                nuevo_contenido = _enviar_al_proveedor(
+                    proveedor, getattr(args, "modelo", None),
+                    [{"role": "user", "content": prompt_editor}]
+                )
+                # Limpiar bloques de código si vinieron envueltos en ```
+                if nuevo_contenido.startswith("```"):
+                    lineas = nuevo_contenido.splitlines()
+                    if len(lineas) >= 2 and lineas[-1].startswith("```"):
+                        nuevo_contenido = "\n".join(lineas[1:-1])
+                if not _editor_sobrescribir(arch, nuevo_contenido, str(ruta_raiz)):
+                    todo_ok = False
+            except Exception as exc:
+                error(f"Error generando cambios para {arch}: {exc}")
+                todo_ok = False
+        return (todo_ok, f"EditorPropio sobre {len(seleccion)} archivo(s)")
+
     if getattr(args, "test_loop", False):
         ok = orch._bucle_test(
             descripcion, seleccion, str(ruta_raiz),
@@ -4492,8 +4598,8 @@ def _indexar_proyecto(directorio: str = ".",
     fragmentos_previos = {(f["archivo"], f.get("hash_archivo")): f
                           for f in indice_previo.get("fragmentos", [])}
 
-    # 1) Recolectar archivos candidatos (relativo, contenido, hash).
-    archivos: List[tuple] = []
+    # 1) Recolectar archivos candidatos (relativo, contenido, hash) en paralelo.
+    candidatos_rutas: List[Path] = []
     for camino in sorted(raiz.rglob("*")):
         if not camino.is_file() or camino.suffix.lower() not in extensiones:
             continue
@@ -4502,12 +4608,25 @@ def _indexar_proyecto(directorio: str = ".",
         relativo = camino.relative_to(raiz).as_posix()
         if _es_ignorado(relativo, patrones):
             continue
+        candidatos_rutas.append(camino)
+
+    def _leer_archivo_candidato(camino: Path) -> Optional[tuple]:
+        rel = camino.relative_to(raiz).as_posix()
         try:
-            contenido = camino.read_text(encoding="utf-8", errors="replace")
+            cont = camino.read_text(encoding="utf-8", errors="replace")
+            return (rel, cont, _hash_texto(cont))
         except OSError as exc:
-            aviso(f"No se pudo leer {relativo}: {exc}")
-            continue
-        archivos.append((relativo, contenido, _hash_texto(contenido)))
+            aviso(f"No se pudo leer {rel}: {exc}")
+            return None
+
+    archivos: List[tuple] = []
+    if candidatos_rutas:
+        num_hilos = min(8, len(candidatos_rutas), (os.cpu_count() or 4) * 2)
+        with ThreadPoolExecutor(max_workers=num_hilos) as pool:
+            resultados = pool.map(_leer_archivo_candidato, candidatos_rutas)
+            for res in resultados:
+                if res is not None:
+                    archivos.append(res)
 
     if not archivos:
         raise RuntimeError("No se encontraron archivos de código para indexar.")
@@ -4869,7 +4988,7 @@ def _pintar(texto: str, clave: str) -> str:
 # Categorías en orden de aparición; cada opción se muestra una sola vez.
 CATEGORIAS_AYUDA = (
     ("Modos de ejecución",
-     ("--plan", "--auto", "--chat", "--web", "--web-puerto", "--demo",
+     ("--plan", "--auto", "--editor", "--chat", "--web", "--web-puerto", "--demo",
       "--init", "--init-claude", "--historial", "--historial-limpiar")),
     ("Selección de archivos",
      ("consulta", "--local", "--iniciar-proyecto", "--experto",
@@ -5303,6 +5422,12 @@ def crear_parser() -> argparse.ArgumentParser:
              "mutuas en paralelo (por defecto 1 = secuencial). Los logs de cada "
              "paso llevan su identificador [paso N]. Los pasos con campo "
              "'dependencias' esperan a que sus dependencias tengan éxito.",
+    )
+    parser.add_argument(
+        "--editor", choices=["aider", "propio"], default="aider",
+        help="Editor a usar para aplicar cambios: 'aider' (por defecto, "
+             "requiere Aider instalado) o 'propio' (editor integrado de "
+             "SnapContext, sobrescribe archivos directamente con backup automático).",
     )
     # Ayuda agrupada por categorías (-h/--help) — v1.7.
     parser.add_argument(

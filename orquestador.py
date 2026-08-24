@@ -20,7 +20,7 @@ import shlex
 import sys
 from typing import List, Optional, Tuple
 
-from agentes import AgenteContexto, AgenteEditor, AgenteTester
+from agentes import AgenteContexto, AgenteEditor, AgenteEditorPropio, AgenteTester
 
 # Centinela diferenciado del None de "aborto": _planificar lo devuelve cuando
 # el pipeline termina de forma exitosa y temprana (p. ej. --vista-previa).
@@ -39,6 +39,7 @@ class Orquestador:
         """
         self.agente_contexto = AgenteContexto()
         self.agente_editor = AgenteEditor()
+        self.agente_editor_propio = AgenteEditorPropio()
         self.agente_tester = AgenteTester()
         self.evento_callback = evento_callback
 
@@ -175,13 +176,51 @@ class Orquestador:
                     max_iteraciones=max(args.max_iteraciones, 1),
                 )
             else:
-                sc.depurar("[Orquestador] Modo edición directa (AgenteEditor).")
-                self._emitir_tipo("aider", accion="iniciar", archivos=seleccion)
-                ok = self.agente_editor.ejecutar_aider(
-                    seleccion, consulta, str(raiz),
-                    opciones_aider=args.aider_opciones,
-                )
-                self._emitir_tipo("aider", accion="fin", ok=ok)
+                editor_tipo = getattr(args, "editor", "aider") or "aider"
+                if editor_tipo == "propio":
+                    sc.depurar("[Orquestador] Modo edición directa (AgenteEditorPropio).")
+                    self._emitir_tipo("editor", accion="iniciar", archivos=seleccion)
+                    pref = sc.cargar_configuracion()
+                    proveedor = pref.get("provider") or sc.PROVEEDOR_DEFECTO
+                    ok = True
+                    for arch in seleccion:
+                        camino = (raiz / arch).resolve()
+                        contenido_actual = ""
+                        if camino.is_file():
+                            try:
+                                contenido_actual = camino.read_text(encoding="utf-8", errors="replace")
+                            except Exception:
+                                pass
+                        prompt_editor = (
+                            f"Modifica el siguiente archivo para cumplir con la tarea.\n\n"
+                            f"Tarea: {consulta}\n"
+                            f"Archivo: {arch}\n\n"
+                            f"Contenido actual:\n```\n{contenido_actual}\n```\n\n"
+                            f"Devuelve ÚNICAMENTE el código completo resultante, sin explicaciones ni markdown."
+                        )
+                        try:
+                            nuevo_contenido = sc._enviar_al_proveedor(
+                                proveedor, getattr(args, "modelo", None),
+                                [{"role": "user", "content": prompt_editor}]
+                            )
+                            if nuevo_contenido.startswith("```"):
+                                lineas = nuevo_contenido.splitlines()
+                                if len(lineas) >= 2 and lineas[-1].startswith("```"):
+                                    nuevo_contenido = "\n".join(lineas[1:-1])
+                            if not self.agente_editor_propio.sobrescribir(arch, nuevo_contenido, str(raiz)):
+                                ok = False
+                        except Exception as exc:
+                            sc.error(f"Error generando cambios para {arch}: {exc}")
+                            ok = False
+                    self._emitir_tipo("editor", accion="fin", ok=ok)
+                else:
+                    sc.depurar("[Orquestador] Modo edición directa (AgenteEditor).")
+                    self._emitir_tipo("aider", accion="iniciar", archivos=seleccion)
+                    ok = self.agente_editor.ejecutar_aider(
+                        seleccion, consulta, str(raiz),
+                        opciones_aider=args.aider_opciones,
+                    )
+                    self._emitir_tipo("aider", accion="fin", ok=ok)
             self._emitir_tipo("final", ok=ok)
             return 0 if ok else 1
         finally:

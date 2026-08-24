@@ -182,7 +182,7 @@ class TestFlagsConfirmarCLI(unittest.TestCase):
         self.assertFalse(self._parse(["--chat", "--no-confirmar"]).confirmar)
 
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "1.7.0")
+        self.assertEqual(sc.VERSION, "2.0.0")
 
 
 if __name__ == "__main__":

@@ -222,6 +222,7 @@ class TestEjecutarPlanificador(unittest.TestCase):
         guardados = []
         with mock.patch.object(sc, "_generar_plan", return_value=pasos) as gp, \
              mock.patch.object(sc, "_preguntar_si", return_value=True), \
+             mock.patch("builtins.input", return_value="c"), \
              mock.patch.object(sc, "_ejecutar_paso_plan",
                                side_effect=[(True, "ok"), (True, "ok")]) as ep, \
              mock.patch.object(sc, "_guardar_historial",
@@ -268,7 +269,7 @@ class TestFlagsPlanCLI(unittest.TestCase):
         self.assertIsNone(self._parse(["--plan", "x"]).branch)
 
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "1.7.0")
+        self.assertEqual(sc.VERSION, "2.0.0")
 
 
 if __name__ == "__main__":

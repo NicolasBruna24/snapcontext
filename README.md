@@ -1,6 +1,6 @@
 # SnapContext
 
-![v1.2.0](https://img.shields.io/badge/version-1.2.0-blue.svg)
+![v2.0.0](https://img.shields.io/badge/version-2.0.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -40,22 +40,41 @@ pip install aider-chat                  # ediciones de código
 snapcontext --init                      # asistente inicial + API key
 ```
 
-## 🚀 Inicio rápido
+## 🚀 Inicio rápido (5 minutos)
 
 ```bash
-snapcontext "arregla el botón de pago"        # tarea completa
-snapcontext "..." --vista-previa              # ver archivos elegidos sin editar
-snapcontext --demo                            # demo completa sin API key
+# 1. Tarea directa con editor integrado propio
+snapcontext "arregla el botón de pago" --editor propio
+
+# 2. Planificador autónomo
+snapcontext plan "añadir validación al formulario" --auto
+
+# 3. Chat interactivo
+snapcontext --chat
+
+# 4. Interfaz web completa
+snapcontext interactive  # o snapcontext --web
 ```
 
 Auto-detección de proyecto (Flutter, Node/React, Python, Go, Rust…) que ajusta
 carpetas, extensiones y comandos de test por defecto.
+
+## 🛠️ Editor Integrado Propio (v2.0.0)
+
+SnapContext v2.0.0 incluye su propio editor integrado:
+- **`--editor propio`**: Aplica cambios directamente y crea copias de seguridad automáticas en `~/.snapcontext/backups/`.
+- **`--editor aider`** (por defecto): Mantiene el flujo de edición con Aider para máxima compatibilidad.
+
+```bash
+snapcontext "añadir endpoint de métricas" --editor propio
+```
 
 ## 🧭 Modos y alias
 
 | Modo | Comando |
 |------|---------|
 | Tarea | `snapcontext "<consulta>"` (+ `--test-loop`) |
+| Editor propio | `--editor propio` (con backups automáticos) |
 | Vista previa / revisión | `--vista-previa` · alias `review` |
 | Chat interactivo | `--chat` |
 | Planificador | `--plan "<tarea>"` |

@@ -168,7 +168,7 @@ class TestFlagsCLI(unittest.TestCase):
         self.assertTrue(args.vista_previa)
 
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "1.7.0")
+        self.assertEqual(sc.VERSION, "2.0.0")
 
 
 class TestComandosAgenteChat(unittest.TestCase):
@@ -183,7 +183,7 @@ class TestComandosAgenteChat(unittest.TestCase):
 
     def test_run_muestra_salida(self):
         sc._cmd_chat_run("cmd /c echo prueba" if sys.platform.startswith("win")
-                         else "echo prueba", str(self.dir_tmp))
+                         else "echo prueba", str(self.dir_tmp), confirmar=False)
 
     def test_run_sin_comando_avisa(self):
         sc._cmd_chat_run("")   # no debe lanzar excepción

@@ -134,6 +134,34 @@ class AgenteEditor:
         return sc.ejecutar_aider(archivos, mensaje, directorio, opciones)
 
 
+class AgenteEditorPropio:
+    """Agente Editor Propio: editor integrado de SnapContext.
+
+    Aplica cambios directamente sobre el sistema de archivos sin depender de
+    herramientas externas. En Fase 1 realiza sobrescritura segura con copia de
+    seguridad previa automática en ``~/.snapcontext/backups/``.
+    """
+
+    def sobrescribir(
+        self,
+        archivo: str,
+        contenido: str,
+        directorio: str = ".",
+    ) -> bool:
+        """Sobrescribe ``archivo`` con ``contenido`` en ``directorio``.
+
+        Devuelve ``True`` si la escritura fue exitosa, ``False`` si falló.
+        """
+        import snapcontext as sc
+
+        sc.depurar(
+            f"[AgenteEditorPropio] Sobrescribiendo '{archivo}' en '{directorio}'"
+        )
+        return sc._editor_sobrescribir(archivo, contenido, directorio=directorio)
+
+
+
+
 class AgenteTester:
     """Agente Tester: ejecuta las pruebas y analiza los errores devueltos.
 

@@ -6,6 +6,37 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ---
 
+## [2.0.0] - 2026-08-23 · 🚀 Versión Estable & Editor Integrado Propio
+
+### ✨ Nuevas funcionalidades
+
+#### 🛠️ Editor Propio (Fase 1 — Sobrescritura de Archivos)
+- **Nuevo flag `--editor {aider,propio}`**:
+  - `aider` (por defecto): mantiene el flujo original con Aider sin romper nada.
+  - `propio`: usa el editor integrado de SnapContext para escribir/sobrescribir código directamente sin requerir herramientas externas.
+- **Sobrescritura segura con copias de seguridad automáticas**:
+  - Función `_editor_sobrescribir()` con validación de rutas y protección estricta contra path traversal (`..` / `/`).
+  - Copias de seguridad automáticas guardadas en `~/.snapcontext/backups/<timestamp>_<nombre_archivo>`.
+  - Nueva clase `AgenteEditorPropio` integrada en la arquitectura de agentes (`agentes.py`) y en el `Orquestador` (`orquestador.py`).
+- **Integración con Planificador y Chat**:
+  - En `--plan` con `--editor propio`, los pasos de edición generan el código con el proveedor de IA configurado y lo aplican directamente.
+
+#### ⚡ Optimización de Rendimiento
+- **Indexación paralela con `ThreadPoolExecutor`**:
+  - `_indexar_proyecto()` ahora lee y hashea archivos concurrentemente acelerando proyectos medianos y grandes.
+  - Exclusión eficiente de carpetas pesadas (`node_modules`, `.git`, `build`, etc.).
+
+### 🔧 Compatibilidad y Estabilidad
+- Todas las funcionalidades existentes (Planificador, Chat REPL, Servidor Web FastAPI, Extensiones VS Code y JetBrains, MCP, Memoria CLAUDE.md) mantienen compatibilidad total.
+- Bump de versión a `2.0.0` en `snapcontext.py`, `pyproject.toml`, `web/app.py`, `vscode/package.json` y `jetbrains/build.gradle.kts`.
+- Clasificador de paquete actualizado a `Production/Stable`.
+
+### 🧪 Tests
+- Nuevo `tests/test_editor_propio_200.py` (9 tests): creación de archivos nuevos, backups automáticos en sobrescrituras, protección contra rutas fuera de repo, flags CLI y clase `AgenteEditorPropio`.
+- Suite completa pasando con 270+ pruebas unitarias.
+
+---
+
 ## [1.7.0] - 2026-08-23 · 🧠 Extensión para IntelliJ IDEA / PyCharm
 
 ### ✨ Nuevas funcionalidades
