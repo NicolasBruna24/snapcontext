@@ -4821,9 +4821,267 @@ def _buscar_en_codigo(tema, directorio=".", max_resultados=50):
     return lineas[:max_resultados]
 
 
+# ---------------------------------------------------------------------------
+# Ayuda agrupada y coloreada (`snapcontext --help`)
+# ---------------------------------------------------------------------------
+# Códigos ANSI; si el terminal no soporta color (o NO_COLOR está definido), se
+# degradan a texto plano. `colorama` se usa solo para inicializar en Windows
+# si está disponible; nunca es obligatorio.
+_ANSI = {
+    "negrita": "\033[1m", "cian": "\033[96m", "amarillo": "\033[93m",
+    "verde": "\033[92m", "gris": "\033[90m", "reset": "\033[0m",
+}
+_AYUDA_CON_COLOR = False   # se calcula una sola vez al mostrar --help
+
+
+def _colores_activos() -> bool:
+    """True si se pueden usar colores ANSI en la ayuda."""
+    if os.environ.get("NO_COLOR"):
+        return False
+    if os.environ.get("FORCE_COLOR"):
+        return True
+    try:
+        if not sys.stdout.isatty():
+            return False
+    except Exception:
+        return False
+    try:
+        import colorama  # opcional; solo inicializa Windows
+        colorama.just_fix_windows_console()
+    except Exception:
+        pass
+    if os.name == "nt":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32          # type: ignore[attr-defined]
+            kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+        except Exception:
+            pass                                       # sin VT → texto plano
+    return True
+
+
+def _pintar(texto: str, clave: str) -> str:
+    """Aplica el color ANSI ``clave`` si los colores están activos."""
+    if not _AYUDA_CON_COLOR:
+        return texto
+    return f"{_ANSI.get(clave, '')}{texto}{_ANSI['reset']}"
+
+# Categorías en orden de aparición; cada opción se muestra una sola vez.
+CATEGORIAS_AYUDA = (
+    ("Modos de ejecución",
+     ("--plan", "--auto", "--chat", "--web", "--web-puerto", "--demo",
+      "--init", "--init-claude", "--historial", "--historial-limpiar")),
+    ("Selección de archivos",
+     ("consulta", "--local", "--iniciar-proyecto", "--experto",
+      "--vista-previa", "--carpetas", "--max-archivos", "--candidatos")),
+    ("Proveedores de IA",
+     ("--provider", "--model", "--no-persist")),
+    ("Permisos y seguridad",
+     ("--confirmar", "--no-confirmar")),
+    ("Git y control de versiones",
+     ("--git-commit", "--no-git-commit", "--branch")),
+    ("Planificador y bucles",
+     ("--paralelo", "--max-intentos", "--test-loop", "--server-loop",
+      "--manual-loop", "--comando-test", "--dispositivo", "--url-defecto",
+      "--max-iteraciones")),
+    ("Otros",
+     ("consulta", "--directorio", "--aider-opciones", "--depurar",
+      "--setup-path", "--version", "-h", "--help")),
+)
+
+# Alias/subcomandos que resuelve _preparar_argv_aliases().
+ALIAS_AYUDA = (
+    ("fix <consulta>", "Ejecuta la consulta con --test-loop."),
+    ("review <consulta>", "Ejecuta con --vista-previa --experto."),
+    ("server <consulta>", "Ejecuta con --server-loop."),
+    ("interactive", "Abre la interfaz web (--web)."),
+    ("plan <tarea>", "Ejecuta el planificador (--plan)."),
+    ("auto <tarea>", "Ejecuta el planificador autónomo (--plan --auto)."),
+)
+
+EJEMPLOS_AYUDA = (
+    'snapcontext "el botón de pago no funciona"',
+    'snapcontext fix "el botón de pago no funciona"',
+    'snapcontext plan "añadir validación al formulario" --auto',
+    'snapcontext review "revisar el login"',
+    'snapcontext interactive',
+    'snapcontext --chat',
+    'snapcontext --demo',
+    'snapcontext "..." --provider groq --model llama-3.3-70b-versatile',
+)
+
+
+def _invocacion_accion(accion) -> str:
+    """Representación compacta de una opción (p. ej. ``--max-archivos N``)."""
+    if not accion.option_strings:
+        return accion.dest.upper()
+    partes = ", ".join(accion.option_strings)
+    metavar = accion.metavar
+    if not metavar and accion.nargs is None and accion.type is not None:
+        metavar = accion.dest.replace("_", "-").upper()
+    return f"{partes} {metavar}" if metavar else partes
+
+
+def action_toma_valor(accion) -> bool:
+    """True si la opción espera un valor (no es un flag booleano)."""
+    return accion.nargs != 0
+
+
+def _construir_ayuda(parser: argparse.ArgumentParser) -> str:
+    """Genera el texto completo de `--help`: uso, categorias, alias y ejemplos."""
+    ancho = max(min(shutil.get_terminal_size().columns - 2, 100), 70)
+    lineas: List[str] = []
+    COL_IZQ = 30  # ancho de la columna izquierda (invocacion + padding)
+
+    def titulo(texto: str) -> None:
+        lineas.append("")
+        lineas.append(_pintar(texto.upper(), "negrita"))
+
+    # -- Cabecera ------------------------------------------------------------
+    lineas.append(
+        _pintar(f"SnapContext v{VERSION}", "cian")
+        + _pintar(" - asistente de IA con contexto automatico", "gris")
+    )
+    lineas.append("")
+    lineas.append(
+        _pintar("Uso:", "negrita")
+        + ' snapcontext [alias] "<consulta>" [opciones]'
+    )
+
+    # -- Helpers de formateo -------------------------------------------------
+    def _envolver(texto: str) -> List[str]:
+        """Divide 'texto' en lineas de maximo (ancho - COL_IZQ) caracteres."""
+        ancho_texto = max(ancho - COL_IZQ, 36)
+        palabras = texto.split()
+        if not palabras:
+            return [""]
+        resultado: List[str] = []
+        actual = ""
+        for palabra in palabras:
+            if actual and len(actual) + 1 + len(palabra) > ancho_texto:
+                resultado.append(actual)
+                actual = palabra
+            else:
+                actual = f"{actual} {palabra}".strip()
+        if actual:
+            resultado.append(actual)
+        return resultado
+
+    def _emit_opcion(invocacion: str, ayuda: str) -> None:
+        """Agrega a lineas las lineas formateadas de una sola opcion."""
+        etiqueta_raw = f"  {invocacion}"
+        etiqueta_col = _pintar(etiqueta_raw, "amarillo")
+        envueltas = _envolver(ayuda)
+        if len(etiqueta_raw) < COL_IZQ:
+            padding = COL_IZQ - len(etiqueta_raw)
+            lineas.append(f"{etiqueta_col}{chr(32) * padding}{envueltas[0]}")
+            for extra in envueltas[1:]:
+                lineas.append(f"{chr(32) * COL_IZQ}{extra}")
+        else:
+            lineas.append(etiqueta_col)
+            for extra in envueltas:
+                lineas.append(f"{chr(32) * COL_IZQ}{extra}")
+
+    # -- Mapa de acciones ----------------------------------------------------
+    acciones_por_opcion: dict = {}
+    accion_consulta = None
+    for accion in parser._actions:                     # noqa: SLF001
+        if not accion.option_strings:
+            if accion.dest == "consulta":
+                accion_consulta = accion
+        else:
+            for op in accion.option_strings:
+                acciones_por_opcion[op] = accion
+
+    # -- Opciones agrupadas por categorias -----------------------------------
+    titulo("Opciones")
+    usadas: set = set()
+
+    for categoria, opciones in CATEGORIAS_AYUDA:
+        lineas_cat: List[tuple] = []
+
+        for op in opciones:
+            if op == "consulta":
+                if accion_consulta is not None and "consulta" not in usadas:
+                    usadas.add("consulta")
+                    inv = _invocacion_accion(accion_consulta)
+                    ayuda = " ".join((accion_consulta.help or "").split())
+                    lineas_cat.append((inv, ayuda))
+                continue
+            if op not in acciones_por_opcion or op in usadas:
+                continue
+            accion = acciones_por_opcion[op]
+            usadas.update(accion.option_strings)
+            inv = _invocacion_accion(accion)
+            ayuda = " ".join((accion.help or "").split())
+            lineas_cat.append((inv, ayuda))
+
+        if lineas_cat:
+            lineas.append("")
+            lineas.append(_pintar(f"  {categoria}:", "cian"))
+            for inv, ayuda in lineas_cat:
+                _emit_opcion(inv, ayuda)
+
+    # Opciones no categorizadas al final
+    restantes = [
+        a for a in parser._actions
+        if a.option_strings
+        and not any(op in usadas for op in a.option_strings)
+    ]
+    if restantes:
+        lineas.append("")
+        lineas.append(_pintar("  Sin categorizar:", "cian"))
+        for accion in restantes:
+            usadas.update(accion.option_strings)
+            _emit_opcion(
+                _invocacion_accion(accion),
+                " ".join((accion.help or "").split()),
+            )
+
+    # -- Alias rapidos -------------------------------------------------------
+    titulo("Alias rapidos")
+    for alias, descripcion in ALIAS_AYUDA:
+        alias_raw = f"  {alias}"
+        padding = max(COL_IZQ - len(alias_raw), 1)
+        lineas.append(
+            f"{_pintar(alias_raw, 'amarillo')}{chr(32) * padding}{descripcion}"
+        )
+
+    # -- Ejemplos ------------------------------------------------------------
+    titulo("Ejemplos")
+    for ejemplo in EJEMPLOS_AYUDA:
+        lineas.append(_pintar(f"  $ {ejemplo}", "verde"))
+
+    lineas.append("")
+    lineas.append(_pintar(
+        "Variables de entorno: GEMINI_API_KEY / ANTHROPIC_API_KEY / "
+        "DEEPSEEK_API_KEY / GROQ_API_KEY · OLLAMA_URL · "
+        "SNAPCONTEXT_PROVIDER · SNAPCONTEXT_MODELO", "gris",
+    ))
+    lineas.append("")
+    return "\n".join(lineas)
+
+
+
+class _AyudaAccion(argparse.Action):
+    """Muestra la ayuda agrupada por categorías y termina."""
+
+    def __init__(self, option_strings, dest=argparse.SUPPRESS,
+                 default=argparse.SUPPRESS, help=None):  # noqa: A002
+        super().__init__(option_strings=option_strings, dest=dest,
+                         default=default, nargs=0, help=help)
+
+    def __call__(self, parser, namespace, valores, opcion=None):
+        global _AYUDA_CON_COLOR
+        _AYUDA_CON_COLOR = _colores_activos()
+        sys.stdout.write(_construir_ayuda(parser))
+        parser.exit()
+
+
 def crear_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="snapcontext",
+        add_help=False,   # -h/--help se gestionan con _AyudaAccion (agrupada)
         description=_LOGO_SMALL + (
             "SnapContext — Asistente de IA para desarrollo con Flutter/Supabase. "
             "Escanea el repo, el proveedor de IA (Gemini, Ollama, DeepSeek o "
@@ -5045,6 +5303,11 @@ def crear_parser() -> argparse.ArgumentParser:
              "mutuas en paralelo (por defecto 1 = secuencial). Los logs de cada "
              "paso llevan su identificador [paso N]. Los pasos con campo "
              "'dependencias' esperan a que sus dependencias tengan éxito.",
+    )
+    # Ayuda agrupada por categorías (-h/--help) — v1.7.
+    parser.add_argument(
+        "-h", "--help", action=_AyudaAccion,
+        help="Muestra esta ayuda agrupada por categorías, con alias y ejemplos.",
     )
     return parser
 
