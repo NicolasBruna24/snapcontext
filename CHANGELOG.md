@@ -6,6 +6,62 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 
 
+## [4.3.0] - 2026-08-25 - 🐳 Sandboxing con Docker
+
+### 🐳 Sandbox opcional (FEATURES)
+- Nuevo flag **`--sandbox`** (booleano, por defecto `False`): todos los comandos
+  que ejecuta SnapContext (bucle de pruebas, MCP `execute_command`, pasos
+  `"ejecutar"` del planificador, plugins y herramientas de usuario) se lanzan
+  dentro de un contenedor Docker aislado.
+- **Detección de Docker**: `_docker_disponible()` verifica `docker --version`
+  (binario en el PATH) y `docker info` (daemon en ejecución). Nunca lanza
+  excepciones.
+- **Personalización**:
+  - `--sandbox-imagen <imagen>`: imagen Docker personalizada.
+  - `SNAPCONTEXT_SANDBOX_IMAGE`: imagen por defecto vía variable de entorno
+    (prioridad: flag > entorno > `python:3.11-slim`).
+  - `--sandbox-comando <cmd>`: comando de preparación antes del principal
+    (ej.: `apt update && apt install -y make`), anteponiéndolo con `&&`.
+- **Montaje**: el directorio del proyecto se monta en `/workspace`
+  (`-v "<proyecto>:/workspace" -w /workspace`) con `--rm` (contenedor efímero).
+- **Variables de entorno**: las claves del host (`*_API_KEY`, `OLLAMA_URL`,
+  `SNAPCONTEXT_SANDBOX_IMAGE`) se pasan al contenedor automáticamente (`-e`).
+
+### 🔧 Integración (INTEGRATION)
+- `_ejecutar_comando()` y `_lanzar_proceso_fondo()` envuelven el comando con
+  `_envolver_sandbox()` cuando el sandbox está activo; log:
+  `ℹ [sandbox] Ejecutando en contenedor: ...`.
+- **Bucle de pruebas** (`--test-loop` + `--sandbox`): las pruebas corren dentro
+  del contenedor vía `_ejecutar_pruebas_argv()`; se omite la comprobación del
+  binario en el PATH del host; los resultados se procesan igual que siempre.
+- **MCP**: `execute_command` (foreground y background) usa el sandbox; las
+  herramientas de solo lectura (`grep`, `read_file`, `list_files`, `ast`,
+  `git_status`, `git_diff`, …) siguen en el host para mayor velocidad
+  (context manager interno `_sandbox_pausado`).
+- **Planificador**: con `--plan --sandbox`, los pasos `ejecutar` y `mcp` con
+  comandos corren en el contenedor; `editar` y `consultar` no cambian.
+
+### 🛡️ Manejo de errores (BUGFIXES)
+- Con `--sandbox` explícito y Docker no disponible → error claro
+  (`RuntimeError` con instrucciones) y código de salida 1.
+- Sin Docker pero con activación no estricta → aviso y continuación sin sandbox.
+- Los fallos de comandos dentro del contenedor muestran salida y código como
+  siempre.
+
+### ✅ Compatibilidad
+- Sin `--sandbox`, SnapContext se comporta exactamente igual que en 4.2.0;
+  CLI, web, extensiones, API y resto de funcionalidades sin cambios.
+
+### 📝 Documentación y Tests (DOCUMENTATION)
+- README: nueva sección "🐳 Sandboxing con Docker (v4.3.0)" con uso, tabla
+  qué-corre-dónde y manejo de errores.
+- Nuevo `tests/test_sandbox_430.py` (20 tests): detección de Docker simulada,
+  activación estricta/no estricta, resolución de imagen (flag/env),
+  envoltura `docker run`, ejecución en sandbox (`_ejecutar_comando`,
+  `execute_command`, paso `ejecutar` del plan, bucle de pruebas,
+  `AgenteTester`) y herramientas de solo lectura fuera del sandbox.
+- Suite completa: 561 pruebas pasando.
+
 ## [4.2.0] - 2026-08-25 - Asesor mejorado: seguridad y rendimiento
 
 ### 🛡️ Análisis de seguridad (🔒)

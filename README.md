@@ -1,6 +1,6 @@
 # SnapContext
 
-![v4.2.0](https://img.shields.io/badge/version-4.2.0-blue.svg)
+![v4.3.0](https://img.shields.io/badge/version-4.3.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -39,6 +39,62 @@ pip install "snapcontext[web]"          # interfaz web (--web)
 pip install aider-chat                  # ediciones de código
 snapcontext --init                      # asistente inicial + API key
 ```
+
+## 🐳 Sandboxing con Docker (v4.3.0)
+
+Ejecuta los comandos de SnapContext (bucle de pruebas, `execute_command`,
+pasos `ejecutar` del planificador, plugins…) dentro de un **contenedor Docker
+aislado**. Ideal cuando no se confía en el código o necesitas dependencias
+específicas.
+
+### Uso básico
+
+```bash
+# Todo el trabajo de comandos dentro del contenedor
+snapcontext "arreglar el checkout" --test-loop --sandbox
+
+# Con imagen personalizada y comando de preparación
+snapcontext "añadir tests" --test-loop --sandbox \
+    --sandbox-imagen python:3.11-slim \
+    --sandbox-comando "pip install pytest"
+
+# En el planificador: pasos "ejecutar" y MCP con comandos usan el sandbox;
+# "editar" y "consultar" siguen en el host.
+snapcontext "migrar a pytest" --plan --sandbox
+
+# Imagen por defecto sin flag:
+export SNAPCONTEXT_SANDBOX_IMAGE=ubuntu:22.04   # PowerShell: $env:SNAPCONTEXT_SANDBOX_IMAGE="..."
+```
+
+### Cómo funciona
+
+- **Detección**: `_docker_disponible()` comprueba `docker --version` (binario)
+  y `docker info` (daemon activo).
+- **Ejecución**: cada comando se lanza como
+  `docker run --rm -v "<proyecto>:/workspace" -w /workspace -e GEMINI_API_KEY … <imagen> sh -c "<comando>"`.
+- **Montaje**: el directorio del proyecto se monta en `/workspace`.
+- **Variables de entorno**: las claves (`*_API_KEY`, `OLLAMA_URL`, …) se pasan
+  al contenedor automáticamente.
+- **Preparación**: `--sandbox-comando` antepone un comando de setup
+  (`apt update && apt install -y …`) antes del comando principal.
+
+### Qué corre dentro y fuera del sandbox
+
+| Dentro del contenedor | Fuera (host) |
+| --- | --- |
+| Bucle de pruebas (`--test-loop`) | Herramientas de solo lectura (`grep`, `read_file`, `list_files`, `ast`) |
+| MCP `execute_command` (+ background) | Pasos `editar` y `consultar` del planificador |
+| Pasos `ejecutar` del planificador | Selección de contexto, chat con la IA |
+| Plugins y herramientas de usuario | |
+
+### Errores y logs
+
+- Cada comando sandboxeado registra `ℹ [sandbox] Ejecutando en contenedor: …`.
+- Si un comando falla dentro del contenedor se muestra su salida y código como
+  siempre.
+- Si Docker no está disponible y usaste `--sandbox` explícitamente,
+  SnapContext falla con un mensaje claro; sin el flag nunca cambia nada
+  (compatibilidad total).
 
 ## 🧰 Instalación y onboarding sin fricción (v3.1.x)
 

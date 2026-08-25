@@ -702,6 +702,12 @@ class AgenteTester:
         import snapcontext as sc
 
         sc.depurar(f"[AgenteTester] Ejecutando pruebas: {' '.join(comando)}")
+        # v4.3.0: con --sandbox activo las pruebas corren en el contenedor.
+        if sc.sandbox_activo():
+            codigo, stdout, stderr = sc._ejecutar_pruebas_argv(
+                comando, directorio)
+            return subprocess.CompletedProcess(
+                comando, codigo, stdout=stdout, stderr=stderr)
         return subprocess.run(
             comando, cwd=directorio, capture_output=True, text=True
         )

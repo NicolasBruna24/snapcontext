@@ -39,6 +39,7 @@ Open-source y pensado para ser fácil de extender (ver ejecutar_bucle_test).
 
 import argparse
 import ast
+import contextlib
 import difflib
 import fnmatch
 import json
@@ -111,7 +112,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "4.2.0"
+VERSION = "4.3.0"
 
 # v3.1.0 — Claves de API reconocidas para el modo por defecto (offline).
 CLAVES_API_CONOCIDAS = (
@@ -2532,7 +2533,9 @@ def ejecutar_bucle_test(consulta: str, archivos: List[str], directorio: str,
     """
     if not comando_test:
         raise RuntimeError("El comando de pruebas está vacío (--comando-test).")
-    if shutil.which(comando_test[0]) is None:
+    # v4.3.0: en sandbox el binario vive dentro del contenedor; la comprobación
+    # de PATH del host no aplica.
+    if not _SANDBOX_ACTIVO and shutil.which(comando_test[0]) is None:
         raise RuntimeError(
             f"No se encontró el comando de pruebas '{comando_test[0]}'. "
             "Ajusta --comando-test."
@@ -2556,9 +2559,16 @@ def ejecutar_bucle_test(consulta: str, archivos: List[str], directorio: str,
 
         solicitud = " ".join(comando_test)
         info(f"Ejecutando pruebas: {solicitud}")
-        resultado = subprocess.run(
-            comando_test, cwd=directorio, capture_output=True, text=True
-        )
+        # v4.3.0: con --sandbox las pruebas corren dentro del contenedor.
+        if _SANDBOX_ACTIVO:
+            codigo, stdout, stderr = _ejecutar_pruebas_argv(
+                comando_test, directorio)
+            resultado = subprocess.CompletedProcess(
+                comando_test, codigo, stdout=stdout, stderr=stderr)
+        else:
+            resultado = subprocess.run(
+                comando_test, cwd=directorio, capture_output=True, text=True
+            )
         if resultado.returncode == 0:
             exito(f"¡Pruebas superadas en la iteración {iteracion}!")
             return True
@@ -3213,6 +3223,11 @@ def _ejecutar_comando(comando: str, directorio: str = ".",
     raiz = Path(directorio).expanduser()
     if not raiz.is_dir():
         return (-1, "", f"El directorio no existe: {raiz}")
+    # v4.3.0: con --sandbox activo el comando corre dentro del contenedor.
+    if _SANDBOX_ACTIVO:
+        info(f"[sandbox] Ejecutando en contenedor: {comando}")
+        comando = _envolver_sandbox(comando, str(raiz))
+        raiz = Path.cwd()  # docker se lanza desde el host; el mount ya es absoluto
     try:
         proc = subprocess.run(
             comando,
@@ -3231,6 +3246,155 @@ def _ejecutar_comando(comando: str, directorio: str = ".",
     except OSError as exc:
         return (-1, "", f"Error ejecutando '{comando}': {exc}")
 
+
+# ---------------------------------------------------------------------------
+# 🐳 Sandboxing con Docker (v4.3.0)
+# ---------------------------------------------------------------------------
+# Imagen por defecto del sandbox (ligera, con Python y herramientas comunes).
+# Puede sobrescribirse con --sandbox-imagen o SNAPCONTEXT_SANDBOX_IMAGE.
+SANDBOX_IMAGEN_DEFECTO = "python:3.11-slim"
+SANDBOX_DIR_TRABAJO = "/workspace"
+# Nombres/patrones de variables de entorno que se pasan al contenedor.
+_SANDBOX_VARS_CLAVE = ("GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+                       "DEEPSEEK_API_KEY", "GROQ_API_KEY", "OLLAMA_URL",
+                       "SNAPCONTEXT_SANDBOX_IMAGE")
+
+# Estado global del sandbox (lo activa _activar_sandbox desde main()).
+_SANDBOX_ACTIVO: bool = False
+_SANDBOX_IMAGEN: str = SANDBOX_IMAGEN_DEFECTO
+_SANDBOX_COMANDO_PREP: Optional[str] = None
+
+
+def _docker_disponible() -> bool:
+    """Comprueba que Docker está instalado Y que el daemon está en ejecución.
+
+    - ``docker --version`` existe en el PATH.
+    - ``docker info`` responde sin error (daemon activo).
+
+    Nunca lanza excepciones; devuelve ``False`` ante cualquier problema.
+    """
+    if shutil.which("docker") is None:
+        return False
+    try:
+        proc = subprocess.run(
+            ["docker", "info"], capture_output=True, text=True,
+            timeout=30, creationflags=(
+                subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
+        )
+        return proc.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _sandbox_imagen_resuelta(explicita: Optional[str] = None) -> str:
+    """Resuelve la imagen del sandbox: flag > variable de entorno > defecto."""
+    return (explicita or os.environ.get("SNAPCONTEXT_SANDBOX_IMAGE", "").strip()
+            or SANDBOX_IMAGEN_DEFECTO)
+
+
+def _activar_sandbox(imagen: Optional[str] = None,
+                     comando_prep: Optional[str] = None,
+                     estricto: bool = True) -> bool:
+    """Activa el sandbox global si Docker está disponible.
+
+    Args:
+        imagen: imagen Docker (--sandbox-imagen o env por defecto).
+        comando_prep: comando de preparación previo (--sandbox-comando).
+        estricto: si es ``True`` (``--sandbox`` explícito) y Docker no está
+            disponible lanza ``RuntimeError``; si es ``False`` solo avisa y
+            continúa sin sandbox.
+
+    Devuelve ``True`` si el sandbox quedó activo.
+    """
+    global _SANDBOX_ACTIVO, _SANDBOX_IMAGEN, _SANDBOX_COMANDO_PREP
+    if not _docker_disponible():
+        mensaje = (
+            "--sandbox solicitado pero Docker no está disponible "
+            "(¿instalado? ¿el daemon está en ejecución?). "
+            "Instala Docker Desktop o inicia el servicio 'docker'."
+        )
+        _SANDBOX_ACTIVO = False
+        if estricto:
+            raise RuntimeError(mensaje)
+        aviso(mensaje + "\n  → Se continúa SIN sandbox.")
+        return False
+    _SANDBOX_ACTIVO = True
+    _SANDBOX_IMAGEN = _sandbox_imagen_resuelta(imagen)
+    _SANDBOX_COMANDO_PREP = (comando_prep or "").strip() or None
+    exito(f"🐳 Sandbox activo (imagen: {_SANDBOX_IMAGEN}, "
+          f"directorio montado en {SANDBOX_DIR_TRABAJO}).")
+    return True
+
+
+def _desactivar_sandbox() -> None:
+    """Desactiva el sandbox global (vuelve al comportamiento normal)."""
+    global _SANDBOX_ACTIVO, _SANDBOX_COMANDO_PREP
+    _SANDBOX_ACTIVO = False
+    _SANDBOX_COMANDO_PREP = None
+
+
+def sandbox_activo() -> bool:
+    """Indica si el sandbox Docker está activo."""
+    return _SANDBOX_ACTIVO
+
+
+def _envolver_sandbox(comando: str, directorio: str = ".") -> str:
+    """Envuelve ``comando`` en un ``docker run`` dentro del sandbox.
+
+    Genera algo como::
+
+        docker run --rm -v "<dir>:/workspace" -w /workspace \
+                   -e GEMINI_API_KEY ... <imagen> sh -c "<comando>"
+
+    Si hay comando de preparación (--sandbox-comando), se antepone con
+    ``&&``. Sin sandbox activo devuelve ``comando`` tal cual.
+    """
+    if not _SANDBOX_ACTIVO:
+        return comando
+    raiz = Path(directorio).expanduser().resolve()
+    partes = ["docker", "run", "--rm",
+              "-v", f"{raiz}:{SANDBOX_DIR_TRABAJO}",
+              "-w", SANDBOX_DIR_TRABAJO]
+    # Pasar las variables de entorno relevantes del host al contenedor.
+    vistas = set()
+    for nombre in list(os.environ):
+        incluir = nombre in _SANDBOX_VARS_CLAVE or nombre.endswith("_API_KEY")
+        if incluir and nombre not in vistas:
+            vistas.add(nombre)
+            partes.extend(["-e", nombre])
+    partes.append(_SANDBOX_IMAGEN)
+    if _SANDBOX_COMANDO_PREP:
+        comando = f"{_SANDBOX_COMANDO_PREP} && ({comando})"
+    partes.extend(["sh", "-c", comando])
+    return shlex.join(partes)
+
+
+def _ejecutar_pruebas_argv(comando: List[str], directorio: str) -> tuple:
+    """Ejecuta un comando de pruebas (lista argv) respetando el sandbox.
+
+    Devuelve ``(codigo_retorno, stdout, stderr)`` como :func:`_ejecutar_comando`.
+    """
+    if not comando:
+        return (-1, "", "El comando de pruebas está vacío.")
+    return _ejecutar_comando(" ".join(comando), directorio, timeout=1800)
+
+
+@contextlib.contextmanager
+def _sandbox_pausado():
+    """Desactiva temporalmente el sandbox (herramientas de solo lectura).
+
+    Las herramientas MCP que no modifican el sistema (grep, git_status,
+    git_diff...) se ejecutan fuera del contenedor para mayor velocidad.
+    """
+    global _SANDBOX_ACTIVO
+    previo = _SANDBOX_ACTIVO
+    _SANDBOX_ACTIVO = False
+    try:
+        yield
+    finally:
+        _SANDBOX_ACTIVO = previo
+
+
 # --- Procesos en segundo plano para execute_command (v2.3.0) -----------------
 _PROCESOS_FONDO: dict = {}   # pid → estado (para ejecución en background)
 
@@ -3245,6 +3409,11 @@ def _lanzar_proceso_fondo(comando: str, directorio: str = ".",
     raiz = Path(directorio).expanduser()
     if not raiz.is_dir():
         return {"ok": False, "error": f"El directorio no existe: {raiz}"}
+    # v4.3.0: los procesos en segundo plano también respetan --sandbox.
+    if _SANDBOX_ACTIVO:
+        info(f"[sandbox] Ejecutando en contenedor (background): {comando}")
+        comando = _envolver_sandbox(comando, str(raiz))
+        raiz = Path.cwd()
     try:
         if capture_output:
             proc = subprocess.Popen(
@@ -6292,7 +6461,11 @@ def _tool_grep(patron: str, directorio: str = ".",
         comando = f'grep -rn -i -m 5 "{patron}" .'
     else:
         comando = f'findstr /s /n /i "{patron}" *.py *.dart *.js *.ts *.go *.rs'
-    codigo, stdout, stderr = _ejecutar_comando(comando, directorio, timeout=60)
+    codigo, stdout, stderr = (None, None, None)
+    # v4.3.0: grep es de solo lectura → corre fuera del sandbox.
+    with _sandbox_pausado():
+        codigo, stdout, stderr = _ejecutar_comando(comando, directorio,
+                                                   timeout=60)
     lineas = [l for l in (stdout or "").splitlines() if l.strip()]
     return {"ok": codigo == 0 or bool(lineas),
             "buscador": herramienta, "total": len(lineas),
@@ -6381,8 +6554,9 @@ def _tool_git_status(directorio: str = ".") -> dict:
         return {"ok": False, "error": f"'{directorio}' no es un repositorio git"}
     _, rama, _ = _ejecutar_comando("git rev-parse --abbrev-ref HEAD",
                                    directorio, timeout=15)
-    codigo, salida, _ = _ejecutar_comando("git status --porcelain",
-                                          directorio, timeout=30)
+    with _sandbox_pausado():  # v4.3.0: solo lectura → fuera del sandbox
+        codigo, salida, _ = _ejecutar_comando("git status --porcelain",
+                                              directorio, timeout=30)
     modificados = [l.strip() for l in (salida or "").splitlines() if l.strip()]
     return {"ok": codigo == 0, "rama": (rama or "").strip(),
             "cambios": modificados, "total_cambios": len(modificados)}
@@ -6396,7 +6570,9 @@ def _tool_git_diff(directorio: str = ".", archivo: Optional[str] = None,
     comando = "git diff HEAD"
     if archivo:
         comando += f' -- "{archivo}"'
-    codigo, salida, stderr = _ejecutar_comando(comando, directorio, timeout=60)
+    with _sandbox_pausado():  # v4.3.0: solo lectura → fuera del sandbox
+        codigo, salida, stderr = _ejecutar_comando(comando, directorio,
+                                                   timeout=60)
     lineas = (salida or "").splitlines()
     return {"ok": codigo == 0, "archivo": archivo,
             "total_lineas": len(lineas),
@@ -7580,7 +7756,8 @@ CATEGORIAS_AYUDA = (
      ("--git-commit", "--no-git-commit", "--branch")),
     ("Planificador y bucles",
      ("--paralelo", "--max-intentos", "--test-loop", "--server-loop",
-      "--manual-loop", "--comando-test", "--dispositivo", "--url-defecto",
+      "--manual-loop", "--comando-test", "--sandbox", "--sandbox-imagen",
+      "--sandbox-comando", "--dispositivo", "--url-defecto",
       "--max-iteraciones")),
     ("Otros",
      ("consulta", "--directorio", "--aider-opciones", "--depurar",
@@ -8516,6 +8693,23 @@ def crear_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--comando-test", default=COMANDO_TEST_DEFECTO,
         help='Comando de pruebas del bucle (por defecto: "flutter test").',
+    )
+    # v4.3.0: sandbox opcional con Docker.
+    parser.add_argument(
+        "--sandbox", action="store_true",
+        help="(v4.3.0) Ejecuta comandos y pruebas dentro de un contenedor "
+             "Docker aislado (monta el proyecto en /workspace). Si Docker no "
+             "está disponible, falla con error claro.",
+    )
+    parser.add_argument(
+        "--sandbox-imagen", dest="sandbox_imagen", default=None,
+        help="Imagen Docker del sandbox (por defecto: python:3.11-slim o "
+             "SNAPCONTEXT_SANDBOX_IMAGE).",
+    )
+    parser.add_argument(
+        "--sandbox-comando", dest="sandbox_comando", default=None,
+        help='Comando de preparación dentro del contenedor antes del comando '
+             'principal (ej.: "apt update && apt install -y make").',
     )
     parser.add_argument(
         "--max-iteraciones", type=int, default=MAX_ITERACIONES_TEST_DEFECTO,
@@ -9497,6 +9691,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         # para todos los modos (chat, planificador, ...).
         global CONFIRMAR_ACCIONES
         CONFIRMAR_ACCIONES = getattr(args, "confirmar", True)
+        # v4.3.0: activar el sandbox Docker si se pidió --sandbox. Es lo
+        # primero para que TODO comando posterior ya nazca en el contenedor
+        # (bucle de pruebas, MCP execute_command, pasos "ejecutar" del plan).
+        if getattr(args, "sandbox", False):
+            _activar_sandbox(
+                imagen=getattr(args, "sandbox_imagen", None),
+                comando_prep=getattr(args, "sandbox_comando", None),
+                estricto=True)
         # v3.1.1: --bienvenida explícito ejecuta el tutorial y marca el
         # primer uso como completado (por si quiere volver a verlo).
         if getattr(args, "bienvenida", False):
