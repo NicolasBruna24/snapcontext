@@ -6407,6 +6407,73 @@ def _plugin_mostrar() -> None:
                     f"{herramienta.get('descripcion', '')}", _CYAN))
 
 
+def _ejecutar_comando_telegram(subargv: List[str]) -> int:
+    """Despacha el subcomando ``snapcontext telegram <accion> [...]``."""
+    import argparse as _ap
+
+    try:
+        import telegram_gateway as tg
+    except ImportError as exc:
+        error(f"El gateway de Telegram necesita httpx: pip install httpx "
+              f"(error: {exc})")
+        return 1
+
+    parser = _ap.ArgumentParser(prog="snapcontext telegram", add_help=False)
+    sub = parser.add_subparsers(dest="accion")
+
+    p_setup = sub.add_parser("setup", help="Guarda token y URL del webhook.")
+    p_setup.add_argument("--token", default=None,
+                         help="Token del bot (de @BotFather).")
+    p_setup.add_argument("--webhook-url", dest="webhook_url", default=None,
+                         help="URL pública (ngrok/dominio); el webhook queda "
+                              "en <url>/webhook/telegram.")
+    sub.add_parser("estado", help="Muestra la configuración actual.")
+    sub.add_parser("webhook-registrar",
+                   help="Llama a setWebhook con la URL configurada.")
+
+    if not subargv or subargv[0] in ("-h", "--help", "help"):
+        info("Uso: snapcontext telegram <setup|estado|webhook-registrar> [...]\n"
+             "  setup --token <TOKEN> [--webhook-url <URL>]")
+        return 0
+    try:
+        args = parser.parse_args(subargv)
+    except SystemExit:
+        return 1
+
+    if args.accion == "setup":
+        guardado = tg.guardar_configuracion_telegram(args.token,
+                                                     args.webhook_url)
+        exito("Configuración de Telegram guardada en ~/.snapcontext/"
+              "config.json ('telegram').")
+        info(f"  webhook_url : {guardado.get('webhook_url') or '(sin definir)'}")
+        info(f"  bot_token   : {'***' + guardado.get('bot_token', '')[-4:]}"
+             if guardado.get("bot_token") else "  bot_token   : (sin definir)")
+        if guardado.get("bot_token") and guardado.get("webhook_url"):
+            ok, detalle = tg.registrar_webhook()
+            (exito if ok else aviso)(f"setWebhook: {detalle}")
+        elif not guardado.get("webhook_url"):
+            aviso("Sin --webhook-url no se registró el webhook; llámalo con\n"
+                  "  snapcontext telegram webhook-registrar")
+        return 0
+
+    if args.accion == "estado":
+        token = tg.obtener_token()
+        url = tg.obtener_webhook_url()
+        exito("Estado del gateway de Telegram:")
+        info(f"  bot_token   : {'configurado (***' + token[-4:] + ')'}"
+             if token else "  bot_token   : NO configurado")
+        info(f"  webhook_url : {url or '(no definida)'}")
+        return 0 if token else 1
+
+    if args.accion == "webhook-registrar":
+        ok, detalle = tg.registrar_webhook()
+        (exito if ok else error)(f"setWebhook: {detalle}")
+        return 0 if ok else 1
+
+    parser.print_help()
+    return 1
+
+
 def _ejecutar_comando_plugin(subargv: List[str]) -> int:
     """Despacha el subcomando ``snapcontext plugin <accion> [...]``."""
     global DEPURAR
@@ -9685,6 +9752,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     # parser principal (sus subacciones no son flags de la CLI).
     if argv and argv[0].lower() == "plugin":
         return _ejecutar_comando_plugin(argv[1:])
+    # v4.4.0: gateway de omnicanalidad — `snapcontext telegram setup ...`.
+    if argv and argv[0].lower() == "telegram":
+        return _ejecutar_comando_telegram(argv[1:])
     args = crear_parser().parse_args(_preparar_argv_aliases(argv))
     try:
         # Permisos (v0.13.0): sincroniza el interruptor global con --confirmar

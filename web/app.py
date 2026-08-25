@@ -253,6 +253,28 @@ def crear_app(api_token: Optional[str] = None) -> FastAPI:
         raise HTTPException(status_code=400, detail=(
             "Acción inválida; usa 'estado', 'iniciar' o 'detener'."))
 
+    @app.post("/webhook/telegram")
+    async def webhook_telegram(update_data: dict = Body(...)):
+        """Recibe un Update de Telegram y lanza su procesamiento en segundo plano.
+
+        - 503 si no hay ``TELEGRAM_BOT_TOKEN`` configurado.
+        - 200 OK inmediato (Telegram corta si no respondemos en ~30 s); el
+          pipeline corre con ``asyncio.create_task`` vía el gateway.
+        """
+        try:
+            import telegram_gateway as tg
+        except ImportError:
+            raise HTTPException(
+                status_code=503,
+                detail="Gateway de Telegram no disponible (instala httpx).")
+        if not tg.obtener_token():
+            raise HTTPException(
+                status_code=503,
+                detail="TELEGRAM_BOT_TOKEN no configurado. Usa "
+                       "`snapcontext telegram setup --token <TOKEN>`.")
+        await tg.handle_telegram_update(update_data)
+        return {"ok": True}
+
     @app.get(f"{API_PREFIJO}/tasks/{{task_id}}",
              dependencies=[Depends(_autorizar)])
     async def api_task(task_id: str):

@@ -6,6 +6,37 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 
 
+## [4.4.0] - 2026-08-25 - 📱 Gateway de Omnicanalidad: Telegram
+
+### 📱 Nuevo gateway de Telegram (FEATURES)
+- Nuevo módulo **`telegram_gateway.py`**: recibe mensajes de Telegram, los
+  procesa con el motor interno de SnapContext y responde al mismo chat.
+- **Configuración** (prioridad: variable de entorno > `~/.snapcontext/config.json`
+  clave `"telegram"`): `TELEGRAM_BOT_TOKEN` y `TELEGRAM_WEBHOOK_URL`.
+- **Envío robusto** (`send_telegram_message`): `httpx.AsyncClient`; mensajes
+  > 4096 caracteres se envían como documento `.txt`; errores de red tolerados.
+- **Handler** (`handle_telegram_update`): `/start` con bienvenida; comandos
+  `/fix` y `/plan` mapeados a `--test-loop`/`--plan`; el pipeline corre con
+  `asyncio.create_task` para no bloquear al webhook (timeout de Telegram ~30 s).
+- **Wrapper asíncrono** `run_agent_async(query)`: usa la API interna del núcleo
+  (`flujo_principal` / `_ejecutar_planificador`) en un executor, capturando su
+  salida — no lanza el CLI por subprocess.
+- **Endpoint webhook**: `POST /webhook/telegram` en `web/app.py`. Devuelve
+  `200 OK` inmediato; `503 Service Unavailable` sin `TELEGRAM_BOT_TOKEN`.
+
+### 🔧 CLI e integración
+- Nuevo subcomando **`snapcontext telegram setup --token <TOKEN> --webhook-url <URL>`**
+  (persiste en config.json y registra el webhook con `setWebhook`), más
+  `telegram estado` y `telegram webhook-registrar`.
+- Nueva dependencia base `httpx>=0.27.0` en `pyproject.toml`.
+
+### 🧪 Tests y documentación
+- Nuevo `tests/test_telegram_440.py` (16 tests): resolución de configuración,
+  mapeo de comandos, envío (ok/largo/error/sin token), handler (`/start`,
+  updates inválidos, tarea en segundo plano) y endpoint webhook (200/503).
+- Suite completa: 577 pruebas pasando. README con sección "📱 Gateway de
+  Omnicanalidad: Telegram".
+
 ## [4.3.0] - 2026-08-25 - 🐳 Sandboxing con Docker
 
 ### 🐳 Sandbox opcional (FEATURES)

@@ -96,6 +96,45 @@ export SNAPCONTEXT_SANDBOX_IMAGE=ubuntu:22.04   # PowerShell: $env:SNAPCONTEXT_S
   SnapContext falla con un mensaje claro; sin el flag nunca cambia nada
   (compatibilidad total).
 
+## 📱 Gateway de Omnicanalidad: Telegram (v4.4.0)
+
+SnapContext puede recibir mensajes por **Telegram**, procesarlos con su motor
+de IA y responder en el mismo chat.
+
+### Configuración
+
+```bash
+# 1) Crea un bot con @BotFather y configura token + webhook:
+snapcontext telegram setup --token 123456:ABC-DEF --webhook-url https://mi-dominio.ngrok.io
+snapcontext telegram estado              # ver configuración actual
+
+# 2) Arranca el servidor (API o web); el webhook queda expuesto en:
+#    POST /webhook/telegram
+snapcontext --api        # o: snapcontext --web
+```
+
+También vale con variables de entorno (prioridad sobre `config.json`):
+`TELEGRAM_BOT_TOKEN` y `TELEGRAM_WEBHOOK_URL`.
+
+### Uso desde Telegram
+
+- `/start` → mensaje de bienvenida.
+- `arregla el login` → ejecuta el pipeline completo y responde con el resultado.
+- `/fix <tarea>` → igual que `snapcontext fix` (bucle de pruebas).
+- `/plan <tarea>` → igual que `snapcontext --plan`.
+
+### Detalles técnicos
+
+- **Webhook asíncrono**: el endpoint responde `200 OK` de inmediato (Telegram
+  corta a los ~30 s) y procesa el mensaje con `asyncio.create_task`; sin token
+  configurado responde `503`.
+- **Motor interno**: la consulta se ejecuta con la API interna del núcleo
+  (`flujo_principal` / `_ejecutar_planificador`) en un executor, nunca por
+  subprocess del CLI.
+- **Mensajes largos**: si la salida supera los 4096 caracteres de Telegram, se
+  envía un resumen + la salida completa como documento `.txt`.
+- Módulo: `telegram_gateway.py` · Endpoint: `web/app.py` (`/webhook/telegram`).
+
 ## 🧰 Instalación y onboarding sin fricción (v3.1.x)
 
 Objetivo: instalar SnapContext y empezar a usarlo en menos de 5 minutos.
