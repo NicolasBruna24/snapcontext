@@ -1,4 +1,4 @@
-﻿# SnapContext Installer - Windows
+# SnapContext Installer - Windows
 # Uso: irm https://NicolasBruna24.github.io/snapcontext/install.ps1 | iex
 param([switch]$Help)
 
@@ -135,7 +135,10 @@ if (Get-Command uv -ErrorAction SilentlyContinue) {
         $tempScript = Join-Path $env:TEMP "install-uv.ps1"
         Invoke-WebRequest -Uri "https://astral.sh/uv/install.ps1" `
             -OutFile $tempScript -UseBasicParsing
-        & $tempScript
+        # Ejecutar el instalador de uv con ExecutionPolicy Bypass: la política de
+        # ejecución del sistema puede bloquear el script descargado, y eso hace
+        # fallar la instalación de uv en PCs nuevos (v3.4.0).
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tempScript
         Remove-Item $tempScript -Force -ErrorAction SilentlyContinue
         # Añadir al PATH de la sesión
         foreach ($path in @("$env:USERPROFILE\.local\bin",
@@ -257,6 +260,36 @@ foreach ($ruta in $rutasUvTool) {
     }
 }
 
+# ─── 2e. Limpiar carpetas corruptas de pip/uv en site-packages (v3.4.0) ─────
+# Las instalaciones interrumpidas dejan restos '~ip', '~napcontext', ... dentro
+# de site-packages. Esas carpetas temporales (cuyo nombre empieza por '~') hacen
+# que 'uv tool install' falle con errores de entorno / conflicto. Se detectan y
+# eliminan antes de instalar.
+function Clear-SitePackagesCorruptas {
+    $sitios = @()
+    $res = (& $python -c "import site; print('\n'.join(site.getsitepackages()))" 2>$null)
+    if ($res) { $sitios += $res -split "`n" }
+    $resUser = (& $python -c "import site; print(site.getusersitepackages())" 2>$null)
+    if ($resUser) { $sitios += $resUser }
+    foreach ($sitio in $sitios) {
+        if (-not $sitio -or -not (Test-Path $sitio)) { continue }
+        $corruptos = Get-ChildItem $sitio -Directory -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like '~*' }
+        foreach ($carpeta in $corruptos) {
+            Write-Warn "Carpeta corrupta de instalación en site-packages: $($carpeta.Name)"
+            try {
+                Remove-Item $carpeta.FullName -Recurse -Force -ErrorAction Stop
+                Write-OK "Carpeta corrupta eliminada: $($carpeta.FullName)"
+            } catch {
+                Write-Warn "No se pudo eliminar '$($carpeta.FullName)' ($_)."
+                Write-Host "  Cierra otras terminales y reintenta, o bórrala manualmente."
+            }
+        }
+    }
+}
+Clear-SitePackagesCorruptas
+
+# ─── 3. Instalar SnapContext ───────────────────────────────────────────────
 # ─── 3. Instalar SnapContext ───────────────────────────────────────────────
 Write-Info "Instalando SnapContext..."
 $instalado = $false
@@ -267,6 +300,16 @@ if ($uvExists) {
         if ($LASTEXITCODE -eq 0) { $instalado = $true }
     } catch {
         Write-Warn "'uv tool install' falló: $_"
+    }
+    if (-not $instalado) {
+        # v3.4.0: reintento con --force por si quedó algún entorno residual.
+        Write-Warn "La instalación con uv no terminó bien; reintentando con '--force'..."
+        try {
+            & uv tool install --force snapcontext 2>&1 | Select-Object -Last 1
+            if ($LASTEXITCODE -eq 0) { $instalado = $true }
+        } catch {
+            Write-Warn "'uv tool install --force' también falló: $_"
+        }
     }
     $userBin = "$env:USERPROFILE\.local\bin"
     if ($instalado) {
@@ -288,8 +331,13 @@ if (-not $instalado) {
     & $python -m pip install --upgrade snapcontext 2>&1 | Select-Object -Last 1
     if ($LASTEXITCODE -ne 0) {
         Write-Err "No se pudo instalar SnapContext ni con uv ni con pip."
+        Write-Host ""
         Write-Host "  Revisa tu conexión y permisos, y prueba manualmente:"
         Write-Host "    $python -m pip install --upgrade snapcontext"
+        Write-Host ""
+        Write-Host "  Si ya estaba instalado y solo está roto, fuerza la reinstalación:"
+        Write-Host "    $python -m pip install --force-reinstall snapcontext"
+        Write-Host ""
         exit 1
     }
 
@@ -337,6 +385,16 @@ if ($snapCmd) {
     Write-Host "  También puedes usar: snapcontext --setup-path"
 }
 
+# v3.4.0: verificar que el módulo de Python se importa correctamente.
+Write-Info "Comprobando que el módulo se importa correctamente..."
+$modVersion = & $python -m snapcontext --version 2>&1
+if ($LASTEXITCODE -eq 0) {
+    Write-OK "Módulo de Python OK: $($modVersion | Select-Object -Last 1)"
+} else {
+    Write-Warn "El módulo no responde aún. Reinstala con:"
+    Write-Host "    $python -m pip install --force-reinstall snapcontext"
+}
+
 # ─── 5. Mensaje final ──────────────────────────────────────────────────────
 Write-Host ""
 Write-Color "╔══════════════════════════════════════════╗" "Blue"
@@ -360,7 +418,7 @@ Write-Host ""
 Write-Host "  Configura tu API key (opcional):"
 Write-Host '    $env:GEMINI_API_KEY = "tu_clave"'
 Write-Host ""
-Write-Host "  Sin API key, SnapContext 3.1.0 usa Ollama en modo offline"
+Write-Host "  Sin API key, SnapContext 3.4.0 usa Ollama en modo offline"
 Write-Host "  automaticamente. Instalalo desde https://ollama.com y ejecuta:"
 Write-Host "    ollama pull llama3.2"
 Write-Host ""

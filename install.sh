@@ -170,29 +170,73 @@ asegurar_path_perfil() {
     fi
 }
 
+# ─── 2d. Limpiar carpetas corruptas de pip/uv en site-packages (v3.4.0) ────
+# Las instalaciones interrumpidas dejan restos '~ip', '~napcontext', ... en
+# site-packages que hacen fallar 'uv tool install'. Se eliminan antes de instalar.
+limpiar_sitepackages_corruptos() {
+    local sitios carpeta
+    sitios=$("$PYTHON" -c "import site; print('\n'.join(site.getsitepackages() + [site.getusersitepackages()]))" 2>/dev/null || true)
+    [ -z "$sitios" ] && return 0
+    printf '%s\n' "$sitios" | while IFS= read -r sitio; do
+        [ -n "$sitio" ] && [ -d "$sitio" ] || continue
+        for carpeta in "$sitio"/~*; do
+            [ -e "$carpeta" ] || continue
+            warn "Carpeta corrupta en site-packages: $(basename "$carpeta")"
+            if rm -rf "$carpeta"; then
+                ok "Carpeta corrupta eliminada: $carpeta"
+            else
+                warn "No se pudo eliminar '$carpeta'. Bórrala manualmente."
+            fi
+        done
+    done
+}
 # ─── 3. Instalar SnapContext ──────────────────────────────────────────────
+limpiar_sitepackages_corruptos
 info "Instalando SnapContext..."
 INSTALADO=false
 
 if [ "$UV_EXISTS" = true ]; then
-    if uv tool install snapcontext --upgrade 2>&1 | tail -1; then
+    # Capturar la salida sin pipe para no enmascarar el código de salida de uv.
+    if UV_SALIDA=$(uv tool install snapcontext --upgrade 2>&1); then
+        printf '%s\n' "$UV_SALIDA" | tail -1
         INSTALADO=true
     else
-        warn "La instalación con uv falló; probando con pip..."
+        printf '%s\n' "$UV_SALIDA" | tail -1
+        warn "La instalación con uv falló; reintentando con '--force'..."
+        if UV_SALIDA=$(uv tool install --force snapcontext 2>&1); then
+            printf '%s\n' "$UV_SALIDA" | tail -1
+            INSTALADO=true
+        else
+            printf '%s\n' "$UV_SALIDA" | tail -1
+            warn "uv con '--force' también falló; probando con pip..."
+        fi
     fi
-    asegurar_path_perfil
+    if [ "$INSTALADO" = true ]; then
+        asegurar_path_perfil
+    fi
 fi
 
 if [ "$INSTALADO" = false ]; then
     # ── Fallback robusto a pip ──
     info "Instalando con pip..."
     "$PYTHON" -m pip install --upgrade pip 2>/dev/null || true
-    if ! "$PYTHON" -m pip install --upgrade snapcontext 2>&1 | tail -1; then
+    # Sin pipe: así el código de salida de pip no queda enmascarado por 'tail'.
+    if PIP_SALIDA=$("$PYTHON" -m pip install --upgrade snapcontext 2>&1); then
+        printf '%s\n' "$PIP_SALIDA" | tail -1
+    else
+        printf '%s\n' "$PIP_SALIDA" | tail -1
         err "No se pudo instalar SnapContext ni con uv ni con pip."
+        echo ""
         echo "  Prueba manualmente:"
         echo "    $PYTHON -m pip install --upgrade snapcontext"
+        echo ""
+        echo "  Si ya estaba instalado y solo está roto, fuerza la reinstalación:"
+        echo "    $PYTHON -m pip install --force-reinstall snapcontext"
+        echo ""
         exit 1
     fi
+    # Asegurar ~/.local/bin en el PATH también tras instalar con pip.
+    asegurar_path_perfil
 fi
 
 # ─── 4. Verificar ─────────────────────────────────────────────────────────
@@ -206,6 +250,15 @@ else
     echo "  Añade esta línea a tu ~/.bashrc o ~/.zshrc:"
     echo '  export PATH="$HOME/.local/bin:$PATH"'
     echo "  Luego abre una nueva terminal o ejecuta: source ~/.bashrc"
+fi
+
+# v3.4.0: verificar que el módulo de Python se importa correctamente.
+info "Comprobando que el módulo se importa correctamente..."
+if "$PYTHON" -m snapcontext --version >/dev/null 2>&1; then
+    ok "Módulo de Python OK."
+else
+    warn "El módulo no responde aún. Reinstala con:"
+    echo "    $PYTHON -m pip install --force-reinstall snapcontext"
 fi
 
 # ─── 5. Mensaje final ─────────────────────────────────────────────────────
@@ -231,7 +284,7 @@ echo ""
 echo "  Configura tu API key (opcional):"
 echo '    export GEMINI_API_KEY="tu_clave"'
 echo ""
-echo "  Sin API key, SnapContext 3.1.0 usa Ollama en modo offline"
+echo "  Sin API key, SnapContext 3.4.0 usa Ollama en modo offline"
 echo "  automáticamente. Instálalo desde https://ollama.com y ejecuta:"
 echo "    ollama pull llama3.2"
 echo ""
