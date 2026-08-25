@@ -21,7 +21,8 @@ import sys
 from typing import List, Optional, Tuple
 
 from agentes import (AgenteContexto, AgenteEditor, AgenteEditorAST,
-                     AgenteEditorPropio, AgenteAprendizaje, AgenteTester)
+                     AgenteEditorPropio, AgenteAprendizaje, AgenteTester,
+                     AgenteAsesor)
 
 # Centinela diferenciado del None de "aborto": _planificar lo devuelve cuando
 # el pipeline termina de forma exitosa y temprana (p. ej. --vista-previa).
@@ -44,6 +45,7 @@ class Orquestador:
         self.agente_editor_ast = AgenteEditorAST()
         self.agente_tester = AgenteTester()
         self.agente_aprendizaje = AgenteAprendizaje()
+        self.agente_asesor = AgenteAsesor()
         self.evento_callback = evento_callback
 
     def _on_evento(self, evento: dict) -> None:

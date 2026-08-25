@@ -669,3 +669,39 @@ class AgenteAprendizaje:
         import snapcontext as sc
 
         return sc._skill_listar(incluir_archivados=incluir_archivados)
+
+
+class AgenteAsesor:
+    """Asesor de código proactivo (v3.5.0).
+
+    Analiza el proyecto sin que el usuario lo pida explícitamente y propone
+    mejoras (refactorizaciones, deuda técnica, patrones obsoletos...). Por
+    defecto solo informa; las sugerencias marcadas como seguras pueden
+    aplicarse con ``--asesor-auto`` y siempre se validan antes de guardarse.
+    """
+
+    def analizar(self, directorio: str = ".",
+                 umbral_funcion: Optional[int] = None) -> List[dict]:
+        """Ejecuta el análisis estático y devuelve la lista de sugerencias."""
+        import snapcontext as sc
+
+        return sc._asesor_analizar(directorio, umbral_funcion=umbral_funcion)
+
+    def mostrar(self, sugerencias: List[dict]) -> None:
+        """Muestra las sugerencias en la CLI con colores."""
+        import snapcontext as sc
+
+        sc._asesor_mostrar(sugerencias)
+
+    def aplicar_automaticas(self, sugerencias: List[dict],
+                            directorio: str = ".") -> int:
+        """Aplica las mejoras seguras (auto=True); devuelve cuántas se aplicaron."""
+        import snapcontext as sc
+
+        return sc._asesor_aplicar_automaticas(sugerencias, directorio)
+
+    def ejecutar(self, args) -> int:
+        """Flujo completo del modo CLI (--asesor / --asesor-auto)."""
+        import snapcontext as sc
+
+        return sc._ejecutar_asesor(args)

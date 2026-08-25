@@ -3246,6 +3246,7 @@ AYUDA_CHAT = """Comandos disponibles:
   /dependencias <archivo> → imports y dependencias inversas de un archivo
   /claude                → mostrar la memoria del proyecto (CLAUDE.md)
   /context               → mostrar memoria del proyecto y archivos en contexto
+  /asesor                → análisis proactivo: sugerencias de mejora del código
   /ayuda                 → mostrar esta ayuda
 Cualquier otro texto se envía como mensaje al proveedor de IA; si parece una
 pregunta de exploración, SnapContext puede usar herramientas MCP de solo
@@ -3367,6 +3368,13 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
 
         if linea == "/ayuda":
             _emitir(sys.stdout, AYUDA_CHAT)
+            continue
+
+        # ---- asesor proactivo (v3.5.0) ------------------------------------
+        if linea in ("/asesor", "/sugerir"):
+            info("🧠 Analizando el proyecto...")
+            sugerencias_chat = _asesor_analizar(".")
+            _asesor_mostrar(sugerencias_chat)
             continue
 
         if linea == "/limpiar":
@@ -3822,7 +3830,7 @@ PROMPT_PLAN = (
     "Devuelve SOLO un objeto JSON con esta forma exacta (sin explicaciones):\n"
     '{{"pasos": [{{\n'
     '  "descripcion": "qué hace este paso",\n'
-    '  "accion": "editar" | "ejecutar" | "consultar" | "mcp",\n'
+    '  "accion": "editar" | "ejecutar" | "consultar" | "mcp" | "asesor",\n'
     '  "archivos": ["ruta/relativa.py"],   // solo para accion "editar"\n'
     '  "comando": "comando shell",         // solo para accion "ejecutar"\n'
     '  "herramienta": "grep|read_file|list_files|ast|git_status|git_diff|\n'
@@ -3842,7 +3850,7 @@ PROMPT_PLAN = (
     "   \"pasos[0].resultado == 'ok'\"  ·  \"resultados.mi_variable != ''\".\n"
 )
 
-ACCIONES_VALIDAS = {"editar", "ejecutar", "consultar", "mcp"}
+ACCIONES_VALIDAS = {"editar", "ejecutar", "consultar", "mcp", "asesor"}
 
 
 def _normalizar_pasos(datos) -> List[dict]:
@@ -4174,6 +4182,31 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
         except RuntimeError as exc:
             error(str(exc))
             return (False, str(exc))
+
+    # accion == "asesor" (v3.5.0): análisis estático del proyecto; cada
+    # sugerencia se presenta al usuario para aceptarla o rechazarla. En modo
+    # --auto solo se informan (nunca se aplica código sin confirmación).
+    if accion == "asesor":
+        sugerencias_paso = _asesor_analizar(raiz)
+        if not sugerencias_paso:
+            exito("[asesor] Sin sugerencias: el código está limpio.")
+            return (True, "sin sugerencias")
+        aceptadas = 0
+        for sugg in sugerencias_paso:
+            texto = (f"[asesor] {sugg['descripcion']} "
+                     f"({sugg['archivo']}:{sugg['linea']})")
+            if getattr(args, "auto", False):
+                aviso(texto + f" → {sugg['solucion']}")
+                continue
+            if _confirmar_accion(texto, tipo="asesor",
+                                 detalles=sugg.get("solucion"),
+                                 confirmar=getattr(args, "confirmar", True)):
+                aceptadas += 1
+                exito(f"Sugerencia aceptada: {sugg['solucion']}")
+            else:
+                info("Sugerencia descartada.")
+        return (True, f"{len(sugerencias_paso)} sugerencia(s), "
+                      f"{aceptadas} aceptada(s)")
 
     # accion == "editar": reutiliza el pipeline existente o usa el editor propio
     editor_elegido = getattr(args, "editor", "aider") or "aider"
@@ -6968,6 +7001,7 @@ def _pintar(texto: str, clave: str) -> str:
 CATEGORIAS_AYUDA = (
     ("Modos de ejecución",
      ("--plan", "--auto", "--editor", "--modo-edicion", "--validar", "--no-validar-sintaxis", "--max-intentos-validacion",
+      "--asesor", "--asesor-auto", "--asesor-umbral",
       "--chat", "--web", "--web-puerto", "--demo",
       "--init", "--init-claude", "--historial", "--historial-limpiar",
       "--diagnostico", "--reparar", "--bienvenida")),
@@ -7214,6 +7248,375 @@ class _AyudaAccion(argparse.Action):
         parser.exit()
 
 
+# ---------------------------------------------------------------------------
+# Asesor de código proactivo (v3.5.0)
+# ---------------------------------------------------------------------------
+# Análisis estático ligero que sugiere mejoras SIN modificar código. Solo con
+# --asesor-auto se aplican las refactorizaciones marcadas como seguras, siempre
+# validando la sintaxis del resultado antes de escribir en disco.
+
+ASESOR_EXTENSIONES = {
+    ".py": "python", ".js": "javascript", ".jsx": "javascript",
+    ".ts": "typescript", ".tsx": "typescript", ".dart": "dart",
+    ".go": "go", ".rs": "rust", ".java": "java",
+}
+ASESOR_CARPETAS_IGNORADAS = {".git", "__pycache__", "node_modules", ".venv",
+                             "venv", "env", "dist", "build", ".idea",
+                             ".vscode", ".mypy_cache", ".pytest_cache"}
+ASESOR_UMBRALES_DEFECTO = {
+    "funcion_larga": 20,      # máx. líneas por función
+    "clase_metodos": 10,      # máx. métodos por clase
+    "duplicado_lineas": 6,    # tamaño mínimo de un bloque duplicado
+}
+
+# Nombres cortos legítimos (índices de bucle, coordenadas...) que el detector
+# de nombres poco descriptivos ignora.
+_NOMBRES_CORTOS_VALIDOS = {"i", "j", "k", "x", "y", "z", "_", "ok", "id", "ex",
+                           "ax", "ay", "bx", "by"}
+
+# Diccionario de nombres descriptivos propuestos para abreviaturas comunes
+# (usado solo como sugerencia; el usuario puede rechazarla).
+_NOMBRES_SUGERIDOS = {
+    "d": "datos", "n": "numero", "s": "texto", "t": "temporal", "f": "archivo",
+    "e": "error", "m": "mensaje", "r": "resultado", "l": "lista",
+    "p": "parametro", "c": "contador", "v": "valor", "b": "bandera",
+    "w": "ruta", "q": "cola", "g": "grafo", "h": "diccionario",
+    "df": "dataframe", "fn": "funcion", "cb": "callback", "tmp": "temporal",
+}
+
+_PRIORIDAD_ORDEN = {"alta": 0, "media": 1, "baja": 2}
+
+
+def _asesor_umbrales() -> dict:
+    """Umbrales del asesor: defectos sobrescritos por ``~/.snapcontext/
+    config.json`` bajo la clave ``"asesor"`` (p. ej. ``{"funcion_larga": 30}``)."""
+    umbrales = dict(ASESOR_UMBRALES_DEFECTO)
+    try:
+        config = cargar_configuracion()
+        personal = config.get("asesor")
+        if isinstance(personal, dict):
+            for clave, valor in personal.items():
+                if clave in umbrales and isinstance(valor, int):
+                    umbrales[clave] = valor
+    except Exception:
+        pass
+    return umbrales
+
+
+def _detectar_funciones_largas(contenido: str, umbral: int) -> List[dict]:
+    """Funciones/métodos con más de ``umbral`` líneas (AST de Python)."""
+    hallazgos: List[dict] = []
+    try:
+        arbol = ast.parse(contenido)
+    except SyntaxError:
+        return hallazgos
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            fin = getattr(nodo, "end_lineno", nodo.lineno) or nodo.lineno
+            lineas = fin - nodo.lineno + 1
+            if lineas > umbral:
+                hallazgos.append({"nombre": nodo.name, "linea": nodo.lineno,
+                                  "lineas": lineas})
+    return hallazgos
+
+
+def _detectar_clases_grandes(contenido: str, max_metodos: int) -> List[dict]:
+    """Clases con demasiadas responsabilidades (> ``max_metodos`` métodos)."""
+    hallazgos: List[dict] = []
+    try:
+        arbol = ast.parse(contenido)
+    except SyntaxError:
+        return hallazgos
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, ast.ClassDef):
+            metodos = sum(
+                1 for hijo in nodo.body
+                if isinstance(hijo, (ast.FunctionDef, ast.AsyncFunctionDef)))
+            if metodos > max_metodos:
+                hallazgos.append({"nombre": nodo.name, "linea": nodo.lineno,
+                                  "metodos": metodos})
+    return hallazgos
+
+
+def _detectar_nombres_cortos(contenido: str) -> List[dict]:
+    """Variables/funciones con nombres poco descriptivos (≤ 2 caracteres)."""
+    hallazgos: List[dict] = []
+    try:
+        arbol = ast.parse(contenido)
+    except SyntaxError:
+        return hallazgos
+    vistos: Dict[str, int] = {}
+    for nodo in ast.walk(arbol):
+        nombre = None
+        linea = getattr(nodo, "lineno", 1)
+        if isinstance(nodo, ast.Name) and isinstance(nodo.ctx, ast.Store):
+            nombre = nodo.id
+        elif isinstance(nodo, ast.arg):
+            nombre = nodo.arg
+        elif isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            nombre = nodo.name
+        if not nombre or nombre in _NOMBRES_CORTOS_VALIDOS:
+            continue
+        if len(nombre) <= 2 and nombre not in vistos:
+            vistos[nombre] = linea
+    for nombre, linea in sorted(vistos.items(), key=lambda kv: kv[1]):
+        sugerido = _NOMBRES_SUGERIDOS.get(nombre.lower(),
+                                          f"{nombre}_descriptivo")
+        hallazgos.append({"nombre": nombre, "linea": linea,
+                          "sugerido": sugerido})
+    return hallazgos
+
+
+_PATRONES_OBSOLETOS = [
+    (re.compile(r"^\s*except\s*:\s*(#.*)?$"),
+     "'except:' desnudo captura todo; especifica la excepción "
+     "(p. ej. 'except ValueError:')"),
+    (re.compile(r"==\s*None\b"), "usa 'is None' en lugar de '== None'"),
+    (re.compile(r"\bNone\s*=="), "usa 'is None' en lugar de 'None =='"),
+    (re.compile(r"\.has_key\("), "'.has_key()' es de Python 2; usa 'in'"),
+]
+
+
+def _detectar_patrones_obsoletos(contenido: str) -> List[dict]:
+    """Líneas con patrones obsoletos o antipatrones (heurística por regex)."""
+    hallazgos: List[dict] = []
+    for numero, linea in enumerate(contenido.splitlines(), start=1):
+        codigo = linea.split("#", 1)[0]      # ignora comentarios
+        for patron, mensaje in _PATRONES_OBSOLETOS:
+            if patron.search(codigo):
+                hallazgos.append({"linea": numero, "mensaje": mensaje,
+                                  "codigo": codigo.strip()})
+                break
+    return hallazgos
+
+
+def _normalizar_linea_duplicado(linea: str) -> str:
+    """Normaliza una línea para comparación de bloques duplicados."""
+    return " ".join(linea.strip().split())
+
+
+def _detectar_duplicados(contenidos: Dict[str, str],
+                         min_lineas: int) -> List[dict]:
+    """Bloques de ``min_lineas`` líneas normalizadas repetidos entre archivos.
+
+    Heurística por ventanas deslizantes: dos bloques son duplicados si todas
+    sus líneas normalizadas coinciden. Devuelve como máximo una sugerencia por
+    par de archivos (limitada a 20 para no saturar la salida).
+    """
+    huellas: Dict[str, tuple] = {}
+    hallazgos: List[dict] = []
+    vistos_par: set = set()
+    for archivo in sorted(contenidos):
+        lineas = [_normalizar_linea_duplicado(x)
+                  for x in contenidos[archivo].splitlines()]
+        for inicio in range(0, max(0, len(lineas) - min_lineas + 1)):
+            bloque = lineas[inicio:inicio + min_lineas]
+            if any(not x for x in bloque):
+                continue
+            clave = "\n".join(bloque)
+            previo = huellas.get(clave)
+            if previo is None:
+                huellas[clave] = (archivo, inicio + 1)
+                continue
+            par = (previo[0], archivo)
+            if par in vistos_par:
+                continue
+            vistos_par.add(par)
+            hallazgos.append({
+                "archivo": archivo, "linea": inicio + 1,
+                "original": f"{previo[0]}:{previo[1]}",
+                "lineas": min_lineas})
+            if len(hallazgos) >= 20:
+                return hallazgos
+    return hallazgos
+
+
+def _asesor_analizar(directorio: str = ".",
+                     umbral_funcion: Optional[int] = None,
+                     max_archivos: int = 400) -> List[dict]:
+    """Analiza el proyecto y devuelve sugerencias de mejora ordenadas.
+
+    Cada sugerencia es un dict con ``descripcion``, ``archivo``, ``linea``,
+    ``solucion``, ``prioridad`` (alta|media|baja) y, si se puede aplicar de
+    forma segura, ``operaciones`` + ``auto=True``.
+    """
+    umbrales = _asesor_umbrales()
+    if umbral_funcion:
+        umbrales["funcion_larga"] = max(3, int(umbral_funcion))
+
+    raiz = Path(directorio).resolve()
+    contenidos: Dict[str, str] = {}
+    for camino in sorted(raiz.rglob("*")):
+        if not camino.is_file() or camino.suffix not in ASESOR_EXTENSIONES:
+            continue
+        if any(parte in ASESOR_CARPETAS_IGNORADAS for parte in camino.parts):
+            continue
+        try:
+            contenidos[str(camino.relative_to(raiz)).replace(os.sep, "/")] = \
+                camino.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if len(contenidos) >= max_archivos:
+            break
+
+    sugerencias: List[dict] = []
+    for relativo, contenido in sorted(contenidos.items()):
+        lenguaje = ASESOR_EXTENSIONES[Path(relativo).suffix]
+
+        # Patrones obsoletos: disponibles para todos los lenguajes (regex).
+        for hallazgo in _detectar_patrones_obsoletos(contenido):
+            auto = "is None" in hallazgo["mensaje"] and lenguaje == "python"
+            sugerencias.append({
+                "tipo": "patron_obsoleto",
+                "descripcion": f"Patrón obsoleto: {hallazgo['mensaje']}",
+                "archivo": relativo, "linea": hallazgo["linea"],
+                "solucion": hallazgo["mensaje"],
+                "prioridad": "alta" if "except" in hallazgo["mensaje"]
+                             else "media",
+                "auto": auto,
+            })
+
+        if lenguaje != "python":
+            continue     # AST detallado solo para Python; resto heurísticas.
+
+        for hallazgo in _detectar_funciones_largas(
+                contenido, umbrales["funcion_larga"]):
+            sugerencias.append({
+                "tipo": "funcion_larga",
+                "descripcion": (
+                    f"La función '{hallazgo['nombre']}' tiene "
+                    f"{hallazgo['lineas']} líneas (> {umbrales['funcion_larga']})."),
+                "archivo": relativo, "linea": hallazgo["linea"],
+                "solucion": "Extrae bloques coherentes en funciones auxiliares.",
+                "prioridad": "media",
+            })
+
+        for hallazgo in _detectar_clases_grandes(
+                contenido, umbrales["clase_metodos"]):
+            sugerencias.append({
+                "tipo": "clase_grande",
+                "descripcion": (
+                    f"La clase '{hallazgo['nombre']}' tiene "
+                    f"{hallazgo['metodos']} métodos "
+                    f"(> {umbrales['clase_metodos']}): posibles demasiadas "
+                    "responsabilidades."),
+                "archivo": relativo, "linea": hallazgo["linea"],
+                "solucion": ("Divide la clase en clases más pequeñas con una "
+                             "responsabilidad única."),
+                "prioridad": "media",
+            })
+
+        for hallazgo in _detectar_nombres_cortos(contenido):
+            operaciones = [{
+                "tipo": "renombrar", "nombre": hallazgo["nombre"],
+                "nuevo": hallazgo["sugerido"]}]
+            sugerencias.append({
+                "tipo": "nombre_poco_descriptivo",
+                "descripcion": (
+                    f"El nombre '{hallazgo['nombre']}' no es descriptivo."),
+                "archivo": relativo, "linea": hallazgo["linea"],
+                "solucion": f"Renómbralo a algo como '{hallazgo['sugerido']}'.",
+                "prioridad": "baja",
+                "operaciones": operaciones, "auto": True,
+            })
+
+    min_dup = umbrales["duplicado_lineas"]
+    for hallazgo in _detectar_duplicados(contenidos, min_dup):
+        sugerencias.append({
+            "tipo": "codigo_duplicado",
+            "descripcion": (
+                f"Bloque duplicado de {hallazgo['lineas']} líneas "
+                f"(original en {hallazgo['original']})."),
+            "archivo": hallazgo["archivo"], "linea": hallazgo["linea"],
+            "solucion": "Extrae el bloque común a una función compartida.",
+            "prioridad": "media",
+        })
+
+    sugerencias.sort(key=lambda s: (_PRIORIDAD_ORDEN.get(s["prioridad"], 3),
+                                    s["archivo"], s["linea"]))
+    return sugerencias
+
+
+def _asesor_mostrar(sugerencias: List[dict]) -> None:
+    """Muestra las sugerencias en la CLI con colores por prioridad."""
+    if not sugerencias:
+        exito("Asesor: sin sugerencias. El código está limpio. ✔")
+        return
+    aviso(f"Asesor de código — {len(sugerencias)} sugerencia(s):")
+    color_prioridad = {"alta": _ROJO, "media": _AMARILLO, "baja": _CYAN}
+    for indice, sugg in enumerate(sugerencias, start=1):
+        color = color_prioridad.get(sugg.get("prioridad"), _CYAN)
+        _emitir(sys.stdout, _pintar(
+            f"  {indice}. [{sugg['prioridad'].upper()}] "
+            f"{sugg['archivo']}:{sugg['linea']} — {sugg['descripcion']}",
+            color))
+        _emitir(sys.stdout, _pintar(f"       → {sugg['solucion']}", _VERDE))
+        if sugg.get("auto"):
+            _emitir(sys.stdout, _pintar(
+                "       (aplicable automáticamente con --asesor-auto)",
+                _CYAN))
+
+
+def _asesor_aplicar_automaticas(sugerencias: List[dict],
+                                directorio: str = ".") -> int:
+    """Aplica solo las sugerencias marcadas ``auto=True`` (--asesor-auto).
+
+    Cada cambio se valida con ``_validar_sintaxis`` antes de escribir; si la
+    validación falla, se descarta el cambio y el archivo queda intacto.
+    Devuelve el número de cambios aplicados.
+    """
+    raiz = Path(directorio).resolve()
+    aplicadas = 0
+    for sugg in sugerencias:
+        if not sugg.get("auto") or not sugg.get("operaciones"):
+            continue
+        archivo = raiz / sugg["archivo"]
+        try:
+            contenido = archivo.read_text(encoding="utf-8")
+        except OSError as exc:
+            aviso(f"[asesor-auto] No se pudo leer {sugg['archivo']}: {exc}")
+            continue
+        nuevo = _aplicar_operaciones_ast(contenido, sugg["operaciones"])
+        if not nuevo or nuevo == contenido:
+            continue
+        exito_val, err = _validar_sintaxis(sugg["archivo"], nuevo, str(raiz))
+        if not exito_val:
+            aviso(f"[asesor-auto] Cambio descartado en {sugg['archivo']} "
+                  f"(validación falló: {err}).")
+            continue
+        try:
+            archivo.write_text(nuevo, encoding="utf-8")
+        except OSError as exc:
+            aviso(f"[asesor-auto] No se pudo escribir {sugg['archivo']}: {exc}")
+            continue
+        exito(f"[asesor-auto] Aplicado en {sugg['archivo']}:"
+              f"{sugg['linea']} — {sugg['solucion']}")
+        aplicadas += 1
+    return aplicadas
+
+
+def _ejecutar_asesor(args: argparse.Namespace) -> int:
+    """Modo asesor (`--asesor` / `--sugerir` / `--asesor-auto`)."""
+    from agentes import AgenteAsesor      # import diferido (evita ciclos)
+    directorio = getattr(args, "directorio", ".") or "."
+    agente = AgenteAsesor()
+    info("🧠 Asesor de código proactivo analizando el proyecto...")
+    sugerencias = agente.analizar(
+        directorio,
+        umbral_funcion=getattr(args, "asesor_umbral", None))
+    agente.mostrar(sugerencias)
+    if getattr(args, "asesor_auto", False):
+        aplicadas = agente.aplicar_automaticas(sugerencias, directorio)
+        if aplicadas:
+            exito(f"{aplicadas} mejora(s) aplicada(s) automáticamente.")
+        else:
+            info("Ninguna sugerencia era aplicable automáticamente.")
+    else:
+        info("Modo informativo: no se modificó ningún archivo "
+             "(usa --asesor-auto para aplicar mejoras seguras).")
+    return 0
+
+
 def crear_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="snapcontext",
@@ -7316,6 +7719,22 @@ def crear_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--aider-opciones", default="",
         help='Opciones extra para Aider entre comillas (p. ej. "--model sonnet").',
+    )
+    parser.add_argument(
+        "--asesor", "--sugerir", dest="asesor", action="store_true",
+        help="Asesor de código proactivo (v3.5.0): analiza el proyecto y "
+             "muestra sugerencias de mejora sin modificar código.",
+    )
+    parser.add_argument(
+        "--asesor-auto", dest="asesor_auto", action="store_true",
+        help="Como --asesor, pero aplica automáticamente las mejoras seguras "
+             "(renombrar símbolos); cada cambio se valida antes de guardarse. "
+             "Las demás sugerencias solo se muestran.",
+    )
+    parser.add_argument(
+        "--asesor-umbral", dest="asesor_umbral", type=int, default=None,
+        help="Umbral de líneas por función para el asesor (por defecto 20; "
+             "también configurable en config.json clave 'asesor').",
     )
     bucle = parser.add_mutually_exclusive_group()
     bucle.add_argument(
@@ -8330,6 +8749,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         if getattr(args, "curador", False):
             _curador_ejecutar()
             return 0
+        # v3.5.0: asesor de código proactivo (--asesor/--sugerir/--asesor-auto).
+        if getattr(args, "asesor", False) or getattr(args, "asesor_auto", False):
+            return _ejecutar_asesor(args)
         # --skills lista los skills aprendidos y termina.
         if getattr(args, "skills", False):
             filas = _skill_listar(incluir_archivados=True)

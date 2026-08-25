@@ -6,6 +6,38 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 
 
+## [3.5.0] - 2026-08-25 - Asesor de código proactivo
+
+### 🧠 Asesor de código proactivo
+- **Análisis estático automático** del proyecto sin pedirlo explícitamente:
+  - Funciones/métodos demasiado largos (> 20 líneas, umbral configurable).
+  - Clases con demasiadas responsabilidades (> 10 métodos).
+  - Nombres de variables/funciones poco descriptivos (heurística AST con
+    diccionario de nombres sugeridos).
+  - Patrones obsoletos: `except:` desnudo (prioridad alta), `== None`,
+    `.has_key()` — disponibles para todos los lenguajes.
+  - Código duplicado entre archivos (ventanas deslizantes normalizadas).
+- **Lenguajes**: Python vía `ast`; JS/TS, Dart, Go, Rust y Java mediante
+  heurísticas regex. Sin validador disponible el análisis se omite sin error.
+- **Sugerencias estructuradas**: descripción, archivo:línea, solución propuesta
+  y prioridad (alta/media/baja), mostradas en la CLI con colores.
+- **Flags**:
+  - `--asesor` (alias `--sugerir`): analiza y muestra; nunca modifica código.
+  - `--asesor-auto`: aplica automáticamente las mejoras seguras (renombrar
+    símbolos); cada cambio se valida con `_validar_sintaxis` antes de
+    guardarse y se descarta si rompe la sintaxis.
+  - `--asesor-umbral N`: sensibilidad del detector de funciones largas.
+- **Configuración persistente**: umbrales en `~/.snapcontext/config.json`
+  bajo la clave `"asesor"` (p. ej. `{"asesor": {"funcion_larga": 30}}`).
+- **Integración con el planificador**: nueva acción de paso `{"accion":
+  "asesor"}`; cada sugerencia se presenta al usuario para aceptarla o
+  rechazarla individualmente (en `--auto` solo se informan).
+- **Chat**: nuevo comando `/asesor` (alias `/sugerir`) en `snapcontext --chat`.
+- **Web**: nueva acción `asesor` que emite el evento `{"tipo": "asesor",
+  "sugerencias": [...]}` para el panel de resultados de la interfaz.
+- **Nuevo agente**: `AgenteAsesor` en `agentes.py`, integrado en el
+  Orquestador (`orch.agente_asesor`).
+
 ## [3.4.0] - 2026-08-25 - Validación de sintaxis del editor propio
 
 ### Validación de sintaxis antes de guardar

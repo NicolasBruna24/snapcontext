@@ -1,6 +1,6 @@
 # SnapContext
 
-![v3.4.0](https://img.shields.io/badge/version-3.4.0-blue.svg)
+![v3.5.0](https://img.shields.io/badge/version-3.5.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -186,6 +186,48 @@ snapcontext "..." --editor propio --no-validar-sintaxis
 # Ajustar el número de reintentos
 snapcontext "..." --editor propio --max-intentos-validacion 5
 ```
+
+### 🧠 Asesor de código proactivo (v3.5.0)
+
+SnapContext no solo ejecuta órdenes: también **analiza tu código por su cuenta**
+y te sugiere mejoras (refactorizaciones, deuda técnica, optimizaciones).
+
+```bash
+# Análisis informativo (nunca modifica código)
+snapcontext --asesor
+snapcontext --sugerir          # alias
+
+# Aplicar automáticamente las mejoras seguras (renombrar símbolos);
+# cada cambio se valida antes de guardarse y se descarta si rompe la sintaxis
+snapcontext --asesor-auto
+
+# Ajustar la sensibilidad del detector de funciones largas (defecto: 20)
+snapcontext --asesor --asesor-umbral 30
+```
+
+**Qué detecta:**
+
+- 🔴 **Prioridad alta**: `except:` desnudos (capturan todo sin querer).
+- 🟡 **Prioridad media**: funciones largas (> 20 líneas), clases con demasiadas
+  responsabilidades (> 10 métodos), bloques de código duplicados entre archivos,
+  comparaciones `== None` y patrones obsoletos (`.has_key()`, Python 2).
+- 🔵 **Prioridad baja**: nombres poco descriptivos (`d`, `tmp`...) con una
+  sugerencia concreta de renombrado.
+
+Cada sugerencia incluye descripción, ubicación `archivo:línea`, solución
+propuesta y prioridad. Los umbrales se personalizan en
+`~/.snapcontext/config.json`:
+
+```json
+{ "asesor": { "funcion_larga": 30, "clase_metodos": 15, "duplicado_lineas": 8 } }
+```
+
+El asesor también está disponible:
+
+- **En el chat**: comando `/asesor` (o `/sugerir`) dentro de `--chat`.
+- **En el planificador**: paso `{"accion": "asesor", "descripcion": "..."}` —
+  cada sugerencia se presenta para aceptarla o rechazarla individualmente.
+- **En la web**: acción *Asesor* que muestra las sugerencias en un panel.
 
 ## 🧭 Modos y alias
 
@@ -461,7 +503,7 @@ snapcontext --plan "..."                                             # commits '
   (requiere `ANTHROPIC_API_KEY` y `pip install snapcontext[anthropic]`). Modelo por
   defecto: `claude-3-5-sonnet-20241022`.
 - **Modo chat interactivo**: `snapcontext --chat` abre un REPL con los comandos
-  `/salir`, `/archivos`, `/limpiar`, `/seleccion <consulta>`,
+  `/salir`, `/archivos`, `/limpiar`, `/seleccion <consulta>`, `/asesor`,
   `/provider <proveedor>`, `/historial` y `/ayuda`. Cualquier otro texto se envía
   al proveedor actual manteniendo la conversación.
 - **Memoria persistente**: cada tarea se guarda en `~/.snapcontext/historial.json`
@@ -1002,6 +1044,9 @@ locales y te deja elegir con las flechas:
 | `--validar` | on | Valida la sintaxis del código antes de guardar en el editor propio |
 | `--no-validar-sintaxis` | off | Desactiva la validación de sintaxis del editor propio |
 | `--max-intentos-validacion` | `3` | Intentos de validación de sintaxis antes de cancelar la edición |
+| `--asesor` (`--sugerir`) | off | Asesor proactivo: analiza y sugiere mejoras sin modificar código |
+| `--asesor-auto` | off | Aplica automáticamente las mejoras seguras del asesor |
+| `--asesor-umbral` | `20` | Líneas máximas por función para el asesor |
 
 > **Nota:** el flag negativo de validación de sintaxis se llama `--no-validar-sintaxis`
 > porque `--no-validar` ya existe como alias de `--iniciar-proyecto`.

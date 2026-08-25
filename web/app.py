@@ -245,6 +245,13 @@ def _ejecutar_accion(mensaje: dict, cola) -> None:
                 "resumen": f"{len(lineas)} coincidencia(s)."})
             if lineas:
                 ev({"tipo": "exploracion", "lineas": lineas[:50]})
+        elif accion == "asesor":
+            # v3.5.0: asesor de código proactivo → panel de sugerencias.
+            sugerencias = sc._asesor_analizar(
+                mensaje.get("directorio") or _DIRECTORIO_DEFECTO)
+            ev({"tipo": "asesor", "sugerencias": sugerencias})
+            ev({"tipo": "accion_ejecutada", "accion": accion, "ok": True,
+                "resumen": f"{len(sugerencias)} sugerencia(s) de mejora."})
         else:
             # fix / review / plan → pipeline o planificador de snapcontext.
             sc.fijar_evento_callback(ev)
