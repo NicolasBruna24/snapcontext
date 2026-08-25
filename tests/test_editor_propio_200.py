@@ -68,10 +68,12 @@ class TestEditorPropio(unittest.TestCase):
 
 
 class TestFlagsEditor(unittest.TestCase):
-    def test_editor_defecto_es_aider(self):
+    def test_editor_defecto_es_propio(self):
+        # v4.1.0: el editor propio es el modo por defecto; Aider sigue
+        # disponible con --editor aider.
         parser = sc.crear_parser()
         args = parser.parse_args(["consulta"])
-        self.assertEqual(args.editor, "aider")
+        self.assertEqual(args.editor, "propio")
 
     def test_editor_propio_aceptado(self):
         parser = sc.crear_parser()
@@ -84,7 +86,7 @@ class TestFlagsEditor(unittest.TestCase):
         self.assertIsInstance(orch.agente_editor_propio, AgenteEditorPropio)
 
     def test_version_es_2_0_0(self):
-        self.assertEqual(sc.VERSION, "4.0.0")
+        self.assertEqual(sc.VERSION, "4.1.0")
 
 
 if __name__ == "__main__":

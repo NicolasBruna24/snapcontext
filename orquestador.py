@@ -207,6 +207,9 @@ class Orquestador:
                         validar=getattr(args, "validar", True),
                         max_intentos_validacion=getattr(
                             args, "max_intentos_validacion", 3),
+                        proveedor=getattr(args, "provider", None),
+                        modelo_ligero=getattr(args, "modelo_ligero", False),
+                        auto=getattr(args, "auto", False),
                     )
                     self._emitir_tipo("editor", accion="fin", ok=ok)
                 else:

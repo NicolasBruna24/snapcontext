@@ -150,6 +150,27 @@ class AgenteEditor:
         return sc.ejecutar_aider(archivos, mensaje, directorio, opciones)
 
 
+def _prompts_concisos(proveedor: Optional[str],
+                      modelo_ligero: bool = False) -> bool:
+    """v4.1.0: ¿usar prompts concisos? Con Ollama o ``--modelo-ligero``."""
+    if modelo_ligero:
+        return True
+    return str(proveedor or "").strip().lower() == "ollama"
+
+
+def _proveedor_efectivo(proveedor: Optional[str]) -> str:
+    """Resuelve el proveedor: explícito → config.json → defecto."""
+    import snapcontext as sc
+
+    if proveedor:
+        return proveedor
+    try:
+        return sc.cargar_configuracion().get("provider") or \
+            sc.PROVEEDOR_DEFECTO
+    except Exception:
+        return sc.PROVEEDOR_DEFECTO
+
+
 class AgenteEditorPropio:
     """Agente Editor Propio: editor integrado de SnapContext.
 
@@ -222,7 +243,8 @@ class AgenteEditorPropio:
         return ["parche", "sobrescribir"]
 
     def editar_ast(self, archivo: str, tarea: str,
-                   directorio: str = ".", modelo: Optional[str] = None) -> bool:
+                   directorio: str = ".", modelo: Optional[str] = None,
+                   conciso: bool = False) -> bool:
         """Edita ``archivo`` con base en su AST usando el proveedor de IA."""
         import snapcontext as sc
 
@@ -230,7 +252,8 @@ class AgenteEditorPropio:
         proveedor = pref.get("provider") or sc.PROVEEDOR_DEFECTO
         sc.depurar(f"[AgenteEditorPropio] Editando por AST '{archivo}' en '{directorio}'")
         return sc._editor_ast(archivo, tarea, directorio=directorio,
-                              proveedor=proveedor, modelo=modelo)
+                              proveedor=proveedor, modelo=modelo,
+                              conciso=conciso)
 
     @staticmethod
     def _aplicar_parche_preview(parche: str, contenido_actual: str):
@@ -280,7 +303,9 @@ class AgenteEditorPropio:
     def _aplicar_modo_parche(self, archivo: str, mensaje: str,
                              contenido_actual: str, modelo: Optional[str],
                              directorio: str, validar: bool = True,
-                             max_intentos_validacion: int = 3) -> bool:
+                             max_intentos_validacion: int = 3,
+                             conciso: bool = False,
+                             auto: bool = False) -> bool:
         """Intenta editar `archivo` pidiendo un parche unificado al proveedor."""
         import snapcontext as sc
 
@@ -293,28 +318,38 @@ class AgenteEditorPropio:
 
         error_msj = ""
         for intento in range(1, max_val + 1):
-            prompt = (
-                f"Genera un parche unificado (unified diff) que modifique el archivo "
-                f"para cumplir con la tarea con precisión máxima.\n"
-                f"El parche debe ser aplicable con 'patch -p1' o 'git apply' "
-                f"(encabezados --- a/{archivo} y +++ b/{archivo}).\n\n"
-                f"Tarea: {mensaje}\n"
-                f"Archivo: {archivo}  (lenguaje: {lenguaje}, {num_lineas} líneas)\n\n"
-                f"Instrucciones:\n"
-                f"- Incluye suficiente contexto (3 líneas) para anclar cada hunk.\n"
-                f"- Conserva el estilo existente (indentación, comillas).\n"
-                f"- Modifica SOLO lo necesario; no reorganices el resto del archivo.\n"
-            )
+            if conciso:
+                # v4.1.0: variante reducida para modelos ligeros (Ollama).
+                prompt = (
+                    f"Tarea: {mensaje}\n"
+                    f"Archivo: {archivo} ({lenguaje}, {num_lineas} líneas)\n\n"
+                    f"```\n{contenido_actual}\n```\n\n"
+                    f"Responde SOLO el diff unificado (--- a/… +++ b/… con @@)."
+                )
+            else:
+                prompt = (
+                    f"Genera un parche unificado (unified diff) que modifique el archivo "
+                    f"para cumplir con la tarea con precisión máxima.\n"
+                    f"El parche debe ser aplicable con 'patch -p1' o 'git apply' "
+                    f"(encabezados --- a/{archivo} y +++ b/{archivo}).\n\n"
+                    f"Tarea: {mensaje}\n"
+                    f"Archivo: {archivo}  (lenguaje: {lenguaje}, {num_lineas} líneas)\n\n"
+                    f"Instrucciones:\n"
+                    f"- Incluye suficiente contexto (3 líneas) para anclar cada hunk.\n"
+                    f"- Conserva el estilo existente (indentación, comillas).\n"
+                    f"- Modifica SOLO lo necesario; no reorganices el resto del archivo.\n"
+                )
             if error_msj:
                 prompt += (
                     f"\nTu intento anterior produjo un error de sintaxis que debes "
                     f"corregir:\n{error_msj}\n\n"
                     f"Mantén el objetivo de la tarea pero arregla ese error.\n"
                 )
-            prompt += (
-                f"\nContenido actual completo:\n```{lenguaje}\n{contenido_actual}\n```\n\n"
-                f"Devuelve ÚNICAMENTE el diff unificado, sin explicaciones ni rodeos."
-            )
+            if not conciso:
+                prompt += (
+                    f"\nContenido actual completo:\n```{lenguaje}\n{contenido_actual}\n```\n\n"
+                    f"Devuelve ÚNICAMENTE el diff unificado, sin explicaciones ni rodeos."
+                )
             respuesta = sc._enviar_al_proveedor(
                 proveedor, modelo, [{"role": "user", "content": prompt}])
             diff_limpio = respuesta
@@ -329,40 +364,94 @@ class AgenteEditorPropio:
 
             if not validar:
                 # v3.3.0: validación previa + resolución de conflictos.
-                return self.aplicar_parche(diff_limpio, directorio,
-                                           contenido_esperado=contenido_actual)
+                return self._aplicar_con_conflicto(
+                    archivo, diff_limpio, directorio, contenido_actual,
+                    preview=None, auto=auto) == "ok"
 
             # v3.4.0: validar la sintaxis del contenido resultante.
             preview, aplicados = self._aplicar_parche_preview(
                 diff_limpio, contenido_actual)
             if aplicados == 0:
                 # No se pudo reproducir en memoria → se omite la validación.
-                return self.aplicar_parche(diff_limpio, directorio,
-                                           contenido_esperado=contenido_actual)
+                return self._aplicar_con_conflicto(
+                    archivo, diff_limpio, directorio, contenido_actual,
+                    preview=None, auto=auto) == "ok"
 
             sc.info(f"Validando sintaxis de {archivo}...")
             exito, err = sc._validar_sintaxis(archivo, preview, directorio)
-            if exito:
-                sc.exito("Sintaxis válida.")
-                return self.aplicar_parche(diff_limpio, directorio,
-                                           contenido_esperado=contenido_actual)
-
-            error_msj = err
-            if intento < max_val:
-                sc.error(
-                    f"Error de sintaxis: {err}. "
-                    f"Reintentando ({intento}/{max_val})...")
-            else:
+            if not exito:
+                error_msj = err
+                if intento < max_val:
+                    sc.error(
+                        f"Error de sintaxis: {err}. "
+                        f"Reintentando ({intento}/{max_val})...")
+                    continue
                 sc.error(
                     f"No se pudo validar tras {max_val} intentos. "
                     f"Edición cancelada.")
                 return False
+            sc.exito("Sintaxis válida.")
+            resultado = self._aplicar_con_conflicto(
+                archivo, diff_limpio, directorio, contenido_actual,
+                preview=preview, auto=auto)
+            if resultado == "ok":
+                return True
+            if resultado == "cancelar":
+                return False
+            # "reintentar": el usuario pidió reintentar con el proveedor.
+            error_msj = ("el parche no se aplicó limpiamente; "
+                         "genera un diff corregido y completo")
+            if intento >= max_val:
+                return False
+            sc.info(f"Reintentando parche ({intento}/{max_val})...")
         return False
+
+    def _aplicar_con_conflicto(self, archivo: str, diff: str,
+                               directorio: str, contenido_actual: str,
+                               preview: Optional[str] = None,
+                               auto: bool = False) -> str:
+        """Aplica el parche resolviendo conflictos de forma interactiva.
+
+        Devuelve ``"ok"``, ``"reintentar"`` o ``"cancelar"``.
+        En modo ``--auto`` no pregunta: devuelve el resultado directo para que
+        ``ejecutar()`` pase a la siguiente estrategia.
+        """
+        import snapcontext as sc
+
+        ok = self.aplicar_parche(diff, directorio,
+                                 contenido_esperado=contenido_actual)
+        if ok or auto:
+            return "ok" if ok else "reintentar"
+        while True:
+            opcion = sc._menu_conflicto_parche()
+            if opcion == "a":
+                # Aplicar de todas formas: usa el preview ya calculado si lo
+                # hay; si no, reintenta el parche sin comprobación previa.
+                if preview is not None:
+                    return ("ok" if self.sobrescribir(archivo, preview,
+                                                      directorio)
+                            else "cancelar")
+                ok2 = self.aplicar_parche(diff, directorio)
+                if ok2:
+                    return "ok"
+                sc.error("El parche sigue sin aplicarse incluso sin "
+                         "comprobación previa.")
+                continue
+            if opcion == "v":
+                print("--- Diff propuesto ---")
+                print(diff)
+                print("----------------------")
+                continue
+            if opcion == "r":
+                return "reintentar"
+            sc.info(f"Se conserva la versión original de '{archivo}'.")
+            return "cancelar"
 
     def _aplicar_modo_sobrescribir(self, archivo: str, mensaje: str,
                                    contenido_actual: str, modelo: Optional[str],
                                    directorio: str, validar: bool = True,
-                                   max_intentos_validacion: int = 3) -> bool:
+                                   max_intentos_validacion: int = 3,
+                                   conciso: bool = False) -> bool:
         """Sobrescribe `archivo` con el código completo que devuelve el proveedor."""
         import snapcontext as sc
 
@@ -374,22 +463,32 @@ class AgenteEditorPropio:
         error_msj = ""
         nuevo_contenido = ""
         for intento in range(1, max_val + 1):
-            prompt = (
-                f"Modifica el siguiente archivo ({lenguaje}) para cumplir con la "
-                f"tarea, conservando el estilo existente y cambiando solo lo necesario.\n\n"
-                f"Tarea: {mensaje}\n"
-                f"Archivo: {archivo}  (lenguaje: {lenguaje})\n"
-            )
-            if error_msj:
-                prompt += (
-                    f"\nTu intento anterior produjo un error de sintaxis que debes "
-                    f"corregir:\n{error_msj}\n\n"
-                    f"Mantén el objetivo de la tarea pero arregla ese error.\n"
+            if conciso:
+                # v4.1.0: variante reducida para modelos ligeros (Ollama).
+                prompt = (
+                    f"Tarea: {mensaje}\n"
+                    f"Devuelve SOLO el código completo final de {archivo}:\n"
+                    f"```\n{contenido_actual}\n```"
                 )
-            prompt += (
-                f"\nContenido actual completo:\n```{lenguaje}\n{contenido_actual}\n```\n\n"
-                f"Devuelve ÚNICAMENTE el código completo resultante, sin explicaciones ni markdown."
-            )
+            else:
+                prompt = (
+                    f"Modifica el siguiente archivo ({lenguaje}) para cumplir con la "
+                    f"tarea, conservando el estilo existente y cambiando solo lo necesario.\n\n"
+                    f"Tarea: {mensaje}\n"
+                    f"Archivo: {archivo}  (lenguaje: {lenguaje})\n"
+                )
+                if error_msj:
+                    prompt += (
+                        f"\nTu intento anterior produjo un error de sintaxis que debes "
+                        f"corregir:\n{error_msj}\n\n"
+                        f"Mantén el objetivo de la tarea pero arregla ese error.\n"
+                    )
+                prompt += (
+                    f"\nContenido actual completo:\n```{lenguaje}\n{contenido_actual}\n```\n\n"
+                    f"Devuelve ÚNICAMENTE el código completo resultante, sin explicaciones ni markdown."
+                )
+            if error_msj and conciso:
+                prompt += (f"\n\nError anterior a corregir: {error_msj}")
             respuesta = sc._enviar_al_proveedor(
                 proveedor, modelo, [{"role": "user", "content": prompt}])
             nuevo_contenido = respuesta
@@ -428,6 +527,9 @@ class AgenteEditorPropio:
         modelo: Optional[str] = None,
         validar: bool = True,
         max_intentos_validacion: int = 3,
+        proveedor: Optional[str] = None,
+        modelo_ligero: bool = False,
+        auto: bool = False,
     ) -> bool:
         """Aplica las modificaciones para `archivos` con el `mensaje` especificado.
 
@@ -436,12 +538,23 @@ class AgenteEditorPropio:
         - modo_edicion == 'ast': edita con base en el AST y cae a sobrescritura si falla.
         - modo_edicion == 'auto': decide por heurística (AST para refactorizaciones,
           parche, y fallback a sobrescritura).
+
+        v4.1.0:
+        - Transparencia: informa la estrategia en uso antes de cada intento.
+        - Prompts concisos automáticos con Ollama o ``modelo_ligero=True``.
+        - Resolución interactiva de conflictos de parche (omitida con ``auto``).
+        - Al fallar todo, error claro con estrategias intentadas + sugerencia
+          ``--editor aider`` y registro del fallo en ~/.snapcontext/logs/.
         """
         import snapcontext as sc
         from pathlib import Path
 
         raiz = Path(directorio).resolve()
         todo_ok = True
+        conciso = _prompts_concisos(
+            _proveedor_efectivo(proveedor), modelo_ligero)
+        if conciso:
+            sc.info("Editor propio: usando prompts concisos (modelo ligero).")
 
         # v3.3.0 — Integración con skills: si ya existe un patrón de edición
         # aprendido para esta tarea, se prioriza su estrategia (sin pasar por
@@ -472,20 +585,25 @@ class AgenteEditorPropio:
                 cadena.insert(0, estrategia_aprendida)
             conseguido = False
             for estrategia in cadena:
+                sc.info(f"Editor propio: usando estrategia "
+                        f"{estrategia.upper()} para '{arch}'...")
                 try:
                     if estrategia == "ast":
                         conseguido = self.editar_ast(arch, mensaje,
-                                                     str(raiz), modelo)
+                                                     str(raiz), modelo,
+                                                     conciso=conciso)
                     elif estrategia == "parche":
                         conseguido = self._aplicar_modo_parche(
                             arch, mensaje, contenido_actual, modelo, str(raiz),
                             validar=validar,
-                            max_intentos_validacion=max_intentos_validacion)
+                            max_intentos_validacion=max_intentos_validacion,
+                            conciso=conciso, auto=auto)
                     elif estrategia == "sobrescribir":
                         conseguido = self._aplicar_modo_sobrescribir(
                             arch, mensaje, contenido_actual, modelo, str(raiz),
                             validar=validar,
-                            max_intentos_validacion=max_intentos_validacion)
+                            max_intentos_validacion=max_intentos_validacion,
+                            conciso=conciso)
                     else:
                         conseguido = False
                 except Exception as exc:
@@ -506,7 +624,22 @@ class AgenteEditorPropio:
                     except Exception as exc:
                         sc.depurar(f"[skills] Refuerzo falló: {exc}")
             else:
-                sc.error(f"[AgenteEditorPropio] No se pudo editar '{arch}'.")
+                # v4.1.0: mensaje claro con estrategias intentadas, motivo y
+                # sugerencia; además se registra en ~/.snapcontext/logs/.
+                estrategias_txt = " → ".join(cadena)
+                sc.error(
+                    f"✖ El editor propio no pudo completar la edición.\n"
+                    f"  Archivo: {arch}\n"
+                    f"  Estrategias intentadas: {estrategias_txt}\n"
+                    f"  Motivo: ninguna estrategia produjo un cambio válido "
+                    f"(revisa la salida anterior).\n"
+                    f"  Sugerencia: prueba con '--editor aider' o revisa la "
+                    f"tarea manualmente.")
+                try:
+                    sc._registrar_fallo_editor(arch, mensaje, cadena,
+                                               "sin cambio válido")
+                except Exception:
+                    pass
                 todo_ok = False
 
         return todo_ok

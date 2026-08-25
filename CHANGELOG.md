@@ -6,6 +6,36 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 
 
+## [4.1.0] - 2026-08-25 - Editor propio por defecto
+
+### ✏️ Editor propio, modo por defecto (antes Aider)
+- `--editor` ahora vale **`propio`** por defecto; `--editor aider` sigue
+  disponible y documentado para quien prefiera Aider (no se elimina nada).
+- **Transparencia**: antes de cada intento se informa la estrategia en uso
+  (`ℹ Editor propio: usando estrategia AST...`).
+
+### 🩹 Heurísticas de auto-reparación
+- Cadena de estrategias del editor propio: **AST → Parche → Sobrescritura**
+  (la lógica vive en `AgenteEditorPropio.ejecutar()`, no en el orquestador).
+- Si todo falla, error claro con archivo, estrategias intentadas, motivo y
+  sugerencia (`--editor aider`), más registro local opcional del fallo en
+  `~/.snapcontext/logs/editor_fallos.log`.
+
+### ⚡ Prompts optimizados para modelos locales
+- **Ollama detectado automáticamente** → prompts concisos y directos en las
+  tres estrategias (AST, parche y sobrescritura).
+- Nuevo flag **`--modelo-ligero`** para forzarlos con cualquier proveedor.
+
+### 🔀 Resolución interactiva de conflictos de parche
+- Cuando un parche no se aplica limpiamente se muestra el menú:
+  `[a]plicar de todas formas · [v]er diff · [r]eintentar con IA · [c]ancelar`.
+- En modo `--auto` no se pregunta: se pasa automáticamente a la siguiente
+  estrategia. Funciona igual desde la CLI que desde `--chat`.
+
+### Compatibilidad
+- `--editor aider` no cambia de comportamiento; CLI, web, extensiones y API
+  pública siguen funcionando igual.
+
 ## [4.0.0] - 2026-08-25 - Ecosistema de plugins
 
 ### 🧩 Ecosistema de plugins

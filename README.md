@@ -1,6 +1,6 @@
 # SnapContext
 
-![v4.0.0](https://img.shields.io/badge/version-4.0.0-blue.svg)
+![v4.1.0](https://img.shields.io/badge/version-4.1.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -133,7 +133,7 @@ carpetas, extensiones y comandos de test por defecto.
 
 SnapContext incluye su propio editor integrado con soporte de parches unificados
 y edición basada en AST (Árbol Sintáctico) para refactorizaciones precisas:
-- **`--editor propio`**: Aplica cambios directamente y crea copias de seguridad automáticas en `~/.snapcontext/backups/`.
+- **`--editor propio`** (por defecto desde v4.1.0): Aplica cambios directamente y crea copias de seguridad automáticas en `~/.snapcontext/backups/`.
 - **`--modo-edicion {auto,parche,sobrescribir,ast}`**:
   - `auto` (por defecto): Genera un parche unificado (`git apply` / `patch`), pero
     para refactorizaciones estructurales intenta primero la edición **AST** y cae a
@@ -143,7 +143,35 @@ y edición basada en AST (Árbol Sintáctico) para refactorizaciones precisas:
     símbolos, insertar imports y recibir el código completo resultante.
   - `parche`: Fuerza la aplicación de parches unificados para ediciones precisas.
   - `sobrescribir`: Sobrescribe el archivo completo.
-- **`--editor aider`** (por defecto): Mantiene el flujo de edición con Aider para máxima compatibilidad.
+- **`--editor aider`**: Mantiene el flujo de edición con Aider para máxima compatibilidad.
+
+### Editor propio (modo por defecto desde v4.1.0)
+
+Desde la v4.1.0, **el editor propio es el modo por defecto**, reduciendo la
+dependencia de Aider sin eliminarla (`--editor aider` sigue disponible).
+
+**Cadena de auto-reparación**: para cada archivo se intentan las estrategias en
+orden — **AST → Parche → Sobrescritura** — informando cuál está en uso:
+
+```
+ℹ Editor propio: usando estrategia AST para 'modulo.py'...
+ℹ Editor propio: usando estrategia PARCHE para 'modulo.py'...
+```
+
+Si todas fallan, verás un error claro con las estrategias intentadas, el motivo
+y la sugerencia de probar con `--editor aider`. El fallo queda registrado en
+`~/.snapcontext/logs/editor_fallos.log` para depuración.
+
+**Resolución interactiva de conflictos**: si un parche no se aplica limpiamente,
+se ofrece elegir entre `[a]plicar de todas formas`, `[v]er el diff`,
+`[r]eintentar con el proveedor de IA` o `[c]ancelar conservando el original`.
+En modo `--auto` no se pregunta: se salta automáticamente a la siguiente
+estrategia. Funciona igual desde la CLI que desde `--chat`.
+
+**Optimizado para modelos locales (Ollama)**: si el proveedor es Ollama, el
+editor usa automáticamente **prompts concisos** en sus tres estrategias (menos
+contexto e instrucciones directas). También puedes forzarlos en cualquier
+proveedor con `--modelo-ligero` si sabes que usas un modelo pequeño.
 
 ```bash
 # Edición precisa mediante diffs unificados
@@ -347,7 +375,9 @@ Sin plugins instalados, SnapContext funciona exactamente igual que siempre.
 | Modo | Comando |
 |------|---------|
 | Tarea | `snapcontext "<consulta>"` (+ `--test-loop`) |
-| Editor propio | `--editor propio` (con backups automáticos) |
+| Editor propio | `--editor propio` (por defecto desde v4.1.0, con backups automáticos) |
+| Aider (opcional) | `--editor aider` (flujo clásico con Aider) |
+| Prompts para modelos pequeños | `--modelo-ligero` (automático con Ollama) |
 | Vista previa / revisión | `--vista-previa` · alias `review` |
 | Chat interactivo | `--chat` |
 | Planificador | `--plan "<tarea>"` |

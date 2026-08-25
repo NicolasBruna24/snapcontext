@@ -111,7 +111,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "4.0.0"
+VERSION = "4.1.0"
 
 # v3.1.0 — Claves de API reconocidas para el modo por defecto (offline).
 CLAVES_API_CONOCIDAS = (
@@ -2420,7 +2420,8 @@ def _aplicar_operaciones_ast(contenido: str, operaciones: List[dict]) -> Optiona
 
 def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
                 proveedor: Optional[str] = None,
-                modelo: Optional[str] = None) -> bool:
+                modelo: Optional[str] = None,
+                conciso: bool = False) -> bool:
     """Editor propio (Fase 3 — Edición basada en AST).
 
     1) Lee el contenido del archivo.
@@ -2429,6 +2430,9 @@ def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
     4) El proveedor devuelve un *parche AST* (instrucciones de modificación del
        árbol) o el código nuevo completo.
     5) Aplica los cambios y guarda el archivo modificado (con copia de seguridad).
+
+    Con ``conciso=True`` (v4.1.0) se usa un prompt reducido para modelos
+    ligeros (Ollama local o ``--modelo-ligero``).
 
     Devuelve ``True`` si tuvo éxito; ``False`` si no se pudo editar (para que el
     agente haga fallback a parche o sobrescritura).
@@ -2460,24 +2464,34 @@ def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
     lenguaje = resumen.get("lenguaje") or _lenguaje_archivo(ruta_posix,
                                                             contenido) or "?"
     num_lineas = contenido.count("\n") + 1
-    prompt = (
-        f"Vas a modificar un archivo comprendiendo su estructura sintáctica "
-        f"(AST). Objetivo: precisión máxima y cambios mínimos.\n\n"
-        f"Tarea: {tarea}\n"
-        f"Archivo: {ruta_posix}  (lenguaje: {lenguaje}, {num_lineas} líneas)\n\n"
-        f"Resumen del AST (símbolos disponibles y sus posiciones):\n"
-        f"{_formatear_resumen_ast(resumen, ruta_posix)}\n\n"
-        f"Contenido actual completo:\n```\n{contenido}\n```\n\n"
-        f"Reglas de edición:\n"
-        f"- Conserva el estilo existente (indentación, comillas, convenciones).\n"
-        f"- Modifica SOLO lo necesario para la tarea; no reorganices el resto.\n"
-        f"- Usa los símbolos del resumen del AST para anclar tus cambios.\n\n"
-        f"Responde ÚNICAMENTE con una lista JSON de operaciones de edición, por ejemplo:\n"
-        f'[{{"tipo": "renombrar", "nombre": "viejo", "nuevo": "nuevo"}}]\n'
-        f'O, si prefieres devolver el código completo resultante:\n'
-        f'[{{"tipo": "completo", "codigo": "def fn(): ...\\n..."}}]\n'
-        f"Sin explicaciones ni markdown fuera del JSON."
-    )
+    if conciso:
+        prompt = (
+            f"Tarea: {tarea}\nArchivo: {ruta_posix} ({lenguaje})\n"
+            f"Símbolos: {_formatear_resumen_ast(resumen, ruta_posix)}\n\n"
+            f"```\n{contenido}\n```\n\n"
+            f"Responde SOLO una lista JSON de operaciones "
+            f'[{{"tipo": "renombrar", "nombre": "x", "nuevo": "y"}}] '
+            f'o [{{"tipo": "completo", "codigo": "..."}}]. Sin texto extra.'
+        )
+    else:
+        prompt = (
+            f"Vas a modificar un archivo comprendiendo su estructura sintáctica "
+            f"(AST). Objetivo: precisión máxima y cambios mínimos.\n\n"
+            f"Tarea: {tarea}\n"
+            f"Archivo: {ruta_posix}  (lenguaje: {lenguaje}, {num_lineas} líneas)\n\n"
+            f"Resumen del AST (símbolos disponibles y sus posiciones):\n"
+            f"{_formatear_resumen_ast(resumen, ruta_posix)}\n\n"
+            f"Contenido actual completo:\n```\n{contenido}\n```\n\n"
+            f"Reglas de edición:\n"
+            f"- Conserva el estilo existente (indentación, comillas, convenciones).\n"
+            f"- Modifica SOLO lo necesario para la tarea; no reorganices el resto.\n"
+            f"- Usa los símbolos del resumen del AST para anclar tus cambios.\n\n"
+            f"Responde ÚNICAMENTE con una lista JSON de operaciones de edición, por ejemplo:\n"
+            f'[{{"tipo": "renombrar", "nombre": "viejo", "nuevo": "nuevo"}}]\n'
+            f'O, si prefieres devolver el código completo resultante:\n'
+            f'[{{"tipo": "completo", "codigo": "def fn(): ...\\n..."}}]\n'
+            f"Sin explicaciones ni markdown fuera del JSON."
+        )
     try:
         respuesta = _enviar_al_proveedor(
             proveedor, modelo, [{"role": "user", "content": prompt}])
@@ -2747,6 +2761,45 @@ def abrir_navegador(url: str) -> bool:
     aviso("No se pudo abrir el navegador automáticamente. Abre "
           + url + " manualmente.")
     return False
+
+
+def _menu_conflicto_parche() -> str:
+    """Menú interactivo cuando un parche no se aplica limpiamente (v4.1.0).
+
+    Opciones: [a]plicar de todas formas · [v]er diff · [r]eintentar con IA
+    · [c]ancelar. Devuelve la letra elegida ('a' | 'v' | 'r' | 'c').
+    """
+    while True:
+        try:
+            print("⚠ El parche no se aplicó limpiamente. ¿Qué quieres hacer?")
+            print("  [a] Aplicar de todas formas (sobrescribir el archivo)")
+            print("  [v] Ver el diff manualmente")
+            print("  [r] Reintentar con el proveedor de IA")
+            print("  [c] Cancelar y conservar la versión original")
+            eleccion = input("(a/v/r/c): ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return "c"
+        if eleccion in ("a", "v", "r", "c"):
+            return eleccion
+
+
+def _registrar_fallo_editor(archivo: str, tarea: str,
+                            estrategias: list, motivo: str) -> None:
+    """Registra un fallo del editor propio en ~/.snapcontext/logs/ (v4.1.0).
+
+    Nunca lanza excepciones: es telemetría local opcional para depuración.
+    """
+    try:
+        carpeta = CONFIG_DIR / "logs"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        sello = time.strftime("%Y-%m-%d %H:%M:%S")
+        linea = (f"[{sello}] archivo={archivo} estrategias="
+                 f"{' → '.join(estrategias)} motivo={motivo or 'desconocido'} "
+                 f"tarea={tarea[:200]}\n")
+        with open(carpeta / "editor_fallos.log", "a", encoding="utf-8") as fh:
+            fh.write(linea)
+    except Exception:
+        pass
 
 
 def _preguntar_si(pregunta: str) -> bool:
@@ -4309,6 +4362,9 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
             validar=getattr(args, "validar", True),
             max_intentos_validacion=getattr(
                 args, "max_intentos_validacion", MAX_INTENTOS_VALIDACION),
+            proveedor=getattr(args, "provider", None),
+            modelo_ligero=getattr(args, "modelo_ligero", False),
+            auto=getattr(args, "auto", False),
         )
         return (todo_ok, f"EditorPropio sobre {len(seleccion)} archivo(s)")
 
@@ -7473,7 +7529,7 @@ def _pintar(texto: str, clave: str) -> str:
 CATEGORIAS_AYUDA = (
     ("Modos de ejecución",
      ("--plan", "--auto", "--editor", "--modo-edicion", "--validar", "--no-validar-sintaxis", "--max-intentos-validacion",
-      "--asesor", "--asesor-auto", "--asesor-umbral",
+      "--asesor", "--asesor-auto", "--asesor-umbral", "--modelo-ligero",
       "--api", "--api-puerto", "--api-host", "--api-token", "--api-generate-key",
       "--chat", "--web", "--web-puerto", "--demo",
       "--init", "--init-claude", "--historial", "--historial-limpiar",
@@ -8377,10 +8433,16 @@ def crear_parser() -> argparse.ArgumentParser:
              "variables MCP bloquean al paso hasta estar disponibles.",
     )
     parser.add_argument(
-        "--editor", choices=["aider", "propio"], default="aider",
-        help="Editor a usar para aplicar cambios: 'aider' (por defecto, "
-             "requiere Aider instalado) o 'propio' (editor integrado de "
-             "SnapContext con soporte de parches unificados y backups automáticos).",
+        "--editor", choices=["aider", "propio"], default="propio",
+        help="Editor a usar para aplicar cambios: 'propio' (por defecto "
+             "desde v4.1.0; editor integrado con estrategias AST → parche → "
+             "sobrescritura, validación sintáctica y backups) o 'aider' "
+             "(requiere Aider instalado).",
+    )
+    parser.add_argument(
+        "--modelo-ligero", dest="modelo_ligero", action="store_true",
+        help="Usa prompts concisos en el editor propio (pensados para "
+             "modelos pequeños); se activa automáticamente con Ollama.",
     )
     parser.add_argument(
         "--modo-edicion",
