@@ -6,6 +6,35 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 
 
+## [3.6.0] - 2026-08-25 - API pública
+
+### 🔌 API pública
+- **Servidor REST dedicado** con `snapcontext --api` (alias `--api-server`),
+  sobre FastAPI/uvicorn reutilizando la infraestructura de `web/app.py`.
+  - Flags: `--api-puerto` (8001 por defecto, la web sigue en 8000),
+    `--api-host` (127.0.0.1) y `--api-token`.
+  - Documentación OpenAPI automática en `/docs` (Swagger) y `/redoc`.
+- **Endpoints** (`/api/v1/...`):
+  | Endpoint | Método | Descripción |
+  |---|---|---|
+  | `/health` | GET | Estado del servidor (público). |
+  | `/query` | POST | Ejecuta una consulta → `202 Accepted` + `task_id`. |
+  | `/plan` | POST | Ejecuta un plan → `202 Accepted` + `task_id`. |
+  | `/chat` | POST | Mensaje al proveedor de IA (síncrono, con historial). |
+  | `/skills` | GET | Lista las skills aprendidas (`?archivados=true`). |
+  | `/daemon` | POST | Gestiona el daemon: `estado` / `iniciar` / `detener`. |
+  | `/tasks/{task_id}` | GET | Estado de una tarea asíncrona. |
+- **Autenticación por API key**: header `X-API-Key` (o query param `api_key`)
+  obligatorio en todos los endpoints salvo `/health`, `/docs` y `/redoc`.
+  - `snapcontext --api-generate-key`: genera una clave segura (32 bytes,
+    url-safe), la guarda en `~/.snapcontext/config.json` (`"api_key"`) y la
+    muestra. Al arrancar sin clave configurada se genera automáticamente.
+- **Ejecución asíncrona**: `query` y `plan` devuelven `202` con `task_id`
+  (`threading` en segundo plano); el estado se consulta en
+  `/tasks/{task_id}` (`pendiente → ejecutando → completada/fallida/error`).
+- La API es opcional: si falta FastAPI se sugiere
+  `pip install snapcontext[web]`. CLI, web y extensiones no cambian.
+
 ## [3.5.0] - 2026-08-25 - Asesor de código proactivo
 
 ### 🧠 Asesor de código proactivo

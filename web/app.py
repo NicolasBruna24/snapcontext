@@ -28,10 +28,12 @@ import shlex
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional
 
-from fastapi import FastAPI, WebSocket
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, \
+    WebSocket
 from fastapi.responses import FileResponse
 
 _ESTATICO = Path(getattr(sys, "_MEIPASS",
@@ -42,9 +44,225 @@ _ESTATICO = Path(getattr(sys, "_MEIPASS",
 _DIRECTORIO_DEFECTO = "."
 
 
-def crear_app() -> FastAPI:
-    """Construye y devuelve la app FastAPI (rutas + WebSocket)."""
-    app = FastAPI(title="SnapContext Web", version="2.2.0")
+# --------------------------------------------------------------------------
+# API pública (v3.6.0): estado de tareas asíncronas y control del daemon.
+# --------------------------------------------------------------------------
+_TAREAS_API: Dict[str, dict] = {}
+_CANDADO_TAREAS_API = threading.Lock()
+_DAEMON_HILO: Optional[threading.Thread] = None
+_DAEMON_PARAR = threading.Event()
+
+API_PREFIJO = "/api/v1"
+
+
+def _clave_api_efectiva(token: Optional[str]) -> str:
+    """Resuelve la clave API: explícita → config.json → generar y guardar."""
+    if token:
+        return token
+    sc = _importar_snapcontext()
+    if sc is not None:
+        try:
+            clave = (sc.cargar_configuracion().get("api_key") or "").strip()
+            if clave:
+                return clave
+            clave = sc._generar_clave_api()
+            print("⚠ No había API key configurada; se generó una nueva y "
+                  "se guardó en ~/.snapcontext/config.json ('api_key').")
+            return clave
+        except Exception:      # noqa: BLE001 — nunca romper el arranque
+            pass
+    return ""
+
+
+def _ejecutar_tarea_api(task_id: str, tipo: str, cuerpo: dict) -> None:
+    """Ejecuta una tarea larga de la API en segundo plano."""
+    import snapcontext as sc
+
+    with _CANDADO_TAREAS_API:
+        registro = _TAREAS_API[task_id]
+        registro["estado"] = "ejecutando"
+    try:
+        consulta = (cuerpo.get("consulta") or "").strip()
+        argv = [consulta] if tipo == "query" else ["--plan", consulta]
+        directorio = (cuerpo.get("directorio") or "").strip()
+        if directorio and directorio != _DIRECTORIO_DEFECTO:
+            argv += ["--directorio", directorio]
+        args = sc.crear_parser().parse_args(argv)
+        # La API nunca es interactiva.
+        args.auto = True
+        args.no_confirmar = True
+        args.depurar = False
+        if hasattr(args, "confirmar"):
+            args.confirmar = False
+        if tipo == "query":
+            codigo = sc.flujo_principal(args)
+        else:
+            codigo = sc._ejecutar_planificador(args)
+        ok = codigo == 0
+        with _CANDADO_TAREAS_API:
+            registro.update(
+                estado="completada" if ok else "fallida",
+                resultado={"codigo_salida": codigo})
+    except Exception as exc:   # noqa: BLE001 — se reporta en la tarea
+        with _CANDADO_TAREAS_API:
+            registro.update(estado="error", error=str(exc))
+
+
+def _lanzar_tarea_api(tipo: str, cuerpo: dict) -> dict:
+    """Registra y lanza una tarea asíncrona. Devuelve task_id + URL."""
+    task_id = uuid.uuid4().hex
+    with _CANDADO_TAREAS_API:
+        _TAREAS_API[task_id] = {
+            "task_id": task_id, "tipo": tipo, "estado": "pendiente",
+            "creado": time.time(), "resultado": None, "error": None}
+    threading.Thread(target=_ejecutar_tarea_api,
+                     args=(task_id, tipo, dict(cuerpo)),
+                     daemon=True).start()
+    return {"task_id": task_id, "estado": "pendiente",
+            "url": f"{API_PREFIJO}/tasks/{task_id}"}
+
+
+def crear_app(api_token: Optional[str] = None) -> FastAPI:
+    """Construye y devuelve la app FastAPI (rutas + WebSocket + API v3.6.0).
+
+    ``api_token`` fija la clave exigida en los endpoints ``/api/v1/*``; si se
+    omite, se usa (o genera) la guardada en ``~/.snapcontext/config.json``
+    bajo la clave ``"api_key"``.
+    """
+    app = FastAPI(title="SnapContext Web", version="3.6.0")
+
+    # ---- Autenticación de la API (v3.6.0) -------------------------------
+    _clave_api = _clave_api_efectiva(api_token)
+
+    def _autorizar(x_api_key: Optional[str] = Header(default=None),
+                   api_key: Optional[str] = Query(default=None)) -> None:
+        """Exige la API key en el header ``X-API-Key`` (o query param)."""
+        if not _clave_api:
+            return                      # sin clave configurada: sin auth
+        if x_api_key != _clave_api and api_key != _clave_api:
+            raise HTTPException(
+                status_code=401, detail="API key inválida o ausente.")
+
+    @app.get(f"{API_PREFIJO}/health")
+    async def api_health():
+        """Estado del servidor (endpoint público)."""
+        sc = _importar_snapcontext()
+        return {"estado": "ok", "servicio": "snapcontext",
+                "version": getattr(sc, "VERSION", "?") if sc else "?",
+                "docs": "/docs", "redoc": "/redoc"}
+
+    @app.post(f"{API_PREFIJO}/query", status_code=202,
+              dependencies=[Depends(_autorizar)])
+    async def api_query(cuerpo: dict = Body(...)):
+        """Ejecuta una consulta (equivale a ``snapcontext "consulta"``).
+
+        Responde 202 con un ``task_id``; el progreso se consulta en
+        ``/api/v1/tasks/{task_id}``.
+        """
+        if not (cuerpo.get("consulta") or "").strip():
+            raise HTTPException(status_code=400,
+                                detail="Falta el campo 'consulta'.")
+        return _lanzar_tarea_api("query", cuerpo)
+
+    @app.post(f"{API_PREFIJO}/plan", status_code=202,
+              dependencies=[Depends(_autorizar)])
+    async def api_plan(cuerpo: dict = Body(...)):
+        """Ejecuta un plan (equivale a ``snapcontext --plan "consulta"``)."""
+        if not (cuerpo.get("consulta") or "").strip():
+            raise HTTPException(status_code=400,
+                                detail="Falta el campo 'consulta'.")
+        return _lanzar_tarea_api("plan", cuerpo)
+
+    @app.post(f"{API_PREFIJO}/chat", dependencies=[Depends(_autorizar)])
+    async def api_chat(cuerpo: dict = Body(...)):
+        """Envía un mensaje al proveedor y devuelve la respuesta (síncrono).
+
+        Acepta ``historial`` (lista de mensajes role/content, últimos 20)
+        para mantener contexto conversacional.
+        """
+        sc = _importar_snapcontext()
+        if sc is None:
+            raise HTTPException(status_code=500,
+                                detail="snapcontext no disponible.")
+        mensaje = (cuerpo.get("mensaje") or "").strip()
+        if not mensaje:
+            raise HTTPException(status_code=400,
+                                detail="Falta el campo 'mensaje'.")
+        preferencias = sc.cargar_configuracion()
+        proveedor = (cuerpo.get("proveedor")
+                     or preferencias.get("provider")
+                     or sc.PROVEEDOR_DEFECTO)
+        historial = list(cuerpo.get("historial") or [])[-20:]
+        mensajes = historial + [{"role": "user", "content": mensaje}]
+        try:
+            respuesta = sc._enviar_al_proveedor(
+                proveedor, cuerpo.get("modelo"), mensajes)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+        return {"respuesta": respuesta, "proveedor": proveedor}
+
+    @app.get(f"{API_PREFIJO}/skills", dependencies=[Depends(_autorizar)])
+    async def api_skills(archivados: bool = Query(default=False)):
+        """Lista las skills aprendidas por la memoria persistente."""
+        sc = _importar_snapcontext()
+        filas = (sc._skill_listar(incluir_archivados=bool(archivados))
+                 if sc else [])
+        return {"total": len(filas), "skills": filas}
+
+    @app.post(f"{API_PREFIJO}/daemon", dependencies=[Depends(_autorizar)])
+    async def api_daemon(cuerpo: dict = Body(...)):
+        """Gestiona el daemon: ``{"accion": "estado"|"iniciar"|"detener"}``."""
+        global _DAEMON_HILO
+        accion = (cuerpo.get("accion") or "estado").strip().lower()
+        vivo = bool(_DAEMON_HILO and _DAEMON_HILO.is_alive())
+        if accion == "estado":
+            return {"accion": "estado", "activo": vivo}
+        sc = _importar_snapcontext()
+        if sc is None:
+            raise HTTPException(status_code=500,
+                                detail="snapcontext no disponible.")
+        if accion == "iniciar":
+            if vivo:
+                return {"accion": "iniciar", "activo": True,
+                        "detalle": "El daemon ya estaba en ejecución."}
+            intervalo = int(cuerpo.get("intervalo_horas")
+                            or getattr(sc, "DAEMON_INTERVALO_HORAS_DEFECTO",
+                                       6))
+            pausa = int(getattr(sc, "DAEMON_PAUSA_SEGUNDOS", 3600))
+            _DAEMON_PARAR.clear()
+
+            def _bucle_daemon():
+                while not _DAEMON_PARAR.is_set():
+                    try:
+                        sc._daemon_tick(intervalo_horas=intervalo)
+                    except Exception:   # noqa: BLE001 — el daemon continúa
+                        pass
+                    _DAEMON_PARAR.wait(timeout=max(1, pausa))
+
+            _DAEMON_HILO = threading.Thread(target=_bucle_daemon,
+                                            daemon=True)
+            _DAEMON_HILO.start()
+            return {"accion": "iniciar", "activo": True,
+                    "intervalo_horas": intervalo}
+        if accion == "detener":
+            _DAEMON_PARAR.set()
+            if _DAEMON_HILO is not None:
+                _DAEMON_HILO.join(timeout=5)
+            return {"accion": "detener",
+                    "activo": bool(_DAEMON_HILO and _DAEMON_HILO.is_alive())}
+        raise HTTPException(status_code=400, detail=(
+            "Acción inválida; usa 'estado', 'iniciar' o 'detener'."))
+
+    @app.get(f"{API_PREFIJO}/tasks/{{task_id}}",
+             dependencies=[Depends(_autorizar)])
+    async def api_task(task_id: str):
+        """Devuelve el estado de una tarea asíncrona."""
+        with _CANDADO_TAREAS_API:
+            registro = _TAREAS_API.get(task_id)
+            datos = dict(registro) if registro else None
+        if datos is None:
+            raise HTTPException(status_code=404, detail="Tarea no encontrada.")
+        return datos
 
     @app.get("/")
     async def raiz():
@@ -397,4 +615,21 @@ def arrancar_servidor(puerto: int = 8000) -> None:
     )
 
 
-__all__ = ["crear_app", "arrancar_servidor"]
+def arrancar_api(puerto: int = 8001, host: str = "127.0.0.1",
+                 token: Optional[str] = None) -> None:
+    """Arranca la API pública v3.6.0 (bloquea hasta detenerse).
+
+    ``token`` fija la API key; si es ``None``, se usa (o genera) la guardada
+    en ``~/.snapcontext/config.json``.
+    """
+    import uvicorn
+
+    uvicorn.run(
+        crear_app(api_token=token),
+        host=host or "127.0.0.1",
+        port=int(puerto),
+        log_level="warning",
+    )
+
+
+__all__ = ["crear_app", "arrancar_servidor", "arrancar_api"]

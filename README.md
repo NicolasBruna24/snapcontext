@@ -1,6 +1,6 @@
 # SnapContext
 
-![v3.5.0](https://img.shields.io/badge/version-3.5.0-blue.svg)
+![v3.6.0](https://img.shields.io/badge/version-3.6.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -228,6 +228,59 @@ El asesor también está disponible:
 - **En el planificador**: paso `{"accion": "asesor", "descripcion": "..."}` —
   cada sugerencia se presenta para aceptarla o rechazarla individualmente.
 - **En la web**: acción *Asesor* que muestra las sugerencias en un panel.
+
+### 🔌 API pública (v3.6.0)
+
+SnapContext expone una **API REST** para interactuar de forma programática
+(desde scripts, CI/CD u otros sistemas). Requiere las dependencias web:
+
+```bash
+pip install snapcontext[web]
+
+# Arrancar la API en http://127.0.0.1:8001 (docs en /docs y /redoc)
+snapcontext --api
+
+# Opciones de configuración
+snapcontext --api --api-puerto 9000 --api-host 0.0.0.0 --api-token mi-clave
+
+# Generar (y guardar) una API key segura sin arrancar el servidor
+snapcontext --api-generate-key
+```
+
+**Autenticación**: todos los endpoints exigen la API key en el header
+`X-API-Key` (o como query param `api_key`), salvo `/health`, `/docs` y
+`/redoc`. Si no hay clave configurada, al arrancar `--api` se genera una
+automáticamente y se guarda en `~/.snapcontext/config.json` (`"api_key"`).
+
+| Endpoint | Método | Descripción |
+|---|---|---|
+| `/api/v1/health` | GET | Estado del servidor (público). |
+| `/api/v1/query` | POST | Consulta asíncrona → `202` + `task_id`. |
+| `/api/v1/plan` | POST | Plan asíncrono → `202` + `task_id`. |
+| `/api/v1/chat` | POST | Mensaje al proveedor de IA (síncrono). |
+| `/api/v1/skills` | GET | Skills aprendidas (`?archivados=true`). |
+| `/api/v1/daemon` | POST | Daemon: `{"accion": "estado"\|"iniciar"\|"detener"}`. |
+| `/api/v1/tasks/{task_id}` | GET | Estado de una tarea asíncrona. |
+
+**Ejemplo de uso:**
+
+```bash
+CLAVE=$(python -c "import json;print(json.load(open('~/.snapcontext/config.json'))['api_key'])")
+
+# Lanzar una consulta (no bloquea)
+curl -X POST http://127.0.0.1:8001/api/v1/query \
+     -H "X-API-Key: $CLAVE" -H "Content-Type: application/json" \
+     -d '{"consulta": "revisar el login", "directorio": "."}'
+# → {"task_id": "...", "estado": "pendiente", "url": "/api/v1/tasks/..."}
+
+# Consultar el estado hasta que esté completada
+curl -H "X-API-Key: $CLAVE" http://127.0.0.1:8001/api/v1/tasks/<task_id>
+
+# Chat síncrono con contexto conversacional
+curl -X POST http://127.0.0.1:8001/api/v1/chat \
+     -H "X-API-Key: $CLAVE" -H "Content-Type: application/json" \
+     -d '{"mensaje": "¿qué hace este proyecto?"}'
+```
 
 ## 🧭 Modos y alias
 
@@ -1047,6 +1100,11 @@ locales y te deja elegir con las flechas:
 | `--asesor` (`--sugerir`) | off | Asesor proactivo: analiza y sugiere mejoras sin modificar código |
 | `--asesor-auto` | off | Aplica automáticamente las mejoras seguras del asesor |
 | `--asesor-umbral` | `20` | Líneas máximas por función para el asesor |
+| `--api` (`--api-server`) | off | Arranca la API REST pública (v3.6.0) en el puerto 8001 |
+| `--api-puerto` | `8001` | Puerto de la API |
+| `--api-host` | `127.0.0.1` | Host de escucha de la API |
+| `--api-token` | — | API key de los endpoints `/api/v1/*`; por defecto usa/genera la de config.json |
+| `--api-generate-key` | off | Genera y guarda una API key segura sin arrancar el servidor |
 
 > **Nota:** el flag negativo de validación de sintaxis se llama `--no-validar-sintaxis`
 > porque `--no-validar` ya existe como alias de `--iniciar-proyecto`.

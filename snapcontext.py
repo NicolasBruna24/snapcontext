@@ -111,7 +111,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "3.5.0"
+VERSION = "3.6.0"
 
 # v3.1.0 — Claves de API reconocidas para el modo por defecto (offline).
 CLAVES_API_CONOCIDAS = (
@@ -1196,6 +1196,37 @@ def guardar_configuracion(provider: str, model: Optional[str] = None,
         return True
     except OSError:
         return False
+
+
+def _actualizar_clave_configuracion(clave: str, valor) -> bool:
+    """Actualiza una clave arbitraria de ~/.snapcontext/config.json.
+
+    A diferencia de :func:`guardar_configuracion` (que reescribe solo
+    proveedor/modelo/claves), preserva el resto del JSON (asesor, api_key...).
+    """
+    try:
+        datos = cargar_configuracion()
+        datos[clave] = valor
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        CONFIG_PATH.write_text(
+            json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8")
+        return True
+    except OSError:
+        return False
+
+
+def _generar_clave_api(guardar: bool = True) -> str:
+    """Genera una clave API segura (url-safe, 32 bytes) para la API v3.6.0.
+
+    Si ``guardar`` es True, la persiste en ``~/.snapcontext/config.json``
+    bajo la clave ``"api_key"``.
+    """
+    import secrets
+
+    clave = secrets.token_urlsafe(32)
+    if guardar:
+        _actualizar_clave_configuracion("api_key", clave)
+    return clave
 
 
 def _importar_questionary():
@@ -7002,6 +7033,7 @@ CATEGORIAS_AYUDA = (
     ("Modos de ejecución",
      ("--plan", "--auto", "--editor", "--modo-edicion", "--validar", "--no-validar-sintaxis", "--max-intentos-validacion",
       "--asesor", "--asesor-auto", "--asesor-umbral",
+      "--api", "--api-puerto", "--api-host", "--api-token", "--api-generate-key",
       "--chat", "--web", "--web-puerto", "--demo",
       "--init", "--init-claude", "--historial", "--historial-limpiar",
       "--diagnostico", "--reparar", "--bienvenida")),
@@ -7735,6 +7767,32 @@ def crear_parser() -> argparse.ArgumentParser:
         "--asesor-umbral", dest="asesor_umbral", type=int, default=None,
         help="Umbral de líneas por función para el asesor (por defecto 20; "
              "también configurable en config.json clave 'asesor').",
+    )
+    parser.add_argument(
+        "--api", "--api-server", dest="api", action="store_true",
+        help="API pública (v3.6.0): arranca el servidor HTTP REST en "
+             "http://host:puerto con documentación OpenAPI en /docs. "
+             "Requiere las dependencias web: pip install snapcontext[web].",
+    )
+    parser.add_argument(
+        "--api-puerto", dest="api_puerto", type=int, default=8001,
+        help="Puerto del servidor de la API (por defecto 8001; la web usa "
+             "8000 para no interferir).",
+    )
+    parser.add_argument(
+        "--api-host", dest="api_host", default="127.0.0.1",
+        help="Host de escucha de la API (por defecto 127.0.0.1).",
+    )
+    parser.add_argument(
+        "--api-token", dest="api_token", default=None,
+        help="Token/API key exigido en los endpoints /api/v1/* (header "
+             "X-API-Key). Si se omite, se usa —o genera y guarda— el de "
+             "config.json clave 'api_key'.",
+    )
+    parser.add_argument(
+        "--api-generate-key", dest="api_generate_key", action="store_true",
+        help="Genera una API key segura, la guarda en config.json "
+             "('api_key') y la muestra por pantalla. No arranca el servidor.",
     )
     bucle = parser.add_mutually_exclusive_group()
     bucle.add_argument(
@@ -8669,6 +8727,39 @@ def iniciar_servidor_web(args: argparse.Namespace) -> int:
     return 0
 
 
+def iniciar_api(args: argparse.Namespace) -> int:
+    """Arranca la API pública (v3.6.0) en http://host:puerto.
+
+    Reutiliza ``web.app``; si falta FastAPI/uvicorn muestra cómo instalarlas
+    (``pip install snapcontext[web]``) y devuelve 1.
+    """
+    puerto = int(getattr(args, "api_puerto", 8001) or 8001)
+    host = getattr(args, "api_host", "127.0.0.1") or "127.0.0.1"
+    token = getattr(args, "api_token", None)
+    try:
+        from web.app import arrancar_api
+    except ImportError as exc:
+        error(
+            "La API necesita dependencias opcionales. Instala:\n"
+            "  pip install snapcontext[web]\n"
+            f"  (o pip install fastapi uvicorn websockets) — error: {exc}"
+        )
+        return 1
+    if not token:
+        configuracion = cargar_configuracion()
+        if not (configuracion.get("api_key") or "").strip():
+            _generar_clave_api()
+            aviso("No había API key: se generó una nueva y se guardó en "
+                  "config.json ('api_key'). Consulta con --api-generate-key.")
+    info(f"API de SnapContext en http://{host}:{puerto} "
+         f"(docs interactivas en /docs y /redoc). Ctrl+C para salir...")
+    try:
+        arrancar_api(puerto=puerto, host=host, token=token)
+    except KeyboardInterrupt:
+        info("API detenida.")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     # Instala los manejadores de Ctrl+C / SIGTERM (cierre limpio, subprocesos
     # incluidos) antes de hacer nada. Es seguro en Windows y Linux/macOS.
@@ -8752,6 +8843,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         # v3.5.0: asesor de código proactivo (--asesor/--sugerir/--asesor-auto).
         if getattr(args, "asesor", False) or getattr(args, "asesor_auto", False):
             return _ejecutar_asesor(args)
+        # v3.6.0: API pública — generar clave y/o arrancar el servidor REST.
+        if getattr(args, "api_generate_key", False):
+            clave = _generar_clave_api()
+            exito("API key generada y guardada en ~/.snapcontext/config.json "
+                  "('api_key'):")
+            _emitir(sys.stdout, _pintar(f"    {clave}", _VERDE))
+            return 0
+        if getattr(args, "api", False):
+            return iniciar_api(args)
         # --skills lista los skills aprendidos y termina.
         if getattr(args, "skills", False):
             filas = _skill_listar(incluir_archivados=True)
