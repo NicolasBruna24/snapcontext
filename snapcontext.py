@@ -111,7 +111,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "4.1.0"
+VERSION = "4.2.0"
 
 # v3.1.0 — Claves de API reconocidas para el modo por defecto (offline).
 CLAVES_API_CONOCIDAS = (
@@ -3331,6 +3331,8 @@ AYUDA_CHAT = """Comandos disponibles:
   /claude                → mostrar la memoria del proyecto (CLAUDE.md)
   /context               → mostrar memoria del proyecto y archivos en contexto
   /asesor                → análisis proactivo: sugerencias de mejora del código
+  /seguridad             → análisis de vulnerabilidades 🔒 del proyecto
+  /rendimiento           → análisis de rendimiento ⚡ del proyecto
   /plugin [p.h args]     → lista plugins o ejecuta plugin.herramienta (args JSON)
   /ayuda                 → mostrar esta ayuda
 Cualquier otro texto se envía como mensaje al proveedor de IA; si parece una
@@ -3460,6 +3462,16 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             info("🧠 Analizando el proyecto...")
             sugerencias_chat = _asesor_analizar(".")
             _asesor_mostrar(sugerencias_chat)
+            continue
+
+        # ---- seguridad / rendimiento (v4.2.0) ------------------------------
+        if linea == "/seguridad":
+            info("🔒 Analizando vulnerabilidades del proyecto...")
+            _asesor_mostrar(_analizar_seguridad("."))
+            continue
+        if linea == "/rendimiento":
+            info("⚡ Analizando rendimiento del proyecto...")
+            _asesor_mostrar(_analizar_rendimiento("."))
             continue
 
         # ---- plugins (v4.0.0) ----------------------------------------------
@@ -3972,7 +3984,8 @@ PROMPT_PLAN = (
     "   \"pasos[0].resultado == 'ok'\"  ·  \"resultados.mi_variable != ''\".\n"
 )
 
-ACCIONES_VALIDAS = {"editar", "ejecutar", "consultar", "mcp", "asesor"}
+ACCIONES_VALIDAS = {"editar", "ejecutar", "consultar", "mcp", "asesor",
+                    "seguridad", "rendimiento"}
 
 
 def _normalizar_pasos(datos) -> List[dict]:
@@ -4304,6 +4317,27 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
         except RuntimeError as exc:
             error(str(exc))
             return (False, str(exc))
+
+    # accion == "seguridad" / "rendimiento" (v4.2.0): análisis enfocado;
+    # en --auto se ejecutan solos y las sugerencias solo se muestran.
+    if accion in ("seguridad", "rendimiento"):
+        tipos = ("vulnerabilidad",) if accion == "seguridad" \
+            else ("rendimiento",)
+        encontradas = _asesor_analizar_por_tipo(raiz, tipos)
+        if not encontradas:
+            exito(f"[{accion}] Sin hallazgos: sin problemas detectados.")
+            return (True, "sin hallazgos")
+        for sugg in encontradas:
+            texto = (f"[{accion}] {sugg['descripcion']} "
+                     f"({sugg['archivo']}:{sugg['linea']})")
+            if getattr(args, "auto", False):
+                aviso(texto + f" → {sugg['solucion']}")
+                continue
+            if _confirmar_accion(texto, tipo=accion,
+                                 detalles=sugg.get("solucion"),
+                                 confirmar=getattr(args, "confirmar", True)):
+                exito(f"Anotada: {sugg['solucion']}")
+        return (True, f"{len(encontradas)} hallazgo(s) de {accion}")
 
     # accion == "asesor" (v3.5.0): análisis estático del proyecto; cada
     # sugerencia se presenta al usuario para aceptarla o rechazarla. En modo
@@ -7530,6 +7564,7 @@ CATEGORIAS_AYUDA = (
     ("Modos de ejecución",
      ("--plan", "--auto", "--editor", "--modo-edicion", "--validar", "--no-validar-sintaxis", "--max-intentos-validacion",
       "--asesor", "--asesor-auto", "--asesor-umbral", "--modelo-ligero",
+      "--asesor-profundo",
       "--api", "--api-puerto", "--api-host", "--api-token", "--api-generate-key",
       "--chat", "--web", "--web-puerto", "--demo",
       "--init", "--init-claude", "--historial", "--historial-limpiar",
@@ -7960,14 +7995,149 @@ def _detectar_duplicados(contenidos: Dict[str, str],
     return hallazgos
 
 
+# ---------------------------------------------------------------------------
+# Análisis de seguridad y rendimiento del asesor (v4.2.0)
+# ---------------------------------------------------------------------------
+
+# Patrones de vulnerabilidades comunes (regex sobre código sin comentarios).
+_VULNERABILIDADES_PATRONES = [
+    (re.compile(r"\bos\.system\s*\("),
+     "Command injection: 'os.system' con entrada no sanitizada.",
+     "Usa 'subprocess.run' con lista de argumentos y shell=False.", "alta"),
+    (re.compile(r"subprocess\.\w+\([^)]*shell\s*=\s*True"),
+     "Command injection: 'subprocess' con shell=True permite inyección.",
+     "Usa shell=False y pasa los argumentos como lista.", "alta"),
+    (re.compile(r"\beval\s*\("),
+     "Uso inseguro de 'eval': ejecuta código dinámico arbitrario.",
+     "Sustitúyelo por 'ast.literal_eval' o lógica explícita.", "alta"),
+    (re.compile(r"\bexec\s*\("),
+     "Uso inseguro de 'exec': ejecuta código dinámico arbitrario.",
+     "Evita 'exec'; refactoriza el código dinámico en funciones.", "alta"),
+    (re.compile(r"(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)[^\n]*"
+                r"(\+|%|\bf\"|\.format\()", re.IGNORECASE),
+     "Posible inyección SQL: consulta construida por concatenación.",
+     "Usa consultas parametrizadas ('?' o '%s') u ORM.", "alta"),
+    (re.compile(r"open\s*\(\s*[^)]*\"\.\./"),
+     "Posible path traversal: ruta con '../' construida dinámicamente.",
+     "Valida y normaliza la ruta (resolve + comprobar base).", "alta"),
+    (re.compile(r"innerHTML\s*="),
+     "Posible XSS: asignación directa a innerHTML.",
+     "Usa textContent o sanea la entrada antes de insertarla.", "media"),
+    (re.compile(r"dangerouslySetInnerHTML"),
+     "Posible XSS React: uso de dangerouslySetInnerHTML.",
+     "Sanea el HTML (DOMPurify) o usa componentes seguros.", "alta"),
+]
+
+# Nombres de variables que sugieren secretos embebidos.
+_SECRETES_RE = re.compile(
+    r"^\s*([A-Z0-9_]*(?:API_KEY|SECRET|PASSWORD|PASSWD|TOKEN|ACCESS_KEY)"
+    r"[A-Z0-9_]*)\s*=\s*[\"']([^\"']{8,})[\"']", re.IGNORECASE)
+
+
+def _detectar_vulnerabilidades(contenido: str,
+                               lenguaje: str = "") -> List[dict]:
+    """Detecta vulnerabilidades comunes por heurísticas propias (v4.2.0).
+
+    No requiere herramientas externas (bandit etc.); devuelve hallazgos con
+    ``linea``, ``mensaje``, ``solucion`` y ``prioridad``.
+    """
+    hallazgos: List[dict] = []
+    for numero, linea in enumerate(contenido.splitlines(), start=1):
+        codigo = linea.split("#", 1)[0]
+        if not codigo.strip():
+            continue
+        for patron, mensaje, solucion, prioridad in \
+                _VULNERABILIDADES_PATRONES:
+            if patron.search(codigo):
+                hallazgos.append({"linea": numero, "mensaje": mensaje,
+                                  "solucion": solucion,
+                                  "prioridad": prioridad})
+        coincidencia = _SECRETES_RE.match(codigo)
+        if coincidencia:
+            hallazgos.append({
+                "linea": numero,
+                "mensaje": f"Hardcoded secret en '{coincidencia.group(1)}'.",
+                "solucion": "Muévelo a una variable de entorno o gestor de "
+                            "secretos; nunca al repositorio.",
+                "prioridad": "alta"})
+    return hallazgos
+
+
+_RENDIMIENTO_PATRONES = [
+    (re.compile(r"for\s+\w+\s+in\s+range\s*\(\s*len\s*\("),
+     "'range(len(...))': patrón innecesario y propenso a recalcular.",
+     "Itera directamente sobre la secuencia o usa enumerate().", "media"),
+    (re.compile(r"\.read\(\)\s*$"),
+     "Lectura completa del archivo en memoria.",
+     "Procesa línea a línea ('for linea in fichero') si es grande.", "media"),
+    (re.compile(r"\.objects\.get\s*\("),
+     "Posible consulta N+1: acceso al ORM dentro de un bucle.",
+     "Usa select_related/prefetch_related o una consulta por lotes.", "alta"),
+]
+
+
+def _detectar_rendimiento(contenido: str, lenguaje: str = "") -> List[dict]:
+    """Detecta problemas comunes de rendimiento por heurísticas (v4.2.0)."""
+    hallazgos: List[dict] = []
+    lineas_codigo = [(n, l.split("#", 1)[0])
+                     for n, l in enumerate(contenido.splitlines(), start=1)]
+
+    for indice, (numero, codigo) in enumerate(lineas_codigo):
+        if not codigo.strip():
+            continue
+
+        # Bucles anidados (O(n²)): un 'for' seguido de otro más indentado.
+        coincide_for = re.match(r"^(\s*)for\s+", codigo)
+        if coincide_for:
+            sangria = len(coincide_for.group(1))
+            for _, codigo2 in lineas_codigo[indice + 1:]:
+                if not codigo2.strip():
+                    continue
+                coincide2 = re.match(r"^(\s*)for\s+", codigo2)
+                if coincide2:
+                    if len(coincide2.group(1)) > sangria:
+                        hallazgos.append({
+                            "linea": numero,
+                            "mensaje": "Bucles anidados: coste cuadrático "
+                                       "O(n²).",
+                            "solucion": "Considera sets/dicts para búsquedas "
+                                        "(O(1)) o reformula el algoritmo.",
+                            "prioridad": "media"})
+                    break
+                break
+
+        # Concatenación de cadenas con '+=' dentro de un bucle cercano.
+        if re.search(r"^\s*\w+\s*\+=\s*[\"']", codigo) and \
+                any(re.match(r"^\s*(for|while)\s+", c)
+                    for _, c in lineas_codigo[max(0, indice - 5):indice]):
+            hallazgos.append({
+                "linea": numero,
+                "mensaje": "Concatenación de cadenas con '+=' en bucle: "
+                           "copias repetidas.",
+                "solucion": "Acumula en una lista y usa ''.join(lista).",
+                "prioridad": "media"})
+
+        for patron, mensaje, solucion, prioridad in _RENDIMIENTO_PATRONES:
+            if patron.search(codigo):
+                hallazgos.append({"linea": numero, "mensaje": mensaje,
+                                  "solucion": solucion,
+                                  "prioridad": prioridad})
+    return hallazgos
+
+
 def _asesor_analizar(directorio: str = ".",
                      umbral_funcion: Optional[int] = None,
-                     max_archivos: int = 400) -> List[dict]:
+                     max_archivos: int = 400,
+                     profundo: bool = False) -> List[dict]:
     """Analiza el proyecto y devuelve sugerencias de mejora ordenadas.
 
     Cada sugerencia es un dict con ``descripcion``, ``archivo``, ``linea``,
     ``solucion``, ``prioridad`` (alta|media|baja) y, si se puede aplicar de
     forma segura, ``operaciones`` + ``auto=True``.
+
+    Con ``profundo=True`` (v4.2.0, ``--asesor-profundo``) añade análisis de
+    seguridad (🔒 tipos ``vulnerabilidad``) y rendimiento (⚡ tipo
+    ``rendimiento``).
     """
     umbrales = _asesor_umbrales()
     if umbral_funcion:
@@ -8004,6 +8174,25 @@ def _asesor_analizar(directorio: str = ".",
                              else "media",
                 "auto": auto,
             })
+
+        # v4.2.0: seguridad y rendimiento solo en modo profundo.
+        if profundo:
+            for hallazgo in _detectar_vulnerabilidades(contenido, lenguaje):
+                sugerencias.append({
+                    "tipo": "vulnerabilidad",
+                    "descripcion": f"🔒 Vulnerabilidad: {hallazgo['mensaje']}",
+                    "archivo": relativo, "linea": hallazgo["linea"],
+                    "solucion": hallazgo["solucion"],
+                    "prioridad": hallazgo["prioridad"],
+                })
+            for hallazgo in _detectar_rendimiento(contenido, lenguaje):
+                sugerencias.append({
+                    "tipo": "rendimiento",
+                    "descripcion": f"⚡ Rendimiento: {hallazgo['mensaje']}",
+                    "archivo": relativo, "linea": hallazgo["linea"],
+                    "solucion": hallazgo["solucion"],
+                    "prioridad": hallazgo["prioridad"],
+                })
 
         if lenguaje != "python":
             continue     # AST detallado solo para Python; resto heurísticas.
@@ -8064,6 +8253,22 @@ def _asesor_analizar(directorio: str = ".",
     sugerencias.sort(key=lambda s: (_PRIORIDAD_ORDEN.get(s["prioridad"], 3),
                                     s["archivo"], s["linea"]))
     return sugerencias
+
+
+def _asesor_analizar_por_tipo(directorio: str, tipos: tuple) -> List[dict]:
+    """Ejecuta el análisis profundo y devuelve solo los ``tipos`` pedidos."""
+    return [s for s in _asesor_analizar(directorio, profundo=True)
+            if s.get("tipo") in tipos]
+
+
+def _analizar_seguridad(directorio: str = ".") -> List[dict]:
+    """Análisis de seguridad del proyecto (🔒 tipo 'vulnerabilidad')."""
+    return _asesor_analizar_por_tipo(directorio, ("vulnerabilidad",))
+
+
+def _analizar_rendimiento(directorio: str = ".") -> List[dict]:
+    """Análisis de rendimiento del proyecto (⚡ tipo 'rendimiento')."""
+    return _asesor_analizar_por_tipo(directorio, ("rendimiento",))
 
 
 def _asesor_mostrar(sugerencias: List[dict]) -> None:
@@ -8132,7 +8337,8 @@ def _ejecutar_asesor(args: argparse.Namespace) -> int:
     info("🧠 Asesor de código proactivo analizando el proyecto...")
     sugerencias = agente.analizar(
         directorio,
-        umbral_funcion=getattr(args, "asesor_umbral", None))
+        umbral_funcion=getattr(args, "asesor_umbral", None),
+        profundo=getattr(args, "asesor_profundo", False))
     agente.mostrar(sugerencias)
     if getattr(args, "asesor_auto", False):
         aplicadas = agente.aplicar_automaticas(sugerencias, directorio)
@@ -8443,6 +8649,12 @@ def crear_parser() -> argparse.ArgumentParser:
         "--modelo-ligero", dest="modelo_ligero", action="store_true",
         help="Usa prompts concisos en el editor propio (pensados para "
              "modelos pequeños); se activa automáticamente con Ollama.",
+    )
+    parser.add_argument(
+        "--asesor-profundo", dest="asesor_profundo", action="store_true",
+        help="Asesor exhaustivo (v4.2.0): añade análisis de seguridad 🔒 "
+             "(inyección SQL, command injection, path traversal, secretos, "
+             "eval/exec, XSS) y rendimiento ⚡ al asesor básico.",
     )
     parser.add_argument(
         "--modo-edicion",
@@ -9347,8 +9559,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         if getattr(args, "curador", False):
             _curador_ejecutar()
             return 0
-        # v3.5.0: asesor de código proactivo (--asesor/--sugerir/--asesor-auto).
-        if getattr(args, "asesor", False) or getattr(args, "asesor_auto", False):
+        # v3.5.0/4.2.0: asesor de código (--asesor/--sugerir/--asesor-auto/
+        # --asesor-profundo; el profundo implica ejecutar el análisis).
+        if (getattr(args, "asesor", False)
+                or getattr(args, "asesor_auto", False)
+                or getattr(args, "asesor_profundo", False)):
             return _ejecutar_asesor(args)
         # v3.6.0: API pública — generar clave y/o arrancar el servidor REST.
         if getattr(args, "api_generate_key", False):

@@ -6,6 +6,34 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 
 
+## [4.2.0] - 2026-08-25 - Asesor mejorado: seguridad y rendimiento
+
+### 🛡️ Análisis de seguridad (🔒)
+- Nuevas detecciones heurísticas (sin dependencias externas tipo bandit):
+  - **Inyección SQL**: consultas construidas por concatenación/format/f-string.
+  - **Command injection**: `os.system(...)` y `subprocess` con `shell=True`.
+  - **Path traversal**: rutas con `../` construidas dinámicamente.
+  - **Hardcoded secrets**: API keys, passwords, tokens embebidos en el código.
+  - **eval/exec** inseguros.
+  - **XSS**: `innerHTML =` y `dangerouslySetInnerHTML`.
+- Cada hallazgo incluye descripción, archivo:línea, solución sugerida y
+  prioridad (alta/media), mostrado con el tag 🔒 Vulnerabilidad.
+
+### ⚡ Análisis de rendimiento
+- Bucles anidados O(n²) · `range(len(...))` · concatenación de cadenas con
+  `+=` en bucles · consultas N+1 del ORM (`.objects.get(` en bucle) · lectura
+  completa de archivos grandes en memoria. Tag ⚡ Rendimiento.
+
+### 🚀 Integración
+- Nuevo flag **`--asesor-profundo`**: ejecuta el análisis completo (heurísticas
+  básicas + seguridad + rendimiento). Sin él, `--asesor` se comporta como en
+  v3.5.0.
+- **Planificador**: nuevas acciones de paso `"seguridad"` y `"rendimiento"`
+  (en `--auto` solo informan, sin interacción).
+- **Chat**: nuevos comandos `/seguridad` y `/rendimiento`.
+- **AgenteAsesor**: nuevos métodos `analizar_seguridad()` y
+  `analizar_rendimiento()`.
+
 ## [4.1.0] - 2026-08-25 - Editor propio por defecto
 
 ### ✏️ Editor propio, modo por defecto (antes Aider)

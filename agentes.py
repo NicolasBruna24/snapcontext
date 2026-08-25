@@ -814,11 +814,28 @@ class AgenteAsesor:
     """
 
     def analizar(self, directorio: str = ".",
-                 umbral_funcion: Optional[int] = None) -> List[dict]:
-        """Ejecuta el análisis estático y devuelve la lista de sugerencias."""
+                 umbral_funcion: Optional[int] = None,
+                 profundo: bool = False) -> List[dict]:
+        """Ejecuta el análisis estático y devuelve la lista de sugerencias.
+
+        Con ``profundo=True`` añade seguridad 🔒 y rendimiento ⚡ (v4.2.0).
+        """
         import snapcontext as sc
 
-        return sc._asesor_analizar(directorio, umbral_funcion=umbral_funcion)
+        return sc._asesor_analizar(directorio, umbral_funcion=umbral_funcion,
+                                   profundo=profundo)
+
+    def analizar_seguridad(self, directorio: str = ".") -> List[dict]:
+        """Solo vulnerabilidades de seguridad (v4.2.0)."""
+        import snapcontext as sc
+
+        return sc._analizar_seguridad(directorio)
+
+    def analizar_rendimiento(self, directorio: str = ".") -> List[dict]:
+        """Solo sugerencias de rendimiento (v4.2.0)."""
+        import snapcontext as sc
+
+        return sc._analizar_rendimiento(directorio)
 
     def mostrar(self, sugerencias: List[dict]) -> None:
         """Muestra las sugerencias en la CLI con colores."""

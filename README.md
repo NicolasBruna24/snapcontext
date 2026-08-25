@@ -1,6 +1,6 @@
 # SnapContext
 
-![v4.1.0](https://img.shields.io/badge/version-4.1.0-blue.svg)
+![v4.2.0](https://img.shields.io/badge/version-4.2.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -256,6 +256,46 @@ El asesor también está disponible:
 - **En el planificador**: paso `{"accion": "asesor", "descripcion": "..."}` —
   cada sugerencia se presenta para aceptarla o rechazarla individualmente.
 - **En la web**: acción *Asesor* que muestra las sugerencias en un panel.
+
+### 🛡️ Seguridad y rendimiento en el asesor (v4.2.0)
+
+Con el nuevo flag `--asesor-profundo`, el asesor añade dos análisis extra a
+las heurísticas básicas de siempre:
+
+```bash
+snapcontext --asesor-profundo          # heurísticas + seguridad 🔒 + rendimiento ⚡
+snapcontext --asesor                   # solo heurísticas básicas (como v3.5.0)
+```
+
+**🔒 Vulnerabilidades detectadas** (heurísticas propias, sin dependencias
+externas como bandit):
+
+| Vulnerabilidad | Ejemplo |
+|---|---|
+| Inyección SQL | `"SELECT ... WHERE id = " + user_id` |
+| Command injection | `os.system("ping " + ip)`, `subprocess(..., shell=True)` |
+| Path traversal | `open("../" + filename)` |
+| Hardcoded secrets | `API_KEY = "sk-..."` en el código |
+| eval/exec inseguros | `eval(user_input)` |
+| XSS | `elemento.innerHTML = entrada` |
+
+**⚡ Rendimiento**: bucles anidados O(n²), `range(len(...))`, concatenación de
+cadenas con `+=` dentro de bucles, consultas N+1 del ORM y lectura completa de
+archivos grandes en memoria.
+
+Cada hallazgo incluye descripción, `archivo:línea`, solución propuesta y
+prioridad, integrado con el resto de sugerencias del asesor.
+
+También disponibles por separado:
+
+```bash
+# En el chat
+snapcontext --chat     # luego: /seguridad  ·  /rendimiento
+
+# En el planificador
+{"accion": "seguridad", "descripcion": "auditar el módulo de pagos"}
+{"accion": "rendimiento", "descripcion": "optimizar consultas"}
+```
 
 ### 🔌 API pública (v3.6.0)
 
