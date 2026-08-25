@@ -190,6 +190,9 @@ class Orquestador:
                         directorio=str(raiz),
                         modo_edicion=modo_ed,
                         modelo=getattr(args, "modelo", None),
+                        validar=getattr(args, "validar", True),
+                        max_intentos_validacion=getattr(
+                            args, "max_intentos_validacion", 3),
                     )
                     self._emitir_tipo("editor", accion="fin", ok=ok)
                 else:

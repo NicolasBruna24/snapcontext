@@ -232,9 +232,55 @@ class AgenteEditorPropio:
         return sc._editor_ast(archivo, tarea, directorio=directorio,
                               proveedor=proveedor, modelo=modelo)
 
+    @staticmethod
+    def _aplicar_parche_preview(parche: str, contenido_actual: str):
+        """Aplica ``parche`` a ``contenido_actual`` **en memoria** para poder
+        validar la sintaxis del resultado sin tocar el archivo real.
+
+        Reutiliza la segmentación de hunks de ``_parsear_hunks`` y aplica cada
+        hunk con tolerancia a pequeños desfases. Devuelve ``(resultado, n)``
+        donde ``n`` es el número de hunks aplicados (0 ⇒ no se pudo reproducir).
+        """
+        import snapcontext as sc
+
+        resultado = (contenido_actual or "").splitlines()
+        desplazamiento = 0
+        aplicados = 0
+        for inicio_orig, cambios in sc._parsear_hunks(parche):
+            base = max(inicio_orig - 1 + desplazamiento, 0)
+            n_borrados = sum(1 for marca, _ in cambios if marca != "+")
+            nuevos = [texto for marca, texto in cambios if marca != "-"]
+
+            posicion = -1
+            for delta in (0, 1, -1, 2, -2, 3, -3, 5, -5, 10, -10):
+                candidato = base + delta
+                if candidato < 0 or candidato > len(resultado):
+                    continue
+                idx = candidato
+                encaja = True
+                for marca, texto in cambios:
+                    if marca == "+":
+                        continue
+                    if idx >= len(resultado) or resultado[idx] != texto:
+                        encaja = False
+                        break
+                    idx += 1
+                if encaja:
+                    posicion = candidato
+                    break
+            if posicion < 0:
+                continue
+
+            resultado[posicion:posicion + n_borrados] = nuevos
+            desplazamiento += len(nuevos) - n_borrados
+            aplicados += 1
+
+        return "\n".join(resultado) + "\n", aplicados
+
     def _aplicar_modo_parche(self, archivo: str, mensaje: str,
                              contenido_actual: str, modelo: Optional[str],
-                             directorio: str) -> bool:
+                             directorio: str, validar: bool = True,
+                             max_intentos_validacion: int = 3) -> bool:
         """Intenta editar `archivo` pidiendo un parche unificado al proveedor."""
         import snapcontext as sc
 
@@ -243,57 +289,134 @@ class AgenteEditorPropio:
         lenguaje = sc._lenguaje_archivo(archivo, contenido_actual) or "?"
         num_lineas = (contenido_actual.count("\n") + 1
                       if contenido_actual else 0)
-        prompt = (
-            f"Genera un parche unificado (unified diff) que modifique el archivo "
-            f"para cumplir con la tarea con precisión máxima.\n"
-            f"El parche debe ser aplicable con 'patch -p1' o 'git apply' "
-            f"(encabezados --- a/{archivo} y +++ b/{archivo}).\n\n"
-            f"Tarea: {mensaje}\n"
-            f"Archivo: {archivo}  (lenguaje: {lenguaje}, {num_lineas} líneas)\n\n"
-            f"Instrucciones:\n"
-            f"- Incluye suficiente contexto (3 líneas) para anclar cada hunk.\n"
-            f"- Conserva el estilo existente (indentación, comillas).\n"
-            f"- Modifica SOLO lo necesario; no reorganices el resto del archivo.\n\n"
-            f"Contenido actual completo:\n```{lenguaje}\n{contenido_actual}\n```\n\n"
-            f"Devuelve ÚNICAMENTE el diff unificado, sin explicaciones ni rodeos."
-        )
-        respuesta = sc._enviar_al_proveedor(
-            proveedor, modelo, [{"role": "user", "content": prompt}])
-        diff_limpio = respuesta
-        if "--- " in diff_limpio and "+++ " in diff_limpio:
-            idx_inicio = diff_limpio.find("--- ")
-            diff_limpio = diff_limpio[idx_inicio:]
-            if "```" in diff_limpio:
-                diff_limpio = diff_limpio[:diff_limpio.find("```")]
-        if "--- " in diff_limpio and "+++ " in diff_limpio and "@@" in diff_limpio:
-            # v3.3.0: validación previa + resolución de conflictos.
-            return self.aplicar_parche(diff_limpio, directorio,
-                                       contenido_esperado=contenido_actual)
+        max_val = max(1, int(max_intentos_validacion))
+
+        error_msj = ""
+        for intento in range(1, max_val + 1):
+            prompt = (
+                f"Genera un parche unificado (unified diff) que modifique el archivo "
+                f"para cumplir con la tarea con precisión máxima.\n"
+                f"El parche debe ser aplicable con 'patch -p1' o 'git apply' "
+                f"(encabezados --- a/{archivo} y +++ b/{archivo}).\n\n"
+                f"Tarea: {mensaje}\n"
+                f"Archivo: {archivo}  (lenguaje: {lenguaje}, {num_lineas} líneas)\n\n"
+                f"Instrucciones:\n"
+                f"- Incluye suficiente contexto (3 líneas) para anclar cada hunk.\n"
+                f"- Conserva el estilo existente (indentación, comillas).\n"
+                f"- Modifica SOLO lo necesario; no reorganices el resto del archivo.\n"
+            )
+            if error_msj:
+                prompt += (
+                    f"\nTu intento anterior produjo un error de sintaxis que debes "
+                    f"corregir:\n{error_msj}\n\n"
+                    f"Mantén el objetivo de la tarea pero arregla ese error.\n"
+                )
+            prompt += (
+                f"\nContenido actual completo:\n```{lenguaje}\n{contenido_actual}\n```\n\n"
+                f"Devuelve ÚNICAMENTE el diff unificado, sin explicaciones ni rodeos."
+            )
+            respuesta = sc._enviar_al_proveedor(
+                proveedor, modelo, [{"role": "user", "content": prompt}])
+            diff_limpio = respuesta
+            if "--- " in diff_limpio and "+++ " in diff_limpio:
+                idx_inicio = diff_limpio.find("--- ")
+                diff_limpio = diff_limpio[idx_inicio:]
+                if "```" in diff_limpio:
+                    diff_limpio = diff_limpio[:diff_limpio.find("```")]
+            if not ("--- " in diff_limpio and "+++ " in diff_limpio
+                    and "@@" in diff_limpio):
+                return False
+
+            if not validar:
+                # v3.3.0: validación previa + resolución de conflictos.
+                return self.aplicar_parche(diff_limpio, directorio,
+                                           contenido_esperado=contenido_actual)
+
+            # v3.4.0: validar la sintaxis del contenido resultante.
+            preview, aplicados = self._aplicar_parche_preview(
+                diff_limpio, contenido_actual)
+            if aplicados == 0:
+                # No se pudo reproducir en memoria → se omite la validación.
+                return self.aplicar_parche(diff_limpio, directorio,
+                                           contenido_esperado=contenido_actual)
+
+            sc.info(f"Validando sintaxis de {archivo}...")
+            exito, err = sc._validar_sintaxis(archivo, preview, directorio)
+            if exito:
+                sc.exito("Sintaxis válida.")
+                return self.aplicar_parche(diff_limpio, directorio,
+                                           contenido_esperado=contenido_actual)
+
+            error_msj = err
+            if intento < max_val:
+                sc.error(
+                    f"Error de sintaxis: {err}. "
+                    f"Reintentando ({intento}/{max_val})...")
+            else:
+                sc.error(
+                    f"No se pudo validar tras {max_val} intentos. "
+                    f"Edición cancelada.")
+                return False
         return False
 
     def _aplicar_modo_sobrescribir(self, archivo: str, mensaje: str,
                                    contenido_actual: str, modelo: Optional[str],
-                                   directorio: str) -> bool:
+                                   directorio: str, validar: bool = True,
+                                   max_intentos_validacion: int = 3) -> bool:
         """Sobrescribe `archivo` con el código completo que devuelve el proveedor."""
         import snapcontext as sc
 
         pref = sc.cargar_configuracion()
         proveedor = pref.get("provider") or sc.PROVEEDOR_DEFECTO
         lenguaje = sc._lenguaje_archivo(archivo, contenido_actual) or "?"
-        prompt = (
-            f"Modifica el siguiente archivo ({lenguaje}) para cumplir con la "
-            f"tarea, conservando el estilo existente y cambiando solo lo necesario.\n\n"
-            f"Tarea: {mensaje}\n"
-            f"Archivo: {archivo}  (lenguaje: {lenguaje})\n\n"
-            f"Contenido actual completo:\n```{lenguaje}\n{contenido_actual}\n```\n\n"
-            f"Devuelve ÚNICAMENTE el código completo resultante, sin explicaciones ni markdown."
-        )
-        nuevo_contenido = sc._enviar_al_proveedor(
-            proveedor, modelo, [{"role": "user", "content": prompt}])
-        if nuevo_contenido.startswith("```"):
-            lineas = nuevo_contenido.splitlines()
-            if len(lineas) >= 2 and lineas[-1].startswith("```"):
-                nuevo_contenido = "\n".join(lineas[1:-1])
+        max_val = max(1, int(max_intentos_validacion))
+
+        error_msj = ""
+        nuevo_contenido = ""
+        for intento in range(1, max_val + 1):
+            prompt = (
+                f"Modifica el siguiente archivo ({lenguaje}) para cumplir con la "
+                f"tarea, conservando el estilo existente y cambiando solo lo necesario.\n\n"
+                f"Tarea: {mensaje}\n"
+                f"Archivo: {archivo}  (lenguaje: {lenguaje})\n"
+            )
+            if error_msj:
+                prompt += (
+                    f"\nTu intento anterior produjo un error de sintaxis que debes "
+                    f"corregir:\n{error_msj}\n\n"
+                    f"Mantén el objetivo de la tarea pero arregla ese error.\n"
+                )
+            prompt += (
+                f"\nContenido actual completo:\n```{lenguaje}\n{contenido_actual}\n```\n\n"
+                f"Devuelve ÚNICAMENTE el código completo resultante, sin explicaciones ni markdown."
+            )
+            respuesta = sc._enviar_al_proveedor(
+                proveedor, modelo, [{"role": "user", "content": prompt}])
+            nuevo_contenido = respuesta
+            if nuevo_contenido.startswith("```"):
+                lineas = nuevo_contenido.splitlines()
+                if len(lineas) >= 2 and lineas[-1].startswith("```"):
+                    nuevo_contenido = "\n".join(lineas[1:-1])
+
+            if not validar:
+                break
+
+            sc.info(f"Validando sintaxis de {archivo}...")
+            exito, err = sc._validar_sintaxis(archivo, nuevo_contenido, directorio)
+            if exito:
+                sc.exito("Sintaxis válida.")
+                break
+            error_msj = err
+            if intento < max_val:
+                sc.error(
+                    f"Error de sintaxis: {err}. "
+                    f"Reintentando ({intento}/{max_val})...")
+            else:
+                sc.error(
+                    f"No se pudo validar tras {max_val} intentos. "
+                    f"Edición cancelada.")
+                return False
+
         return self.sobrescribir(archivo, nuevo_contenido, directorio)
 
     def ejecutar(
@@ -303,6 +426,8 @@ class AgenteEditorPropio:
         directorio: str = ".",
         modo_edicion: str = "auto",
         modelo: Optional[str] = None,
+        validar: bool = True,
+        max_intentos_validacion: int = 3,
     ) -> bool:
         """Aplica las modificaciones para `archivos` con el `mensaje` especificado.
 
@@ -353,10 +478,14 @@ class AgenteEditorPropio:
                                                      str(raiz), modelo)
                     elif estrategia == "parche":
                         conseguido = self._aplicar_modo_parche(
-                            arch, mensaje, contenido_actual, modelo, str(raiz))
+                            arch, mensaje, contenido_actual, modelo, str(raiz),
+                            validar=validar,
+                            max_intentos_validacion=max_intentos_validacion)
                     elif estrategia == "sobrescribir":
                         conseguido = self._aplicar_modo_sobrescribir(
-                            arch, mensaje, contenido_actual, modelo, str(raiz))
+                            arch, mensaje, contenido_actual, modelo, str(raiz),
+                            validar=validar,
+                            max_intentos_validacion=max_intentos_validacion)
                     else:
                         conseguido = False
                 except Exception as exc:

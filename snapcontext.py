@@ -56,7 +56,7 @@ import unicodedata
 import warnings
 import webbrowser
 from pathlib import Path
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Tuple, Union
 from urllib.parse import urlparse
 
 # `google-generativeai` es la dependencia del proveedor por defecto (Gemini).
@@ -111,7 +111,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "3.3.0"
+VERSION = "3.4.0"
 
 # v3.1.0 — Claves de API reconocidas para el modo por defecto (offline).
 CLAVES_API_CONOCIDAS = (
@@ -301,6 +301,7 @@ MAX_ARCHIVOS_DEFECTO = 3                           # archivos que recibe Aider
 MAX_CANDIDATOS_DEFECTO = 80                        # candidatos que se envían al selector IA
 MAX_ITERACIONES_TEST_DEFECTO = 3
 COMANDO_TEST_DEFECTO = "flutter test"
+MAX_INTENTOS_VALIDACION = 3                        # reintentos de validación del editor propio
 
 # ---------------------------------------------------------------------------
 # Proveedores de IA para la selección de archivos
@@ -1730,6 +1731,127 @@ def _editor_sobrescribir(archivo: str, contenido: str,
     except Exception as exc:
         error(f"[EditorPropio] Error al escribir {limpia}: {exc}")
         return False
+
+
+def _comandos_validacion(lenguaje: str, archivo_tmp: str) -> List[List[str]]:
+    """Comandos de validación sintáctica para ``lenguaje``.
+
+    Devuelve una lista de candidatos (cada uno un argv con ``archivo_tmp`` ya
+    resuelto). Cuando un lenguaje admite un validador de reserva (p. ej.
+    ``dart analyze`` → ``dart format``), se incluyen en orden de preferencia.
+    Devuelve ``[]`` si no existe validador para el lenguaje.
+    """
+    if not lenguaje:
+        return []
+    if lenguaje in ("python", "py", "python3"):
+        return [[sys.executable, "-m", "py_compile", archivo_tmp]]
+    if lenguaje in ("javascript", "typescript", "tsx", "js", "ts", "node",
+                    "jsx", "mjs", "cjs", "mts", "cts"):
+        return [["node", "--check", archivo_tmp]]
+    if lenguaje == "dart":
+        return [["dart", "analyze", archivo_tmp],
+                ["dart", "format", "--output=none", archivo_tmp]]
+    if lenguaje == "go":
+        return [["go", "build", "-n", archivo_tmp],
+                ["gofmt", "-e", archivo_tmp]]
+    if lenguaje in ("rust", "rs"):
+        return [["rustc", "--parse-only", archivo_tmp]]
+    if lenguaje in ("java",):
+        return [["javac", "-Xlint:none", archivo_tmp]]
+    if lenguaje in ("c", "h"):
+        return [["gcc", "-fsyntax-only", archivo_tmp],
+                ["clang", "-fsyntax-only", archivo_tmp]]
+    if lenguaje in ("cpp", "cc", "cxx", "hpp", "hh", "hxx", "c++"):
+        return [["g++", "-fsyntax-only", archivo_tmp],
+                ["clang++", "-fsyntax-only", archivo_tmp]]
+    return []
+
+
+def _validar_sintaxis(archivo: str, contenido: str,
+                      directorio: str = ".") -> Tuple[bool, str]:
+    """Valida la sintaxis de ``contenido`` como si fuese el de ``archivo``.
+
+    Escribe el ``contenido`` en un archivo temporal (siempre conserva la
+    extensión del archivo original para que el parser/linter lo reconozca) y
+    ejecuta el comando de validación correspondiente al lenguaje detectado con
+    ``_lenguaje_archivo``. Nunca toca el archivo original.
+
+    Devuelve ``(exito, mensaje_error)``:
+      - ``(True, "")`` si la validación pasó, o si no hay validador / comando
+        disponible (se omite la validación).
+      - ``(False, mensaje)`` si el validador rechazó el contenido o hubo timeout.
+    """
+    lenguaje = _lenguaje_archivo(archivo, contenido) or ""
+    if not lenguaje:
+        depurar(
+            f"[validar-sintaxis] Sin validador para '{archivo}' (lenguaje "
+            f"desconocido); se omite la validación."
+        )
+        return True, ""
+
+    suffix = Path(archivo).suffix or ".txt"
+    archivo_tmp = ""
+    try:
+        fd, archivo_tmp = tempfile.mkstemp(
+            suffix=suffix, prefix=".snapcontext_validacion_")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(contenido or "")
+
+        comandos = _comandos_validacion(lenguaje, archivo_tmp)
+        if not comandos:
+            depurar(
+                f"[validar-sintaxis] Sin validador para '{lenguaje}'; "
+                "se omite la validación."
+            )
+            return True, ""
+
+        for cmd in comandos:
+            binario = cmd[0]
+            if shutil.which(binario) is None:
+                depurar(
+                    f"[validar-sintaxis] Comando '{binario}' no disponible; "
+                    "se busca alternativa."
+                )
+                continue
+            try:
+                proc = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=60,
+                    cwd=directorio or ".",
+                )
+            except subprocess.TimeoutExpired:
+                error(
+                    f"[validar-sintaxis] El comando '{binario}' excedió el "
+                    f"tiempo límite al validar '{archivo}'."
+                )
+                return False, (
+                    f"el comando '{binario}' excedió el tiempo límite de validación"
+                )
+            except (OSError, ValueError):
+                continue          # no se pudo lanzar → probar candidato siguiente
+
+            if proc.returncode == 0:
+                return True, ""
+            # Código de salida != 0 ⇒ error sintáctico (o validador fallo).
+            salida = (proc.stderr or "").strip()
+            if not salida:
+                salida = (proc.stdout or "").strip()
+            mensaje = salida or (
+                f"el validador '{binario}' falló (código {proc.returncode})"
+            )
+            return False, mensaje
+
+        # Ningún candidato disponible → se omite la validación.
+        depurar(
+            f"[validar-sintaxis] Ningún validador disponible para '{lenguaje}'; "
+            "se omite la validación."
+        )
+        return True, ""
+    finally:
+        if archivo_tmp:
+            try:
+                os.unlink(archivo_tmp)
+            except OSError:
+                pass
 
 
 def _generar_parche(original: str, nuevo: str, ruta_archivo: str) -> str:
@@ -4082,6 +4204,9 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
             directorio=str(ruta_raiz),
             modo_edicion=modo_ed,
             modelo=getattr(args, "modelo", None),
+            validar=getattr(args, "validar", True),
+            max_intentos_validacion=getattr(
+                args, "max_intentos_validacion", MAX_INTENTOS_VALIDACION),
         )
         return (todo_ok, f"EditorPropio sobre {len(seleccion)} archivo(s)")
 
@@ -6842,7 +6967,8 @@ def _pintar(texto: str, clave: str) -> str:
 # Categorías en orden de aparición; cada opción se muestra una sola vez.
 CATEGORIAS_AYUDA = (
     ("Modos de ejecución",
-     ("--plan", "--auto", "--editor", "--modo-edicion", "--chat", "--web", "--web-puerto", "--demo",
+     ("--plan", "--auto", "--editor", "--modo-edicion", "--validar", "--no-validar-sintaxis", "--max-intentos-validacion",
+      "--chat", "--web", "--web-puerto", "--demo",
       "--init", "--init-claude", "--historial", "--historial-limpiar",
       "--diagnostico", "--reparar", "--bienvenida")),
     ("Selección de archivos",
@@ -7345,6 +7471,26 @@ def crear_parser() -> argparse.ArgumentParser:
              "fallback a sobrescritura), 'parche' (solo parches unificados), "
              "'sobrescribir' (sobrescritura completa del archivo) o 'ast' "
              "(edición basada en el árbol sintáctico con fallback a sobrescritura).",
+    )
+    parser.add_argument(
+        "--validar", dest="validar", action="store_const", const=True,
+        default=True,
+        help="Valida la sintaxis del código antes de guardar en el editor propio "
+             "(por defecto activado).",
+    )
+    parser.add_argument(
+        "--no-validar-sintaxis", dest="validar", action="store_const",
+        const=False,
+        help="Desactiva la validación de sintaxis en el editor propio "
+             "(comportamiento previo a v3.4.0). Nota: su nombre no es "
+             "'--no-validar' porque ese alias ya está reservado por "
+             "--iniciar-proyecto.",
+    )
+    parser.add_argument(
+        "--max-intentos-validacion", type=int,
+        default=MAX_INTENTOS_VALIDACION, metavar="N",
+        help=f"Intentos máximos de validación de sintaxis antes de cancelar la "
+             f"edición (por defecto: {MAX_INTENTOS_VALIDACION}).",
     )
     # Aprendizaje autónomo / memoria avanzada (v3.0.0)
     parser.add_argument(

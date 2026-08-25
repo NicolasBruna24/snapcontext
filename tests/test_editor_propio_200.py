@@ -84,7 +84,7 @@ class TestFlagsEditor(unittest.TestCase):
         self.assertIsInstance(orch.agente_editor_propio, AgenteEditorPropio)
 
     def test_version_es_2_0_0(self):
-        self.assertEqual(sc.VERSION, "3.3.0")
+        self.assertEqual(sc.VERSION, "3.4.0")
 
 
 if __name__ == "__main__":

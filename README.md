@@ -1,6 +1,6 @@
 # SnapContext
 
-![v3.3.0](https://img.shields.io/badge/version-2.1.0-blue.svg)
+![v3.4.0](https://img.shields.io/badge/version-3.4.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -154,6 +154,37 @@ snapcontext "corregir tipado en login" --editor propio --modo-edicion parche
 
 # Refactorización estructural con AST
 snapcontext "renombrar la variable 'usuario' a 'cuenta'" --editor propio --modo-edicion ast
+
+# Validación de sintaxis desactivada (comportamiento previo a v3.4.0)
+snapcontext "corregir tipado" --editor propio --no-validar-sintaxis
+```
+
+### Validación de sintaxis antes de guardar (v3.4.0)
+
+Cuando uses `--editor propio`, SnapContext **valida la sintaxis** del código que
+ha generado la IA **antes de escribirlo en disco**. Si la validación falla, el
+cambio se rechaza y se le envía el error al proveedor para que lo corrija,
+repitiéndose hasta `--max-intentos-validacion` intentos (por defecto 3). Si tras
+esos intentos el código sigue roto, se **cancela la edición** y el archivo queda
+intacto.
+
+- Se detecta el lenguaje del archivo y se usa el validador adecuado:
+  Python (`py_compile`), JavaScript/TypeScript (`node --check`), Dart
+  (`dart analyze` → `dart format`), Go (`go build -n` → `gofmt -e`), Rust
+  (`rustc --parse-only`), Java (`javac -Xlint:none`), C/C++ (`gcc`/`clang
+  -fsyntax-only`). Si no hay validador o comando disponible, se omite la
+  validación (solo aviso en logs con `--depurar`).
+- La validación se hace sobre un **archivo temporal**, nunca toca el original.
+- Flag `--validar` (por defecto activado) / `--no-validar-sintaxis` para
+  desactivarla. Nota: el nombre usa `--no-validar-sintaxis` porque
+  `--no-validar` ya es alias de `--iniciar-proyecto`.
+
+```bash
+# Desactivar la validación por completo (comportamiento anterior)
+snapcontext "..." --editor propio --no-validar-sintaxis
+
+# Ajustar el número de reintentos
+snapcontext "..." --editor propio --max-intentos-validacion 5
 ```
 
 ## 🧭 Modos y alias
@@ -968,6 +999,12 @@ locales y te deja elegir con las flechas:
 | `--url-defecto` | `http://localhost:5000` | URL para abrir el navegador si Flutter no reporta una |
 | `--comando-test` | `"flutter test"` | Comando del bucle de pruebas |
 | `--max-iteraciones` | `3` | Iteraciones máximas del bucle |
+| `--validar` | on | Valida la sintaxis del código antes de guardar en el editor propio |
+| `--no-validar-sintaxis` | off | Desactiva la validación de sintaxis del editor propio |
+| `--max-intentos-validacion` | `3` | Intentos de validación de sintaxis antes de cancelar la edición |
+
+> **Nota:** el flag negativo de validación de sintaxis se llama `--no-validar-sintaxis`
+> porque `--no-validar` ya existe como alias de `--iniciar-proyecto`.
 
 ---
 

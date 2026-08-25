@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests del editor propio v3.3.0.
+"""Tests del editor propio v3.3.0 (base) — validado bajo v3.4.0.
 
 Cubre el refinamiento multi-lenguaje del AST, el manejo de conflictos en
 parches (validación previa, resolución incremental) y la integración con

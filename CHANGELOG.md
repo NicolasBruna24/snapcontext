@@ -6,6 +6,46 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 
 
+## [3.4.0] - 2026-08-25 - Validación de sintaxis del editor propio
+
+### Validación de sintaxis antes de guardar
+- Nueva función `_validar_sintaxis(archivo, contenido, directorio)` que escribe
+  el contenido en un archivo temporal y ejecuta el validador del lenguaje
+  detectado por `_lenguaje_archivo`:
+  Python (`python -m py_compile`), JavaScript/TypeScript (`node --check`),
+  Dart (`dart analyze` → `dart format`), Go (`go build -n` → `gofmt -e`),
+  Rust (`rustc --parse-only`), Java (`javac -Xlint:none`) y C/C++ (`gcc` /
+  `clang -fsyntax-only`). Si no hay validador o comando disponible, se omite
+  la validación (aviso en logs de depuración).
+- `_validar_sintaxis` captura `stdout`/`stderr` y maneja `subprocess` y timeouts,
+  devolviendo `(exito: bool, mensaje_error: str)`. Nunca toca el archivo original.
+- **Integración en `AgenteEditorPropio.ejecutar()`**: tras generar el nuevo
+  contenido, antes de `_editor_sobrescribir()` / `_aplicar_parche_con_resolucion()`.
+  Si la validación falla, se envía el error al proveedor para que corrija, hasta
+  `MAX_INTENTOS_VALIDACION` (por defecto 3) o hasta que pase. Si se agotan los
+  intentos se cancela la edición (nada se guarda).
+- El modo parche valida el contenido resultante (aplicando el diff en memoria
+  con `_aplicar_parche_preview`) antes de aplicar el parche real.
+
+### Flags
+- `--validar` (por defecto activado) y `--no-validar-sintaxis` para desactivar la
+  validación (comportamiento previo). *Nota:* no se usa `--no-validar` porque ese
+  alias ya está reservado por `--iniciar-proyecto`.
+- `--max-intentos-validacion N` para ajustar los reintentos.
+- Documentado en `--help` y en las categorías de ayuda.
+
+### Logs
+- `ℹ Validando sintaxis de archivo.py...`, `✔ Sintaxis válida.`,
+  `✖ Error de sintaxis: ... Reintentando (1/3)...` y
+  `✖ No se pudo validar tras 3 intentos. Edición cancelada.`
+
+### Tests
+- Nueva suite `tests/test_validacion_sintaxis_340.py` (15 tests): `_validar_sintaxis`
+  con mocks de subprocess para Python/JS/Dart/Java (incluido fallback de Dart,
+  timeout y comando no disponible), flags de CLI, flujo de reintentos en
+  `_aplicar_modo_sobrescribir` (fallo→éxito y agotamiento de intentos) y
+  `_aplicar_parche_preview`.
+
 ## [3.3.0] - 2026-08-24 - Editor propio refinado: AST multi-lenguaje, conflictos y skills
 
 ### AST y parches
