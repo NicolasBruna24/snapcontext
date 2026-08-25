@@ -1,6 +1,6 @@
 # SnapContext
 
-![v2.1.0](https://img.shields.io/badge/version-2.1.0-blue.svg)
+![v3.3.0](https://img.shields.io/badge/version-2.1.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
