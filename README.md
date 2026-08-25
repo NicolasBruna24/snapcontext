@@ -1,6 +1,6 @@
 # SnapContext
 
-![v3.6.0](https://img.shields.io/badge/version-3.6.0-blue.svg)
+![v4.0.0](https://img.shields.io/badge/version-4.0.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -282,6 +282,66 @@ curl -X POST http://127.0.0.1:8001/api/v1/chat \
      -d '{"mensaje": "¿qué hace este proyecto?"}'
 ```
 
+### 🧩 Ecosistema de plugins (v4.0.0)
+
+La comunidad puede extender SnapContext con **plugins**: carpetas en
+`~/.snapcontext/plugins/<nombre>/` con un `plugin.json` y sus scripts.
+Las herramientas que exponen se integran automáticamente en el sistema MCP.
+
+**Estructura de un plugin:**
+
+```
+~/.snapcontext/plugins/saludos/
+├── plugin.json     # metadatos + herramientas + permisos
+├── saluda.py       # script(s): args JSON por stdin → JSON por stdout
+└── README.md
+```
+
+```json
+{
+  "nombre": "saludos", "version": "1.0.0", "autor": "tu-usuario",
+  "descripcion": "Herramientas de ejemplo",
+  "permisos": ["archivos"], "habilitado": true,
+  "herramientas": [
+    { "nombre": "saludos_hola", "descripcion": "Saluda",
+      "script": "saluda.py", "requiere_permiso": false,
+      "parametros": {"nombre": "str"} }
+  ]
+}
+```
+
+**Gestión desde la CLI:**
+
+```bash
+snapcontext plugin list                    # listar plugins y herramientas
+snapcontext plugin create mi-plugin        # generar estructura básica
+snapcontext plugin install usuario/repo    # instalar desde GitHub
+snapcontext plugin install ./mi-plugin     # instalar desde carpeta local
+snapcontext plugin disable mi-plugin       # deshabilitar sin borrar
+snapcontext plugin enable mi-plugin
+snapcontext plugin update mi-plugin        # reinstalar desde su origen
+snapcontext plugin remove mi-plugin        # desinstalar
+```
+
+**Seguridad**: antes de instalar una fuente externa se pide confirmación,
+mostrando autor, versión y **permisos declarados** (`archivos`, `red`,
+`red_escrita`, `ejecucion`, `entorno`). Las herramientas se ejecutan por
+subproceso con timeout de 120 s. Un sandbox opcional con Docker está previsto
+para versiones futuras.
+
+**En el chat**: `/plugin` lista los plugins; para ejecutar una herramienta:
+`/plugin saludos.saludos_hola '{"nombre": "Ada"}'`.
+
+**En la web**: acciones `plugins`, `plugin_install` y `plugin_remove`
+emiten el evento `{"tipo": "plugins", ...}` para el panel correspondiente.
+
+**Publicar un plugin en el repositorio de comunidad**: crea un repositorio
+público en GitHub cuyo contenido sea la carpeta del plugin (con `plugin.json`
+en la raíz, rama `main`) y añádelo al índice del repo
+[NicolasBruna24/snapcontext-plugins](https://github.com/NicolasBruna24/snapcontext-plugins).
+A partir de ahí cualquiera podrá hacer `snapcontext plugin install <nombre>`.
+Sin plugins instalados, SnapContext funciona exactamente igual que siempre.
+
 ## 🧭 Modos y alias
 
 | Modo | Comando |
@@ -557,6 +617,7 @@ snapcontext --plan "..."                                             # commits '
   defecto: `claude-3-5-sonnet-20241022`.
 - **Modo chat interactivo**: `snapcontext --chat` abre un REPL con los comandos
   `/salir`, `/archivos`, `/limpiar`, `/seleccion <consulta>`, `/asesor`,
+  `/plugin`,
   `/provider <proveedor>`, `/historial` y `/ayuda`. Cualquier otro texto se envía
   al proveedor actual manteniendo la conversación.
 - **Memoria persistente**: cada tarea se guarda en `~/.snapcontext/historial.json`

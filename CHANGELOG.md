@@ -6,6 +6,38 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 
 
+## [4.0.0] - 2026-08-25 - Ecosistema de plugins
+
+### 🧩 Ecosistema de plugins
+- **Estructura**: `~/.snapcontext/plugins/<nombre>/` con un `plugin.json`:
+  `nombre`, `version`, `autor`, `descripcion`, `permisos`
+  (`archivos|red|red_escrita|ejecucion|entorno`), `habilitado` y
+  `herramientas` (lista con `nombre`, `descripcion`, `script` Python o
+  `comando` shell, `requiere_permiso` y `parametros`).
+- **Registro automático**: al iniciar, SnapContext escanea el directorio y las
+  herramientas habilitadas se integran en el sistema MCP (ejecutadas por
+  subproceso; reciben argumentos JSON por **stdin** y responden JSON por
+  stdout). Sin plugins instalados, SnapContext funciona exactamente igual.
+- **CLI** (`snapcontext plugin <accion>`):
+  | Acción | Descripción |
+  |---|---|
+  | `list` | Lista plugins instalados y sus herramientas. |
+  | `install <nombre\|usuario/repo\|url\|ruta>` | Instala desde carpeta local o GitHub (ZIP codeload). |
+  | `remove <nombre>` | Desinstala (con confirmación). |
+  | `create [nombre]` | Genera la estructura básica (manifest + script ejemplo). |
+  | `update <nombre>` | Reinstala desde el origen registrado. |
+  | `enable` / `disable <nombre>` | Habilita/deshabilita individualmente. |
+- **Seguridad**: confirmación explícita antes de instalar fuentes externas,
+  mostrando los permisos declarados; los permisos viajan con cada herramienta.
+  (Sandbox opcional con Docker: previsto para una versión futura.)
+- **Chat**: `/plugin` lista los plugins; `/plugin <plugin>.<herramienta>
+  '{"arg": ...}'` ejecuta una herramienta directamente.
+- **Web**: acciones `plugins` (listar), `plugin_install` y `plugin_remove`;
+  emiten el evento `{"tipo": "plugins", "plugins": [...]}` para el panel.
+- **Repositorio de comunidad**: `plugin install <nombre>` resuelve contra
+  https://github.com/NicolasBruna24/snapcontext-plugins (ver README para
+  publicar plugins propios).
+
 ## [3.6.0] - 2026-08-25 - API pública
 
 ### 🔌 API pública

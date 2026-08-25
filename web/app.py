@@ -470,6 +470,34 @@ def _ejecutar_accion(mensaje: dict, cola) -> None:
             ev({"tipo": "asesor", "sugerencias": sugerencias})
             ev({"tipo": "accion_ejecutada", "accion": accion, "ok": True,
                 "resumen": f"{len(sugerencias)} sugerencia(s) de mejora."})
+        elif accion in ("plugins", "plugin_install", "plugin_remove"):
+            # v4.0.0: ecosistema de plugins → panel de plugins.
+            try:
+                if accion == "plugin_install":
+                    origen = (mensaje.get("origen")
+                              or mensaje.get("consulta") or "").strip()
+                    codigo = sc._plugin_instalar(origen, auto=True) \
+                        if origen else 1
+                elif accion == "plugin_remove":
+                    nombre = (mensaje.get("nombre")
+                              or mensaje.get("consulta") or "").strip()
+                    # Desde la web no hay TTY: se omite la confirmación.
+                    codigo = sc._plugin_remove(nombre, confirmar=False) \
+                        if nombre else 1
+                else:
+                    codigo = 0
+                plugins = list(sc._plugins_instalados().values())
+                for p in plugins:
+                    p.pop("ruta", None)
+                ev({"tipo": "plugins", "plugins": plugins})
+                resumen = {0: "OK"}.get(codigo,
+                                        "fallo en la operación del plugin") \
+                    if accion != "plugins" else f"{len(plugins)} plugin(s)."
+                ev({"tipo": "accion_ejecutada", "accion": accion,
+                    "ok": codigo == 0, "resumen": resumen})
+            except Exception as exc:   # noqa: BLE001 — reportado a la UI
+                ev({"tipo": "accion_ejecutada", "accion": accion, "ok": False,
+                    "error": str(exc)})
         else:
             # fix / review / plan → pipeline o planificador de snapcontext.
             sc.fijar_evento_callback(ev)

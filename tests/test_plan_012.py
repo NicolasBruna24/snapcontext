@@ -269,7 +269,7 @@ class TestFlagsPlanCLI(unittest.TestCase):
         self.assertIsNone(self._parse(["--plan", "x"]).branch)
 
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "3.6.0")
+        self.assertEqual(sc.VERSION, "4.0.0")
 
 
 if __name__ == "__main__":

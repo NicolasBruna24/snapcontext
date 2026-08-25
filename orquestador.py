@@ -47,6 +47,18 @@ class Orquestador:
         self.agente_aprendizaje = AgenteAprendizaje()
         self.agente_asesor = AgenteAsesor()
         self.evento_callback = evento_callback
+        # v4.0.0: las herramientas de los plugins ya quedan registradas en el
+        # sistema MCP (ver _cargar_herramientas_mcp); aquí solo se informa.
+        try:
+            import snapcontext as _sc
+            herramientas_plugin = _sc._plugins_herramientas()
+            self.herramientas_plugins = sorted(herramientas_plugin)
+            if herramientas_plugin:
+                _sc.info(f"🧩 Plugins cargados: "
+                         f"{len(self.herramientas_plugins)} "
+                         "herramienta(s) MCP disponible(s).")
+        except Exception:      # noqa: BLE001 — los plugins nunca rompen nada
+            self.herramientas_plugins = []
 
     def _on_evento(self, evento: dict) -> None:
         """Reenvía un evento al callback registrado, ignorando errores del consumidor."""

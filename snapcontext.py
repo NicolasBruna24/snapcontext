@@ -111,7 +111,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "3.6.0"
+VERSION = "4.0.0"
 
 # v3.1.0 — Claves de API reconocidas para el modo por defecto (offline).
 CLAVES_API_CONOCIDAS = (
@@ -3278,6 +3278,7 @@ AYUDA_CHAT = """Comandos disponibles:
   /claude                → mostrar la memoria del proyecto (CLAUDE.md)
   /context               → mostrar memoria del proyecto y archivos en contexto
   /asesor                → análisis proactivo: sugerencias de mejora del código
+  /plugin [p.h args]     → lista plugins o ejecuta plugin.herramienta (args JSON)
   /ayuda                 → mostrar esta ayuda
 Cualquier otro texto se envía como mensaje al proveedor de IA; si parece una
 pregunta de exploración, SnapContext puede usar herramientas MCP de solo
@@ -3406,6 +3407,43 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             info("🧠 Analizando el proyecto...")
             sugerencias_chat = _asesor_analizar(".")
             _asesor_mostrar(sugerencias_chat)
+            continue
+
+        # ---- plugins (v4.0.0) ----------------------------------------------
+        if linea == "/plugin" or linea.startswith("/plugin "):
+            argumento = linea[len("/plugin"):].strip()
+            if not argumento:
+                _plugin_mostrar()
+                continue
+            partes = shlex.split(argumento)
+            objetivo = partes[0]
+            if "." not in objetivo:
+                aviso("Uso: /plugin <plugin>.<herramienta> ['{args json}'] "
+                      "— o /plugin a secas para listar.")
+                continue
+            nombre_plugin, nombre_herramienta = objetivo.split(".", 1)
+            instalados_chat = _plugins_instalados()
+            if nombre_plugin not in instalados_chat:
+                aviso(f"Plugin '{nombre_plugin}' no encontrado.")
+                continue
+            if not any(
+                    (h.get("nombre") or "").strip() == nombre_herramienta
+                    for h in instalados_chat[nombre_plugin].get(
+                        "herramientas", [])):
+                aviso(f"El plugin '{nombre_plugin}' no expone la herramienta "
+                      f"'{nombre_herramienta}'.")
+                continue
+            argumentos_chat: dict = {}
+            if len(partes) > 1:
+                try:
+                    cargado = json.loads(" ".join(partes[1:]))
+                    if isinstance(cargado, dict):
+                        argumentos_chat = cargado
+                except (ValueError, json.JSONDecodeError):
+                    argumentos_chat = {"consulta": " ".join(partes[1:])}
+            llamada_chat = _ejecutar_herramienta_mcp(nombre_herramienta,
+                                                     argumentos_chat)
+            _emitir(sys.stdout, _formatear_resultado_mcp(llamada_chat))
             continue
 
         if linea == "/limpiar":
@@ -5667,6 +5705,10 @@ def _confirmar_accion(descripcion: str, tipo: str = "editar",
 # MCP (Model Context Protocol): herramientas para el agente — v0.14.0
 # ---------------------------------------------------------------------------
 MCP_TOOLS_PATH = CONFIG_DIR / "mcp_tools.json"
+# Ecosistema de plugins (v4.0.0): ~/.snapcontext/plugins/<nombre>/plugin.json
+PLUGINS_DIR = CONFIG_DIR / "plugins"
+# Repositorio de comunidad donde `plugin install <nombre>` busca plugins.
+REPOSITORIO_PLUGINS = "https://github.com/NicolasBruna24/snapcontext-plugins"
 
 # Registro de herramientas predefinidas. Cada entrada describe la herramienta
 # (para que el agente/usuario sepa cómo usarla) y si requiere permiso.
@@ -5768,7 +5810,381 @@ def _cargar_herramientas_mcp() -> dict:
     except (json.JSONDecodeError, OSError) as exc:
         aviso(f"No se pudieron leer las herramientas MCP "
               f"({MCP_TOOLS_PATH}): {exc}")
+    # v4.0.0: herramientas expuestas por los plugins instalados y habilitados.
+    for nombre, cfg in _plugins_herramientas().items():
+        herramientas.setdefault(nombre, cfg)
     return herramientas
+
+
+# ---------------------------------------------------------------------------
+# Ecosistema de plugins (v4.0.0)
+# ---------------------------------------------------------------------------
+# Cada plugin vive en ~/.snapcontext/plugins/<nombre>/ con un ``plugin.json``::
+#
+#     {"nombre": "saludos", "version": "1.0.0", "autor": "alguien",
+#      "descripcion": "...", "permisos": ["archivos"],
+#      "herramientas": [{"nombre": "hola", "descripcion": "...",
+#                        "comando": "python saluda.py"}]}
+#
+# Las herramientas se registran en el sistema MCP y se ejecutan por
+# subproceso (como las herramientas de usuario de mcp_tools.json).
+
+PERMISOS_PLUGIN_VALIDOS = ("archivos", "red", "red_escrita", "ejecucion",
+                           "entorno")
+
+
+def _plugins_directorio() -> Path:
+    """Devuelve ~/.snapcontext/plugins creándolo si no existe."""
+    PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
+    return PLUGINS_DIR
+
+
+def _plugin_leer_manifest(ruta_plugin: Path) -> Optional[dict]:
+    """Lee y valida el ``plugin.json`` de un plugin. None si es inválido."""
+    manifest = ruta_plugin / "plugin.json"
+    if not manifest.is_file():
+        return None
+    try:
+        datos = json.loads(manifest.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        aviso(f"[plugin] plugin.json inválido o ilegible: {ruta_plugin.name}")
+        return None
+    if not isinstance(datos, dict):
+        return None
+    nombre = str(datos.get("nombre") or "").strip()
+    herramientas = datos.get("herramientas")
+    if not nombre or not isinstance(herramientas, list) or not herramientas:
+        aviso(f"[plugin] Manifest sin 'nombre' o sin 'herramientas': "
+              f"{ruta_plugin.name}")
+        return None
+    datos["nombre"] = nombre
+    datos["ruta"] = str(ruta_plugin)
+    datos.setdefault("version", "0.0.0")
+    datos.setdefault("autor", "desconocido")
+    datos.setdefault("descripcion", "")
+    datos.setdefault("permisos", [])
+    datos["habilitado"] = bool(datos.get("habilitado", True))
+    return datos
+
+
+def _plugins_instalados() -> dict:
+    """Escanea el directorio de plugins y devuelve {nombre: manifest}.
+
+    Los plugins inválidos (sin plugin.json o corruptos) se ignoran con un
+    aviso; nunca rompen el arranque de SnapContext.
+    """
+    raiz = _plugins_directorio()
+    instalados: dict = {}
+    for carpeta in sorted(raiz.iterdir()):
+        if not carpeta.is_dir():
+            continue
+        manifest = _plugin_leer_manifest(carpeta)
+        if manifest is not None and manifest["nombre"] not in instalados:
+            instalados[manifest["nombre"]] = manifest
+    return instalados
+
+
+def _plugins_herramientas() -> dict:
+    """Herramientas MCP aportadas por los plugins habilitados.
+
+    Formato idéntico al de las herramientas de usuario (``comando``), más
+    metadatos propios (``plugin``, ``permisos``) para trazabilidad.
+    """
+    resultado: dict = {}
+    for nombre_plugin, manifest in _plugins_instalados().items():
+        if not manifest.get("habilitado"):
+            continue
+        base = Path(manifest["ruta"])
+        for herramienta in manifest.get("herramientas", []):
+            if not isinstance(herramienta, dict):
+                continue
+            nombre = str(herramienta.get("nombre") or "").strip()
+            comando = str(herramienta.get("comando") or "").strip()
+            script = str(herramienta.get("script") or "").strip()
+            if not nombre:
+                continue
+            if not comando and script:
+                # Script relativo a la carpeta del plugin.
+                comando = f'"{sys.executable}" "{(base / script)}"'
+            if not comando:
+                continue
+            resultado[nombre] = {
+                "descripcion": str(herramienta.get("descripcion")
+                                   or f"Herramienta del plugin "
+                                      f"'{nombre_plugin}'."),
+                "parametros": herramienta.get("parametros") or {},
+                "requiere_permiso": bool(
+                    herramienta.get("requiere_permiso", True)),
+                "comando": comando,
+                "plugin": nombre_plugin,
+                "permisos": list(manifest.get("permisos") or []),
+            }
+    return resultado
+
+
+def _plugin_guardar_manifest(manifest: dict) -> bool:
+    """Reescribe el plugin.json de un plugin (para habilitar/deshabilitar)."""
+    try:
+        datos = {k: v for k, v in manifest.items() if k != "ruta"}
+        (Path(manifest["ruta"]) / "plugin.json").write_text(
+            json.dumps(datos, ensure_ascii=False, indent=2),
+            encoding="utf-8")
+        return True
+    except OSError:
+        return False
+
+
+def _plugin_descargar_zip(origen: str, destino_tmp: Path) -> Optional[Path]:
+    """Descarga el ZIP de un plugin desde GitHub y lo extrae en ``destino_tmp``.
+
+    ``origen`` acepta:
+      - URL de codeload/GitHub directa al zip.
+      - Slug ``usuario/repositorio`` → codeload con la rama ``main``.
+    Devuelve la carpeta extraída que contiene ``plugin.json`` o None.
+    """
+    import urllib.request
+    import zipfile
+
+    if origen.startswith("http"):
+        url_zip = origen
+    else:
+        url_zip = (f"https://codeload.github.com/{origen}/zip/refs/heads/main")
+    zip_path = destino_tmp / "plugin.zip"
+    try:
+        with urllib.request.urlopen(url_zip, timeout=60) as respuesta:
+            zip_path.write_bytes(respuesta.read())
+        with zipfile.ZipFile(zip_path) as comprimido:
+            comprimido.extractall(destino_tmp)
+    except Exception as exc:   # noqa: BLE001 — se reporta al llamador
+        error(f"No se pudo descargar el plugin desde '{origen}': {exc}")
+        return None
+    # Busca el primer directorio extraído que contenga plugin.json.
+    for candidato in sorted(destino_tmp.rglob("plugin.json")):
+        return candidato.parent
+    aviso("El archivo descargado no contiene un plugin.json.")
+    return None
+
+
+def _plugin_instalar(origen: str, confirmar: bool = True,
+                     auto: bool = False) -> int:
+    """Instala un plugin desde un repositorio o carpeta local. → código salida.
+
+    - Origen local: ruta a una carpeta con ``plugin.json`` (o su padre).
+    - Origen remoto: slug GitHub (``usuario/repo``) o URL del zip.
+    Siempre pide confirmación para fuentes externas salvo ``auto=True``.
+    """
+    raiz = _plugins_directorio()
+    candidata = Path(origen).expanduser()
+    externa = not candidata.is_dir()
+    manifest = _plugin_leer_manifest(candidata) if candidata.is_dir() else None
+    if manifest is not None:
+        carpeta_origen = candidata
+    elif externa:
+        info(f"Descargando plugin desde '{origen}'...")
+        tmp = Path(tempfile.mkdtemp(prefix="snapcontext_plugin_"))
+        carpeta_origen = _plugin_descargar_zip(origen, tmp)
+        if carpeta_origen is None:
+            return 1
+        manifest = _plugin_leer_manifest(carpeta_origen)
+        if manifest is None:
+            return 1
+    else:
+        error(f"'{origen}' no es una carpeta de plugin válida "
+              f"(falta plugin.json).")
+        return 1
+
+    nombre = manifest["nombre"]
+    permisos = ", ".join(manifest.get("permisos") or []) or "ninguno"
+    if externa and not auto:
+        if not _confirmar_accion(
+                f"instalar el plugin externo '{nombre}' v{manifest['version']} "
+                f"de '{manifest.get('autor', '?')}'",
+                tipo="plugin",
+                detalles=f"permisos declarados: {permisos}",
+                confirmar=confirmar):
+            aviso("Instalación cancelada.")
+            return 1
+    destino = raiz / nombre
+    if destino.exists():
+        aviso(f"El plugin '{nombre}' ya estaba instalado; se sobrescribe.")
+        shutil.rmtree(destino, ignore_errors=True)
+    try:
+        shutil.copytree(carpeta_origen, destino,
+                        ignore=shutil.ignore_patterns(
+                            ".git", "__pycache__", "*.zip"))
+    except OSError as exc:
+        error(f"No se pudo instalar el plugin: {exc}")
+        return 1
+    if externa:
+        # Guarda el origen para `plugin update`.
+        instalado = _plugin_leer_manifest(destino)
+        if instalado is not None:
+            instalado["origen"] = origen
+            _plugin_guardar_manifest(instalado)
+    herramientas = ", ".join(
+        h.get("nombre", "?") for h in manifest.get("herramientas", []))
+    exito(f"Plugin '{nombre}' v{manifest['version']} instalado. "
+          f"Herramientas: {herramientas}")
+    return 0
+
+
+def _plugin_remove(nombre: str, confirmar: bool = True) -> int:
+    """Desinstala un plugin borrando su carpeta (con confirmación)."""
+    instalados = _plugins_instalados()
+    if nombre not in instalados:
+        error(f"Plugin '{nombre}' no encontrado. Instalados: "
+              f"{', '.join(instalados) or '(ninguno)'}")
+        return 1
+    if confirmar and not _confirmar_accion(f"desinstalar el plugin '{nombre}'",
+                                           tipo="plugin"):
+        aviso("Desinstalación cancelada.")
+        return 1
+    shutil.rmtree(Path(instalados[nombre]["ruta"]), ignore_errors=True)
+    exito(f"Plugin '{nombre}' desinstalado.")
+    return 0
+
+
+def _plugin_create(nombre: str = None) -> int:
+    """Asistente que genera la estructura básica de un plugin nuevo."""
+    nombre = (nombre or "").strip()
+    if not nombre or not re.fullmatch(r"[a-zA-Z0-9_\-]+", nombre):
+        nombre = ""
+        while not nombre or not re.fullmatch(r"[a-zA-Z0-9_\-]+", nombre):
+            try:
+                nombre = input("Nombre del plugin (letras, números, - _): "
+                               ).strip()
+            except EOFError:
+                error("Nombre requerido.")
+                return 1
+    destino = _plugins_directorio() / nombre
+    if destino.exists():
+        error(f"Ya existe un plugin llamado '{nombre}'.")
+        return 1
+    destino.mkdir(parents=True)
+    manifest = {
+        "nombre": nombre, "version": "0.1.0", "autor": "",
+        "descripcion": f"Plugin {nombre} para SnapContext.",
+        "permisos": [], "habilitado": True,
+        "herramientas": [{
+            "nombre": f"{nombre}_saludar",
+            "descripcion": "Herramienta de ejemplo: imprime un saludo.",
+            "script": "saluda.py",
+            "requiere_permiso": False,
+            "parametros": {"nombre": "str"},
+        }],
+    }
+    (destino / "plugin.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2),
+        encoding="utf-8")
+    (destino / "saluda.py").write_text(
+        '#!/usr/bin/env python3\n'
+        '"""Herramienta de ejemplo del plugin. Recibe argumentos JSON por\n'
+        'stdin y responde un JSON con {"ok": true|false, ...}."""\n'
+        "import json\n"
+        "import sys\n\n"
+        "datos = json.loads(sys.stdin.read() or '{}')\n"
+        "quien = datos.get('nombre', 'mundo')\n"
+        "print(json.dumps({'ok': True, 'saludo': f'Hola, {quien}!'}))\n",
+        encoding="utf-8")
+    (destino / "README.md").write_text(
+        f"# Plugin {nombre}\n\nGenerado por `snapcontext plugin create`.\n\n"
+        "Edita `plugin.json` para añadir más herramientas.\n",
+        encoding="utf-8")
+    exito(f"Plugin '{nombre}' creado en {destino}.")
+    info("Pruébalo con: snapcontext plugin list")
+    return 0
+
+
+def _plugin_update(nombre: str) -> int:
+    """Reinstala un plugin desde su origen registrado (plugin update)."""
+    instalados = _plugins_instalados()
+    if nombre not in instalados:
+        error(f"Plugin '{nombre}' no encontrado.")
+        return 1
+    origen = instalados[nombre].get("origen")
+    if not origen:
+        aviso(f"El plugin '{nombre}' no registra origen remoto; "
+              "reinstálalo manualmente.")
+        return 1
+    info(f"Actualizando '{nombre}' desde {origen}...")
+    return _plugin_instalar(origen, auto=True)
+
+
+def _plugin_cambiar_estado(nombre: str, habilitar: bool) -> int:
+    """Habilita o deshabilita un plugin individualmente."""
+    instalados = _plugins_instalados()
+    if nombre not in instalados:
+        error(f"Plugin '{nombre}' no encontrado.")
+        return 1
+    manifest = instalados[nombre]
+    manifest["habilitado"] = habilitar
+    if _plugin_guardar_manifest(manifest):
+        estado = "habilitado" if habilitar else "deshabilitado"
+        exito(f"Plugin '{nombre}' {estado}.")
+        return 0
+    error(f"No se pudo escribir el manifest de '{nombre}'.")
+    return 1
+
+
+def _plugin_mostrar() -> None:
+    """Lista los plugins instalados y sus herramientas en la CLI."""
+    instalados = _plugins_instalados()
+    if not instalados:
+        info("No hay plugins instalados en ~/.snapcontext/plugins.")
+        info("Crea uno con: snapcontext plugin create <nombre>")
+        return
+    exito(f"Plugins instalados ({len(instalados)}):")
+    for nombre, manifest in instalados.items():
+        estado = "habilitado" if manifest.get("habilitado") else \
+                 "DESHABILITADO"
+        color = _VERDE if manifest.get("habilitado") else _AMARILLO
+        _emitir(sys.stdout, _pintar(
+            f"  ● {nombre} v{manifest['version']} [{estado}] — "
+            f"{manifest.get('descripcion', '')}", color))
+        for herramienta in manifest.get("herramientas", []):
+            if isinstance(herramienta, dict) and herramienta.get("nombre"):
+                _emitir(sys.stdout, _pintar(
+                    f"      · herramienta '{herramienta['nombre']}': "
+                    f"{herramienta.get('descripcion', '')}", _CYAN))
+
+
+def _ejecutar_comando_plugin(subargv: List[str]) -> int:
+    """Despacha el subcomando ``snapcontext plugin <accion> [...]``."""
+    global DEPURAR
+    if not subargv:
+        _plugin_mostrar()
+        return 0
+    accion = subargv[0].lower()
+    resto = subargv[1:]
+    if accion == "list":
+        _plugin_mostrar()
+        return 0
+    if accion == "install":
+        if not resto:
+            error("Uso: snapcontext plugin install <nombre | usuario/repo "
+                  "| url | ruta_local>")
+            return 1
+        return _plugin_instalar(resto[0])
+    if accion == "remove":
+        if not resto:
+            error("Uso: snapcontext plugin remove <nombre>")
+            return 1
+        return _plugin_remove(resto[0])
+    if accion == "create":
+        return _plugin_create(resto[0] if resto else None)
+    if accion == "update":
+        if not resto:
+            error("Uso: snapcontext plugin update <nombre>")
+            return 1
+        return _plugin_update(resto[0])
+    if accion in ("enable", "disable"):
+        if not resto:
+            error(f"Uso: snapcontext plugin {accion} <nombre>")
+            return 1
+        return _plugin_cambiar_estado(resto[0], habilitar=accion == "enable")
+    error(f"Acción de plugin desconocida: '{accion}'. Usa list/install/"
+          "remove/create/update/enable/disable.")
+    return 1
 
 
 # --- Implementaciones de las herramientas (resultados estructurados) -------
@@ -6188,9 +6604,34 @@ def _ejecutar_herramienta_mcp(nombre: str, argumentos: Optional[dict] = None,
                 argumentos.get("pid")))
         else:
             # Herramienta de usuario definida en mcp_tools.json → comando.
-            resultado = _tool_execute_command(cfg["comando"],
-                                              str(argumentos.get("directorio",
-                                                                 ".")))
+            if cfg.get("plugin"):
+                # v4.0.0: los plugins reciben los argumentos como JSON por
+                # stdin y responden un JSON {"ok": ..., ...} por stdout.
+                try:
+                    import subprocess as _subprocess
+                    proceso = _subprocess.run(
+                        cfg["comando"], shell=True,
+                        input=json.dumps(argumentos, ensure_ascii=False),
+                        capture_output=True, text=True, timeout=120)
+                    lineas = (proceso.stdout or "").strip().splitlines()
+                    analizado = json.loads(lineas[-1]) if lineas else None
+                    if isinstance(analizado, dict):
+                        analizado.setdefault("ok", proceso.returncode == 0)
+                        resultado = analizado
+                    else:
+                        resultado = {
+                            "ok": proceso.returncode == 0,
+                            "codigo_retorno": proceso.returncode,
+                            "stdout": (proceso.stdout or "").strip(),
+                            "stderr": (proceso.stderr or "").strip()}
+                except _subprocess.TimeoutExpired:
+                    resultado = {"ok": False,
+                                 "error": "el plugin excedió el tiempo límite"}
+                except Exception as exc:    # noqa: BLE001 — blindaje agente
+                    resultado = {"ok": False, "error": str(exc)}
+            else:
+                resultado = _tool_execute_command(
+                    cfg["comando"], str(argumentos.get("directorio", ".")))
     except Exception as exc:                    # blindaje del agente
         resultado = {"ok": False, "error": f"excepción: {exc}"}
     return {"ok": bool(resultado.get("ok")), "herramienta": nombre,
@@ -8772,6 +9213,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not argv:
         _mostrar_ayuda_resumida()
         return 0
+    # v4.0.0: subcomando `snapcontext plugin ...` se resuelve antes del
+    # parser principal (sus subacciones no son flags de la CLI).
+    if argv and argv[0].lower() == "plugin":
+        return _ejecutar_comando_plugin(argv[1:])
     args = crear_parser().parse_args(_preparar_argv_aliases(argv))
     try:
         # Permisos (v0.13.0): sincroniza el interruptor global con --confirmar
