@@ -1,6 +1,6 @@
 # SnapContext
 
-![v4.3.0](https://img.shields.io/badge/version-4.3.0-blue.svg)
+![v4.5.0](https://img.shields.io/badge/version-4.5.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -95,6 +95,52 @@ export SNAPCONTEXT_SANDBOX_IMAGE=ubuntu:22.04   # PowerShell: $env:SNAPCONTEXT_S
 - Si Docker no está disponible y usaste `--sandbox` explícitamente,
   SnapContext falla con un mensaje claro; sin el flag nunca cambia nada
   (compatibilidad total).
+
+## 🎮 Gateway de Omnicanalidad: Discord (v4.5.0)
+
+Igual que Telegram, SnapContext puede recibir **Slash Commands** de Discord,
+procesarlos con el motor interno y responder en el mismo canal. 100 % local
+(self-hosted): solo `httpx` + `cryptography`, sin `discord.py`.
+
+### Configuración
+
+```bash
+# 1) https://discord.com/developers/applications → tu app:
+#    - General Information: copia PUBLIC KEY y APPLICATION ID.
+#    - Bot: crea el bot y copia el TOKEN.
+snapcontext discord setup --public-key <KEY> --app-id <ID> --token <BOT_TOKEN>
+
+# 2) Expón el servidor (ngrok o VPS) y apunta el endpoint en el portal:
+ngrok http 8001                      # si usas `snapcontext --api`
+#  General Information → INTERACTIONS ENDPOINT URL:
+#      https://<tu-dominio>/webhook/discord
+#  Discord lo verifica con un PING; respondemos {"type": 1} automáticamente.
+
+# 3) Arranca el servidor:
+snapcontext --api        # o: snapcontext --web
+```
+
+Variables de entorno equivalentes (prioridad sobre `config.json`):
+`DISCORD_PUBLIC_KEY`, `DISCORD_APPLICATION_ID`, `DISCORD_BOT_TOKEN`,
+`DISCORD_WEBHOOK_URL` (webhook estándar de canal, alternativa).
+
+### Comandos Slash soportados
+
+- `/start` · `/help` → mensaje de bienvenida.
+- `/snap <tarea>` → ejecuta el pipeline completo.
+- `/fix <tarea>` → bucle de pruebas (equivale a `snapcontext fix`).
+- `/plan <tarea>` → planificador (`snapcontext --plan`).
+
+### Detalles técnicos
+
+- **Verificación de firma Ed25519**: headers `X-Signature-Ed25519` /
+  `X-Signature-Timestamp`; firma inválida → `401`. Sin `DISCORD_PUBLIC_KEY`
+  → `503`.
+- **Respuesta diferida**: el endpoint responde `{"type": 5}` (<3 s) y el
+  agente trabaja con `asyncio.create_task`; el resultado llega como follow-up
+  vía `/webhooks/{app_id}/{interaction_token}` (válido 15 min).
+- **Mensajes largos**: >2000 caracteres se envían como archivo `.txt`.
+- Módulo: `discord_gateway.py` · Endpoint: `web/app.py` (`/webhook/discord`).
 
 ## 📱 Gateway de Omnicanalidad: Telegram (v4.4.0)
 

@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, \
-    WebSocket
+    Request, WebSocket
 from fastapi.responses import FileResponse
 
 _ESTATICO = Path(getattr(sys, "_MEIPASS",
@@ -274,6 +274,42 @@ def crear_app(api_token: Optional[str] = None) -> FastAPI:
                        "`snapcontext telegram setup --token <TOKEN>`.")
         await tg.handle_telegram_update(update_data)
         return {"ok": True}
+
+    @app.post("/webhook/discord")
+    async def discord_webhook(request: Request):
+        """Recibe una interacción de Discord con verificación de firma Ed25519.
+
+        - 503 si falta ``DISCORD_PUBLIC_KEY``.
+        - 401 si la firma es inválida (petición falsificada).
+        - PING de Discord (type 1) → ``{"type": 1}`` inmediato.
+        - Comandos → respuesta diferida ``{"type": 5}`` y el pipeline corre
+          en segundo plano vía el gateway (Discord exige <3 s).
+        """
+        try:
+            import discord_gateway as dg
+        except ImportError:
+            raise HTTPException(
+                status_code=503,
+                detail="Gateway de Discord no disponible "
+                       "(instala httpx y cryptography).")
+        if not dg.obtener_public_key():
+            raise HTTPException(
+                status_code=503,
+                detail="DISCORD_PUBLIC_KEY no configurada. Usa "
+                       "`snapcontext discord setup --public-key <KEY>`.")
+        firma = request.headers.get("X-Signature-Ed25519") or ""
+        marca = request.headers.get("X-Signature-Timestamp") or ""
+        cuerpo = await request.body()
+        try:
+            dg.verify_signature(cuerpo, firma, marca)
+        except ValueError as exc:
+            raise HTTPException(status_code=401,
+                                detail=f"Firma inválida: {exc}")
+        interaction_data = json.loads(cuerpo.decode("utf-8") or "{}")
+        respuesta = await dg.handle_discord_interaction(interaction_data)
+        if respuesta is None:
+            return {"ok": True}
+        return respuesta
 
     @app.get(f"{API_PREFIJO}/tasks/{{task_id}}",
              dependencies=[Depends(_autorizar)])

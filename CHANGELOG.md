@@ -6,6 +6,45 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 
 
+## [4.5.0] - 2026-08-25 - 🎮 Gateway de Omnicanalidad: Discord
+
+### 🎮 Nuevo gateway de Discord (FEATURES)
+- Nuevo módulo **`discord_gateway.py`**: recibe Slash Commands de Discord
+  (interacciones), los procesa con el motor interno de SnapContext y responde
+  en el mismo canal. Sin `discord.py`: solo `httpx` + `cryptography`.
+- **Configuración** (prioridad: variable de entorno > `~/.snapcontext/config.json`
+  clave `"discord"`): `DISCORD_PUBLIC_KEY`, `DISCORD_APPLICATION_ID`,
+  `DISCORD_BOT_TOKEN` y `DISCORD_WEBHOOK_URL` (opcional).
+- **Verificación de firma** (`verify_signature`): Ed25519 con headers
+  `X-Signature-Ed25519`/`X-Signature-Timestamp`; firma inválida o mal formada
+  lanza `ValueError` (protección contra peticiones falsificadas).
+- **Envío robusto** (`send_discord_message`): follow-up vía
+  `/webhooks/{app_id}/{interaction_token}` cuando hay token de interacción, o
+  webhook estándar del canal; contenido > 2000 caracteres se envía como
+  archivo `.txt`; errores de red tolerados.
+- **Handler** (`handle_discord_interaction`): PING de Discord → `{"type": 1}`;
+  comandos → respuesta diferida `{"type": 5}` y ejecución del agente con
+  `asyncio.create_task` (límite de respuesta <3 s). Comandos: `/start`,
+  `/help`, `/snap`, `/fix` (→ `--test-loop`) y `/plan` (→ `--plan`).
+
+### 🔧 CLI, API e integración
+- Nuevo subcomando **`snapcontext discord setup --public-key <KEY> --app-id
+  <ID> --token <BOT_TOKEN> [--webhook-url <URL>]`** (persiste credenciales y
+  muestra instrucciones paso a paso para configurar la INTERACTIONS ENDPOINT
+  URL en el portal de Discord Developers), más `snapcontext discord estado`
+  y ayuda detallada con `snapcontext discord help`.
+- Nuevo endpoint **`POST /webhook/discord`** en `web/app.py`: verifica la
+  firma (401 si es inválida), devuelve `503` sin `DISCORD_PUBLIC_KEY`, y
+  responde el PONG/diferido inmediato mientras el pipeline corre en segundo plano.
+
+### 🧪 Tests y documentación
+- Nuevo `tests/test_discord_450.py` (17 tests): configuración, verificación
+  de firma Ed25519 (vector RFC 8032, inválida/malformada/sin clave), handler
+  (PONG, diferido, bienvenida, mapeo de comandos), envío (webhook, follow-up,
+  archivo por longitud, error de red) y endpoint webhook (503/401/PING firmado).
+- Suite completa: 594 pruebas pasando. README con sección "🎮 Gateway de
+  Omnicanalidad: Discord". Versión actualizada a `4.5.0` (metadatos y badges).
+
 ## [4.4.0] - 2026-08-25 - 📱 Gateway de Omnicanalidad: Telegram
 
 ### 📱 Nuevo gateway de Telegram (FEATURES)

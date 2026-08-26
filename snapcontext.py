@@ -112,7 +112,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "4.3.0"
+VERSION = "4.5.0"
 
 # v3.1.0 — Claves de API reconocidas para el modo por defecto (offline).
 CLAVES_API_CONOCIDAS = (
@@ -6407,6 +6407,89 @@ def _plugin_mostrar() -> None:
                     f"{herramienta.get('descripcion', '')}", _CYAN))
 
 
+def _ejecutar_comando_discord(subargv: List[str]) -> int:
+    """Despacha el subcomando ``snapcontext discord <accion> [...]``."""
+    import argparse as _ap
+
+    try:
+        import discord_gateway as dg
+    except ImportError as exc:
+        error(f"El gateway de Discord necesita httpx y cryptography: "
+              f"pip install httpx cryptography (error: {exc})")
+        return 1
+
+    parser = _ap.ArgumentParser(prog="snapcontext discord", add_help=False)
+    sub = parser.add_subparsers(dest="accion")
+
+    p_setup = sub.add_parser("setup", help="Guarda las credenciales de la app.")
+    p_setup.add_argument("--public-key", dest="public_key", default=None,
+                         help="Clave pública Ed25519 de la aplicación.")
+    p_setup.add_argument("--app-id", dest="app_id", default=None,
+                         help="ID de la aplicación (Application ID).")
+    p_setup.add_argument("--token", default=None,
+                         help="Token del bot (Bot Token).")
+    p_setup.add_argument("--webhook-url", dest="webhook_url", default=None,
+                         help="Webhook estándar de un canal (alternativa).")
+    sub.add_parser("estado", help="Muestra la configuración actual.")
+
+    if not subargv or subargv[0] in ("-h", "--help", "help"):
+        info(
+            "Uso: snapcontext discord <setup|estado> [...]\n"
+            "  setup --public-key <KEY> --app-id <ID> --token <BOT_TOKEN> "
+            "[--webhook-url <URL>]\n\n"
+            "Configuración del webhook en el portal (self-hosted):\n"
+            "  1. https://discord.com/developers/applications → tu app →\n"
+            "     'General Information': copia PUBLIC KEY y APPLICATION ID.\n"
+            "  2. 'Bot': crea el bot y copia el TOKEN.\n"
+            "  3. Expón este servidor con ngrok o un VPS:\n"
+            "         ngrok http 8001        (si usas `snapcontext --api`)\n"
+            "  4. En 'General Information' → INTERACTIONS ENDPOINT URL pon:\n"
+            "         https://<tu-dominio>/webhook/discord\n"
+            "     Discord lo verificará con un PING; nuestro endpoint\n"
+            "     responde {\"type\": 1} automáticamente.\n"
+            "  5. 'Bot' → activa los permisos que necesites e invita el bot\n"
+            "     a tu servidor (OAuth2 → URL Generator, scope 'applications.commands bot')."
+        )
+        return 0
+    try:
+        args = parser.parse_args(subargv)
+    except SystemExit:
+        return 1
+
+    def _oculto(valor: Optional[str]) -> str:
+        return f"configurado (***{valor[-4:]})" if valor else "(sin definir)"
+
+    if args.accion == "setup":
+        guardado = dg.guardar_configuracion_discord(
+            args.public_key, args.app_id, args.token, args.webhook_url)
+        exito("Credenciales de Discord guardadas en ~/.snapcontext/"
+              "config.json ('discord').")
+        info(f"  public_key     : {_oculto(guardado.get('public_key'))}")
+        info(f"  application_id : {guardado.get('application_id') or '(sin definir)'}")
+        info(f"  bot_token      : {_oculto(guardado.get('bot_token'))}")
+        info(f"  webhook_url    : {guardado.get('webhook_url') or '(sin definir)'}")
+        aviso(
+            "Siguiente paso (portal de Discord Developers):\n"
+            "  https://discord.com/developers/applications → tu app →\n"
+            "  General Information → INTERACTIONS ENDPOINT URL:\n"
+            "      https://<tu-dominio>/webhook/discord\n"
+            "  (expón el puerto con `ngrok http 8001` si desarrollas en local;\n"
+            "   Discord lo verifica con un PING que respondemos automáticamente).")
+        return 0
+
+    if args.accion == "estado":
+        public_key = dg.obtener_public_key()
+        exito("Estado del gateway de Discord:")
+        info(f"  public_key     : {_oculto(public_key)}")
+        info(f"  application_id : {dg.obtener_application_id() or '(sin definir)'}")
+        info(f"  bot_token      : {_oculto(dg.obtener_bot_token())}")
+        info(f"  webhook_url    : {dg.obtener_webhook_url() or '(sin definir)'}")
+        return 0 if public_key else 1
+
+    parser.print_help()
+    return 1
+
+
 def _ejecutar_comando_telegram(subargv: List[str]) -> int:
     """Despacha el subcomando ``snapcontext telegram <accion> [...]``."""
     import argparse as _ap
@@ -9755,6 +9838,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     # v4.4.0: gateway de omnicanalidad — `snapcontext telegram setup ...`.
     if argv and argv[0].lower() == "telegram":
         return _ejecutar_comando_telegram(argv[1:])
+    # v4.5.0: gateway de omnicanalidad — `snapcontext discord setup ...`.
+    if argv and argv[0].lower() == "discord":
+        return _ejecutar_comando_discord(argv[1:])
     args = crear_parser().parse_args(_preparar_argv_aliases(argv))
     try:
         # Permisos (v0.13.0): sincroniza el interruptor global con --confirmar
