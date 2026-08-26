@@ -5,6 +5,40 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
 
+## [4.7.0] - 2026-08-25 - 🧠 Editor inteligente: impacto + contexto selectivo
+
+### 🔗 Análisis de Impacto por Dependencias (FEATURES)
+- Nuevo paso de **Análisis de Impacto Previo** en `AgenteEditorPropio.ejecutar()`:
+  antes de editar, usa el grafo de dependencias (`_grafo_dependencias`) para
+  detectar qué archivos importan de los que se van a modificar.
+- Si hay dependientes, muestra `⚠️ Atención: El cambio en 'X' afecta a los
+  siguientes archivos: [...]` y pregunta: **continuar / abortar / añadir los
+  dependientes a la edición** (para actualizarlos también y no romper nada).
+- Con **`--auto`** no pregunta: solo registra la advertencia y continúa.
+
+### 📦 Contexto inteligente para archivos grandes (MEJORAS)
+- Nueva constante **`MAX_CONTEXT_LINES = 600`**: los archivos con más líneas ya
+  NO se inyectan completos en el prompt del proveedor.
+- Nueva `_extraer_contexto_selectivo()`: reutiliza `_resumen_ast_python` para
+  el resumen de alto nivel (imports/clases/funciones) e incluye únicamente los
+  bloques relevantes (función/clase mencionada en la tarea; si no hay coincidencia,
+  los primeros bloques por proximidad) con ±5 líneas de contexto, más una
+  `[RESTRICCIÓN]` que obliga al modelo a generar el diff solo del bloque.
+- Modo `sobrescribir` sobre archivos grandes: el modelo devuelve el bloque entre
+  marcadores `<<<ANTES>>>/<<<DESPUES>>>/<<<FIN>>>` y se reinserta en el archivo
+  original con la nueva `_splicear_bloque()` (alineación difusa, ratio ≥ 0.80).
+- Nuevo helper centralizado `_construir_prompt_edicion()` (agentes.py) usado por
+  los modos parche y sobrescribir; sin cambios en firmas públicas.
+
+### 🧪 Tests
+- Nuevo `tests/test_editor_470.py`: advertencia de dependientes (`main.py` →
+  `utils.py`), menú interactivo (añadir/abortar), modo auto sin `input()`,
+  contexto selectivo en archivo de 1200 líneas (contiene resumen AST, no el
+  archivo completo), splicing de bloque y flujo completo de sobrescritura
+  truncada.
+
+
+
 ## [4.6.0] - 2026-08-25 - 🛡️ Editor transaccional, seguro y tolerante
 
 ### 🔒 Editor propio transaccional (FEATURES)

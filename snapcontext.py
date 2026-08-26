@@ -112,7 +112,12 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "4.6.0"
+VERSION = "4.7.0"
+
+# v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
+# de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
+# + bloques relevantes) para no explotar la ventana de contexto del modelo.
+MAX_CONTEXT_LINES = 600
 
 # v3.1.0 — Claves de API reconocidas para el modo por defecto (offline).
 CLAVES_API_CONOCIDAS = (
@@ -1766,6 +1771,132 @@ def _editor_sobrescribir(archivo: str, contenido: str,
     except Exception as exc:
         error(f"[EditorPropio] Error al escribir {limpia}: {exc}")
         return False
+
+
+# ---------------------------------------------------------------------------
+# Contexto inteligente para archivos grandes (v4.7.0)
+# ---------------------------------------------------------------------------
+def _extraer_bloques_ast(contenido: str) -> List[dict]:
+    """Extrae los bloques de primer nivel (funciones/clases) de código Python.
+
+    Devuelve una lista de dicts ``{"tipo", "nombre", "inicio", "fin"}`` con
+    líneas 1-based inclusivas (incluyendo decoradores). Devuelve [] para
+    otros lenguajes o sintaxis inválida.
+    """
+    try:
+        arbol = ast.parse(contenido)
+    except SyntaxError:
+        return []
+    total = len(contenido.splitlines())
+    bloques: List[dict] = []
+    for nodo in arbol.body:
+        if isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef,
+                             ast.ClassDef)):
+            inicio = nodo.lineno
+            if getattr(nodo, "decorator_list", None):
+                inicio = min(getattr(d, "lineno", inicio)
+                             for d in nodo.decorator_list)
+            fin = getattr(nodo, "end_lineno", nodo.lineno) or nodo.lineno
+            bloques.append({"tipo": type(nodo).__name__,
+                            "nombre": nodo.name,
+                            "inicio": max(inicio, 1),
+                            "fin": min(fin, total)})
+    return bloques
+
+
+def _extraer_contexto_selectivo(contenido: str, mensaje: str = "") -> str:
+    """Construye contexto reducido para archivos grandes (> MAX_CONTEXT_LINES).
+
+    Formato devuelto: ``[RESUMEN DEL ARCHIVO (AST)]`` (vía
+    ``_resumen_ast_python``, reutilizado) + ``[CÓDIGO RELEVANTE A EDITAR]``
+    (bloques cuyo nombre aparece en ``mensaje``; si ninguno coincide, los
+    primeros bloques hasta agotar el presupuesto — búsqueda por proximidad),
+    cada uno con ±5 líneas de contexto adicional, más la ``[RESTRICCIÓN]``
+    final para que el modelo solo genere el diff del bloque mostrado.
+    """
+    resumen = _resumen_ast_python(contenido)
+    lineas = contenido.splitlines()
+    total = len(lineas)
+
+    partes = ["[RESUMEN DEL ARCHIVO (AST)]:",
+              f"(lenguaje: {resumen.get('lenguaje') or '?'}, "
+              f"motor: {resumen.get('motor') or '?'}, {total} líneas)"]
+    for clave, titulo in (("imports", "Imports"), ("clases", "Clases"),
+                          ("funciones", "Funciones")):
+        items = resumen.get(clave) or []
+        if items:
+            nombres = ", ".join(
+                (it.get("nombre") if isinstance(it, dict) else str(it))
+                for it in items[:80])
+            partes.append(f"{titulo}: {nombres}")
+
+    bloques = _extraer_bloques_ast(contenido)
+    tarea = (mensaje or "").lower()
+    objetivo = [b for b in bloques if b["nombre"].lower() in tarea]
+    if not objetivo:
+        # Proximidad: nadie fue mencionado; se envían los primeros bloques
+        # hasta agotar el presupuesto de líneas (reservando margen).
+        presupuesto = max(MAX_CONTEXT_LINES - 80, 40)
+        usadas = 0
+        for b in bloques:
+            tam = (b["fin"] - b["inicio"]) + 11       # + contexto ±5
+            if objetivo and usadas + tam > presupuesto:
+                break
+            objetivo.append(b)
+            usadas += tam
+
+    partes.append("")
+    partes.append("[CÓDIGO RELEVANTE A EDITAR]:")
+    rango_mostrado: List[tuple] = []
+    for b in objetivo:
+        ini = max(b["inicio"] - 5, 1)
+        fin = min(b["fin"] + 5, total)
+        if any(ini <= f and fin >= i for i, f in rango_mostrado):
+            continue                                  # ya cubierto por otro
+        rango_mostrado.append((ini, fin))
+        partes.append(f"# ── {b['tipo']} {b['nombre']} "
+                      f"(líneas {ini}-{fin} de {total}) ──")
+        partes.extend(lineas[ini - 1:fin])
+    if not objetivo:
+        # Último recurso (p. ej. script sin funciones/clases): cabecera.
+        partes.append("# (sin funciones/clases detectadas; cabecera del archivo)")
+        partes.extend(lineas[:min(MAX_CONTEXT_LINES, total)])
+
+    partes.append("")
+    partes.append("[RESTRICCIÓN]: El resto del archivo no se muestra por "
+                  "límites de contexto. Genera el parche/diff solo para el "
+                  "bloque mostrado. NO reescribas el archivo completo.")
+    return "\n".join(partes)
+
+
+def _splicear_bloque(contenido: str, bloque_viejo: str,
+                     bloque_nuevo: str) -> Optional[str]:
+    """Reemplaza ``bloque_viejo`` dentro de ``contenido`` por ``bloque_nuevo``.
+
+    Localiza el bloque aunque haya pequeñas diferencias (difflib sobre líneas
+    sin espacios marginales). Devuelve el contenido resultante o ``None`` si
+    no hay un emplazamiento con confianza suficiente (ratio medio ≥ 0.80).
+    """
+    actuales = contenido.splitlines()
+    viejas = (bloque_viejo or "").strip("\n").splitlines() or [""]
+    nuevas = (bloque_nuevo or "").rstrip("\n").splitlines()
+    n = len(viejas)
+    if n == 0 or len(actuales) < n:
+        return None
+    stripped = [l.strip() for l in actuales]
+    viejas_st = [l.strip() for l in viejas]
+    mejor_pos, mejor_ratio = -1, 0.0
+    for i in range(len(actuales) - n + 1):
+        suma = sum(difflib.SequenceMatcher(
+            None, viejas_st[j], stripped[i + j]).ratio() for j in range(n))
+        promedio = suma / n
+        if promedio > mejor_ratio:
+            mejor_pos, mejor_ratio = i, promedio
+    if mejor_pos < 0 or mejor_ratio < 0.80:
+        return None
+    resultado = actuales[:mejor_pos] + nuevas + actuales[mejor_pos + n:]
+    sufijo = "\n" if (contenido.endswith("\n") or not resultado) else ""
+    return "\n".join(resultado) + sufijo
 
 
 def _comandos_validacion(lenguaje: str, archivo_tmp: str) -> List[List[str]]:

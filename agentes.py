@@ -38,6 +38,110 @@ def _tarea_estructura(tarea: str) -> bool:
               "crear funcion", "funcion", "extraccion")
     return any(k in t for k in claves)
 
+
+def _construir_prompt_edicion(modo: str, mensaje: str, archivo: str,
+                              contenido_actual: str, lenguaje: str,
+                              conciso: bool, error_msj: str = "") -> tuple:
+    """Construye el prompt de edición para el proveedor (v4.7.0).
+
+    Devuelve ``(prompt, truncado)``:
+
+    - Si el archivo tiene ≤ ``sc.MAX_CONTEXT_LINES`` líneas, se inyecta
+      completo (comportamiento clásico de v4.x) y ``truncado=False``.
+    - Si lo supera, se envía contexto selectivo (resumen AST + bloques
+      relevantes vía ``sc._extraer_contexto_selectivo``), ``truncado=True``
+      y el formato de respuesta cambia:
+        * modo "parche": diff unificado solo del bloque mostrado.
+        * modo "sobrescribir": bloque entre marcadores ``<<<ANTES>>>`` /
+          ``<<<DESPUES>>>`` / ``<<<FIN>>>`` para reinsertarlo en el original.
+    """
+    import snapcontext as sc
+
+    num_lineas = (contenido_actual.count("\n") + 1) if contenido_actual else 0
+    max_lineas = int(getattr(sc, "MAX_CONTEXT_LINES", 600))
+    truncado = num_lineas > max_lineas
+    reintento = ""
+    if error_msj:
+        reintento = (
+            f"\nTu intento anterior produjo un error de sintaxis que debes "
+            f"corregir:\n{error_msj}\n\n"
+            f"Mantén el objetivo de la tarea pero arregla ese error.\n")
+
+    if modo == "parche":
+        if truncado:
+            contexto = sc._extraer_contexto_selectivo(contenido_actual,
+                                                      mensaje)
+            prompt = (
+                f"Genera un parche unificado (unified diff) que modifique SOLO "
+                f"el bloque mostrado para cumplir con la tarea.\n"
+                f"El parche debe ser aplicable con 'patch -p1' o 'git apply' "
+                f"(encabezados --- a/{archivo} y +++ b/{archivo}).\n\n"
+                f"Tarea: {mensaje}\n"
+                f"Archivo: {archivo}  (lenguaje: {lenguaje}, "
+                f"{num_lineas} líneas)\n\n"
+                f"{contexto}\n\n"
+                f"Devuelve ÚNICAMENTE el diff unificado, sin explicaciones."
+            )
+            return prompt + reintento, True
+        if conciso:
+            # v4.1.0: variante reducida para modelos ligeros (Ollama).
+            prompt = (
+                f"Tarea: {mensaje}\n"
+                f"Archivo: {archivo} ({lenguaje}, {num_lineas} líneas)\n\n"
+                f"```\n{contenido_actual}\n```\n\n"
+                f"Responde SOLO el diff unificado (--- a/… +++ b/… con @@)."
+            )
+            return prompt + reintento, False
+        prompt = (
+            f"Genera un parche unificado (unified diff) que modifique el archivo "
+            f"para cumplir con la tarea con precisión máxima.\n"
+            f"El parche debe ser aplicable con 'patch -p1' o 'git apply' "
+            f"(encabezados --- a/{archivo} y +++ b/{archivo}).\n\n"
+            f"Tarea: {mensaje}\n"
+            f"Archivo: {archivo}  (lenguaje: {lenguaje}, {num_lineas} líneas)\n\n"
+            f"Instrucciones:\n"
+            f"- Incluye suficiente contexto (3 líneas) para anclar cada hunk.\n"
+            f"- Conserva el estilo existente (indentación, comillas).\n"
+            f"- Modifica SOLO lo necesario; no reorganices el resto del archivo.\n"
+            f"{reintento}"
+            f"\nContenido actual completo:\n```{lenguaje}\n{contenido_actual}\n```\n\n"
+            f"Devuelve ÚNICAMENTE el diff unificado, sin explicaciones ni rodeos."
+        )
+        return prompt, False
+
+    # modo == "sobrescribir"
+    if truncado:
+        contexto = sc._extraer_contexto_selectivo(contenido_actual, mensaje)
+        prompt = (
+            f"Tarea: {mensaje}\n"
+            f"El archivo {archivo} ({lenguaje}, {num_lineas} líneas) es "
+            f"demasiado grande para mostrarlo entero.\n\n"
+            f"{contexto}\n\n"
+            f"Devuelve SOLO el bloque actualizado en este formato exacto:\n"
+            f"<<<ANTES>>>\n(código ACTUAL del bloque a cambiar, copiado tal "
+            f"cual del bloque mostrado)\n<<<DESPUES>>>\n(el mismo bloque ya "
+            f"modificado para cumplir la tarea)\n<<<FIN>>>"
+        )
+        return prompt + reintento, True
+    if conciso:
+        # v4.1.0: variante reducida para modelos ligeros (Ollama).
+        prompt = (
+            f"Tarea: {mensaje}\n"
+            f"Devuelve SOLO el código completo final de {archivo}:\n"
+            f"```\n{contenido_actual}\n```"
+        )
+    else:
+        prompt = (
+            f"Modifica el siguiente archivo ({lenguaje}) para cumplir con la "
+            f"tarea, conservando el estilo existente y cambiando solo lo necesario.\n\n"
+            f"Tarea: {mensaje}\n"
+            f"Archivo: {archivo}  (lenguaje: {lenguaje})\n"
+            f"{reintento}"
+            f"\nContenido actual completo:\n```{lenguaje}\n{contenido_actual}\n```\n\n"
+            f"Devuelve ÚNICAMENTE el código completo resultante, sin explicaciones ni markdown."
+        )
+    return prompt, False
+
 class AgenteContexto:
     """Agente de Contexto: selecciona los archivos relevantes para la consulta.
 
@@ -318,38 +422,9 @@ class AgenteEditorPropio:
 
         error_msj = ""
         for intento in range(1, max_val + 1):
-            if conciso:
-                # v4.1.0: variante reducida para modelos ligeros (Ollama).
-                prompt = (
-                    f"Tarea: {mensaje}\n"
-                    f"Archivo: {archivo} ({lenguaje}, {num_lineas} líneas)\n\n"
-                    f"```\n{contenido_actual}\n```\n\n"
-                    f"Responde SOLO el diff unificado (--- a/… +++ b/… con @@)."
-                )
-            else:
-                prompt = (
-                    f"Genera un parche unificado (unified diff) que modifique el archivo "
-                    f"para cumplir con la tarea con precisión máxima.\n"
-                    f"El parche debe ser aplicable con 'patch -p1' o 'git apply' "
-                    f"(encabezados --- a/{archivo} y +++ b/{archivo}).\n\n"
-                    f"Tarea: {mensaje}\n"
-                    f"Archivo: {archivo}  (lenguaje: {lenguaje}, {num_lineas} líneas)\n\n"
-                    f"Instrucciones:\n"
-                    f"- Incluye suficiente contexto (3 líneas) para anclar cada hunk.\n"
-                    f"- Conserva el estilo existente (indentación, comillas).\n"
-                    f"- Modifica SOLO lo necesario; no reorganices el resto del archivo.\n"
-                )
-            if error_msj:
-                prompt += (
-                    f"\nTu intento anterior produjo un error de sintaxis que debes "
-                    f"corregir:\n{error_msj}\n\n"
-                    f"Mantén el objetivo de la tarea pero arregla ese error.\n"
-                )
-            if not conciso:
-                prompt += (
-                    f"\nContenido actual completo:\n```{lenguaje}\n{contenido_actual}\n```\n\n"
-                    f"Devuelve ÚNICAMENTE el diff unificado, sin explicaciones ni rodeos."
-                )
+            prompt, _truncado = _construir_prompt_edicion(
+                "parche", mensaje, archivo, contenido_actual, lenguaje,
+                conciso, error_msj=error_msj)
             respuesta = sc._enviar_al_proveedor(
                 proveedor, modelo, [{"role": "user", "content": prompt}])
             diff_limpio = respuesta
@@ -463,32 +538,9 @@ class AgenteEditorPropio:
         error_msj = ""
         nuevo_contenido = ""
         for intento in range(1, max_val + 1):
-            if conciso:
-                # v4.1.0: variante reducida para modelos ligeros (Ollama).
-                prompt = (
-                    f"Tarea: {mensaje}\n"
-                    f"Devuelve SOLO el código completo final de {archivo}:\n"
-                    f"```\n{contenido_actual}\n```"
-                )
-            else:
-                prompt = (
-                    f"Modifica el siguiente archivo ({lenguaje}) para cumplir con la "
-                    f"tarea, conservando el estilo existente y cambiando solo lo necesario.\n\n"
-                    f"Tarea: {mensaje}\n"
-                    f"Archivo: {archivo}  (lenguaje: {lenguaje})\n"
-                )
-                if error_msj:
-                    prompt += (
-                        f"\nTu intento anterior produjo un error de sintaxis que debes "
-                        f"corregir:\n{error_msj}\n\n"
-                        f"Mantén el objetivo de la tarea pero arregla ese error.\n"
-                    )
-                prompt += (
-                    f"\nContenido actual completo:\n```{lenguaje}\n{contenido_actual}\n```\n\n"
-                    f"Devuelve ÚNICAMENTE el código completo resultante, sin explicaciones ni markdown."
-                )
-            if error_msj and conciso:
-                prompt += (f"\n\nError anterior a corregir: {error_msj}")
+            prompt, truncado = _construir_prompt_edicion(
+                "sobrescribir", mensaje, archivo, contenido_actual, lenguaje,
+                conciso, error_msj=error_msj)
             respuesta = sc._enviar_al_proveedor(
                 proveedor, modelo, [{"role": "user", "content": prompt}])
             nuevo_contenido = respuesta
@@ -496,6 +548,36 @@ class AgenteEditorPropio:
                 lineas = nuevo_contenido.splitlines()
                 if len(lineas) >= 2 and lineas[-1].startswith("```"):
                     nuevo_contenido = "\n".join(lineas[1:-1])
+            if truncado:
+                # v4.7.0: el modelo devuelve solo el bloque modificado entre
+                # marcadores; se reinserta en el archivo original.
+                import re as _re
+                m = _re.search(
+                    r"<<<ANTES>>>\s*\n(.*?)\n?\s*<<<DESPUES>>>\s*\n(.*?)\n?\s*<<<FIN>>>",
+                    nuevo_contenido, _re.S)
+                if m:
+                    empotrado = sc._splicear_bloque(
+                        contenido_actual, m.group(1), m.group(2))
+                    if empotrado is not None:
+                        nuevo_contenido = empotrado
+                        sc.info("[EditorPropio] Bloque reinsertado en el "
+                                "archivo original (contexto selectivo).")
+                    else:
+                        sc.error("[EditorPropio] No se pudo ubicar el bloque "
+                                 "devuelto dentro del archivo original.")
+                        nuevo_contenido = ""   # fuerza reintento/fallo limpio
+                else:
+                    sc.error("[EditorPropio] La respuesta no contenía los "
+                             "marcadores <<<ANTES>>>/<<<DESPUES>>>/<<<FIN>>>.")
+                    nuevo_contenido = ""
+            # v4.7.0: NUNCA escribir una respuesta vacía (borraría el archivo).
+            if not nuevo_contenido.strip():
+                sc.error("[EditorPropio] Contenido resultante vacío; no se "
+                         "escribe el archivo.")
+                if intento < max_val:
+                    error_msj = "la respuesta estaba vacía o no se pudo ubicar"
+                    continue
+                return False
 
             if not validar:
                 break
@@ -517,6 +599,61 @@ class AgenteEditorPropio:
                 return False
 
         return self.sobrescribir(archivo, nuevo_contenido, directorio)
+
+    def _analizar_impacto_previo(self, archivos, directorio, auto):
+        """Análisis de Impacto Previo (v4.7.0).
+
+        Usa ``sc._grafo_dependencias`` para detectar qué otros archivos del
+        proyecto importan de los que se van a editar (enlaces con
+        ``destino == archivo``). Devuelve la lista definitiva de archivos a
+        editar —posiblemente ampliada con los dependientes que el usuario
+        decida añadir— o ``None`` si el usuario aborta.
+
+        Con ``auto=True`` (modo no interactivo) solo muestra la advertencia y
+        continúa; nunca llama a ``input()``.
+        """
+        import snapcontext as sc
+
+        try:
+            grafo = sc._grafo_dependencias(str(directorio))
+        except Exception as exc:
+            sc.depurar(f"[impacto] Grafo de dependencias falló: {exc}")
+            return list(archivos)
+        enlaces = grafo.get("enlaces", []) or []
+        objetivos = list(archivos)
+        anadidos = []
+        for arch in archivos:
+            arch_norm = str(arch).replace("\\", "/").lstrip("./")
+            if not arch_norm:
+                continue
+            dependientes = sorted({
+                e.get("origen") for e in enlaces
+                if str(e.get("destino") or "").replace("\\", "/").lstrip("./")
+                == arch_norm
+                and str(e.get("origen") or "").replace("\\", "/").lstrip("./")
+                not in [str(a).replace("\\", "/").lstrip("./")
+                        for a in archivos]})
+            if not dependientes:
+                continue
+            lista = ", ".join(dependientes)
+            sc.aviso(f"⚠️ Atención: El cambio en '{arch}' afecta a los "
+                     f"siguientes archivos: [{lista}].")
+            if auto:
+                continue          # --auto: solo advierte y continúa.
+            respuesta = input(
+                "¿Continuar (c), abortar (a) o añadir los archivos "
+                "dependientes a esta edición (s)? [c/a/s] ").strip().lower()
+            if respuesta.startswith("a"):
+                return None
+            if respuesta.startswith("s"):
+                for dep in dependientes:
+                    if dep not in objetivos:
+                        objetivos.append(dep)
+                        anadidos.append(dep)
+        if anadidos:
+            sc.info(f"[impacto] Archivos añadidos a la edición por impacto: "
+                    f"{', '.join(anadidos)}")
+        return objetivos
 
     def _editar_archivo_en_cadena(self, arch: str, mensaje: str,
                                   modo_edicion: str, estrategia_aprendida,
@@ -655,6 +792,17 @@ class AgenteEditorPropio:
                         f"'{estrategia_aprendida}'.")
         except Exception as exc:
             sc.depurar(f"[skills] Búsqueda de skill falló: {exc}")
+
+        # v4.7.0 — Análisis de Impacto Previo: advierte de archivos que
+        # dependen de los que se van a editar y permite abortar o ampliar la
+        # edición a esos dependientes (con --auto solo advierte).
+        objetivos_impacto = self._analizar_impacto_previo(
+            archivos, directorio, auto)
+        if objetivos_impacto is None:
+            sc.info("Edición cancelada por el usuario tras el análisis "
+                    "de impacto.")
+            return False
+        archivos = objetivos_impacto
 
         # v4.6.0 — Snapshots para rollback transaccional: antes de tocar
         # nada se guarda el estado de cada archivo (contenido y existencia).
