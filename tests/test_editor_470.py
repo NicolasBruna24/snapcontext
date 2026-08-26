@@ -59,15 +59,16 @@ class TestAnalisisImpacto(unittest.TestCase):
 
     def test_menu_anadir_dependientes(self):
         editor = ag.AgenteEditorPropio()
-        with mock.patch("builtins.input", return_value="s"):
+        with mock.patch("ui.preguntar_interactivo", return_value="s") as preg:
             resultado = editor._analizar_impacto_previo(
                 ["utils.py"], self.tmp, auto=False)
         self.assertIn("utils.py", resultado)
         self.assertIn("main.py", resultado)
+        preg.assert_called_once()
 
     def test_menu_abortar_devuelve_none(self):
         editor = ag.AgenteEditorPropio()
-        with mock.patch("builtins.input", return_value="a"):
+        with mock.patch("ui.preguntar_interactivo", return_value="a"):
             resultado = editor._analizar_impacto_previo(
                 ["utils.py"], self.tmp, auto=False)
         self.assertIsNone(resultado)
@@ -75,7 +76,9 @@ class TestAnalisisImpacto(unittest.TestCase):
     def test_auto_nunca_pregunta_por_input(self):
         editor = ag.AgenteEditorPropio()
         with mock.patch("builtins.input",
-                        side_effect=AssertionError("input() en modo auto")):
+                        side_effect=AssertionError("input() en modo auto")), \
+                mock.patch("ui.preguntar_interactivo",
+                           side_effect=AssertionError("pregunta en modo auto")):
             resultado = editor._analizar_impacto_previo(
                 ["utils.py"], self.tmp, auto=True)
         self.assertEqual(resultado, ["utils.py"])

@@ -58,6 +58,13 @@ import warnings
 import webbrowser
 from pathlib import Path
 from typing import Any, List, Optional, Tuple, Union
+
+# v4.8.0: capa de presentación centralizada (Rich). Degradación elegante:
+# ui.py funciona también sin `rich` (print plano), así que la importación
+# nunca rompe el CLI.
+from ui import (configurar_auto as _ui_configurar_auto,
+                mostrar_banner as _ui_mostrar_banner,
+                mostrar_progreso as _ui_mostrar_progreso)
 from urllib.parse import urlparse
 
 # `google-generativeai` es la dependencia del proveedor por defecto (Gemini).
@@ -112,7 +119,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "4.7.0"
+VERSION = "4.8.0"
 
 # v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
 # de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
@@ -843,10 +850,15 @@ def escanear_repositorio(consulta: str, directorio: str = ".",
             archivos, key=lambda p: puntuar_ruta(p, tokens), reverse=True
         )[:200]
 
-    puntuados = [
-        (p, puntuar_ruta(p, tokens) + 0.5 * puntuar_contenido(raiz / p, tokens))
-        for p in archivos
-    ]
+    puntuados: List[tuple] = []
+    # v4.8.0: barra de progreso durante el escaneo (silenciosa con --auto).
+    for ruta in _ui_mostrar_progreso(archivos,
+                                     "⚙️ Escaneando archivos del repo..."):
+        puntuados.append(
+            (ruta,
+             puntuar_ruta(ruta, tokens)
+             + 0.5 * puntuar_contenido(raiz / ruta, tokens))
+        )
     puntuados.sort(key=lambda par: par[1], reverse=True)
     return [p for p, _ in puntuados[:max_candidatos]]
 
@@ -3274,9 +3286,8 @@ class _VersionAction(argparse.Action):
         super().__init__(option_strings, dest, nargs=nargs, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
-        print(_LOGO)
-        print(f"SnapContext v{VERSION}")
-        print("Open-source · MIT · https://github.com/TU_USUARIO/snapcontext")
+        # v4.8.0: banner profesional con Rich (tabla de comandos incluida).
+        _ui_mostrar_banner(VERSION)
         parser.exit()
 
 
@@ -8276,7 +8287,7 @@ def _mostrar_ayuda_resumida() -> None:
     Más corta que --help: comandos de uso común con ejemplos listos para
     copiar y pegar.
     """
-    print(_LOGO_SMALL)
+    _ui_mostrar_banner(VERSION)   # v4.8.0: banner Rich en vez de print plano.
     lineas = [
         "Bienvenido a SnapContext — tu asistente de IA con contexto automático.",
         "",
@@ -10029,6 +10040,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         # para todos los modos (chat, planificador, ...).
         global CONFIRMAR_ACCIONES
         CONFIRMAR_ACCIONES = getattr(args, "confirmar", True)
+        # v4.8.0: sincroniza el modo no interactivo de la capa UI (--auto).
+        _ui_configurar_auto(bool(getattr(args, "auto", False)))
         # v4.3.0: activar el sandbox Docker si se pidió --sandbox. Es lo
         # primero para que TODO comando posterior ya nazca en el contenedor
         # (bucle de pruebas, MCP execute_command, pasos "ejecutar" del plan).

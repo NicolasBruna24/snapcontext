@@ -638,11 +638,27 @@ class AgenteEditorPropio:
             lista = ", ".join(dependientes)
             sc.aviso(f"⚠️ Atención: El cambio en '{arch}' afecta a los "
                      f"siguientes archivos: [{lista}].")
+            try:
+                # v4.8.0: presentación Rich centralizada en ui.py. La lógica y
+                # el contrato ('c'/'a'/'s') no cambian; solo la presentación.
+                from ui import mostrar_tabla_impacto, preguntar_interactivo
+                mostrar_tabla_impacto({arch: list(dependientes)})
+            except Exception as exc:      # sin ui/rich → solo aviso plano
+                sc.depurar(f"[impacto] UI Rich no disponible: {exc}")
             if auto:
                 continue          # --auto: solo advierte y continúa.
-            respuesta = input(
-                "¿Continuar (c), abortar (a) o añadir los archivos "
-                "dependientes a esta edición (s)? [c/a/s] ").strip().lower()
+            try:
+                from ui import preguntar_interactivo
+                respuesta = preguntar_interactivo(
+                    None,
+                    f"Cambio en '{arch}' con impacto cruzado en "
+                    f"{len(dependientes)} archivo(s). ¿Qué quieres hacer?",
+                    defecto="c")
+            except Exception as exc:
+                sc.depurar(f"[impacto] UI Rich no disponible: {exc}")
+                respuesta = input(
+                    "¿Continuar (c), abortar (a) o añadir los archivos "
+                    "dependientes a esta edición (s)? [c/a/s] ").strip().lower()
             if respuesta.startswith("a"):
                 return None
             if respuesta.startswith("s"):

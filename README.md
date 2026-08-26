@@ -277,6 +277,7 @@ y edición basada en AST (Árbol Sintáctico) para refactorizaciones precisas:
 - **`--editor propio`** (por defecto desde v4.1.0): Aplica cambios directamente y crea copias de seguridad automáticas en `~/.snapcontext/backups/`.
 - **Robustez transaccional (v4.6.0)**: edición multiarchivo atómica con rollback automático si algún archivo falla, backup obligatorio (la edición aborta si el backup falla) y fuzzy matching (`difflib.SequenceMatcher`) que tolera comentarios/espacios cambiados al aplicar parches.
 - **Escalabilidad e impacto (v4.7.0)**: análisis previo de impacto con el grafo de dependencias (advierte de archivos afectados, permite añadirlos a la edición o abortar; con `--auto` solo avisa) y contexto selectivo para archivos grandes (>600 líneas): solo se envía al modelo el resumen AST y los bloques relevantes, nunca el archivo completo.
+- **CLI profesional (v4.8.0)**: nueva capa `ui.py` sobre [Rich](https://github.com/Textualize/rich) — banner con tabla de comandos, barras de progreso en el escaneo, tabla de impacto por dependencias, diffs coloreados y prompts estilizados. Silencioso automático con `--auto` y degradación elegante sin `rich`.
 - **`--modo-edicion {auto,parche,sobrescribir,ast}`**:
   - `auto` (por defecto): Genera un parche unificado (`git apply` / `patch`), pero
     para refactorizaciones estructurales intenta primero la edición **AST** y cae a

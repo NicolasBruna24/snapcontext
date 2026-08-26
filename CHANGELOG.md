@@ -5,6 +5,40 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
 
+## [4.8.0] - 2026-08-25 - 🎨 CLI profesional con Rich
+
+### 🖥️ Nueva capa de presentación `ui.py` (FEATURES)
+- Nuevo módulo **`ui.py`** que centraliza toda la presentación de terminal
+  sobre [Rich](https://github.com/Textualize/rich) (nueva dependencia
+  `rich>=13.0.0`): banner, progreso, tablas, diffs y prompts.
+- **`mostrar_banner()`**: logotipo ASCII + versión + tabla de comandos
+  principales (reemplaza los `print(_LOGO)` planos en `--version` y en el
+  arranque sin argumentos).
+- **`mostrar_progreso()`**: barra de progreso con ETA para bucles largos;
+  integrada en el escaneo del repositorio (`escanear_repositorio`).
+- **`mostrar_tabla_impacto()`**: tabla 📁 Archivo Afectado · 🔗 Dependencia ·
+  📊 Acción Sugerida para el análisis de impacto (v4.7.0), filas críticas en
+  amarillo; integrada en `AgenteEditorPropio`.
+- **`preguntar_interactivo()`**: reemplaza el `input()` de continuar/abortar/
+  añadir usando `rich.prompt.Prompt`. **Contrato intacto**: devuelve la tecla
+  `'c'`, `'a'` o `'s'`; fallback a `input()` plano sin Rich.
+- **`mostrar_diff()`** (Syntax lenguaje `diff`: verde +/rojo −) y
+  **`mostrar_error()`** (panel rojo). Ambos visibles también en modo auto.
+
+### 🔇 Modo no interactivo centralizado
+- `ui.configurar_auto(True/False)`: sincronizado con `--auto` en `main()`.
+  Con auto: sin barras de progreso, preguntas devuelven `'c'` por defecto
+  sin preguntar; errores y diffs se muestran siempre.
+- Degradación elegante: sin `rich` instalado todo sigue funcionando con
+  `print()` plano (nunca rompe el CLI).
+
+### 🧪 Tests
+- Nuevo `tests/test_ui_480.py`: verifica llamadas a `Console.print`,
+  silencio de progreso en auto, `'c'` por defecto en auto, menú de impacto y
+  fallback plano sin Rich.
+
+
+
 ## [4.7.0] - 2026-08-25 - 🧠 Editor inteligente: impacto + contexto selectivo
 
 ### 🔗 Análisis de Impacto por Dependencias (FEATURES)
