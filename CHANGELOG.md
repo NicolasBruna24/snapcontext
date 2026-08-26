@@ -5,6 +5,34 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
 
+## [4.6.0] - 2026-08-25 - 🛡️ Editor transaccional, seguro y tolerante
+
+### 🔒 Editor propio transaccional (FEATURES)
+- **Rollback multiarchivo automático**: `AgenteEditorPropio.ejecutar()` toma un
+  snapshot de todos los archivos antes de editar; si cualquier archivo falla o
+  se lanza una excepción, se restauran TODOS los archivos a su estado original
+  (nuevo método `_rollback`). Ya no quedan ediciones parciales a medias.
+- **Backup obligatorio**: si no se puede crear la copia de seguridad en
+  `~/.snapcontext/backups/`, la edición se ABORTA (antes solo avisaba y
+  escribía igualmente). Nunca se escribe sin backup.
+- **Aplicación incremental todo-o-nada**: `_aplicar_hunks_incremental()` ya no
+  escribe archivos con hunks parcialmente aplicados; si algún hunk no puede
+  aplicarse, la operación se aborta dejando el archivo intacto.
+
+### 🧩 Fuzzy matching en parches (MEJORAS)
+- La resolución incremental de conflictos ahora usa `difflib.SequenceMatcher`
+  con umbral global 0.85 (y 0.90 por línea): tolera comentarios añadidos,
+  cambios menores de espacios y pequeñas variaciones del código circundante.
+  Antes solo había igualdad exacta tras `strip()`, y un comentario nuevo rompía
+  el hunk.
+
+### 🧪 Tests
+- Nuevo `tests/test_editor_460.py`: rollback multiarchivo, fuzzy matching con
+  comentario intercalado y aborto cuando el directorio de backups no permite
+  escritura.
+
+
+
 
 ## [4.5.0] - 2026-08-25 - 🎮 Gateway de Omnicanalidad: Discord
 

@@ -518,6 +518,94 @@ class AgenteEditorPropio:
 
         return self.sobrescribir(archivo, nuevo_contenido, directorio)
 
+    def _editar_archivo_en_cadena(self, arch: str, mensaje: str,
+                                  modo_edicion: str, estrategia_aprendida,
+                                  raiz, modelo: Optional[str],
+                                  conciso: bool, validar: bool,
+                                  max_intentos_validacion: int,
+                                  auto: bool) -> bool:
+        """Edita un único archivo recorriendo su cadena de estrategias.
+
+        Lógica extraída de ``ejecutar()`` en v4.6.0 para soportar el rollback
+        transaccional multiarchivo sin duplicar código.
+        """
+        import snapcontext as sc
+        from pathlib import Path
+
+        camino = (Path(raiz) / arch).resolve()
+        contenido_actual = ""
+        if camino.is_file():
+            try:
+                contenido_actual = camino.read_text(encoding="utf-8",
+                                                    errors="replace")
+            except Exception:
+                pass
+
+        cadena = self._cadena_modos(arch, mensaje, modo_edicion)
+        # El skill aprendido se coloca el primero en la cadena.
+        if estrategia_aprendida and estrategia_aprendida in cadena:
+            cadena.remove(estrategia_aprendida)
+            cadena.insert(0, estrategia_aprendida)
+        conseguido = False
+        for estrategia in cadena:
+            sc.info(f"Editor propio: usando estrategia "
+                    f"{estrategia.upper()} para '{arch}'...")
+            try:
+                if estrategia == "ast":
+                    conseguido = self.editar_ast(arch, mensaje,
+                                                 str(raiz), modelo,
+                                                 conciso=conciso)
+                elif estrategia == "parche":
+                    conseguido = self._aplicar_modo_parche(
+                        arch, mensaje, contenido_actual, modelo, str(raiz),
+                        validar=validar,
+                        max_intentos_validacion=max_intentos_validacion,
+                        conciso=conciso, auto=auto)
+                elif estrategia == "sobrescribir":
+                    conseguido = self._aplicar_modo_sobrescribir(
+                        arch, mensaje, contenido_actual, modelo, str(raiz),
+                        validar=validar,
+                        max_intentos_validacion=max_intentos_validacion,
+                        conciso=conciso)
+                else:
+                    conseguido = False
+            except Exception as exc:
+                sc.depurar(
+                    f"[AgenteEditorPropio] {estrategia} falló para '{arch}': {exc}")
+                conseguido = False
+            if conseguido:
+                break
+
+        if conseguido:
+            # v3.3.0 — Aprendizaje: guardar/reforzar el patrón de edición.
+            patron = sc._editor_clasificar_tarea(mensaje)
+            sid = sc._skill_editor_guardar(
+                mensaje, arch, patron, estrategia=estrategia)
+            if sid is not None:
+                try:
+                    sc._skill_registrar_exito(sid)
+                except Exception as exc:
+                    sc.depurar(f"[skills] Refuerzo falló: {exc}")
+            return True
+
+        # v4.1.0: mensaje claro con estrategias intentadas, motivo y
+        # sugerencia; además se registra en ~/.snapcontext/logs/.
+        estrategias_txt = " → ".join(cadena)
+        sc.error(
+            f"✖ El editor propio no pudo completar la edición.\n"
+            f"  Archivo: {arch}\n"
+            f"  Estrategias intentadas: {estrategias_txt}\n"
+            f"  Motivo: ninguna estrategia produjo un cambio válido "
+            f"(revisa la salida anterior).\n"
+            f"  Sugerencia: prueba con '--editor aider' o revisa la "
+            f"tarea manualmente.")
+        try:
+            sc._registrar_fallo_editor(arch, mensaje, cadena,
+                                       "sin cambio válido")
+        except Exception:
+            pass
+        return False
+
     def ejecutar(
         self,
         archivos: List[str],
@@ -568,81 +656,79 @@ class AgenteEditorPropio:
         except Exception as exc:
             sc.depurar(f"[skills] Búsqueda de skill falló: {exc}")
 
+        # v4.6.0 — Snapshots para rollback transaccional: antes de tocar
+        # nada se guarda el estado de cada archivo (contenido y existencia).
+        # Si CUALQUIER archivo falla o se lanza una excepción, se restauran
+        # TODOS los archivos a su estado original (atomicidad).
+        snapshots = []                          # [(ruta_str, bytes, existia)]
         for arch in archivos:
             camino = (raiz / arch).resolve()
-            contenido_actual = ""
-            if camino.is_file():
+            existia = camino.is_file()
+            contenido_bytes = b""
+            if existia:
                 try:
-                    contenido_actual = camino.read_text(encoding="utf-8",
-                                                        errors="replace")
-                except Exception:
-                    pass
-
-            cadena = self._cadena_modos(arch, mensaje, modo_edicion)
-            # El skill aprendido se coloca el primero en la cadena.
-            if estrategia_aprendida and estrategia_aprendida in cadena:
-                cadena.remove(estrategia_aprendida)
-                cadena.insert(0, estrategia_aprendida)
-            conseguido = False
-            for estrategia in cadena:
-                sc.info(f"Editor propio: usando estrategia "
-                        f"{estrategia.upper()} para '{arch}'...")
-                try:
-                    if estrategia == "ast":
-                        conseguido = self.editar_ast(arch, mensaje,
-                                                     str(raiz), modelo,
-                                                     conciso=conciso)
-                    elif estrategia == "parche":
-                        conseguido = self._aplicar_modo_parche(
-                            arch, mensaje, contenido_actual, modelo, str(raiz),
-                            validar=validar,
-                            max_intentos_validacion=max_intentos_validacion,
-                            conciso=conciso, auto=auto)
-                    elif estrategia == "sobrescribir":
-                        conseguido = self._aplicar_modo_sobrescribir(
-                            arch, mensaje, contenido_actual, modelo, str(raiz),
-                            validar=validar,
-                            max_intentos_validacion=max_intentos_validacion,
-                            conciso=conciso)
-                    else:
-                        conseguido = False
+                    contenido_bytes = camino.read_bytes()
                 except Exception as exc:
-                    sc.depurar(
-                        f"[AgenteEditorPropio] {estrategia} falló para '{arch}': {exc}")
-                    conseguido = False
-                if conseguido:
-                    break
+                    sc.depurar(f"[AgenteEditorPropio] No se pudo leer "
+                               f"'{arch}' para el snapshot: {exc}")
+            snapshots.append((str(camino), contenido_bytes, existia))
 
-            if conseguido:
-                # v3.3.0 — Aprendizaje: guardar/reforzar el patrón de edición.
-                patron = sc._editor_clasificar_tarea(mensaje)
-                sid = sc._skill_editor_guardar(
-                    mensaje, arch, patron, estrategia=estrategia)
-                if sid is not None:
-                    try:
-                        sc._skill_registrar_exito(sid)
-                    except Exception as exc:
-                        sc.depurar(f"[skills] Refuerzo falló: {exc}")
-            else:
-                # v4.1.0: mensaje claro con estrategias intentadas, motivo y
-                # sugerencia; además se registra en ~/.snapcontext/logs/.
-                estrategias_txt = " → ".join(cadena)
-                sc.error(
-                    f"✖ El editor propio no pudo completar la edición.\n"
-                    f"  Archivo: {arch}\n"
-                    f"  Estrategias intentadas: {estrategias_txt}\n"
-                    f"  Motivo: ninguna estrategia produjo un cambio válido "
-                    f"(revisa la salida anterior).\n"
-                    f"  Sugerencia: prueba con '--editor aider' o revisa la "
-                    f"tarea manualmente.")
-                try:
-                    sc._registrar_fallo_editor(arch, mensaje, cadena,
-                                               "sin cambio válido")
-                except Exception:
-                    pass
+        fallo_excepcion = None
+        for arch in archivos:
+            try:
+                conseguido = self._editar_archivo_en_cadena(
+                    arch, mensaje, modo_edicion, estrategia_aprendida,
+                    raiz, modelo, conciso, validar,
+                    max_intentos_validacion, auto)
+            except Exception as exc:
+                sc.depurar(f"[AgenteEditorPropio] Excepción editando "
+                           f"'{arch}': {exc}")
+                conseguido = False
+                fallo_excepcion = exc
+            if not conseguido:
                 todo_ok = False
 
+        # v4.6.0 — Rollback transaccional: si algo falló, se restaura TODO.
+        if not todo_ok or fallo_excepcion is not None:
+            if fallo_excepcion is not None:
+                sc.error(f"✖ Excepción durante la edición múltiple: "
+                         f"{fallo_excepcion}")
+            self._rollback(snapshots)
+            return False
+
         return todo_ok
+
+    @staticmethod
+    def _rollback(snapshots) -> None:
+        """Restaura todos los archivos a su estado previo a la edición (v4.6.0).
+
+        ``snapshots`` es la lista construida en :meth:`ejecutar` con tuplas
+        ``(ruta_str, contenido_bytes, existia)``. Los archivos que no existían
+        se eliminan; los que sí, se reescriben con su contenido original.
+        Nunca lanza excepciones (los errores se reportan sin abortar).
+        """
+        import snapcontext as sc
+        from pathlib import Path
+
+        sc.error("[EditorPropio] Edición incompleta; revirtiendo TODOS los "
+                 "archivos al estado original (rollback v4.6.0)...")
+        restaurados = 0
+        for ruta_str, contenido_bytes, existia in snapshots:
+            camino = Path(ruta_str)
+            try:
+                if not existia:
+                    if camino.exists():
+                        camino.unlink()
+                else:
+                    camino.write_bytes(contenido_bytes)
+                restaurados += 1
+            except Exception as exc:
+                sc.error(f"[EditorPropio] No se pudo revertir '{ruta_str}': "
+                         f"{exc}. Copia manual disponible en "
+                         "~/.snapcontext/backups/.")
+        if restaurados == len(snapshots):
+            sc.info("[EditorPropio] Rollback completado: todos los archivos "
+                    "fueron restaurados.")
 
 
 class AgenteEditorAST:

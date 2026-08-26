@@ -275,6 +275,7 @@ carpetas, extensiones y comandos de test por defecto.
 SnapContext incluye su propio editor integrado con soporte de parches unificados
 y edición basada en AST (Árbol Sintáctico) para refactorizaciones precisas:
 - **`--editor propio`** (por defecto desde v4.1.0): Aplica cambios directamente y crea copias de seguridad automáticas en `~/.snapcontext/backups/`.
+- **Robustez transaccional (v4.6.0)**: edición multiarchivo atómica con rollback automático si algún archivo falla, backup obligatorio (la edición aborta si el backup falla) y fuzzy matching (`difflib.SequenceMatcher`) que tolera comentarios/espacios cambiados al aplicar parches.
 - **`--modo-edicion {auto,parche,sobrescribir,ast}`**:
   - `auto` (por defecto): Genera un parche unificado (`git apply` / `patch`), pero
     para refactorizaciones estructurales intenta primero la edición **AST** y cae a

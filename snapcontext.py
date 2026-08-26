@@ -112,7 +112,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "4.5.0"
+VERSION = "4.6.0"
 
 # v3.1.0 — Claves de API reconocidas para el modo por defecto (offline).
 CLAVES_API_CONOCIDAS = (
@@ -1743,7 +1743,8 @@ def _editor_sobrescribir(archivo: str, contenido: str,
         error(f"Acceso denegado: el archivo '{archivo}' está fuera del repositorio.")
         return False
 
-    # Si el archivo ya existe, guardar backup
+    # Si el archivo ya existe, guardar backup (OBLIGATORIO desde v4.6.0).
+    # Sin backup NO se escribe: se aborta la edición por seguridad.
     if destino.exists() and destino.is_file():
         try:
             BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
@@ -1753,7 +1754,9 @@ def _editor_sobrescribir(archivo: str, contenido: str,
             shutil.copy2(destino, backup_path)
             depurar(f"[EditorPropio] Backup guardado en {backup_path}")
         except Exception as exc:
-            aviso(f"[EditorPropio] No se pudo crear backup de {limpia}: {exc}")
+            error(f"[EditorPropio] Backup de {limpia} falló ({exc}); "
+                  "edición cancelada por seguridad.")
+            return False
 
     try:
         destino.parent.mkdir(parents=True, exist_ok=True)
@@ -2084,7 +2087,27 @@ def _aplicar_hunks_incremental(parche: str, directorio: str) -> bool:
     def _n_borrar(bloque: List[tuple]) -> int:
         return sum(1 for marca, _ in bloque if marca != "+")
 
-    aplicados = 0
+    # Umbral de similitud por línea para el emparejamiento difuso (v4.6.0).
+    UMBRAL_LINEA = 0.90
+
+    def _coincide_difusa(desde: int, bloque: List[tuple]) -> bool:
+        """True si ``resultado[desde:]`` encaja de forma difusa con las líneas
+        no-'+' del bloque (``difflib.SequenceMatcher``, ratio ≥ ``UMBRAL_LINEA``
+        por línea de contexto). Tolera comentarios añadidos y espacios."""
+        idx = desde
+        for marca, texto in bloque:
+            if marca == "+":
+                continue
+            if idx >= len(resultado):
+                return False
+            if resultado[idx] != texto:
+                sm = difflib.SequenceMatcher(None, texto.strip(),
+                                             resultado[idx].strip())
+                if sm.ratio() < UMBRAL_LINEA:
+                    return False
+            idx += 1
+        return True
+
     desplazamiento = 0                     # acumulado por hunks previos
     for inicio_orig, cambios in hunks:
         base = max(inicio_orig - 1 + desplazamiento, 0)
@@ -2099,34 +2122,62 @@ def _aplicar_hunks_incremental(parche: str, directorio: str) -> bool:
                     _coincide(candidato, cambios):
                 posicion = candidato
                 break
-        # 2) Búsqueda difusa por líneas de contexto con difflib.
+        # 2) Búsqueda difusa real con difflib.SequenceMatcher (v4.6.0).
+        #    Se busca el candidato cuyo conjunto de líneas de contexto tiene
+        #    mayor ratio de similitud medio; se acepta solo por encima de un
+        #    umbral global (0.85), tolerando comentarios/espacios cambiados.
         if posicion < 0:
             contexto_idx = [i for i, (m, _) in enumerate(cambios)
                             if m == " " and _.strip()]
             if contexto_idx:
-                primera_ctx = cambios[contexto_idx[0]][1].strip()
-                for idx_linea, linea in enumerate(resultado):
-                    if linea.strip() == primera_ctx:
-                        candidato = idx_linea - contexto_idx[0]
-                        if _coincide(max(candidato, 0), cambios):
-                            posicion = max(candidato, 0)
-                            break
-        if posicion < 0 or not _coincide(posicion, cambios):
-            aviso(f"[EditorPropio] Hunk en línea {inicio_orig} no aplicable; "
-                  "se omite (resolución automática).")
-            continue
+                lineas_stripped = [l.strip() for l in resultado]
+                UMBRAL_GLOBAL = 0.85
+                mejor_ratio, mejor_cand = 0.0, -1
+                limite = max(1, len(resultado) - n_borrados + 1)
+                textos_ctx = [(i, cambios[i][1].strip())
+                              for i in contexto_idx]
+                for candidato in range(limite):
+                    ratio_total, n_ctx = 0.0, 0
+                    for i_ctx, texto_ctx in textos_ctx:
+                        idx = candidato + i_ctx
+                        if idx >= len(lineas_stripped):
+                            continue
+                        sm = difflib.SequenceMatcher(
+                            None, texto_ctx, lineas_stripped[idx])
+                        ratio_total += sm.ratio()
+                        n_ctx += 1
+                    if n_ctx:
+                        promedio = ratio_total / n_ctx
+                        if promedio > mejor_ratio:
+                            mejor_ratio, mejor_cand = promedio, candidato
+                if mejor_cand >= 0 and mejor_ratio >= UMBRAL_GLOBAL \
+                        and _coincide_difusa(mejor_cand, cambios):
+                    posicion = mejor_cand
+        if posicion < 0 or not (_coincide(posicion, cambios)
+                                or _coincide_difusa(posicion, cambios)):
+            # v4.6.0: antes se omitía el hunk y se escribía una aplicación
+            # PARCIAL (estado mixto potencialmente inválido). Ahora se aborta
+            # toda la operación dejando el archivo intacto.
+            error(f"[EditorPropio] Hunk en línea {inicio_orig} no aplicable "
+                  "ni siquiera de forma difusa; operación abortada para "
+                  "evitar estados mixtos.")
+            return False
 
-        nuevo_bloque = [texto for marca, texto in cambios if marca != "-"]
+        # v4.6.0: las líneas de contexto (' ') se conservan tal cual están en
+        # el archivo — no se sobrescriben con el texto del parche — para no
+        # revertir cambios locales del usuario al aplicar de forma difusa.
+        nuevo_bloque = []
+        idx = posicion
+        for marca, texto in cambios:
+            if marca == "+":
+                nuevo_bloque.append(texto)
+            elif marca == " ":
+                nuevo_bloque.append(resultado[idx])
+                idx += 1
+            else:                       # '-'
+                idx += 1
         resultado[posicion:posicion + n_borrados] = nuevo_bloque
         desplazamiento += len(nuevo_bloque) - n_borrados
-        aplicados += 1
-
-    if not aplicados:
-        aviso("[EditorPropio] Ningún hunk pudo aplicarse; archivo intacto.")
-        return False
-    if aplicados < len(hunks):
-        aviso(f"[EditorPropio] Aplicación parcial: {aplicados}/{len(hunks)} "
-              "hunks. Revisa el resultado antes de confirmar.")
 
     exito(f"[EditorPropio] Parche aplicado con resolución incremental "
           f"(línea a línea) sobre '{ruta}'.")
