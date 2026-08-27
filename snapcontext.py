@@ -119,7 +119,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "5.0.0"
+VERSION = "5.1.0"
 
 # v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
 # de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
@@ -5168,6 +5168,27 @@ def _ejecutar_plan_en_paralelo(pasos: List[dict], args: argparse.Namespace,
     return resultados
 
 
+def _ejecutar_react(args: argparse.Namespace) -> int:
+    """Modo ReAct (v5.1.0, `snapcontext --react "tarea"`). Devuelve código 0/1.
+
+    Instancia el `ReactAgent` de `react_agent.py` y ejecuta el bucle dinámico
+    pensamiento → acción → observación hasta que el agente decida finalizar,
+    se alcance el tope de iteraciones o el usuario aborte.
+    """
+    try:
+        import react_agent as ra                     # noqa: E402
+    except Exception as exc:                         # pragma: no cover
+        error(f"No se pudo importar react_agent: {exc}")
+        return 1
+    agente = ra.ReactAgent(
+        directorio=os.getcwd(),
+        auto=bool(getattr(args, "auto", False)),
+        max_iter=int(getattr(args, "react_max_iter", 15) or 15),
+    )
+    resultado = agente.ejecutar(args.consulta)
+    return 0 if resultado.get("ok") else 1
+
+
 def _ejecutar_planificador(args: argparse.Namespace) -> int:
     """Modo planificador (`snapcontext --plan "tarea"`). Devuelve código 0/1.
 
@@ -9268,6 +9289,18 @@ def crear_parser() -> argparse.ArgumentParser:
              "Requiere consulta.",
     )
     parser.add_argument(
+        "--react", action="store_true",
+        help="Modo ReAct (v5.1.0): bucle dinámico pensamiento → acción → "
+             "observación; el agente decide el siguiente paso según el resultado "
+             "anterior (a diferencia de --plan, que es estático). Requiere consulta.",
+    )
+    parser.add_argument(
+        "--react-max-iter", dest="react_max_iter", type=int, default=15,
+        metavar="N",
+        help="En modo --react, tope de iteraciones del bucle (por defecto: 15).",
+    )
+
+    parser.add_argument(
         "--git-commit", action=argparse.BooleanOptionalAction, default=True,
         help="En modo --plan, hace 'git add . && git commit' tras cada paso exitoso "
              "(por defecto: activado; desactivar con --no-git-commit).",
@@ -10290,6 +10323,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         # --chat abre el REPL interactivo (no requiere consulta).
         if getattr(args, "chat", False):
             return _ejecutar_chat()
+        # v5.1.0: --react ejecuta el motor ReAct (bucle dinámico
+        # pensamiento → acción → observación) en lugar del planificador.
+        if getattr(args, "react", False):
+            return _ejecutar_react(args)
         # --plan ejecuta el planificador de tareas (requiere consulta).
         if getattr(args, "plan", False):
             return _ejecutar_planificador(args)

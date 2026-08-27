@@ -5,6 +5,46 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
 
+## [5.1.0] - 2026-08-26 - 🧠 Motor ReAct (razonamiento dinámico)
+
+### 🧠 Nuevo módulo `react_agent.py` (FEATURES)
+- **Bucle ReAct** (Reasoning + Acting): el agente **piensa → actúa → observa**
+  y decide el siguiente paso según el resultado real de la acción anterior,
+  a diferencia del planificador `--plan`, cuya lista de pasos es estática.
+- Clase `ReactAgent` con: `historial` de mensajes, tope anti-bucles
+  (`max_iteraciones`, 15 por defecto), catálogo de herramientas, directorio de
+  trabajo y modo `--auto`.
+- Formato de salida del LLM en **JSON estricto** (`pensamiento`, `accion`,
+  `argumentos`) con reintentos correctivos (hasta 3) si el JSON es inválido.
+- Acción `finalizar` para cerrar el bucle con un resumen.
+
+### 🔧 Herramientas disponibles (ACTIONS)
+- `editar_archivo(ruta, contenido)` — usa el editor propio (v4.6/4.7),
+  con copia de seguridad, y devuelve el diff aplicado.
+- `ejecutar_pruebas(archivo=None)` — ejecuta el comando de pruebas configurado.
+- `buscar_codigo(patron)` — búsqueda de código (o semántica si está activa).
+- `ejecutar_comando(comando)` — shell; **respeta el sandbox Docker de v4.3.0**.
+- `leer_archivo(ruta)` — lectura truncada (8 KB), con ruta validada.
+
+### ⏳ Gestión de contexto (INTEGRATION)
+- Resumen automático: cuando el historial supera el umbral de tokens (estimado,
+  ~4 chars/token; configurable con `REACT_UMBRAL_RESUMEN_TOKENS`), se pide al
+  LLM que lo comprima a ≤500 palabras y el bucle continúa con el resumen.
+
+### 🖥️ Integración CLI (v5.1.0)
+- Nuevo flag `--react` (+ `--react-max-iter N`). Sin `--plan`; compatible:
+  sin el flag, el flujo actual no cambia en absoluto.
+- En modo interactivo muestra el pensamiento y pregunta continuar/abortar/
+  saltar con `ui.preguntar_interactivo`; con `--auto` ejecuta sin preguntar.
+
+### 🧪 Tests
+- Nuevos tests en `tests/test_react_510.py` (15 casos): bucle básico, límite de
+  iteraciones, `finalizar`, JSON inválido (reintento correctivo), acciones
+  desconocidas, modo interactivo (pregunta llamada), cada herramienta, resumen
+  de contexto y presencia del flag en el parser.
+
+
+
 ## [5.0.0] - 2026-08-26 - 🤖 Curador Proactivo (motor autónomo estilo Hermes)
 
 ### 🤖 Nuevo módulo `curador_proactivo.py` (FEATURES)

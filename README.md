@@ -861,6 +861,56 @@ Un hilo demonio ejecuta una pasada cada `CURADOR_INTERVALO_HORAS` horas
 `CURADOR_DAEMON=0`. En modo interactivo pregunta antes de aplicar cambios;
 en `--auto` aplica directamente.
 
+## 🧠 Modo ReAct (Razonamiento Dinámico) (v5.1.0)
+
+```bash
+snapcontext --react "arregla el login de Google y pasa los tests"
+snapcontext --react "refactoriza modulo.py" --auto --react-max-iter 25
+```
+
+A diferencia del planificador `--plan` (que genera una lista estática de pasos
+en JSON y los ejecuta en orden), el motor **ReAct** (Reasoning + Acting) es
+dinámico: tras **cada acción**, el agente **observa** el resultado real
+(stdout, código de retorno, diff…) y **decide** cuál es el siguiente paso,
+adaptándose en tiempo real. Es opcional (`--react`) para no romper el flujo
+actual; aspiramos a que sea el modo por defecto en el futuro.
+
+### Cómo funciona
+
+1. El agente envía al LLM un prompt de sistema con las herramientas y la tarea.
+2. El LLM responde con **JSON estricto**: `{"pensamiento", "accion",
+   "argumentos"}`. Si el JSON no es válido, se reintenta con un prompt
+   correctivo hasta 3 veces.
+3. La acción se ejecuta con una herramienta real y su salida se convierte en
+   una observación legible que vuelve al historial.
+4. Cuando la tarea está lista, el agente emite `"accion": "finalizar"` con un
+   resumen (código de salida 0).
+
+### Herramientas
+
+| Acción | Descripción |
+|---|---|
+| `editar_archivo(ruta, contenido)` | Editor propio (con copia de seguridad); devuelve el diff aplicado |
+| `ejecutar_pruebas(archivo?)` | Comando de pruebas configurado (`SNAPCONTEXT_COMANDO_TEST`) |
+| `buscar_codigo(patron)` | Búsqueda regex sobre archivos de texto |
+| `ejecutar_comando(comando)` | Shell; **respeta `--sandbox`** automáticamente |
+| `leer_archivo(ruta)` | Lectura truncada a 8 KB |
+
+### Seguridad y control
+
+- Las rutas se validan: siempre dentro del proyecto (nada de `../../etc/...`).
+- `--sandbox`: todos los comandos de shell corren en el contenedor Docker.
+- Máx. 15 iteraciones (`--react-max-iter N`) para evitar bucles infinitos.
+- En modo interactivo pregunta antes de cada acción (continuar/abortar/saltar);
+  con `--auto` aplica todo sin preguntar.
+
+### Gestión de contexto
+
+Si el historial crece demasiado (> ~8000 tokens estimados, configurable con
+`REACT_UMBRAL_RESUMEN_TOKENS`), el agente pide al LLM que **resuma** la
+conversación y continúa desde ese resumen, manteniendo el coste bajo control.
+
+## ✨ Novedades v0.10.0
 ### Notificaciones
 
 Si tienes configurado Telegram (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`) o
