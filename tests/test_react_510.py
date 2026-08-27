@@ -280,3 +280,40 @@ class TestInteractivoYContexto(BaseReact510):
                             {"role": "user", "content": "TAREA: corta"}]
         with mock.patch.object(ra, "_umbral_resumen", return_value=10 ** 9):
             self.assertFalse(agente._resumir_si_hace_falta())
+
+
+class TestRouterModoPorDefecto(BaseReact510):
+    """Desde v5.2.0: ReAct es el default; --plan mantiene el legacy."""
+
+    def test_sin_flags_ejecuta_react(self):
+        args = sc.crear_parser().parse_args([("\"arregla el login\"")])
+        with mock.patch.object(sc, "_ejecutar_react") as react, \
+                mock.patch.object(sc, "_ejecutar_planificador") as plan:
+            react.return_value = 0
+            sc._ejecutar_modo_tarea(args)
+        react.assert_called_once_with(args)
+        plan.assert_not_called()
+
+    def test_plan_ejecuta_planificador_legacy(self):
+        args = sc.crear_parser().parse_args(["--plan", "\"migrar a pytest\""])
+        with mock.patch.object(sc, "_ejecutar_react") as react, \
+                mock.patch.object(sc, "_ejecutar_planificador") as plan:
+            plan.return_value = 0
+            sc._ejecutar_modo_tarea(args)
+        plan.assert_called_once_with(args)
+        react.assert_not_called()
+
+    def test_flag_react_equivale_a_default(self):
+        args = sc.crear_parser().parse_args(
+            ["--react", "\"refactoriza modulo.py\""])
+        self.assertTrue(args.react)
+        with mock.patch.object(sc, "_ejecutar_react") as react, \
+                mock.patch.object(sc, "_ejecutar_planificador") as plan:
+            react.return_value = 0
+            sc._ejecutar_modo_tarea(args)
+        react.assert_called_once_with(args)
+        plan.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

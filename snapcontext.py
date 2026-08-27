@@ -119,7 +119,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "5.1.0"
+VERSION = "5.2.0"
 
 # v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
 # de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
@@ -5169,12 +5169,19 @@ def _ejecutar_plan_en_paralelo(pasos: List[dict], args: argparse.Namespace,
 
 
 def _ejecutar_react(args: argparse.Namespace) -> int:
-    """Modo ReAct (v5.1.0, `snapcontext --react "tarea"`). Devuelve código 0/1.
+    """Ejecuta el motor ReAct (`snapcontext [--react] "tarea"`). 0/1.
 
-    Instancia el `ReactAgent` de `react_agent.py` y ejecuta el bucle dinámico
-    pensamiento → acción → observación hasta que el agente decida finalizar,
-    se alcance el tope de iteraciones o el usuario aborte.
+    Desde v5.2.0 es el **modo por defecto** para cualquier consulta sin
+    ``--plan``; el flag ``--react`` se acepta por compatibilidad aunque sea
+    redundante. Instancia el `ReactAgent` de `react_agent.py` y ejecuta el
+    bucle dinámico pensamiento → acción → observación hasta que el agente
+    decida finalizar, se alcance el tope de iteraciones o el usuario aborte.
     """
+    if not getattr(args, "consulta", None):
+        error("El modo ReAct necesita una consulta. Uso:\n"
+              '  snapcontext "añadir login con Google"\n'
+              '  snapcontext --react "añadir login con Google"   # equivalente')
+        return 1
     try:
         import react_agent as ra                     # noqa: E402
     except Exception as exc:                         # pragma: no cover
@@ -5189,8 +5196,26 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
     return 0 if resultado.get("ok") else 1
 
 
+def _ejecutar_modo_tarea(args: argparse.Namespace) -> int:
+    """Resuelve el modo de ejecución de la tarea (v5.2.0).
+
+    - ``--plan``     → planificador estático (**modo legacy**, mantenido para
+      compatibilidad con scripts existentes).
+    - Por defecto    → motor ReAct (razonamiento dinámico). El flag
+      ``--react`` sigue aceptándose pero ya es redundante.
+    - Sin consulta   → flujo clásico (`flujo_principal`), que valida la
+      entrada y muestra la ayuda amigable si falta la consulta.
+    """
+    if bool(getattr(args, "plan", False)):
+        return _ejecutar_planificador(args)          # legacy explícito
+    # v5.2.0: ReAct es el modo por defecto (--react es redundante aquí).
+    if getattr(args, "react", False) or getattr(args, "consulta", None):
+        return _ejecutar_react(args)
+    return flujo_principal(args)
+
+
 def _ejecutar_planificador(args: argparse.Namespace) -> int:
-    """Modo planificador (`snapcontext --plan "tarea"`). Devuelve código 0/1.
+    """Modo planificador (`snapcontext --plan "tarea"`, legacy desde v5.2.0).
 
     Flujo: generar plan con IA → confirmación → ejecución secuencial con menú
     continuar/reintentar/saltar tras cada paso → resumen final. Con
@@ -9283,16 +9308,16 @@ def crear_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--plan", action="store_true",
-        help="Modo planificador: pide al proveedor de IA que descomponga la tarea "
-             "en pasos (editar/ejecutar/consultar), los muestra para confirmación "
-             "y los ejecuta secuencialmente con control continuar/reintentar/saltar. "
-             "Requiere consulta.",
+        help="Usar el planificador estático (modo legacy) — útil para scripts "
+             "que requieren pasos predefinidos: pide al proveedor de IA que "
+             "descomponga la tarea en pasos y los ejecuta secuencialmente con "
+             "control continuar/reintentar/saltar. Requiere consulta.",
     )
     parser.add_argument(
         "--react", action="store_true",
-        help="Modo ReAct (v5.1.0): bucle dinámico pensamiento → acción → "
-             "observación; el agente decide el siguiente paso según el resultado "
-             "anterior (a diferencia de --plan, que es estático). Requiere consulta.",
+        help="Usar el modo ReAct (razonamiento dinámico) — este es el "
+             "comportamiento por defecto si no se usa --plan; el flag se "
+             "conserva por compatibilidad pero ya es redundante.",
     )
     parser.add_argument(
         "--react-max-iter", dest="react_max_iter", type=int, default=15,
@@ -10323,14 +10348,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         # --chat abre el REPL interactivo (no requiere consulta).
         if getattr(args, "chat", False):
             return _ejecutar_chat()
-        # v5.1.0: --react ejecuta el motor ReAct (bucle dinámico
-        # pensamiento → acción → observación) en lugar del planificador.
-        if getattr(args, "react", False):
-            return _ejecutar_react(args)
-        # --plan ejecuta el planificador de tareas (requiere consulta).
-        if getattr(args, "plan", False):
-            return _ejecutar_planificador(args)
-        return flujo_principal(args)
+        # v5.2.0: el motor ReAct es el modo por defecto; --plan queda como
+        # legacy para scripts. El flag --react se acepta (redundante).
+        return _ejecutar_modo_tarea(args)
     except KeyboardInterrupt:
         error("Interrumpido por el usuario.")
         return 130

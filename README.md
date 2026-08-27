@@ -861,19 +861,26 @@ Un hilo demonio ejecuta una pasada cada `CURADOR_INTERVALO_HORAS` horas
 `CURADOR_DAEMON=0`. En modo interactivo pregunta antes de aplicar cambios;
 en `--auto` aplica directamente.
 
-## 🧠 Modo ReAct (Razonamiento Dinámico) (v5.1.0)
+## 🧠 Modo ReAct — Razonamiento Dinámico (default desde v5.2.0)
+
+A partir de **v5.2.0, ReAct (razonamiento dinámico) es el modo por defecto**
+para cualquier consulta. El planificador estático se mantiene como **`--plan`
+modo legacy** para scripts/integraciones que lo requieran.
 
 ```bash
-snapcontext --react "arregla el login de Google y pasa los tests"
-snapcontext --react "refactoriza modulo.py" --auto --react-max-iter 25
+snapcontext "arregla el login de Google y pasa los tests"          # ← ReAct
+snapcontext "refactoriza modulo.py" --auto --react-max-iter 25    # ← ReAct
+snapcontext --plan "migrar a pytest"   # ← planificador estático (legacy)
 ```
 
-A diferencia del planificador `--plan` (que genera una lista estática de pasos
-en JSON y los ejecuta en orden), el motor **ReAct** (Reasoning + Acting) es
-dinámico: tras **cada acción**, el agente **observa** el resultado real
-(stdout, código de retorno, diff…) y **decide** cuál es el siguiente paso,
-adaptándose en tiempo real. Es opcional (`--react`) para no romper el flujo
-actual; aspiramos a que sea el modo por defecto en el futuro.
+> `snapcontext "tarea"` **sin flags** ejecuta ReAct por defecto. Usa `--plan`
+> para el planificador estático (ver `tests/test_react_510.py` →
+> `test_sin_flags_ejecuta_react`).
+
+A diferencia del planificador `--plan` —que genera una lista estática de pasos
+en JSON y los ejecuta en orden—, el motor **ReAct** es dinámico: tras **cada
+acción** el agente **observa** el resultado real (stdout, código de retorno,
+diff…) y **decide** el siguiente paso, adaptándose en tiempo real.
 
 ### Cómo funciona
 
@@ -910,6 +917,13 @@ Si el historial crece demasiado (> ~8000 tokens estimados, configurable con
 `REACT_UMBRAL_RESUMEN_TOKENS`), el agente pide al LLM que **resuma** la
 conversación y continúa desde ese resumen, manteniendo el coste bajo control.
 
+
+> ### 📜 Modo legacy `--plan` (planificador estático)
+> `snapcontext --plan "tarea"` descompone la tarea en pasos JSON con IA
+> y los ejecuta secuencialmente (continuar/reintentar/saltar). Útil cuando
+> necesitas un orden de ejecución predefinido o mantener compatibilidad con
+> scripts.
+
 ## ✨ Novedades v0.10.0
 ### Notificaciones
 
@@ -917,8 +931,6 @@ Si tienes configurado Telegram (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`) o
 Discord (`DISCORD_WEBHOOK_URL`), recibirás:
 *"🔧 Skill 'refactorizar_api' mejorado (v2). Tokens reducidos un 30 %."*
 
-## ✨ Novedades v0.10.0
-## ✨ Novedades v0.10.0
 
 - **Claude (Anthropic) como proveedor de IA**: `snapcontext "..." --provider anthropic`
   (requiere `ANTHROPIC_API_KEY` y `pip install snapcontext[anthropic]`). Modelo por

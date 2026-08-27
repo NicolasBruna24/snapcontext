@@ -5,6 +5,28 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
 
+
+## [5.2.0] - 2026-08-26 - 🔄 ReAct es el modo por defecto
+
+### ⚙️ ReAct como comportamiento por defecto (FEATURES)
+- **ReAct (razonamiento dinámico) es ahora el modo por defecto** para cualquier
+  consulta con `--plan`. El flujo `snapcontext "tarea"` instancia
+  `ReactAgent` (`react_agent.py`) en lugar del planificador estático.
+- El flag `--react` se mantiene por compatibilidad aunque sea **redundante**;
+  `--react-max-iter N` sigue afinando el tope de iteraciones.
+- El planificador estático pasa a ser **modo legacy** (`--plan`), preservado
+  100 % para scripts/integraciones existentes (Telegram `/plan`, Discord `/plan`,
+  extensiones VS Code/JetBrains, web, etc.). `--plan` activa el planificador
+  clásico sin cambios en su comportamiento.
+- `--auto` funciona idénticamente en ambos modos (sin preguntas interactivas).
+
+### 🧪 Tests
+- `tests/test_react_510.py` verifica que **sin flags** se ejecuta ReAct
+  (`_ejecutar_modo_tarea` → `_ejecutar_react`); y que `--plan` sigue mapeando
+  al planificador estático. Los 18 tests de coherencia de versión se ajusturaron
+  a `5.2.0`.
+
+## [5.1.0] - 2026-08-26 - 🧠 Motor ReAct (razonamiento dinámico)
 ## [5.1.0] - 2026-08-26 - 🧠 Motor ReAct (razonamiento dinámico)
 
 ### 🧠 Nuevo módulo `react_agent.py` (FEATURES)
