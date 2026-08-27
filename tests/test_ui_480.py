@@ -9,6 +9,8 @@ invocadas con los argumentos correctos, y que el modo `--auto` silencia
 progreso y preguntas devolviendo `'c'` por defecto sin preguntar.
 """
 
+import importlib
+import os
 import unittest
 from unittest import mock
 
@@ -113,6 +115,36 @@ class TestRichDisponible(unittest.TestCase):
         with mock.patch("ui._console") as consola:
             ui.mostrar_banner("4.8.0")
         self.assertGreaterEqual(consola.print.call_count, 2)
+
+    def test_banner_muestra_el_repo_url_configurable(self):
+        """El banner imprime REPO_URL (no una URL fija hardcodeada)."""
+        with mock.patch("ui._console") as consola:
+            ui.mostrar_banner("4.8.0")
+        salida = " ".join(str(c.args[0]) for c in consola.print.call_args_list)
+        self.assertIn(ui.REPO_URL, salida)
+        self.assertNotIn("TU_USUARIO", salida)
+
+    def test_repo_url_usado_tambien_sin_rich(self):
+        """Sin `rich` el fallback plano también usa REPO_URL."""
+        with mock.patch("ui.RICH_DISPONIBLE", False), \
+                mock.patch("builtins.print") as print_mock:
+            ui.mostrar_banner("4.8.0")
+        texto = " ".join(str(c.args[0]) for c in print_mock.call_args_list)
+        self.assertIn(ui.REPO_URL, texto)
+
+    def test_repo_url_se_puede_sobreescribir_con_env(self):
+        """SNAPCONTEXT_REPO (si está definida) reemplaza el valor por defecto."""
+        previo = ui.REPO_URL
+        try:
+            with mock.patch.dict(
+                    os.environ,
+                    {"SNAPCONTEXT_REPO": "https://github.com/mi-fork/snapcontext"}):
+                recargado = importlib.reload(ui)
+            self.assertEqual(
+                recargado.REPO_URL,
+                "https://github.com/mi-fork/snapcontext")
+        finally:
+            ui.REPO_URL = previo   # restaura por si el env quedó seteada
 
     def test_preguntar_interactivo_usa_prompt_y_devuelve_tecla(self):
         with mock.patch("ui._console") as consola, \

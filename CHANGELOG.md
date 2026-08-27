@@ -5,6 +5,24 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
 
+## [4.8.1] - 2026-08-26 - 🔧 URL del repositorio configurable
+
+### 🔧 Mejora (IMP)
+- La URL del repositorio que muestra el banner ahora es **configurable** mediante
+  la variable de entorno `SNAPCONTEXT_REPO`. Esto permite que los forks y los
+  usuarios personalicen la URL sin modificar el código fuente.
+- Si la variable **no está definida**, se usa el repositorio oficial por defecto
+  (`https://github.com/NicolasBruna24/snapcontext`), así que el banner se ve
+  exactamente igual que antes (compatibilidad hacia atrás).
+- Implementado en `ui.py` (`ui.REPO_URL`, usado por `mostrar_banner()` tanto en
+  modo Rich como en el fallback plano sin Rich).
+
+### 🧪 Tests
+- Nuevos tests en `tests/test_ui_480.py`: el banner muestra `REPO_URL`,
+  el fallback sin Rich también lo usa, y `SNAPCONTEXT_REPO` sobreescribe el
+  valor por defecto (con `importlib.reload` y `mock.patch.dict`).
+
+
 ## [4.8.0] - 2026-08-25 - 🎨 CLI profesional con Rich
 
 ### 🖥️ Nueva capa de presentación `ui.py` (FEATURES)

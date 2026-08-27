@@ -20,6 +20,7 @@ Principios:
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -39,6 +40,7 @@ except ImportError:                     # pragma: no cover - fallback plano
 __all__ = [
     "RICH_DISPONIBLE",
     "VERSION_UI",
+    "REPO_URL",
     "configurar_auto",
     "es_auto",
     "mostrar_banner",
@@ -52,6 +54,12 @@ __all__ = [
 ]
 
 VERSION_UI = "4.8.0"
+
+# URL del repositorio, configurable por variable de entorno para que los forks
+# y los usuarios puedan personalizarla sin tocar el código fuente. Si la
+# variable no está definida se usa el repositorio oficial por defecto.
+REPO_URL = os.environ.get(
+    "SNAPCONTEXT_REPO", "https://github.com/NicolasBruna24/snapcontext")
 
 # Estado global del modo no interactivo (--auto / API / gateways).
 MODO_AUTO = False
@@ -119,8 +127,7 @@ def mostrar_banner(version: str = VERSION_UI) -> None:
     if not RICH_DISPONIBLE:
         _imprimir(_BANNER_ART)
         _imprimir(f"SnapContext v{version}")
-        _imprimir("Open-source · MIT · "
-                  "https://github.com/NicolasBruna24/snapcontext")
+        _imprimir(f"Open-source · MIT · {REPO_URL}")
         return
     _console.print(Text(_BANNER_ART, style="bold cyan"))
     tabla = Table(show_header=True, header_style="bold magenta",
@@ -130,7 +137,7 @@ def mostrar_banner(version: str = VERSION_UI) -> None:
     for comando, descripcion in _COMANDOS_BANNER:
         tabla.add_row(comando, descripcion)
     _console.print(tabla)
-    _console.print("[dim]https://github.com/NicolasBruna24/snapcontext[/dim]")
+    _console.print(f"[dim]{REPO_URL}[/dim]")
 
 
 def mostrar_progreso(iterable: Iterable, descripcion: str):
