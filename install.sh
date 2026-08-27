@@ -19,15 +19,15 @@ printf "${BLUE}╚════════════════════�
 echo ""
 
 # ─── 1. Detectar / verificar Python ───────────────────────────────────────
-PYTHON=""
+PYTHON_CMD=""
 for cmd in python3 python; do
     if command -v "$cmd" &>/dev/null; then
-        PYTHON="$cmd"
+        PYTHON_CMD="$(command -v "$cmd")"
         break
     fi
 done
 
-if [ -z "$PYTHON" ]; then
+if [ -z "$PYTHON_CMD" ]; then
     err "Python no encontrado. Instala Python 3.9+ y vuelve a ejecutar este instalador."
     echo ""
     OS_UNAME="$(uname -s)"
@@ -46,7 +46,7 @@ if [ -z "$PYTHON" ]; then
     exit 1
 fi
 
-RAW_VERSION=$($PYTHON --version 2>&1 | awk '{print $2}')
+RAW_VERSION=$("$PYTHON_CMD" --version 2>&1 | awk '{print $2}')
 MAJOR=$(echo "$RAW_VERSION" | cut -d. -f1)
 MINOR=$(echo "$RAW_VERSION" | cut -d. -f2)
 
@@ -55,16 +55,37 @@ if [ "$MAJOR" -lt 3 ] || { [ "$MAJOR" -eq 3 ] && [ "$MINOR" -lt 9 ]; }; then
     echo "  Actualiza Python (por ej.: brew upgrade python o el gestor de tu distro)."
     exit 1
 fi
-ok "Python $RAW_VERSION encontrado ($PYTHON)"
+ok "Python $RAW_VERSION encontrado: $PYTHON_CMD"
+
+# ─── 1b. Inyectar ~/.local/bin en el PATH de la sesión ─────────────────────
+# No dependemos del PATH global del sistema (los PCs institucionales suelen
+# arrancar limpio): aseguramos que la carpeta de herramientas del usuario esté
+# disponible durante esta instalación. Lo hacemos antes de cualquier comando.
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) export PATH="$HOME/.local/bin:$PATH" ; ok "Añadido $HOME/.local/bin al PATH de la sesión." ;;
+esac
+
+# Con Python >= 3.14 'uv' aún no crea entornos compatibles y falla. Saltamos
+# 'uv' por completo y vamos directamente al proceso optimizado con pip.
+SALT_UV=false
+if [ "$MAJOR" -ge 3 ] && [ "$MINOR" -ge 14 ]; then
+    SALT_UV=true
+    warn "Python ≥ 3.14 detectado: se omitirá 'uv' (aún no compatible) y se usará pip directamente."
+fi
 
 # ─── 2. Instalar uv si no está ────────────────────────────────────────────
 UV_EXISTS=false
-if command -v uv &>/dev/null; then
+if [ "$SALT_UV" = true ]; then
+    warn "Instalación de 'uv' omitida (Python ≥ 3.14). Se usará pip."
+elif command -v uv &>/dev/null; then
     UV_EXISTS=true
     ok "uv ya está instalado"
 else
     info "Instalando uv (gestor rápido de paquetes Python)..."
-    if ! curl -LsSf https://astral.sh/uv/install.sh | sh; then
+    if ! command -v curl &>/dev/null; then
+        warn "curl no disponible; se usará pip directamente."
+    elif ! curl -LsSf https://astral.sh/uv/install.sh | sh; then
         warn "No se pudo instalar uv. Se usará pip como fallback."
     else
         # Añadir uv al PATH de la sesión actual
@@ -125,7 +146,7 @@ fi
 
 # ─── 2c. Limpiar instalaciones previas de SnapContext con uv ──────────────
 # Evita que un snapcontext antiguo (vía uv tool) en ~/.local/bin tape al nuevo.
-if command -v uv &>/dev/null && uv tool list 2>/dev/null | grep -q '^snapcontext'; then
+if [ "$SALT_UV" != true ] && command -v uv >/dev/null 2>&1 && [ -n "$(uv tool list 2>/dev/null | grep '^snapcontext')" ]; then
     warn "Se detectó una instalación previa de SnapContext vía 'uv tool'."
     RESPUESTA="s"   # por defecto, eliminar (instalaciones no interactivas)
     if [ -t 0 ]; then
@@ -175,7 +196,7 @@ asegurar_path_perfil() {
 # site-packages que hacen fallar 'uv tool install'. Se eliminan antes de instalar.
 limpiar_sitepackages_corruptos() {
     local sitios carpeta
-    sitios=$("$PYTHON" -c "import site; print('\n'.join(site.getsitepackages() + [site.getusersitepackages()]))" 2>/dev/null || true)
+    sitios=$("$PYTHON_CMD" -c "import site; print('\n'.join(site.getsitepackages() + [site.getusersitepackages()]))" 2>/dev/null || true)
     [ -z "$sitios" ] && return 0
     printf '%s\n' "$sitios" | while IFS= read -r sitio; do
         [ -n "$sitio" ] && [ -d "$sitio" ] || continue
@@ -211,32 +232,35 @@ if [ "$UV_EXISTS" = true ]; then
             warn "uv con '--force' también falló; probando con pip..."
         fi
     fi
-    if [ "$INSTALADO" = true ]; then
-        asegurar_path_perfil
-    fi
+    # la persistencia del PATH se decide por pregunta al final del instalador.
 fi
 
 if [ "$INSTALADO" = false ]; then
-    # ── Fallback robusto a pip ──
-    info "Instalando con pip..."
-    "$PYTHON" -m pip install --upgrade pip 2>/dev/null || true
-    # Sin pipe: así el código de salida de pip no queda enmascarado por 'tail'.
-    if PIP_SALIDA=$("$PYTHON" -m pip install --upgrade snapcontext 2>&1); then
-        printf '%s\n' "$PIP_SALIDA" | tail -1
+    # ── Fallback robusto a pip (compatible también con Python ≥ 3.14) ──
+    info "Instalando con pip (intérprete: $PYTHON_CMD)..."
+    # 1) Actualizar pip primero (clave en versiones nuevas de Python).
+    info "Actualizando pip..."
+    "$PYTHON_CMD" -m pip install --upgrade pip >/dev/null 2>&1 || true
+    # 2) Instalación optimizada para evitar el bucle de 'Backtracking' de la
+    #    dependencia 'google-api-core': se fija una versión mínima y se desactiva
+    #    la caché. Es el comando validado (escenario INACAP).
+    info "Instalando snapcontext (sin caché, google-api-core>=2.24.0)..."
+    if PIP_SALIDA=$("$PYTHON_CMD" -m pip install snapcontext "google-api-core>=2.24.0" --no-cache-dir 2>&1); then
+        printf '%s\n' "$PIP_SALIDA" | tail -2
+        INSTALADO=true
     else
-        printf '%s\n' "$PIP_SALIDA" | tail -1
+        printf '%s\n' "$PIP_SALIDA" | tail -2
         err "No se pudo instalar SnapContext ni con uv ni con pip."
         echo ""
         echo "  Prueba manualmente:"
-        echo "    $PYTHON -m pip install --upgrade snapcontext"
+        echo "    $PYTHON_CMD -m pip install snapcontext 'google-api-core>=2.24.0' --no-cache-dir"
         echo ""
         echo "  Si ya estaba instalado y solo está roto, fuerza la reinstalación:"
-        echo "    $PYTHON -m pip install --force-reinstall snapcontext"
+        echo "    $PYTHON_CMD -m pip install --force-reinstall snapcontext"
         echo ""
         exit 1
     fi
-    # Asegurar ~/.local/bin en el PATH también tras instalar con pip.
-    asegurar_path_perfil
+    # (la persistencia del PATH se decide por pregunta al final del instalador)
 fi
 
 # ─── 4. Verificar ─────────────────────────────────────────────────────────
@@ -254,11 +278,58 @@ fi
 
 # v3.4.0: verificar que el módulo de Python se importa correctamente.
 info "Comprobando que el módulo se importa correctamente..."
-if "$PYTHON" -m snapcontext --version >/dev/null 2>&1; then
+if "$PYTHON_CMD" -m snapcontext --version >/dev/null 2>&1; then
     ok "Módulo de Python OK."
 else
     warn "El módulo no responde aún. Reinstala con:"
-    echo "    $PYTHON -m pip install --force-reinstall snapcontext"
+    echo "    $PYTHON_CMD -m pip install --force-reinstall snapcontext"
+fi
+
+# ─── 4bis. Persistencia opcional del PATH (se pregunta al usuario) ────────
+info "Intérprete de Python usado: $PYTHON_CMD"
+# Elegir el perfil del shell (zshrc > bashrc > profile).
+PERFIL=""
+if [ -n "${ZSH_VERSION:-}" ] && [ -f "$HOME/.zshrc" ]; then
+    PERFIL="$HOME/.zshrc"
+elif [ -f "$HOME/.bashrc" ]; then
+    PERFIL="$HOME/.bashrc"
+elif [ -f "$HOME/.profile" ]; then
+    PERFIL="$HOME/.profile"
+fi
+
+# Solo preguntamos si el comando aún no es global o el perfil no lo incluye.
+ALREADY=false
+if [ -n "$PERFIL" ] && grep -q '\.local/bin' "$PERFIL" 2>/dev/null; then
+    ALREADY=true
+fi
+
+if [ "$ALREADY" = false ]; then
+    echo ""
+    warn "Para que 'snapcontext' esté disponible en cualquier terminal hay que añadir ~/.local/bin al PATH."
+    RESP="s"
+    if [ -t 0 ]; then
+        printf "%s" "¿Deseas agregar estas rutas al PATH permanentemente? (s/n): "
+        read -r RESP || RESP="s"
+    else
+        info "Ejecución no interactiva: se agregan automáticamente."
+    fi
+    case "$RESP" in
+        [sSyY]*)
+            if [ -n "$PERFIL" ]; then
+                printf '\n# Añadido por el instalador de SnapContext\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$PERFIL"
+                ok "Añadido ~/.local/bin al PATH en $PERFIL (abre una terminal nueva)."
+            else
+                warn "No se encontró ningún perfil de shell. Añade manualmente:"
+                echo '    export PATH="$HOME/.local/bin:$PATH"'
+            fi
+            ;;
+        *)
+            warn "No se modificó el PATH permanentemente. Puedes hacerlo luego con:"
+            warn "    snapcontext --setup-path"
+            ;;
+    esac
+else
+    info "~/.local/bin ya está configurado en el perfil del shell."
 fi
 
 # ─── 5. Mensaje final ─────────────────────────────────────────────────────
