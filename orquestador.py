@@ -90,9 +90,12 @@ class Orquestador:
         En cada iteración, el ``AgenteEditor`` aplica la orden (primera vez la
         tarea; después la tarea + el error analizado por ``AgenteTester``) y el
         ``AgenteTester`` ejecuta el comando de prueba. Si superan, termina.
+        v5.3.0: si ``comando_test`` viene vacío se resuelve automáticamente con
+        ``sc._resolver_comando_test`` (detección del lenguaje del proyecto).
         """
         import snapcontext as sc
 
+        comando_test = sc._resolver_comando_test(directorio, comando_test)
         if not comando_test:
             raise RuntimeError("El comando de pruebas está vacío (--comando-test).")
 
@@ -186,10 +189,13 @@ class Orquestador:
                 )
             elif args.test_loop:
                 sc.depurar("[Orquestador] Modo bucle de pruebas (Editor + Tester).")
+                _comando_test = None
+                if args.comando_test:
+                    _comando_test = shlex.split(args.comando_test)
                 ok = self._bucle_test(
                     consulta, seleccion, str(raiz),
                     opciones_aider=args.aider_opciones,
-                    comando_test=shlex.split(args.comando_test),
+                    comando_test=_comando_test,
                     max_iteraciones=max(args.max_iteraciones, 1),
                 )
             else:

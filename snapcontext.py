@@ -119,7 +119,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "5.2.1"
+VERSION = "5.3.0"
 
 # v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
 # de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
@@ -2717,6 +2717,31 @@ def _extraer_error(resultado: "subprocess.CompletedProcess") -> str:
     return salida
 
 
+def _resolver_comando_test(directorio: str,
+                           comando_explicito: Optional[List[str]] = None
+                           ) -> List[str]:
+    """Resuelve el comando de pruebas del bucle (v5.3.0).
+
+    Prioridad:
+      1. ``comando_explicito`` (el usuario pasó ``--comando-test``);
+      2. detección automática con ``detector_tests``;
+      3. ``COMANDO_TEST_DEFECTO`` (compatibilidad hacia atrás).
+
+    Así, si el usuario no configura nada, el agente detecta el lenguaje del
+    proyecto y ejecuta el comando adecuado sin intervención.
+    """
+    if comando_explicito:
+        return list(comando_explicito)
+    try:
+        import detector_tests as _det
+        det = _det.detectar_automaticamente(str(directorio))
+        if det["detectado"] and det["comando"]:
+            return shlex.split(det["comando"])
+    except Exception:                       # noqa: BLE001 — nunca romper el flujo
+        pass
+    return shlex.split(COMANDO_TEST_DEFECTO)
+
+
 def ejecutar_bucle_test(consulta: str, archivos: List[str], directorio: str,
                         opciones_aider: str, comando_test: List[str],
                         max_iteraciones: int = MAX_ITERACIONES_TEST_DEFECTO) -> bool:
@@ -2724,7 +2749,11 @@ def ejecutar_bucle_test(consulta: str, archivos: List[str], directorio: str,
 
     Este es el punto natural de extensión: aquí puedes añadir más herramientas
     al bucle (p. ej. linters, analysizer de Flutter, generación de tests...).
+
+    v5.3.0: si ``comando_test`` viene vacío se resuelve automáticamente con
+    ``detector_tests`` (detección del lenguaje del proyecto).
     """
+    comando_test = _resolver_comando_test(directorio, comando_test)
     if not comando_test:
         raise RuntimeError("El comando de pruebas está vacío (--comando-test).")
     # v4.3.0: en sandbox el binario vive dentro del contenedor; la comprobación
@@ -4765,11 +4794,13 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
         return (todo_ok, f"EditorPropio sobre {len(seleccion)} archivo(s)")
 
     if getattr(args, "test_loop", False):
+        _comando_test = None
+        if getattr(args, "comando_test", None):
+            _comando_test = shlex.split(args.comando_test)
         ok = orch._bucle_test(
             descripcion, seleccion, str(ruta_raiz),
             opciones_aider=getattr(args, "aider_opciones", ""),
-            comando_test=shlex.split(getattr(args, "comando_test",
-                                             COMANDO_TEST_DEFECTO)),
+            comando_test=_comando_test,
             max_iteraciones=max(getattr(args, "max_iteraciones", 1), 1),
         )
         return (ok, "bucle de pruebas")
@@ -9210,8 +9241,10 @@ def crear_parser() -> argparse.ArgumentParser:
              "el usuario decide en cada paso.",
     )
     parser.add_argument(
-        "--comando-test", default=COMANDO_TEST_DEFECTO,
-        help='Comando de pruebas del bucle (por defecto: "flutter test").',
+        "--comando-test", default=None,
+        help='Comando de pruebas del bucle. Si se omite se detecta '
+             'automáticamente según el lenguaje del proyecto '
+             '(p. ej. "go test ./...", "pytest", "flutter test").',
     )
     # v4.3.0: sandbox opcional con Docker.
     parser.add_argument(

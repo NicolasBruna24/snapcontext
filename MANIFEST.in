@@ -6,6 +6,7 @@ include LICENSE
 include CHANGELOG.md
 include pyproject.toml
 include ui.py
+include detector_tests.py
 recursive-include web/static *
 recursive-exclude tests *
 recursive-exclude vscode *

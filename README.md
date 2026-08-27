@@ -898,7 +898,7 @@ diff…) y **decide** el siguiente paso, adaptándose en tiempo real.
 | Acción | Descripción |
 |---|---|
 | `editar_archivo(ruta, contenido)` | Editor propio (con copia de seguridad); devuelve el diff aplicado |
-| `ejecutar_pruebas(archivo?)` | Comando de pruebas configurado (`SNAPCONTEXT_COMANDO_TEST`) |
+| `ejecutar_pruebas(archivo?)` | Comando de pruebas (auto-detectado o `SNAPCONTEXT_COMANDO_TEST`) |
 | `buscar_codigo(patron)` | Búsqueda regex sobre archivos de texto |
 | `ejecutar_comando(comando)` | Shell; **respeta `--sandbox`** automáticamente |
 | `leer_archivo(ruta)` | Lectura truncada a 8 KB |
@@ -1473,7 +1473,7 @@ locales y te deja elegir con las flechas:
 | `--max-intentos` | `3` | Intentos máximos de `--server-loop` |
 | `--dispositivo` | `web-server` | Plataforma/dispositivo de `flutter run` |
 | `--url-defecto` | `http://localhost:5000` | URL para abrir el navegador si Flutter no reporta una |
-| `--comando-test` | `"flutter test"` | Comando del bucle de pruebas |
+| `--comando-test` | *auto* | Comando del bucle de pruebas (se detecta automáticamente según el lenguaje; ej. `pytest`, `go test ./...`, `flutter test`) |
 | `--max-iteraciones` | `3` | Iteraciones máximas del bucle |
 | `--validar` | on | Valida la sintaxis del código antes de guardar en el editor propio |
 | `--no-validar-sintaxis` | off | Desactiva la validación de sintaxis del editor propio |
@@ -1540,6 +1540,64 @@ snapcontext "arreglar el flujo de pago" --test-loop --max-iteraciones 5
 Este es el punto natural para extender SnapContext: por ejemplo, añadir
 `flutter analyze`, linters o más herramientas dentro de
 `ejecutar_bucle_test()`.
+
+---
+
+## 🧪 Detección automática de pruebas
+
+Desde **v5.3.0**, SnapContext detecta automáticamente cómo correr las pruebas
+de tu proyecto: escanea el directorio raíz, identifica el lenguaje/framework y
+usa el comando de test adecuado **sin que tengas que escribir nada**.
+
+Esto hace que tanto el **agente ReAct** (herramienta `ejecutar_pruebas`) como
+el planificador (**`--test-loop`**) ejecuten los tests por sí solos.
+
+### Lenguajes / frameworks soportados
+
+| Archivo(s) en la raíz                | Lenguaje detectado      | Comando de test             |
+|--------------------------------------|-------------------------|-----------------------------|
+| `go.mod`                             | Go                      | `go test ./...`             |
+| `Cargo.toml` / `Cargo.lock`          | Rust                    | `cargo test`                |
+| `pom.xml`                            | Java (Maven)            | `mvn test`                  |
+| `build.gradle`                       | Java (Gradle)           | `gradle test`               |
+| `requirements.txt`                   | Python (pytest)         | `pytest`                    |
+| `pyproject.toml` (con `pytest`)      | Python (pytest)         | `pytest`                    |
+| `pyproject.toml` (sin pytest) / `setup.py` | Python (unittest) | `python -m unittest discover` |
+| `package.json`                       | Node (npm)              | `npm test`                  |
+| `yarn.lock` (con `package.json`)     | Node (yarn)             | `yarn test`                 |
+| `pubspec.yaml`                       | Flutter                 | `flutter test`              |
+| `*.csproj` (en la raíz)              | .NET                    | `dotnet test`               |
+| `Gemfile`                            | Ruby                    | `bundle exec rspec`         |
+| `mix.exs`                            | Elixir                  | `mix test`                  |
+
+### Cómo funciona
+
+1. `snapcontext.py` (vía `detector_tests.py`, sin dependencias externas) mira
+   los archivos clave **solo en la raíz** (rápido y ligero).
+2. Si el usuario pasa `--comando-test "..."`, **siempre se usa ese** (con
+   compatibilidad hacia atrás); el detector solo actúa cuando no se da un
+   comando explícito.
+3. Si no se detecta nada, se usa `flutter test` como último recurso (el
+   comportamiento histórico). En el agente ReAct, si nada funciona se devuelve
+   un error claro pidiendo que especifiques el comando manualmente.
+
+### Uso
+
+```bash
+# Antes: había que saber y escribir el comando.
+snapcontext "hacer pasar los tests" --test-loop --comando-test "pytest"
+
+# Ahora: se detecta solo según el lenguaje del proyecto.
+snapcontext "hacer pasar los tests" --test-loop
+```
+
+### Extender el detector
+
+Para añadir un lenguaje nuevo, edita `detector_tests.py`:
+
+- Añade una entrada en `_LENGUAJES` con su `comando` y `estructura`.
+- Registra su archivo identificador en `_DETECCION_POR_ARCHIVO` (o en
+  `_REGLAS_CONTENIDO` si depende del contenido).
 
 ---
 

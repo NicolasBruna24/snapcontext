@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 import snapcontext as sc
+import detector_tests as det
 
 
 UMBRAL_RESUMEN_TOKENS_DEFAULT = 8000   # dispara resumen automático del historial
@@ -213,14 +214,36 @@ class ReactAgent:
                 "coincidencias": hallazgos}
 
     def _tool_ejecutar_pruebas(self, argumentos: dict) -> dict:
-        """Corre la suite de pruebas (comando configurable por entorno)."""
+        """Corre la suite de pruebas.
+
+        v5.3.0: el comando se resuelve por prioridad:
+          1) ``comando`` explícito pasado como argumento;
+          2) variable de entorno ``SNAPCONTEXT_COMANDO_TEST``;
+          3) detección automática con ``detector_tests``;
+          4) si hay un ``archivo`` python, pytest para ese archivo;
+          5) por defecto ``sc.COMANDO_TEST_DEFECTO`` (compatibilidad).
+
+        Si nada se detecta, se usa ``sc.COMANDO_TEST_DEFECTO`` (compatibilidad
+        con el comportamiento histórico). Queda un retorno defensivo de error
+        por si en el futuro no hubiera ningún comando disponible.
+        """
         archivo = str(argumentos.get("archivo") or "").strip()
-        comando = os.environ.get("SNAPCONTEXT_COMANDO_TEST", "").strip()
+        comando = str(argumentos.get("comando") or "").strip()
+
         if not comando:
-            if archivo and archivo.endswith(".py"):
-                comando = f"{Path(sys.executable).name} -m pytest -q {archivo}"
-            else:
-                comando = sc.COMANDO_TEST_DEFECTO
+            comando = os.environ.get("SNAPCONTEXT_COMANDO_TEST", "").strip()
+        if not comando:
+            comando = det.detectar_automaticamente(self.directorio)["comando"] or ""
+        if not comando and archivo and archivo.endswith(".py"):
+            comando = f"{Path(sys.executable).name} -m pytest -q {archivo}"
+        if not comando:
+            # Backwards compatible: usar el comando por defecto histórica.
+            comando = sc.COMANDO_TEST_DEFECTO
+
+        if not comando:
+            return {"ok": False,
+                    "error": "No se pudo detectar automáticamente el comando de "
+                             "test. Por favor, especifica uno manualmente."}
         codigo, stdout, stderr = sc._ejecutar_comando(
             comando, self.directorio, timeout=600)
         return {"ok": codigo == 0, "codigo": codigo, "comando": comando,

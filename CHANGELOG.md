@@ -4,7 +4,28 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
-## [5.2.1] - 2026-08-26 - 📦 Corrección de empaquetado (incluye ui.py)
+## [5.3.0] - 2026-08-27 - 🧪 Detección automática de pruebas
+
+### Added
+- Detección automática de pruebas para Go, Rust, Java (Maven/Gradle),
+  Python (pytest/unittest), Node (npm/yarn), Flutter, .NET, Ruby y Elixir.
+- Nuevo módulo `detector_tests.py` (sin dependencias externas): escanea la
+  raíz del proyecto, detecta el lenguaje/framework (`detectar_lenguaje`) y
+  devuelve el comando de test exacto (`detectar_comando_test`), la estructura
+  de tests (`detectar_estructura_tests`) y un dict completo
+  (`detectar_automaticamente`). Extensible: basta añadir una entrada al
+  registro `_LENGUAJES` y su archivo identificador.
+- Integración con el agente ReAct (`ejecutar_pruebas`): el comando se resuelve
+  por prioridad (argumento explícito → `SNAPCONTEXT_COMANDO_TEST` → detección
+  automática → pytest de archivo → por defecto). Si nada funciona, devuelve un
+  error claro pidiendo que se especifique el comando manualmente.
+- Integración con `--test-loop`: si el usuario no pasa `--comando-test`, se
+  detecta el lenguaje del proyecto automáticamente. El comando explícito
+  siempre tiene prioridad (compatibilidad hacia atrás).
+- `--comando-test` ahora es opcional (antes por defecto `"flutter test"`): se
+  detecta automáticamente y se mantiene `flutter test` como último recurso.
+
+
 
 ### 🐛 Fixed
 - Corregido el empaquetado: `ui.py`, `react_agent.py` y `curador_proactivo.py`
