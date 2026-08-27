@@ -36,6 +36,10 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 - Nuevo `tests/test_ui_480.py`: verifica llamadas a `Console.print`,
   silencio de progreso en auto, `'c'` por defecto en auto, menú de impacto y
   fallback plano sin Rich.
+- `rich>=13.0.0` declarado en `pyproject.toml` (`dependencies`) y en
+  `requirements.txt`.
+- Tests de coherencia de versión (18 archivos) actualizados de `4.7.0` a
+  `4.8.0` para reflejar el bump de versión. Suite completa: 628 tests OK.
 
 
 

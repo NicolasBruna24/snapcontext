@@ -41,6 +41,9 @@ dependencies = [
     "openai>=1.30.0",
     "httpx>=0.27.0",
     "cryptography>=42.0.0",
+    # v4.8.0: capa de presentación profesional de la CLI (banner, tablas,
+    # barras de progreso, diffs y prompts). Degrada a print() plano si falta.
+    "rich>=13.0.0",
 ]
 
 [project.optional-dependencies]

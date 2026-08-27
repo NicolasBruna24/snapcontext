@@ -1,6 +1,7 @@
 # Dependencias de SnapContext
 google-generativeai>=0.8.3   # proveedor por defecto (Gemini)
 openai>=1.30.0               # DeepSeek, Groq y Ollama (API compatible OpenAI)
+rich>=13.0.0                 # v4.8.0: CLI profesional (banner, tablas, progreso, diffs)
 
 # Aider se instala aparte porque arrastra más dependencias:
 #   pip install aider-chat
