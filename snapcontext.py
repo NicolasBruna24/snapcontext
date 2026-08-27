@@ -119,7 +119,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "4.8.1"
+VERSION = "5.0.0"
 
 # v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
 # de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
@@ -5440,9 +5440,23 @@ def _db_init() -> str:
                 creado         TEXT NOT NULL,
                 ultimo_exito   TEXT DEFAULT '',
                 usos           INTEGER DEFAULT 0,
+                exitos         INTEGER DEFAULT 0,
                 fallos         INTEGER DEFAULT 0,
+                tokens_promedio  INTEGER DEFAULT 0,
+                tiempo_promedio_ms INTEGER DEFAULT 0,
+                ultimo_uso     TEXT DEFAULT '',
+                version        INTEGER DEFAULT 1,
+                activo         INTEGER DEFAULT 1,
                 confiabilidad  REAL DEFAULT 0.5,
                 archivado      INTEGER DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS historial_skills (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                skill_id   INTEGER NOT NULL,
+                version    INTEGER DEFAULT 1,
+                prompt     TEXT DEFAULT '',
+                motivo     TEXT DEFAULT 'refactorizado',
+                fecha      TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS historial_aprendizaje (
                 id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -5463,7 +5477,41 @@ def _db_init() -> str:
             );
         """)
         _DB_CONEXION.commit()
+        _db_migrar_curador()
     return str(ruta)
+
+
+def _db_migrar_curador() -> None:
+    """Migración v5.0.0: añade las columnas de métricas del curador proactivo.
+
+    Las bases creadas antes de v5.0.0 no tienen `exitos`, `tokens_promedio`,
+    `tiempo_promedio_ms`, `ultimo_uso`, `version` ni `activo`. Esta función
+    añade SOLO las que falten con ``ALTER TABLE ... ADD COLUMN`` (idempotente).
+    También crea la tabla `historial_skills` para registrar el prompt previo
+    cuando un skill se refactoriza (desactivando la versión anterior).
+    """
+    _COLUMNAS_NUEVAS = {
+        "exitos": "INTEGER DEFAULT 0",
+        "tokens_promedio": "INTEGER DEFAULT 0",
+        "tiempo_promedio_ms": "INTEGER DEFAULT 0",
+        "ultimo_uso": "TEXT DEFAULT ''",
+        "version": "INTEGER DEFAULT 1",
+        "activo": "INTEGER DEFAULT 1",
+    }
+    existen = {fila["name"] for fila in
+               _db_query("PRAGMA table_info(skills)")}
+    for columna, definicion in _COLUMNAS_NUEVAS.items():
+        if columna not in existen:
+            _db_ejecutar(
+                f"ALTER TABLE skills ADD COLUMN {columna} {definicion}")
+    _db_ejecutar(
+        "CREATE TABLE IF NOT EXISTS historial_skills ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "skill_id INTEGER NOT NULL, "
+        "version INTEGER DEFAULT 1, "
+        "prompt TEXT DEFAULT '', "
+        "motivo TEXT DEFAULT 'refactorizado', "
+        "fecha TEXT NOT NULL)")
 
 
 def _db():
@@ -5682,17 +5730,26 @@ def _skill_listar(incluir_archivados: bool = False,
     return _db_query(sql)
 
 
-def _skill_registrar_exito(skill_id: int) -> float:
+def _skill_registrar_exito(skill_id: int, tokens: int = 0,
+                           tiempo_ms: int = 0) -> float:
     """Refuerza un skill tras un uso exitoso. Devuelve la nueva confiabilidad.
 
     Con 3+ usos sin fallos el skill se considera 'confiable' (confiabilidad
-    1.0) y el planificador lo prioriza.
+    1.0) y el planificador lo prioriza. v5.0.0: también actualiza las métricas
+    del curador proactivo (`exitos`, `tokens_promedio`, `tiempo_promedio_ms`,
+    `ultimo_uso`).
     """
     ahora = time.strftime("%Y-%m-%dT%H:%M:%S")
     _db_ejecutar(
-        "UPDATE skills SET usos = usos + 1, ultimo_exito = ?, "
-        "confiabilidad = MIN(1.0, confiabilidad + 0.15) WHERE id = ?",
-        (ahora, skill_id))
+        "UPDATE skills SET usos = usos + 1, exitos = exitos + 1, "
+        "ultimo_exito = ?, ultimo_uso = ?, "
+        "confiabilidad = MIN(1.0, confiabilidad + 0.15), "
+        "tokens_promedio = CASE WHEN usos = 0 THEN ? "
+        "ELSE (tokens_promedio * usos + ?) / (usos + 1) END, "
+        "tiempo_promedio_ms = CASE WHEN usos = 0 THEN ? "
+        "ELSE (tiempo_promedio_ms * usos + ?) / (usos + 1) END "
+        "WHERE id = ?",
+        (ahora, ahora, tokens, tokens, tiempo_ms, tiempo_ms, skill_id))
     _db_ejecutar(
         "UPDATE skills SET confiabilidad = 1.0 "
         "WHERE id = ? AND usos >= 3 AND fallos = 0", (skill_id,))
@@ -5701,16 +5758,25 @@ def _skill_registrar_exito(skill_id: int) -> float:
     return float(filas[0]["confiabilidad"]) if filas else 0.5
 
 
-def _skill_registrar_fallo(skill_id: int) -> float:
+def _skill_registrar_fallo(skill_id: int, tokens: int = 0,
+                           tiempo_ms: int = 0) -> float:
     """Penaliza un skill tras un fallo. Devuelve la nueva confiabilidad.
 
     A partir de 2 fallos la confiabilidad cae por debajo de 0.4 y el skill
-    queda marcado para revisión por el curador/agente.
+    queda marcado para revisión por el curador/agente. v5.0.0: también
+    actualiza las métricas del curador proactivo.
     """
+    ahora = time.strftime("%Y-%m-%dT%H:%M:%S")
     _db_ejecutar(
-        "UPDATE skills SET fallos = fallos + 1, "
-        "confiabilidad = MAX(0.0, confiabilidad - 0.25) WHERE id = ?",
-        (skill_id,))
+        "UPDATE skills SET usos = usos + 1, fallos = fallos + 1, "
+        "ultimo_uso = ?, "
+        "confiabilidad = MAX(0.0, confiabilidad - 0.25), "
+        "tokens_promedio = CASE WHEN usos = 0 THEN ? "
+        "ELSE (tokens_promedio * usos + ?) / (usos + 1) END, "
+        "tiempo_promedio_ms = CASE WHEN usos = 0 THEN ? "
+        "ELSE (tiempo_promedio_ms * usos + ?) / (usos + 1) END "
+        "WHERE id = ?",
+        (ahora, tokens, tokens, tiempo_ms, tiempo_ms, skill_id))
     filas = _db_query("SELECT confiabilidad FROM skills WHERE id = ?",
                       (skill_id,))
     return float(filas[0]["confiabilidad"]) if filas else 0.5
@@ -6748,6 +6814,70 @@ def _ejecutar_comando_telegram(subargv: List[str]) -> int:
 
     parser.print_help()
     return 1
+
+
+def _ejecutar_comando_curador(subargv: List[str]) -> int:
+    """Despacha el subcomando ``snapcontext curador <accion> [...]`` (v5.0.0).
+
+    Acciones:
+      estado      → muestra estadísticas agregadas de skills.
+      ejecutar    → corre el motor de refactorización proactivo manualmente.
+      activar     → reactiva el curador proactivo (persistente).
+      desactivar  → lo desactiva.
+    """
+    import argparse as _ap
+
+    try:
+        import curador_proactivo as cp
+    except ImportError as exc:
+        error(f"No se pudo cargar el curador proactivo: {exc}")
+        return 1
+
+    accion = (subargv[0] if subargv else "estado").strip().lower()
+    # Soporte para '-h/--help/help'.
+    if accion in ("-h", "--help", "help"):
+        info("Uso: snapcontext curador <estado|ejecutar|activar|desactivar>")
+        info("  estado      → métricas y estado del motor")
+        info("  ejecutar    → refactoriza los skills candidatos ahora")
+        info("  activar     → reactiva el curador proactivo persistente")
+        info("  desactivar  → desactiva el curador proactivo")
+        return 0
+
+    if accion == "estado":
+        resumen = cp.estado_curador()
+        exito("Estado del curador proactivo:")
+        info(f"  activo            : {'sí' if resumen['activo'] else 'no'}")
+        info(f"  intervalo (horas) : {resumen['intervalo_horas']}")
+        info(f"  skills            : {resumen['total_skills']} "
+             f"(activos {resumen['activos']})")
+        info(f"  candidatos        : {resumen['candidatos']}")
+        info(f"  última pasada     : {resumen['ultima_pasada'] or 'nunca'}")
+        for fila in resumen.get("reinado_lista", [])[:20]:
+            info(f"    #{fila['id']} {fila['nombre']} "
+                 f"(usos {fila['usos']}, fallos {fila['fallos']}, "
+                 f"tokens~ {fila['tokens_promedio']})")
+        return 0
+
+    if accion == "ejecutar":
+        resultados = cp.ejecutar_curador()
+        if resultados is None:
+            aviso("Curador desactivado. Actívalo: snapcontext curador activar")
+            return 0
+        mejorados = [r for r in resultados if r.get("mejorado")]
+        info(f"Curador: {len(resultados)} skill(s) candidato(s), "
+             f"{len(mejorados)} mejorado(s).")
+        return 0
+
+    if accion == "activar":
+        cp.activar_curador()
+        exito("Curador proactivo activado (persistente).")
+        return 0
+    if accion == "desactivar":
+        cp.desactivar_curador()
+        exito("Curador proactivo desactivado.")
+        return 0
+
+    return 0
 
 
 def _ejecutar_comando_plugin(subargv: List[str]) -> int:
@@ -10034,6 +10164,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     # v4.5.0: gateway de omnicanalidad — `snapcontext discord setup ...`.
     if argv and argv[0].lower() == "discord":
         return _ejecutar_comando_discord(argv[1:])
+    # v5.0.0: curador proactivo — `snapcontext curador estado|ejecutar|activar|desactivar`.
+    if argv and argv[0].lower() == "curador":
+        return _ejecutar_comando_curador(argv[1:])
     args = crear_parser().parse_args(_preparar_argv_aliases(argv))
     try:
         # Permisos (v0.13.0): sincroniza el interruptor global con --confirmar
@@ -10050,6 +10183,19 @@ def main(argv: Optional[List[str]] = None) -> int:
                 imagen=getattr(args, "sandbox_imagen", None),
                 comando_prep=getattr(args, "sandbox_comando", None),
                 estricto=True)
+        # v5.0.0: arranca el daemon del curador proactivo en segundo plano
+        # (hilo demonio; nunca bloquea el CLI). Se omite si se corre bajo un
+        # test runner y se puede desactivar con CURADOR_DAEMON=0.
+        try:
+            import curador_proactivo as _cp
+            _argv0 = (sys.argv[0] or "").lower()
+            _en_tests = any(x in _argv0 for x in (
+                "unittest", "pytest", "py.test"))
+            if (os.environ.get("CURADOR_DAEMON", "1") == "1"
+                    and not _en_tests):
+                _cp.iniciar_daemon_fondo()
+        except Exception:                        # noqa: BLE001 — nunca bloquea
+            pass
         # v3.1.1: --bienvenida explícito ejecuta el tutorial y marca el
         # primer uso como completado (por si quiere volver a verlo).
         if getattr(args, "bienvenida", False):

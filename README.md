@@ -824,6 +824,50 @@ snapcontext --plan "..." --no-git-commit                             # sin commi
 snapcontext --plan "..."                                             # commits 'paso: ...' activados
 ```
 
+## 🤖 Curador Proactivo (v5.0.0)
+
+A partir de v5.0.0, el curador de skills no solo **limpia**: también
+**refactoriza de forma autónoma** (estilo Hermes). Un motor en segundo plano
+evalúa la calidad de cada skill y mejora los prompts sin intervención humana.
+
+### Cómo funciona
+
+1. **Métricas**: cada ejecución de un skill registra éxito/fallo, tokens
+   consumidos y tiempo (medias móviles) en SQLite (`exitos`, `fallos`,
+   `tokens_promedio`, `tiempo_promedio_ms`, `ultimo_uso`, `version`).
+2. **Evaluación**: un skill es *candidato* si tiene ≥ 3 usos y su tasa de
+   fallos supera el 20 % o su consumo promedio de tokens supera el umbral.
+3. **Refactorización**: se pide al LLM (tu proveedor por defecto) que reescriba
+   el prompt para que sea más claro, conciso y robusto.
+4. **Prueba en sandbox**: el candidato se valida con la suite de pruebas
+   ejecutada dentro del sandbox Docker de v4.3.0 (`--sandbox`).
+5. **Adopción**: solo si pasa las pruebas Y reduce tokens se guarda la nueva
+   versión; la anterior queda archivada en la tabla `historial_skills`.
+   **Nunca se toca el código del usuario**, solo los prompts de los skills.
+
+### Control manual
+
+```bash
+snapcontext curador estado       # métricas: usos, fallos, tokens, candidatos
+snapcontext curador ejecutar     # pasada manual del motor
+snapcontext curador desactivar   # apagar el curador proactivo (persistente)
+snapcontext curador activar      # reactivarlo
+```
+
+### Daemon automático
+
+Un hilo demonio ejecuta una pasada cada `CURADOR_INTERVALO_HORAS` horas
+(6 por defecto). No bloquea nunca el CLI y se puede desactivar con
+`CURADOR_DAEMON=0`. En modo interactivo pregunta antes de aplicar cambios;
+en `--auto` aplica directamente.
+
+### Notificaciones
+
+Si tienes configurado Telegram (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`) o
+Discord (`DISCORD_WEBHOOK_URL`), recibirás:
+*"🔧 Skill 'refactorizar_api' mejorado (v2). Tokens reducidos un 30 %."*
+
+## ✨ Novedades v0.10.0
 ## ✨ Novedades v0.10.0
 
 - **Claude (Anthropic) como proveedor de IA**: `snapcontext "..." --provider anthropic`

@@ -5,6 +5,56 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
 
+## [5.0.0] - 2026-08-26 - 🤖 Curador Proactivo (motor autónomo estilo Hermes)
+
+### 🤖 Nuevo módulo `curador_proactivo.py` (FEATURES)
+- **Motor de refactorización autónoma de skills**: evalúa la calidad de cada
+  skill (tasa de fallos, tokens promedio, tiempo), identifica candidatos
+  (fallos > 20 % o tokens > `UMBRAL_TOKENS`, con ≥ 3 usos), pide al LLM un
+  prompt más eficiente/clara/robusto, lo prueba en el **sandbox** de v4.3.0 y,
+  solo si pasa las pruebas Y reduce tokens, guarda la nueva versión.
+- **Nunca toca el código del usuario**: únicamente los prompts almacenados de
+  los skills. La versión anterior queda archivada en la tabla
+  `historial_skills` (trazabilidad completa) y se incrementa `version`.
+- Si el candidato falla validación, sandbox o no mejora métricas: **no se
+  guarda nada** y el motivo queda registrado en `historial_skills`.
+
+### 🗄️ Migración de base de datos (INTEGRATION)
+- `_db_migrar_curador()` añade idempotentemente a `skills` las columnas:
+  `exitos`, `tokens_promedio`, `tiempo_promedio_ms`, `ultimo_uso`, `version`
+  y `activo`; crea la tabla `historial_skills`
+  (`skill_id, version, prompt, motivo, fecha`).
+- **Registro de métricas en cada ejecución**: `_skill_registrar_exito()/_fallo()`
+  actualizan exitos/fallos, medias ponderadas de tokens/tiempo y `ultimo_uso`
+  (integrado en el pipeline de skills sin alterar la lógica del editor).
+
+### ⏰ Daemon en segundo plano (FEATURES)
+- Hilo demonio (`daemon_proactivo`) que ejecuta una pasada completa cada
+  `CURADOR_INTERVALO_HORAS` horas (defecto 6; configurable por entorno).
+  Espera fraccionada de 30 s, espera ANTES de la primera pasada (arranque
+  instantáneo), respeta el interruptor persistente del curador y nunca muere.
+- Arranca automáticamente en `main()` (sin bloquear el CLI); se desactiva con
+  `CURADOR_DAEMON=0` y se omite bajo test runners.
+
+### 🖥️ Comandos CLI (v5.0.0)
+- `snapcontext curador estado` → estadísticas (usos, fallos, tokens,
+  candidatos, mejoras totales, peor skill).
+- `snapcontext curador ejecutar` → pasada manual del motor.
+- `snapcontext curador desactivar` / `activar` → interruptor persistente.
+
+### 🔔 Notificaciones (opcional)
+- Al mejorar un skill envía *"🔧 Skill 'x' mejorado (vN). Tokens reducidos un
+  X%."* por Telegram (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`) o Discord
+  (`DISCORD_WEBHOOK_URL`). Best-effort: sin credenciales es silencioso.
+
+### 🧪 Tests
+- Nuevos tests en `tests/test_curador_500.py` (≥ 10 casos): migración idempotente,
+  registro de métricas, evaluación de candidatos, refactorización exitosa/fallida
+  (LLM error, prompt inválido, sandbox falla, sin mejora de tokens), guardado con
+  historial, notificaciones, comandos CLI y daemon.
+
+
+
 ## [4.8.1] - 2026-08-26 - 🔧 URL del repositorio configurable
 
 ### 🔧 Mejora (IMP)
