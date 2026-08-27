@@ -1,0 +1,64 @@
+* Getting build dependencies for sdist...
+warning: no previously-included files matching '*' found under directory 'vscode'
+warning: no previously-included files matching '*' found under directory 'jetbrains'
+warning: no previously-included files matching '*' found under directory 'scripts'
+warning: no previously-included files matching '*' found under directory 'web\app.py'
+* Building sdist...
+warning: no previously-included files matching '*' found under directory 'vscode'
+warning: no previously-included files matching '*' found under directory 'jetbrains'
+warning: no previously-included files matching '*' found under directory 'scripts'
+warning: no previously-included files matching '*' found under directory 'web\app.py'
+* Building wheel from sdist
+* Getting build dependencies for wheel...
+warning: no previously-included files matching '*' found under directory 'tests'
+warning: no previously-included files matching '*' found under directory 'vscode'
+warning: no previously-included files matching '*' found under directory 'jetbrains'
+warning: no previously-included files matching '*' found under directory 'scripts'
+warning: no previously-included files matching '*' found under directory 'web\app.py'
+* Building wheel...
+warning: no previously-included files matching '*' found under directory 'tests'
+warning: no previously-included files matching '*' found under directory 'vscode'
+warning: no previously-included files matching '*' found under directory 'jetbrains'
+warning: no previously-included files matching '*' found under directory 'scripts'
+warning: no previously-included files matching '*' found under directory 'web\app.py'
+C:\Users\bruna\AppData\Roaming\Python\Python314\site-packages\setuptools\command\build_py.py:215: _Warning: Package 'web.static' is absent from the `packages` configuration.
+!!
+
+        ********************************************************************************
+        ############################
+        # Package would be ignored #
+        ############################
+        Python recognizes 'web.static' as an importable package[^1],
+        but it is absent from setuptools' `packages` configuration.
+
+        This leads to an ambiguous overall configuration. If you want to distribute this
+        package, please make sure that 'web.static' is explicitly added
+        to the `packages` configuration field.
+
+        Alternatively, you can also rely on setuptools' discovery methods
+        (for example by using `find_namespace_packages(...)`/`find_namespace:`
+        instead of `find_packages(...)`/`find:`).
+
+        You can read more about "package discovery" on setuptools documentation page:
+
+        - https://setuptools.pypa.io/en/latest/userguide/package_discovery.html
+
+        If you don't want 'web.static' to be distributed and are
+        already explicitly excluding 'web.static' via
+        `find_namespace_packages(...)/find_namespace` or `find_packages(...)/find`,
+        you can try to use `exclude_package_data`, or `include-package-data=False` in
+        combination with a more fine grained `package-data` configuration.
+
+        You can read more about "package data files" on setuptools documentation page:
+
+        - https://setuptools.pypa.io/en/latest/userguide/datafiles.html
+
+
+        [^1]: For Python, any directory (with suitable naming) can be imported,
+              even if it does not contain any `.py` files.
+              On the other hand, currently there is no concept of package data
+              directory, all directories are treated like packages.
+        ********************************************************************************
+
+!!
+  check.warn(importable)

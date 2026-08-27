@@ -4,7 +4,15 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [5.2.1] - 2026-08-26 - 📦 Corrección de empaquetado (incluye ui.py)
 
+### 🐛 Fixed
+- Corregido el empaquetado: `ui.py`, `react_agent.py` y `curador_proactivo.py`
+  ahora están incluidos en `py-modules` de `[tool.setuptools]` (`pyproject.toml`)
+  y en `MANIFEST.in`, por lo que viajan en el `.whl`/`.tar.gz`.
+- Antes esto provocaba `ModuleNotFoundError: No module named 'ui'` al instalar
+  SnapContext desde PyPI.
+- Versión elevada a `5.2.1` (build local verificado: `ui.py` aparece en el `.whl`).
 
 ## [5.2.0] - 2026-08-26 - 🔄 ReAct es el modo por defecto
 

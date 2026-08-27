@@ -1,0 +1,14 @@
+# MANIFEST.in — archivos de la raíz que deben viajar en el sdist (.tar.gz).
+# El .whl usa py-modules del [tool.setuptools] (pyproject.toml), por lo que
+# ui.py, react_agent.py, etc. ya se incluyen allí.
+include README.md
+include LICENSE
+include CHANGELOG.md
+include pyproject.toml
+include ui.py
+recursive-include web/static *
+recursive-exclude tests *
+recursive-exclude vscode *
+recursive-exclude jetbrains *
+recursive-exclude scripts *
+recursive-exclude web/app.py *

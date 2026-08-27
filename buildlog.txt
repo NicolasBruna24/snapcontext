@@ -1,0 +1,132 @@
+running egg_info
+creating snapcontext.egg-info
+writing snapcontext.egg-info\PKG-INFO
+writing dependency_links to snapcontext.egg-info\dependency_links.txt
+writing entry points to snapcontext.egg-info\entry_points.txt
+writing requirements to snapcontext.egg-info\requires.txt
+writing top-level names to snapcontext.egg-info\top_level.txt
+writing manifest file 'snapcontext.egg-info\SOURCES.txt'
+reading manifest file 'snapcontext.egg-info\SOURCES.txt'
+reading manifest template 'MANIFEST.in'
+adding license file 'LICENSE'
+writing manifest file 'snapcontext.egg-info\SOURCES.txt'
+running sdist
+running egg_info
+writing snapcontext.egg-info\PKG-INFO
+writing dependency_links to snapcontext.egg-info\dependency_links.txt
+writing entry points to snapcontext.egg-info\entry_points.txt
+writing requirements to snapcontext.egg-info\requires.txt
+writing top-level names to snapcontext.egg-info\top_level.txt
+reading manifest file 'snapcontext.egg-info\SOURCES.txt'
+reading manifest template 'MANIFEST.in'
+adding license file 'LICENSE'
+writing manifest file 'snapcontext.egg-info\SOURCES.txt'
+running check
+creating snapcontext-5.2.1
+creating snapcontext-5.2.1\snapcontext.egg-info
+creating snapcontext-5.2.1\web
+creating snapcontext-5.2.1\web\static
+copying files to snapcontext-5.2.1...
+copying CHANGELOG.md -> snapcontext-5.2.1
+copying LICENSE -> snapcontext-5.2.1
+copying MANIFEST.in -> snapcontext-5.2.1
+copying README.md -> snapcontext-5.2.1
+copying agentes.py -> snapcontext-5.2.1
+copying curador_proactivo.py -> snapcontext-5.2.1
+copying discord_gateway.py -> snapcontext-5.2.1
+copying orquestador.py -> snapcontext-5.2.1
+copying pyproject.toml -> snapcontext-5.2.1
+copying react_agent.py -> snapcontext-5.2.1
+copying snapcontext.py -> snapcontext-5.2.1
+copying telegram_gateway.py -> snapcontext-5.2.1
+copying ui.py -> snapcontext-5.2.1
+copying snapcontext.egg-info\PKG-INFO -> snapcontext-5.2.1\snapcontext.egg-info
+copying snapcontext.egg-info\SOURCES.txt -> snapcontext-5.2.1\snapcontext.egg-info
+copying snapcontext.egg-info\dependency_links.txt -> snapcontext-5.2.1\snapcontext.egg-info
+copying snapcontext.egg-info\entry_points.txt -> snapcontext-5.2.1\snapcontext.egg-info
+copying snapcontext.egg-info\requires.txt -> snapcontext-5.2.1\snapcontext.egg-info
+copying snapcontext.egg-info\top_level.txt -> snapcontext-5.2.1\snapcontext.egg-info
+copying web\__init__.py -> snapcontext-5.2.1\web
+copying web\app.py -> snapcontext-5.2.1\web
+copying web\static\index.html -> snapcontext-5.2.1\web\static
+Writing snapcontext-5.2.1\setup.cfg
+Creating tar archive
+removing 'snapcontext-5.2.1' (and everything under it)
+running egg_info
+writing snapcontext.egg-info\PKG-INFO
+writing dependency_links to snapcontext.egg-info\dependency_links.txt
+writing entry points to snapcontext.egg-info\entry_points.txt
+writing requirements to snapcontext.egg-info\requires.txt
+writing top-level names to snapcontext.egg-info\top_level.txt
+reading manifest file 'snapcontext.egg-info\SOURCES.txt'
+reading manifest template 'MANIFEST.in'
+adding license file 'LICENSE'
+writing manifest file 'snapcontext.egg-info\SOURCES.txt'
+running bdist_wheel
+running build
+running build_py
+creating build\lib
+copying snapcontext.py -> build\lib
+copying agentes.py -> build\lib
+copying orquestador.py -> build\lib
+copying ui.py -> build\lib
+copying react_agent.py -> build\lib
+copying curador_proactivo.py -> build\lib
+copying telegram_gateway.py -> build\lib
+copying discord_gateway.py -> build\lib
+creating build\lib\web
+copying web\app.py -> build\lib\web
+copying web\__init__.py -> build\lib\web
+running egg_info
+writing snapcontext.egg-info\PKG-INFO
+writing dependency_links to snapcontext.egg-info\dependency_links.txt
+writing entry points to snapcontext.egg-info\entry_points.txt
+writing requirements to snapcontext.egg-info\requires.txt
+writing top-level names to snapcontext.egg-info\top_level.txt
+reading manifest file 'snapcontext.egg-info\SOURCES.txt'
+reading manifest template 'MANIFEST.in'
+adding license file 'LICENSE'
+writing manifest file 'snapcontext.egg-info\SOURCES.txt'
+creating build\lib\web\static
+copying web\static\index.html -> build\lib\web\static
+installing to build\bdist.win-amd64\wheel
+running install
+running install_lib
+creating build\bdist.win-amd64\wheel
+copying build\lib\agentes.py -> build\bdist.win-amd64\wheel\.
+copying build\lib\curador_proactivo.py -> build\bdist.win-amd64\wheel\.
+copying build\lib\discord_gateway.py -> build\bdist.win-amd64\wheel\.
+copying build\lib\orquestador.py -> build\bdist.win-amd64\wheel\.
+copying build\lib\react_agent.py -> build\bdist.win-amd64\wheel\.
+copying build\lib\snapcontext.py -> build\bdist.win-amd64\wheel\.
+copying build\lib\telegram_gateway.py -> build\bdist.win-amd64\wheel\.
+copying build\lib\ui.py -> build\bdist.win-amd64\wheel\.
+creating build\bdist.win-amd64\wheel\web
+copying build\lib\web\app.py -> build\bdist.win-amd64\wheel\.\web
+creating build\bdist.win-amd64\wheel\web\static
+copying build\lib\web\static\index.html -> build\bdist.win-amd64\wheel\.\web\static
+copying build\lib\web\__init__.py -> build\bdist.win-amd64\wheel\.\web
+running install_egg_info
+Copying snapcontext.egg-info to build\bdist.win-amd64\wheel\.\snapcontext-5.2.1-py3.14.egg-info
+running install_scripts
+creating build\bdist.win-amd64\wheel\snapcontext-5.2.1.dist-info\WHEEL
+creating 'C:\\Users\\bruna\\OneDrive\\Desktop\\SnapContext\\dist\\.tmp-zzoqojq8\\snapcontext-5.2.1-py3-none-any.whl' and adding 'build\\bdist.win-amd64\\wheel' to it
+adding 'agentes.py'
+adding 'curador_proactivo.py'
+adding 'discord_gateway.py'
+adding 'orquestador.py'
+adding 'react_agent.py'
+adding 'snapcontext.py'
+adding 'telegram_gateway.py'
+adding 'ui.py'
+adding 'snapcontext-5.2.1.dist-info/licenses/LICENSE'
+adding 'web/__init__.py'
+adding 'web/app.py'
+adding 'web/static/index.html'
+adding 'snapcontext-5.2.1.dist-info/METADATA'
+adding 'snapcontext-5.2.1.dist-info/WHEEL'
+adding 'snapcontext-5.2.1.dist-info/entry_points.txt'
+adding 'snapcontext-5.2.1.dist-info/top_level.txt'
+adding 'snapcontext-5.2.1.dist-info/RECORD'
+removing build\bdist.win-amd64\wheel
+Successfully built snapcontext-5.2.1.tar.gz and snapcontext-5.2.1-py3-none-any.whl

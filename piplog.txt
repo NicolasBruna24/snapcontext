@@ -1,0 +1,2 @@
+  WARNING: The script wheel.exe is installed in 'C:\Users\bruna\AppData\Roaming\Python\Python314\Scripts' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.

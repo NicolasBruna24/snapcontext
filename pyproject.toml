@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 # Nombre verificado disponible en PyPI (18/08/2026): pypi.org/pypi/snapcontext → 404.
 # Alternativas si algún día estuviera ocupado: "snapcontext-cli" o "snapcontext-tool".
 name = "snapcontext"
-version = "5.2.0"
+version = "5.2.1"
 description = "SnapContext: Asistente de IA con contexto automático para desarrollo"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -88,8 +88,11 @@ Repository = "https://github.com/NicolasBruna24/snapcontext"
 snapcontext = "snapcontext:main"
 
 [tool.setuptools]
-# Módulos en la raíz (sin paquete): CLI + arquitectura de agentes.
-py-modules = ["snapcontext", "agentes", "orquestador"]
+# Módulos de la raíz (CLI + arquitectura de agentes + UI/curador/ReAct).
+# NOTA (v5.2.1): ui/react_agent/curador_proactivo DEBEN estar aquí; si se
+# omiten no se empaquetan en el .whl y snapcontext falla al importarlos.
+py-modules = ["snapcontext", "agentes", "orquestador", "ui", "react_agent",
+              "curador_proactivo", "telegram_gateway", "discord_gateway"]
 packages = ["web"]
 
 [tool.setuptools.package-data]
