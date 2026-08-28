@@ -58,7 +58,7 @@ import unicodedata
 import warnings
 import webbrowser
 from pathlib import Path
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 # v5.4.0: detección de comandos peligrosos para el sandboxing inteligente.
 from sandbox_utils import es_comando_peligroso
@@ -95,7 +95,7 @@ except ImportError:  # pragma: no cover
 # Claude (Anthropic) usa su propio SDK oficial (`anthropic`), distinto de la
 # API estilo OpenAI. Import diferido por la misma razón que los anteriores.
 try:
-    import anthropic
+        import anthropic  # type: ignore
 except ImportError:  # pragma: no cover
     anthropic = None
 
@@ -6073,7 +6073,7 @@ def _skill_similitud(texto_a: str, texto_b: str) -> float:
     modelo = _modelo_embeddings()
     if modelo is not None:
         try:
-            import numpy as _np
+            import numpy as _np  # type: ignore
             vectores = modelo.encode([texto_a.lower(), texto_b.lower()])
             va = _np.asarray(vectores[0])
             vb = _np.asarray(vectores[1])
@@ -6361,7 +6361,7 @@ def _daemon_tick(intervalo_horas: int = DAEMON_INTERVALO_HORAS_DEFECTO,
 def _daemon_bucle(intervalo_horas: int = DAEMON_INTERVALO_HORAS_DEFECTO,
                   pausa_segundos: int = DAEMON_PAUSA_SEGUNDOS) -> None:
     """Bucle principal del daemon (`snapcontext --daemon`)."""
-    ok("Daemon iniciado (curador cada " + str(intervalo_horas)
+    exito("Daemon iniciado (curador cada " + str(intervalo_horas)
        + " h, sondeo cada " + str(pausa_segundos) + " s). Ctrl+C para salir.")
     while True:
         try:
