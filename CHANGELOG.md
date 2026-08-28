@@ -4,6 +4,36 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [5.4.0] - 2026-08-27 - 🛡️ Sandboxing inteligente
+
+### Added
+- **Detección de comandos peligrosos** (`sandbox_utils.py`): regex compiladas
+  para `rm -rf /`, `dd`/`mkfs`/`fdisk`, `curl|wget ... | sh/bash`,
+  `chmod 777`/`chown -R`, fork bomb, `sudo` + destructivo, escritura en
+  dispositivos de bloque (`> /dev/sda`) y `kill -9`/`pkill`. Registro
+  extensible (`_PATRONES_PELIGROSOS`) y sin dependencias externas.
+- **Sandboxing automático**: los comandos peligrosos se ejecutan dentro del
+  contenedor Docker sin intervención del usuario
+  (`🔒 Comando potencialmente peligroso detectado...`); los seguros corren
+  directamente (cero fricción).
+- **Nuevo flag `--no-sandbox`**: desactiva todo el sandbox (prioridad máxima,
+  incluso ante `--sandbox` y comandos peligrosos).
+- **Variable de entorno `SNAPCONTEXT_SANDBOX`**: `1` fuerza el sandbox
+  siempre; `0` lo desactiva por completo.
+- Integración en `_ejecutar_comando` (planificador, ReAct, plugins, MCP),
+  `_bucle_test` y procesos en segundo plano.
+- Si el comando es peligroso y Docker no está disponible: pregunta al usuario
+  en modo interactivo y **aborta** en `--auto`.
+- Nuevos tests en `tests/test_sandbox_inteligente.py` (26 casos).
+
+### Compatibilidad
+- `--sandbox` explícito sigue funcionando exactamente igual (todo al
+  contenedor).
+- Sin flags, el comportamiento por defecto solo cambia para comandos
+  peligrosos; los demás se ejecutan como siempre.
+- Versión elevada a `5.4.0` (los 18 tests de coherencia de versión
+  actualizados).
+
 ## [5.3.0] - 2026-08-27 - 🧪 Detección automática de pruebas
 
 ### Added

@@ -48,6 +48,7 @@ import re
 import shlex
 import shutil
 import signal
+from concurrent.futures import ThreadPoolExecutor
 import subprocess
 import sys
 import tempfile
@@ -59,10 +60,14 @@ import webbrowser
 from pathlib import Path
 from typing import Any, List, Optional, Tuple, Union
 
+# v5.4.0: detección de comandos peligrosos para el sandboxing inteligente.
+from sandbox_utils import es_comando_peligroso
+
 # v4.8.0: capa de presentación centralizada (Rich). Degradación elegante:
 # ui.py funciona también sin `rich` (print plano), así que la importación
 # nunca rompe el CLI.
 from ui import (configurar_auto as _ui_configurar_auto,
+                es_auto as _ui_es_auto,
                 mostrar_banner as _ui_mostrar_banner,
                 mostrar_progreso as _ui_mostrar_progreso)
 from urllib.parse import urlparse
@@ -119,7 +124,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "5.3.0"
+VERSION = "5.4.0"
 
 # v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
 # de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
@@ -3445,9 +3450,14 @@ def _ejecutar_comando(comando: str, directorio: str = ".",
     raiz = Path(directorio).expanduser()
     if not raiz.is_dir():
         return (-1, "", f"El directorio no existe: {raiz}")
-    # v4.3.0: con --sandbox activo el comando corre dentro del contenedor.
-    if _SANDBOX_ACTIVO:
-        info(f"[sandbox] Ejecutando en contenedor: {comando}")
+    # v5.4.0: sandboxing inteligente. Decide por comando si se ejecuta dentro
+    # del contenedor Docker, sin forzarlo para todos los comandos.
+    decision = _decidir_ejecucion_sandbox(comando, str(raiz))
+    if decision == _SANDBOX_ABORTAR:
+        return (-1, "", "Comando peligroso abortado (no hay sandbox Docker disponible).")
+    if decision == _SANDBOX_CONTENEDOR:
+        if _SANDBOX_ACTIVO:
+            info(f"[sandbox] Ejecutando en contenedor: {comando}")
         comando = _envolver_sandbox(comando, str(raiz))
         raiz = Path.cwd()  # docker se lanza desde el host; el mount ya es absoluto
     try:
@@ -3485,6 +3495,118 @@ _SANDBOX_VARS_CLAVE = ("GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
 _SANDBOX_ACTIVO: bool = False
 _SANDBOX_IMAGEN: str = SANDBOX_IMAGEN_DEFECTO
 _SANDBOX_COMANDO_PREP: Optional[str] = None
+
+# ── Sandboxing inteligente (v5.4.0) ──────────────────────────────────────
+# Política por comando (además del sandbox forzado de --sandbox):
+#   _NO_SANDBOX   : --no-sandbox o SNAPCONTEXT_SANDBOX=0. Desactiva TODO el
+#                   sandbox (incluidos los comandos peligrosos).
+#   _SANDBOX_SMART: habilita la detección automática de comandos peligrosos.
+_NO_SANDBOX: bool = False
+_SANDBOX_SMART: bool = True
+# _SNAPCONTEXT_SANDBOX_ALWAYS queda implícito leyendo el entorno al decidir;
+# se activa en main() llamando a _activar_sandbox cuando la variable es "1".
+
+
+def _deberia_usar_sandbox(comando: Optional[str],
+                          args: Optional[argparse.Namespace] = None) -> bool:
+    """Decide si ``comando`` debe ejecutarse dentro del sandbox Docker (v5.4.0).
+
+    Orden de prioridad:
+
+    1. ``--no-sandbox`` (flag o ``SNAPCONTEXT_SANDBOX=0``) → ``False``.
+    2. ``--sandbox`` explícito → ``True`` (máxima prioridad activa).
+    3. ``SNAPCONTEXT_SANDBOX=1`` → ``True`` (siempre activo).
+    4. El comando es peligroso (``sandbox_utils.es_comando_peligroso``) → ``True``.
+    5. Cualquier otro caso → ``False``.
+
+    Cuando ``args`` se omite (p. ej. dentro de ``_ejecutar_comando``) se usa la
+    política global fijada en ``main()`` (``_NO_SANDBOX`` / ``_SANDBOX_ACTIVO``).
+    """
+    # 1. Opt-out explícito: flag --no-sandbox o entorno SNAPCONTEXT_SANDBOX=0.
+    no_sandbox = _NO_SANDBOX
+    if args is not None and getattr(args, "no_sandbox", False):
+        no_sandbox = True
+    if no_sandbox or os.environ.get("SNAPCONTEXT_SANDBOX") == "0":
+        return False
+    # 2. Sandbox forzado justificación para todo.
+    if args is not None and getattr(args, "sandbox", False):
+        return True
+    # 2b. v4.3.0: sandbox global activo (--sandbox en main()) → todo al
+    # contenedor, como siempre (compatibilidad hacia atrás).
+    if _SANDBOX_ACTIVO:
+        return True
+    # 3. Siempre activo por entorno.
+    if os.environ.get("SNAPCONTEXT_SANDBOX") == "1":
+        return True
+    # 4. Comando peligroso → sandbox automáticamente.
+    if _SANDBOX_SMART and es_comando_peligroso(comando):
+        return True
+    # 5. Resto (seguro) → sin sandbox.
+    return False
+
+
+def _configurar_no_sandbox(activo: bool) -> None:
+    """Fija la política global ``--no-sandbox`` (para tests y CLI)."""
+    global _NO_SANDBOX
+    _NO_SANDBOX = bool(activo)
+
+
+def _es_comando_peligroso(comando: str) -> bool:
+    """Alias de detección (delegado a :mod:`sandbox_utils`)."""
+    return es_comando_peligroso(comando)
+
+
+# Códigos de decisión de ejecución respecto al sandbox.
+_SANDBOX_ABORTAR = -1    # no ejecutar (comando peligroso sin Docker disponible)
+_SANDBOX_DIRECTO = 0     # ejecutar directamente (comando seguro / opt-out)
+_SANDBOX_CONTENEDOR = 1  # ejecutar dentro del contenedor Docker
+
+
+def _decidir_ejecucion_sandbox(comando: str, directorio: str) -> int:
+    """Resuelve cómo ejecutar ``comando`` y gestiona el aviso de peligro.
+
+    Devuelve uno de :data:`_SANDBOX_CONTENEDOR`, :data:`_SANDBOX_DIRECTO` o
+    :data:`_SANDBOX_ABORTAR`.
+
+    - Si el comando es peligroso y el sandbox Docker **no** está disponible:
+      avisa y (modo interactivo) pregunta si continuar sin sandbox; en modo
+      ``--auto`` (o stdin no interactivo) **aborta**.
+    - Si es peligroso y hay Docker: avisa con el candado y lo encapsula.
+    """
+    if not _deberia_usar_sandbox(comando):
+        return _SANDBOX_DIRECTO
+
+    peligroso = _es_comando_peligroso(comando)
+
+    # Sandbox ya forzado / activo globalmente (--sandbox o env=1 en main()).
+    if _SANDBOX_ACTIVO:
+        return _SANDBOX_CONTENEDOR
+
+    # Sandbox detectado por peligro (o env=1) → comprobar disponibilidad.
+    if _docker_disponible():
+        if peligroso:
+            info("🔒 Comando potencialmente peligroso detectado. "
+                 "Ejecutando en sandbox Docker.")
+        else:
+            depurar("[sandbox] SNAPCONTEXT_SANDBOX=1 → Ejecutando en contenedor.")
+        return _SANDBOX_CONTENEDOR
+
+    # Solicitado pero sin Docker disponible.
+    if peligroso:
+        aviso("⚠️ Comando peligroso detectado. No se puede usar sandbox "
+              "(Docker no instalado).")
+        if _ui_es_auto() or not _entrada_interactiva():
+            aviso("  → Modo --auto: se aborta la ejecución del comando.")
+            return _SANDBOX_ABORTAR
+        if not _preguntar_si("¿Continuar sin sandbox? (s/n): "):
+            aviso("  → Ejecución rechazada por el usuario.")
+            return _SANDBOX_ABORTAR
+        return _SANDBOX_DIRECTO
+
+    # Sandbox solicitado (env=1) pero sin Docker y comando no peligroso:
+    # mejor esfuerzo → seguir directo (no es destructivo).
+    depurar("[sandbox] Solicitado pero Docker no disponible; se continúa directo.")
+    return _SANDBOX_DIRECTO
 
 
 def _docker_disponible() -> bool:
@@ -8306,7 +8428,8 @@ CATEGORIAS_AYUDA = (
      ("--git-commit", "--no-git-commit", "--branch")),
     ("Planificador y bucles",
      ("--paralelo", "--max-intentos", "--test-loop", "--server-loop",
-      "--manual-loop", "--comando-test", "--sandbox", "--sandbox-imagen",
+      "--manual-loop", "--comando-test", "--sandbox", "--no-sandbox",
+      "--sandbox-imagen",
       "--sandbox-comando", "--dispositivo", "--url-defecto",
       "--max-iteraciones")),
     ("Otros",
@@ -9246,12 +9369,26 @@ def crear_parser() -> argparse.ArgumentParser:
              'automáticamente según el lenguaje del proyecto '
              '(p. ej. "go test ./...", "pytest", "flutter test").',
     )
-    # v4.3.0: sandbox opcional con Docker.
+    # v4.3.0/v5.4.0: sandbox Docker, ahora inteligente.
+    #   --sandbox        → fuerza el contenedor para TODO (como siempre).
+    #   --no-sandbox     → lo desactiva por completo, incluso ante comandos
+    #                      peligrosos (prioridad máxima, opt-out explícito).
+    #   Sin ninguno      → modo inteligente: solo se encapsulan los comandos
+    #                      peligrosos detectados (sandbox_utils).
     parser.add_argument(
         "--sandbox", action="store_true",
-        help="(v4.3.0) Ejecuta comandos y pruebas dentro de un contenedor "
-             "Docker aislado (monta el proyecto en /workspace). Si Docker no "
-             "está disponible, falla con error claro.",
+        help="(v4.3.0) Ejecuta TODOS los comandos y pruebas dentro de un "
+             "contenedor Docker aislado (monta el proyecto en /workspace). "
+             "Si Docker no está disponible, falla con error claro. "
+             "(v5.4.0) Sin este flag, el sandbox se activa de forma "
+             "inteligente SOLO ante comandos peligrosos.",
+    )
+    parser.add_argument(
+        "--no-sandbox", dest="no_sandbox", action="store_true",
+        help="(v5.4.0) Desactiva el sandboxing inteligente: ningún comando se "
+             "ejecuta en Docker, incluso si se detecta peligro. Tiene "
+             "prioridad sobre --sandbox y sobre SNAPCONTEXT_SANDBOX=1. "
+             "Equivalente a la variable SNAPCONTEXT_SANDBOX=0.",
     )
     parser.add_argument(
         "--sandbox-imagen", dest="sandbox_imagen", default=None,
@@ -10266,14 +10403,23 @@ def main(argv: Optional[List[str]] = None) -> int:
         CONFIRMAR_ACCIONES = getattr(args, "confirmar", True)
         # v4.8.0: sincroniza el modo no interactivo de la capa UI (--auto).
         _ui_configurar_auto(bool(getattr(args, "auto", False)))
-        # v4.3.0: activar el sandbox Docker si se pidió --sandbox. Es lo
-        # primero para que TODO comando posterior ya nazca en el contenedor
-        # (bucle de pruebas, MCP execute_command, pasos "ejecutar" del plan).
-        if getattr(args, "sandbox", False):
+        # v4.3.0/v5.4.0: política de sandbox. --no-sandbox gana sobre todo;
+        # después --sandbox explícito; y SNAPCONTEXT_SANDBOX=1 activa el
+        # contenedor para todo (no estricto: si falta Docker se continúa sin
+        # él, los comandos peligrosos los gestiona _decidir_ejecucion_sandbox).
+        if getattr(args, "no_sandbox", False) or \
+                os.environ.get("SNAPCONTEXT_SANDBOX") == "0":
+            _configurar_no_sandbox(True)
+        elif getattr(args, "sandbox", False):
             _activar_sandbox(
                 imagen=getattr(args, "sandbox_imagen", None),
                 comando_prep=getattr(args, "sandbox_comando", None),
                 estricto=True)
+        elif os.environ.get("SNAPCONTEXT_SANDBOX") == "1":
+            _activar_sandbox(
+                imagen=getattr(args, "sandbox_imagen", None),
+                comando_prep=getattr(args, "sandbox_comando", None),
+                estricto=False)
         # v5.0.0: arranca el daemon del curador proactivo en segundo plano
         # (hilo demonio; nunca bloquea el CLI). Se omite si se corre bajo un
         # test runner y se puede desactivar con CURADOR_DAEMON=0.

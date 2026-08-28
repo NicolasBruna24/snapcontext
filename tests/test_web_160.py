@@ -17,7 +17,7 @@ INDEX = RAIZ / "web" / "static" / "index.html"
 
 class TestVersion(unittest.TestCase):
     def test_version_160_coherente(self):
-        self.assertEqual(sc.VERSION, "5.3.0")
+        self.assertEqual(sc.VERSION, "5.4.0")
 
 
 class TestFrontendV160(unittest.TestCase):

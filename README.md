@@ -1543,6 +1543,57 @@ Este es el punto natural para extender SnapContext: por ejemplo, añadir
 
 ---
 
+## 🛡️ Sandboxing inteligente
+
+Desde **v5.4.0**, SnapContext ya no necesita que actives `--sandbox` para
+protegerte: analiza cada comando y activa el contenedor Docker **solo cuando
+es necesario**.
+
+### Cómo funciona
+
+1. Antes de ejecutar cualquier comando (planificador, ReAct `ejecutar_comando`,
+   bucle de pruebas, plugins, MCP), SnapContext lo evalúa con
+   `sandbox_utils.es_comando_peligroso()` (regex compiladas, muy rápido).
+2. Si el comando es peligroso → se ejecuta dentro del sandbox Docker
+   automáticamente: `🔒 Comando potencialmente peligroso detectado.
+   Ejecutando en sandbox Docker.`
+3. Si es peligroso pero Docker no está disponible → se advierte y, en modo
+   interactivo, se pregunta si continuar; en `--auto` se **aborta** el comando.
+4. Los comandos seguros se ejecutan directamente, sin fricción.
+
+### Patrones detectados (extensibles en `sandbox_utils.py`)
+
+- Borrado masivo: `rm -rf /`, `rm -rf ~`, `rm -rf .`, `--no-preserve-root`.
+- Discos: `dd if=/of=`, `mkfs*`, `fdisk`, `wipefs`, `parted`.
+- Descarga y ejecución: `curl ... | sh`, `wget ... | bash`, `... | sudo bash`.
+- Permisos: `chmod 777 /`, `chmod -R 777`, `chown -R`.
+- Fork bomb `:(){ :|:& };:`, `sudo` + comando destructivo.
+- Escritura en dispositivos de bloque (`> /dev/sda`; `> /dev/null` es inocuo).
+- Terminación de procesos: `kill -9`, `pkill`.
+
+### Control por el usuario
+
+| Mecanismo | Efecto |
+|---|---|
+| `--sandbox` | Fuerza el contenedor para **todos** los comandos (como en v4.3.0). |
+| `--no-sandbox` | Desactiva todo el sandbox, incluso ante comandos peligrosos (prioridad máxima). |
+| `SNAPCONTEXT_SANDBOX=1` | Sandbox siempre activo (equivale a `--sandbox`, sin error si falta Docker). |
+| `SNAPCONTEXT_SANDBOX=0` | Equivale a `--no-sandbox`. |
+
+Prioridad: `--no-sandbox` / `SNAPCONTEXT_SANDBOX=0` > `--sandbox` >
+`SNAPCONTEXT_SANDBOX=1` > detección automática.
+
+```bash
+# Modo por defecto: solo los comandos peligrosos van al contenedor
+snapcontext "limpiar el proyecto"
+
+# Opt-out total (scripts de CI, confianza total)
+snapcontext "tarea" --no-sandbox
+
+# Siempre sandbox
+SNAPCONTEXT_SANDBOX=1 snapcontext "tarea"
+```
+
 ## 🧪 Detección automática de pruebas
 
 Desde **v5.3.0**, SnapContext detecta automáticamente cómo correr las pruebas

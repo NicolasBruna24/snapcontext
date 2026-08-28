@@ -174,7 +174,7 @@ class TestFlagsEdicionAST(unittest.TestCase):
         self.assertEqual(args2.modo_edicion, "auto")
 
     def test_version_es_2_2_0(self):
-        self.assertEqual(sc.VERSION, "5.3.0")
+        self.assertEqual(sc.VERSION, "5.4.0")
 
 
 if __name__ == "__main__":

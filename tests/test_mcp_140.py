@@ -248,7 +248,7 @@ class TestChatComandosGrafo(unittest.TestCase):
 
 class TestVersion(unittest.TestCase):
     def test_version_140_coherente(self):
-        self.assertEqual(sc.VERSION, "5.3.0")
+        self.assertEqual(sc.VERSION, "5.4.0")
 
 
 if __name__ == "__main__":
