@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests de la Fase 3 del Editor Propio (Edición basada en AST) — v2.2.0."""
+"""Tests de la Fase 3 del Editor Propio (EdiciÃ³n basada en AST) â€” v2.2.0."""
 
 import shutil
 import tempfile
@@ -32,7 +32,7 @@ class TestEditorAST(unittest.TestCase):
 
     def test_ast_disponible_python(self):
         self.assertTrue(sc._ast_disponible("src/modulo.py"))
-        # .txt no tiene analizador AST (aunque tree-sitter esté instalado)
+        # .txt no tiene analizador AST (aunque tree-sitter estÃ© instalado)
         self.assertFalse(sc._ast_disponible("modulo.txt"))
         self.assertFalse(sc._ast_disponible(""))
 
@@ -69,7 +69,7 @@ class TestEditorAST(unittest.TestCase):
         ops = sc._interpretar_operaciones_ast(
             '```json\n[{"tipo": "renombrar", "nombre": "x", "nuevo": "y"}]\n```')
         self.assertEqual(ops[0]["tipo"], "renombrar")
-        # Sin JSON → se trata como código completo
+        # Sin JSON â†’ se trata como cÃ³digo completo
         ops2 = sc._interpretar_operaciones_ast("def fn(): return 1\n")
         self.assertEqual(ops2[0]["tipo"], "completo")
 
@@ -103,7 +103,7 @@ class TestEditorAST(unittest.TestCase):
                                         directorio=str(self.raiz)))
 
     def test_editor_ast_sin_ast_disponible(self):
-        # .txt no tiene analizador AST → delega (devuelve False)
+        # .txt no tiene analizador AST â†’ delega (devuelve False)
         self._escribir("notas.txt", "hola")
         self.assertFalse(sc._editor_ast("notas.txt", "tarea",
                                         directorio=str(self.raiz)))
@@ -151,10 +151,10 @@ class TestAgenteEditorAST(unittest.TestCase):
         self.assertEqual(agente._cadena_modos("m.py", "x", "parche"), ["parche"])
         self.assertEqual(agente._cadena_modos("m.py", "x", "ast"),
                          ["ast", "sobrescribir"])
-        # auto: estructural → AST primero
+        # auto: estructural â†’ AST primero
         self.assertEqual(agente._cadena_modos("m.py", "renombrar la funcion", "auto"),
                          ["ast", "parche", "sobrescribir"])
-        # auto: tarea simple → parche → sobrescritura
+        # auto: tarea simple â†’ parche â†’ sobrescritura
         self.assertEqual(agente._cadena_modos("m.py", "cambiar retorno a 2", "auto"),
                          ["parche", "sobrescribir"])
 
@@ -174,7 +174,7 @@ class TestFlagsEdicionAST(unittest.TestCase):
         self.assertEqual(args2.modo_edicion, "auto")
 
     def test_version_es_2_2_0(self):
-        self.assertEqual(sc.VERSION, "5.5.0")
+        self.assertEqual(sc.VERSION, "5.6.0")
 
 
 if __name__ == "__main__":

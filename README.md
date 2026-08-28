@@ -2101,6 +2101,54 @@ export SNAPCONTEXT_GRAPH_RAG=1
 Solo Python en esta versión (tree-sitter para otros lenguajes llega en v5.6.0). El flag es completamente opcional: sin él, SnapContext se comporta igual que en 5.4.0.
 ---
 
+## 🌐 Editor multi-lenguaje (Tree-sitter)
+
+Desde **v5.6.0**, el editor propio (transaccional, fuzzy matching, análisis de
+impacto y contexto selectivo) funciona también en proyectos **no Python**
+gracias a [tree-sitter](https://tree-sitter.github.io/), un parser incremental
+multi-lenguaje.
+
+### Lenguajes soportados
+
+| Extensión | Lenguaje |
+|---|---|
+| `.py` | Python (usa `ast` de la stdlib, como siempre) |
+| `.js` / `.jsx` | JavaScript |
+| `.ts` / `.tsx` | TypeScript |
+| `.go` | Go |
+| `.rs` | Rust |
+| `.java` | Java |
+| `.kt` | Kotlin |
+| `.rb` | Ruby |
+| `.php` | PHP |
+| `.c` / `.h` | C |
+| `.cpp` / `.hpp` / `.cc` | C++ |
+| `.cs` | C# |
+| `.swift` | Swift |
+| `.dart` | Dart |
+
+### Cómo funciona
+
+1. **Detección** del lenguaje por extensión (`parser_universal.detectar_lenguaje_por_extension`).
+2. **Parseo** con tree-sitter (`parsear_archivo`) para obtener el AST.
+3. **Extracción** de funciones/clases/métodos (`extraer_nodos`) para el
+   análisis de impacto y el contexto selectivo.
+4. **Parche seguro** por bytes exactos del nodo (`aplicar_parche_arbol`).
+
+La cadena de estrategias se mantiene intacta: **AST → Parche → Sobrescritura**.
+Si tree-sitter no está instalado, el archivo está mal formado o el lenguaje no
+está soportado, el editor cae elegantemente a las estrategias siguientes
+(igual que en 5.5.0). Python **no** cambia: sigue usando el `ast` nativo.
+
+### Instalación
+
+```bash
+pip install "snapcontext[editor_multilenguaje]"
+# o directamente:
+pip install tree-sitter tree-sitter-languages tree-sitter-language-pack
+```
+
+
 ## 🙌 Agradecimientos
 
 - **Aider** por su excelente motor de edición de código.

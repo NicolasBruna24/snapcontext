@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests de la Fase 2 del Editor Propio (Diffs y Parches Unificados) — v2.1.0."""
+"""Tests de la Fase 2 del Editor Propio (Diffs y Parches Unificados) â€” v2.1.0."""
 
 import os
 import shutil
@@ -75,7 +75,7 @@ class TestDiffYParches(unittest.TestCase):
         agente = AgenteEditorPropio()
         archivo = "modulo.py"
         (self.raiz / archivo).write_text("def fn(): return 1\n", encoding="utf-8")
-        # Proveedor devuelve código completo en lugar de diff
+        # Proveedor devuelve cÃ³digo completo en lugar de diff
         codigo_completo = "def fn(): return 2\n"
 
         with mock.patch.object(sc, "_enviar_al_proveedor", side_effect=["no es un diff", codigo_completo]), \
@@ -98,7 +98,7 @@ class TestFlagsEdicion(unittest.TestCase):
         self.assertEqual(parser.parse_args(["--modo-edicion", "sobrescribir", "c"]).modo_edicion, "sobrescribir")
 
     def test_version_es_2_1_0(self):
-        self.assertEqual(sc.VERSION, "5.5.0")
+        self.assertEqual(sc.VERSION, "5.6.0")
 
 
 if __name__ == "__main__":

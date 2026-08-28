@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests de la v1.7.0: extensión JetBrains (estructura y coherencia)."""
+"""Tests de la v1.7.0: extensiÃ³n JetBrains (estructura y coherencia)."""
 
 import json
 import sys
@@ -17,11 +17,11 @@ import snapcontext as sc  # noqa: E402
 
 class TestVersion(unittest.TestCase):
     def test_version_170_coherente(self):
-        self.assertEqual(sc.VERSION, "5.5.0")
+        self.assertEqual(sc.VERSION, "5.6.0")
 
 
 class TestEstructuraJetBrains(unittest.TestCase):
-    """Ficheros imprescindibles de la extensión."""
+    """Ficheros imprescindibles de la extensiÃ³n."""
 
     def test_ficheros_principales(self):
         for relativo in ("build.gradle.kts", "settings.gradle.kts",
@@ -75,7 +75,7 @@ class TestPluginXml(unittest.TestCase):
             self.assertIn(esperado, ids)
 
     def test_clases_de_acciones_existen_en_kotlin(self):
-        """Cada clase referenciada en plugin.xml debe declararse en algún .kt."""
+        """Cada clase referenciada en plugin.xml debe declararse en algÃºn .kt."""
         clases = {a.get("class") for a in self.raiz.iter("action") if a.get("class")}
         fuentes = "".join(
             p.read_text(encoding="utf-8")
@@ -83,7 +83,7 @@ class TestPluginXml(unittest.TestCase):
         for clase in clases:
             nombre = clase.rsplit(".", 1)[-1]
             self.assertRegex(fuentes, rf"(class|object) {nombre}\b",
-                             f"Clase {nombre} no encontrada en el código Kotlin")
+                             f"Clase {nombre} no encontrada en el cÃ³digo Kotlin")
 
 
 class TestGradleYKotlin(unittest.TestCase):
@@ -102,7 +102,7 @@ class TestGradleYKotlin(unittest.TestCase):
         self.assertIn("GEMINI_API_KEY", servicio)        # clave opcional
 
     def test_contexto_como_vscode(self):
-        # Mismo mecanismo de contexto visual que la extensión de VS Code
+        # Mismo mecanismo de contexto visual que la extensiÃ³n de VS Code
         # (migrada a TypeScript en v3.2.0).
         vscode = (RAIZ / "vscode" / "src" / "extension.ts").read_text(
             encoding="utf-8")

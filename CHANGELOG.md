@@ -4,6 +4,32 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [5.6.0] - 2026-08-27 - 🌐 Editor multi-lenguaje (Tree-sitter)
+
+### Added
+- **Nuevo módulo `parser_universal.py`**: editor AST multi-lenguaje basado en
+  tree-sitter (language pack), con fallback elegante cuando la librería no
+  está instalada o el archivo es inválido.
+  - `detectar_lenguaje_por_extension(archivo)`: `.py`, `.js`, `.ts`/`.tsx`,
+    `.jsx`, `.go`, `.rs`, `.java`, `.kt`, `.rb`, `.php`, `.c`/`.h`,
+    `.cpp`/`.hpp`, `.cs`, `.swift`, `.dart`, etc.
+  - `parsear_archivo(contenido, lenguaje)`: AST tree-sitter o `None`.
+  - `extraer_nodos(archivo, tipo_nodo)`: funciones, clases, métodos e imports
+    (nombres de gramática comunes: `function_definition`,
+    `function_declaration`, `class_definition`, `class_declaration`, …).
+  - `aplicar_parche_arbol(contenido, nodo_viejo, nodo_nuevo)`: reemplazo
+    seguro por bytes exactos del nodo.
+- **Editor propio multi-lenguaje** (`agentes.py`, `snapcontext.py`):
+  - `_resumen_ast` y `_extraer_bloques_ast` aceptan ahora archivos no-Python
+    vía `parser_universal` (Python sigue usando `ast` de la stdlib).
+  - `_extraer_contexto_selectivo` y `_puede_ast` soportan todos los
+    lenguajes del pack; sin tree-sitter caen a parche/sobrescritura como
+    siempre.
+  - Se mantiene la cadena de estrategias AST → Parche → Sobrescritura y la
+    transaccionalidad, fuzzy matching y análisis de impacto.
+- **Dependencias** (`pyproject.toml`, extras opcionales): `tree-sitter`,
+  `tree-sitter-languages` y `tree-sitter-language-pack`.
+
 ## [5.5.0] - 2026-08-27 - 🔗 Graph RAG (AST + embeddings)
 
 ### Added

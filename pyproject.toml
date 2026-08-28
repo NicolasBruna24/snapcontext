@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 # Nombre verificado disponible en PyPI (18/08/2026): pypi.org/pypi/snapcontext → 404.
 # Alternativas si algún día estuviera ocupado: "snapcontext-cli" o "snapcontext-tool".
 name = "snapcontext"
-version = "5.5.0"
+version = "5.6.0"
 description = "SnapContext: Asistente de IA con contexto automático para desarrollo"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -70,11 +70,12 @@ embeddings = [
     "sentence-transformers>=3.0.0",
     "torch>=2.0.0",
 ]
-# MCP avanzado (v1.4.0): análisis sintáctico multi-lenguaje con tree-sitter
-# (herramienta `ast_avanzado`). Sin él, cae a `ast` de la stdlib (solo Python).
+# MCP avanzado (v1.4.0) y editor multi-lenguaje (v5.6.0): análisis sintáctico
+# con tree-sitter. Sin él, cae a `ast` de la stdlib (solo Python).
 mcp_avanzado = [
     "tree-sitter>=0.20.0",
     "tree-sitter-languages>=1.10.0",
+    "tree-sitter-language-pack>=0.2.0",
 ]
 
 [project.urls]
@@ -94,9 +95,11 @@ snapcontext = "snapcontext:main"
 # v5.3.0: detector_tests (detección automática de pruebas) también se incluye.
 # v5.4.0: sandbox_utils (detección de comandos peligrosos) también se incluye.
 # v5.5.0: graph_rag (grafo de conocimiento) también se incluye.
+# v5.6.0: parser_universal (editor multi-lenguaje tree-sitter) también se incluye.
 py-modules = ["snapcontext", "agentes", "orquestador", "ui", "react_agent",
               "curador_proactivo", "telegram_gateway", "discord_gateway",
-              "detector_tests", "sandbox_utils", "graph_rag"]
+              "detector_tests", "sandbox_utils", "graph_rag",
+              "parser_universal"]
 packages = ["web"]
 
 [tool.setuptools.package-data]

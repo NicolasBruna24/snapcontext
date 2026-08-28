@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests de la v1.3.0: validación de carpeta permisiva y --iniciar-proyecto."""
+"""Tests de la v1.3.0: validaciÃ³n de carpeta permisiva y --iniciar-proyecto."""
 
 import os
 import shutil
@@ -11,7 +11,7 @@ from orquestador import Orquestador, VISTA_PREVIA
 
 
 class TestEsProyectoValido(unittest.TestCase):
-    """_es_proyecto_valido() debe aceptar carpetas/archivos VACÍOS (v1.3.0)."""
+    """_es_proyecto_valido() debe aceptar carpetas/archivos VACÃOS (v1.3.0)."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="sc_valid_")
@@ -24,9 +24,9 @@ class TestEsProyectoValido(unittest.TestCase):
             ruta = os.path.join(self.tmp, rel.replace("/", os.sep))
             os.makedirs(os.path.dirname(ruta), exist_ok=True)
             with open(ruta, "w", encoding="utf-8"):
-                pass  # archivos vacíos a propósito
+                pass  # archivos vacÃ­os a propÃ³sito
 
-    # --- casos que AHORA son válidos ---
+    # --- casos que AHORA son vÃ¡lidos ---
     def test_carpeta_tipica_vacia(self):
         import snapcontext as sc
         os.makedirs(os.path.join(self.tmp, "lib"))
@@ -63,7 +63,7 @@ class TestEsProyectoValido(unittest.TestCase):
 
 
 class TestIniciarProyecto(unittest.TestCase):
-    """Flag --iniciar-proyecto y comportamiento de la validación en _planificar."""
+    """Flag --iniciar-proyecto y comportamiento de la validaciÃ³n en _planificar."""
 
     def setUp(self):
         self.prev = os.getcwd()
@@ -126,7 +126,7 @@ class TestIniciarProyecto(unittest.TestCase):
 class TestVersion(unittest.TestCase):
     def test_version_130_coherente(self):
         import snapcontext as sc
-        self.assertEqual(sc.VERSION, "5.5.0")
+        self.assertEqual(sc.VERSION, "5.6.0")
 
 
 if __name__ == "__main__":

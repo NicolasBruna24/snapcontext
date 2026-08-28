@@ -35,7 +35,11 @@ def _tarea_estructura(tarea: str) -> bool:
     t = "".join(c for c in t if not _u.combining(c))
     claves = ("refactor", "renombra", "renombrar", "extra", "extraer",
               "mueve", "mover", "inserta", "insertar", "nueva funcion",
-              "crear funcion", "funcion", "extraccion")
+              "crear funcion", "funcion", "extraccion",
+              # v5.6.0: símbolos estructurales multi-lenguaje (structs de Go/
+              # Rust, clases Java/TS, métodos, campos…).
+              "struct", "clase", "class", "metodo", "interface", "campo",
+              "interfaz", "enum")
     return any(k in t for k in claves)
 
 
@@ -70,7 +74,7 @@ def _construir_prompt_edicion(modo: str, mensaje: str, archivo: str,
     if modo == "parche":
         if truncado:
             contexto = sc._extraer_contexto_selectivo(contenido_actual,
-                                                      mensaje)
+                                                      mensaje, archivo)
             prompt = (
                 f"Genera un parche unificado (unified diff) que modifique SOLO "
                 f"el bloque mostrado para cumplir con la tarea.\n"
@@ -111,7 +115,8 @@ def _construir_prompt_edicion(modo: str, mensaje: str, archivo: str,
 
     # modo == "sobrescribir"
     if truncado:
-        contexto = sc._extraer_contexto_selectivo(contenido_actual, mensaje)
+        contexto = sc._extraer_contexto_selectivo(contenido_actual, mensaje,
+                                                  archivo)
         prompt = (
             f"Tarea: {mensaje}\n"
             f"El archivo {archivo} ({lenguaje}, {num_lineas} líneas) es "

@@ -124,7 +124,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "5.5.0"
+VERSION = "5.6.0"
 
 # v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
 # de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
@@ -1793,13 +1793,24 @@ def _editor_sobrescribir(archivo: str, contenido: str,
 # ---------------------------------------------------------------------------
 # Contexto inteligente para archivos grandes (v4.7.0)
 # ---------------------------------------------------------------------------
-def _extraer_bloques_ast(contenido: str) -> List[dict]:
-    """Extrae los bloques de primer nivel (funciones/clases) de código Python.
+def _extraer_bloques_ast(contenido: str,
+                         archivo: Optional[str] = None) -> List[dict]:
+    """Extrae los bloques de primer nivel (funciones/clases) de ``contenido``.
+
+    - Python (o sin ``archivo``): usa el ``ast`` de la stdlib.
+    - Otros lenguajes (con ``archivo``): usa tree-sitter vía
+      ``parser_universal.extraer_bloques`` (v5.6.0).
 
     Devuelve una lista de dicts ``{"tipo", "nombre", "inicio", "fin"}`` con
-    líneas 1-based inclusivas (incluyendo decoradores). Devuelve [] para
-    otros lenguajes o sintaxis inválida.
+    líneas 1-based inclusivas. Devuelve [] para lenguajes no soportados o
+    sintaxis inválida.
     """
+    if archivo and not _es_extension_python(archivo):
+        try:
+            import parser_universal as pu          # noqa: E402
+            return pu.extraer_bloques(archivo, contenido)
+        except Exception:                          # noqa: BLE001
+            return []
     try:
         arbol = ast.parse(contenido)
     except SyntaxError:
@@ -1821,17 +1832,29 @@ def _extraer_bloques_ast(contenido: str) -> List[dict]:
     return bloques
 
 
-def _extraer_contexto_selectivo(contenido: str, mensaje: str = "") -> str:
+def _extraer_contexto_selectivo(contenido: str, mensaje: str = "",
+                                archivo: Optional[str] = None) -> str:
     """Construye contexto reducido para archivos grandes (> MAX_CONTEXT_LINES).
 
-    Formato devuelto: ``[RESUMEN DEL ARCHIVO (AST)]`` (vía
-    ``_resumen_ast_python``, reutilizado) + ``[CÓDIGO RELEVANTE A EDITAR]``
+    Formato devuelto: ``[RESUMEN DEL ARCHIVO (AST)]`` (Python vía
+    ``_resumen_ast_python``; otros lenguajes vía tree-sitter /
+    ``parser_universal``, v5.6.0) + ``[CÓDIGO RELEVANTE A EDITAR]``
     (bloques cuyo nombre aparece en ``mensaje``; si ninguno coincide, los
     primeros bloques hasta agotar el presupuesto — búsqueda por proximidad),
     cada uno con ±5 líneas de contexto adicional, más la ``[RESTRICCIÓN]``
     final para que el modelo solo genere el diff del bloque mostrado.
     """
-    resumen = _resumen_ast_python(contenido)
+    es_python = (archivo is None) or _es_extension_python(archivo)
+    if es_python:
+        resumen = _resumen_ast_python(contenido)
+    else:
+        try:
+            import parser_universal as pu          # noqa: E402
+            resumen = pu.resumen_archivo(archivo, contenido)
+        except Exception:                          # noqa: BLE001
+            resumen = None
+        if not resumen or not resumen.get("ok"):
+            resumen = _resumen_ast(contenido, archivo or "")
     lineas = contenido.splitlines()
     total = len(lineas)
 
@@ -1847,7 +1870,7 @@ def _extraer_contexto_selectivo(contenido: str, mensaje: str = "") -> str:
                 for it in items[:80])
             partes.append(f"{titulo}: {nombres}")
 
-    bloques = _extraer_bloques_ast(contenido)
+    bloques = _extraer_bloques_ast(contenido, archivo)
     tarea = (mensaje or "").lower()
     objetivo = [b for b in bloques if b["nombre"].lower() in tarea]
     if not objetivo:
@@ -2372,11 +2395,22 @@ def _es_extension_python(ruta: str) -> bool:
 
 
 def _ast_disponible(ruta: str) -> bool:
-    """True si se puede generar un AST para ``ruta`` (Python o tree-sitter)."""
+    """True si se puede generar un AST para ``ruta`` (Python o tree-sitter).
+
+    v5.6.0: para lenguajes no-Python se usa ``parser_universal`` (language
+    pack) como detector principal; el backend clásico tree_sitter_languages
+    queda como reserva.
+    """
     if not ruta or not str(ruta).strip():
         return False
     if _es_extension_python(ruta):
         return True
+    try:
+        import parser_universal as pu          # noqa: E402
+        if pu.detectar_lenguaje_por_extension(str(ruta)):
+            return pu.backend_disponible()
+    except Exception:                          # noqa: BLE001
+        pass
     lenguaje = _lenguaje_tree_sitter(str(ruta))
     return bool(tree_sitter is not None and _ts_lang is not None and lenguaje)
 
@@ -2437,6 +2471,16 @@ def _resumen_ast(contenido: str, ruta: str) -> dict:
     lenguaje = _lenguaje_archivo(ruta, contenido) or ""
     if _es_extension_python(ruta) or lenguaje == "python":
         return _resumen_ast_python(contenido)
+    # v5.6.0: parser_universal (tree-sitter language pack) como motor
+    # principal; el backend clásico tree_sitter_languages queda de reserva.
+    try:
+        import parser_universal as pu              # noqa: E402
+        resumen_pu = pu.resumen_archivo(ruta, contenido)
+        if resumen_pu and resumen_pu.get("ok"):
+            resumen_pu["llamadas"] = []
+            return resumen_pu
+    except Exception:                              # noqa: BLE001
+        pass
     if tree_sitter is not None and _ts_lang is not None and lenguaje:
         try:
             idioma = _ts_lang.get_language(lenguaje)

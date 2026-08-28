@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests de permisos y confirmaciones (--confirmar) — v0.13.0."""
+"""Tests de permisos y confirmaciones (--confirmar) â€” v0.13.0."""
 
 import json
 import sys
@@ -14,7 +14,7 @@ import snapcontext as sc
 
 
 class BasePermisos(unittest.TestCase):
-    """Aísla CONFIG_DIR/PERMISOS_PATH en un directorio temporal."""
+    """AÃ­sla CONFIG_DIR/PERMISOS_PATH en un directorio temporal."""
 
     def setUp(self):
         import tempfile
@@ -50,7 +50,7 @@ class TestPermisosPersistencia(BasePermisos):
         self.assertTrue((self.dir_tmp / "permisos.json").exists())
         self.assertTrue(sc._limpiar_permisos())
         self.assertFalse((self.dir_tmp / "permisos.json").exists())
-        self.assertTrue(sc._limpiar_permisos())   # sin archivo también ok
+        self.assertTrue(sc._limpiar_permisos())   # sin archivo tambiÃ©n ok
 
     def test_archivo_corrupto_devuelve_vacio(self):
         (self.dir_tmp / "permisos.json").write_text("{roto", encoding="utf-8")
@@ -182,7 +182,7 @@ class TestFlagsConfirmarCLI(unittest.TestCase):
         self.assertFalse(self._parse(["--chat", "--no-confirmar"]).confirmar)
 
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "5.5.0")
+        self.assertEqual(sc.VERSION, "5.6.0")
 
 
 if __name__ == "__main__":

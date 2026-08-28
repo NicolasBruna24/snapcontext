@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests de las funcionalidades de SnapContext v2.0.0 (Editor propio y optimizaciones)."""
 
@@ -46,7 +46,7 @@ class TestEditorPropio(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(destino.read_text(encoding="utf-8"), nuevo_contenido)
 
-        # Verificar que se creó el backup
+        # Verificar que se creÃ³ el backup
         backups = list(self.backups_dir.glob("*_main.dart"))
         self.assertGreaterEqual(len(backups), 1)
         self.assertEqual(backups[0].read_text(encoding="utf-8"), "void main() { print('v1'); }")
@@ -86,7 +86,7 @@ class TestFlagsEditor(unittest.TestCase):
         self.assertIsInstance(orch.agente_editor_propio, AgenteEditorPropio)
 
     def test_version_es_2_0_0(self):
-        self.assertEqual(sc.VERSION, "5.5.0")
+        self.assertEqual(sc.VERSION, "5.6.0")
 
 
 if __name__ == "__main__":
