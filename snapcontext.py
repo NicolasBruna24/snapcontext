@@ -3928,12 +3928,35 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
     /ayuda. Cualquier otro texto se envía al proveedor actual.
     """
     preferencias = cargar_configuracion()
-    proveedor = proveedor or preferencias.get("provider") or PROVEEDOR_DEFECTO
+    # v5.4.1: resolución con prioridad clara.
+    #   1) Flags CLI (--provider / --model) — el flag --model ya incorpora
+    #      SNAPCONTEXT_MODELO como valor por defecto (MODELO_DEFECTO).
+    #   2) Variables de entorno SNAPCONTEXT_PROVIDER / SNAPCONTEXT_MODELO.
+    #   3) Configuración guardada en ~/.snapcontext/config.json.
+    #   4) Fallback final (con aviso).
+    # Antes se ignoraba tanto el modelo guardado en config.json como los
+    # flags, por lo que Ollama caía siempre a 'llama3.2' (404 si el usuario
+    # tenía otro modelo descargado, p. ej. qwen3.5:9b).
+    proveedor_flag = proveedor or os.environ.get("SNAPCONTEXT_PROVIDER") or None
+    modelo_flag = modelo or os.environ.get("SNAPCONTEXT_MODELO") or None
+    proveedor = (proveedor_flag
+                 or preferencias.get("provider")
+                 or PROVEEDOR_DEFECTO)
+    # El modelo guardado en config.json solo aplica si el proveedor también
+    # viene de la configuración (evita mezclar modelos entre proveedores).
+    modelo = (modelo_flag
+              or (None if proveedor_flag else preferencias.get("model"))
+              or None)
+    if not proveedor_flag and not preferencias.get("provider"):
+        aviso("No hay proveedor configurado (flags, entorno ni config.json); "
+              f"usando el fallback '{PROVEEDOR_DEFECTO}' "
+              f"({PROVEEDORES[PROVEEDOR_DEFECTO]['modelo_default']}). "
+              "Configúralo con 'snapcontext --init'.")
 
     _emitir(sys.stdout, _pintar(
         f"💬 SnapContext Chat (v{VERSION}) — Escribe tu tarea, "
         "/salir para terminar", _CYAN))
-    info(f"Proveedor actual: {PROVEEDORES[proveedor]['nombre']} "
+    info(f"Proveedor actual: {proveedor} "
          f"({modelo or PROVEEDORES[proveedor]['modelo_default']}). "
          "Escribe /ayuda para ver los comandos.")
 
@@ -10525,8 +10548,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                     print(f"      {f['descripcion']}")
             return 0
         # --chat abre el REPL interactivo (no requiere consulta).
+        # v5.4.1: se respetan los flags --provider/--model en el chat.
         if getattr(args, "chat", False):
-            return _ejecutar_chat()
+            return _ejecutar_chat(
+                proveedor=getattr(args, "provider", None),
+                modelo=getattr(args, "modelo", None),
+            )
         # v5.2.0: el motor ReAct es el modo por defecto; --plan queda como
         # legacy para scripts. El flag --react se acepta (redundante).
         return _ejecutar_modo_tarea(args)
