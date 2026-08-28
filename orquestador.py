@@ -345,6 +345,26 @@ class Orquestador:
         except Exception as exc:            # nunca romper el pipeline clásico
             sc.aviso(f"[embeddings] Pre-filtro omitido ({exc})")
 
+        # Graph RAG (v5.5.0): con --graph-rag (o SNAPCONTEXT_GRAPH_RAG=1),
+        # se amplían los candidatos con archivos relacionados por el grafo
+        # de dependencias (imports/llamadas/herencia). Best-effort.
+        try:
+            if getattr(args, "graph_rag", False) or (
+                    sc.__dict__.get("_graph_rag_activo")
+                    and sc._graph_rag_activo(args)):
+                import graph_rag as gr                     # noqa: E402
+                grafo = gr.construir_grafo(str(raiz))
+                ampliados = gr.expandir_contexto(candidatos, grafo,
+                                                 max_adicionales=3)
+                nuevos = [a for a in ampliados if a not in candidatos]
+                if nuevos:
+                    sc.info(f"🔗 Grafo de conocimiento: expandiendo contexto "
+                            f"con {len(nuevos)} archivo(s) relacionado(s).")
+                    sc.depurar(f"[graph-rag] Añadidos: {nuevos}")
+                    candidatos = ampliados
+        except Exception as exc:            # nunca romper el pipeline clásico
+            sc.depurar(f"[graph-rag] Expansión omitida ({exc})")
+
         # 3) Selección final (Agente de Contexto)
         self._emitir_tipo("seleccion_inicio", max_archivos=args.max_archivos,
                           directorio=str(raiz), carpetas=carpetas)

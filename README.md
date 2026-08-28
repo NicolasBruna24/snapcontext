@@ -1,4 +1,4 @@
-# SnapContext
+﻿# SnapContext
 
 ![v4.5.0](https://img.shields.io/badge/version-4.5.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
@@ -2075,7 +2075,32 @@ python -m twine upload dist/*
 pip install snapcontext   # verificar en un entorno limpio
 ```
 
+
 ---
+
+## 🔗 Grafo de conocimiento (Graph RAG)
+
+Desde **v5.5.0**, SnapContext puede combinar el análisis **AST** del proyecto con la **búsqueda semántica** (embeddings) para dar al agente una comprensión arquitectónica del código: no solo *qué archivos hablan del tema*, sino *también con quién se relacionan*.
+
+### Cómo funciona
+
+1. `graph_rag.py` construye un grafo con AST: **nodos** = archivos, funciones y clases; **aristas** = imports, llamadas a funciones y herencia.
+2. El grafo se persiste en `~/.snapcontext/graph_cache.pkl` y solo se reconstruye cuando cambia algún `.py` (fingerprint por mtime + tamaño).
+3. Cuando la búsqueda semántica devuelve archivos relevantes, el grafo añade hasta 3 archivos **relacionados** (quienes los importan y de quiénes dependen) al contexto del agente o del planificador.
+
+### Activación
+
+```bash
+# Puntual
+snapcontext "arreglar el checkout" --graph-rag
+
+# Siempre activo
+export SNAPCONTEXT_GRAPH_RAG=1
+```
+
+Solo Python en esta versión (tree-sitter para otros lenguajes llega en v5.6.0). El flag es completamente opcional: sin él, SnapContext se comporta igual que en 5.4.0.
+---
+
 ## 🙌 Agradecimientos
 
 - **Aider** por su excelente motor de edición de código.

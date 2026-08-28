@@ -4,6 +4,41 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [5.5.0] - 2026-08-27 - 🔗 Graph RAG (AST + embeddings)
+
+### Added
+- **Nuevo módulo `graph_rag.py`** (Grafo de Conocimiento): combina AST y la
+  búsqueda semántica para que el agente entienda la arquitectura del proyecto.
+  - `_extraer_nodos_y_aristas(directorio)`: nodos = archivos/funciones/clases;
+    aristas = imports, llamadas y herencia (resolución de módulos dotted,
+    relativos y paquetes).
+  - `construir_grafo(directorio, forzar=False)`: cache en
+    `~/.snapcontext/graph_cache.pkl` con fingerprint (mtime_ns + tamaño de cada
+    `.py`); solo se reconstruye cuando cambia el código. Cache corrupto o
+    ilegible → reconstrucción silenciosa.
+  - `expandir_contexto(archivos, grafo, max_adicionales=3)`: añade dependencias
+    entrantes (quienes importan) y salientes (lo que importa), priorizadas por
+    número de conexiones. Nunca lanza excepciones.
+- **Flag `--graph-rag`** y variable de entorno `SNAPCONTEXT_GRAPH_RAG=1`
+  (prioridad: flag > entorno). Completamente opcional: sin él, comportamiento
+  idéntico a 5.4.0.
+- **Integración ReAct** (`react_agent.py`): nuevo parámetro `graph_rag=False`
+  en `ReactAgent.__init__`; las herramientas `buscar_codigo` y `leer_archivo`
+  expanden el contexto con archivos relacionados del grafo.
+- **Integración planificador** (`orquestador.py`): con `--graph-rag`, los
+  candidatos del pre-filtro semántico se amplían con el grafo antes de la
+  selección del LLM (best-effort: nunca rompe el pipeline clásico).
+- Mensaje informativo: `🔗 Grafo de conocimiento: expandiendo contexto con
+  {n} archivo(s) relacionado(s).`
+- Solo Python en esta versión (tree-sitter para otros lenguajes previsto en
+  v5.6.0).
+
+### Tests
+- 23 tests nuevos en `tests/test_graph_rag.py`: construcción del grafo
+  (imports/llamadas/herencia, sintaxis inválida, directorios ignorados),
+  expansión de contexto, cache (hit, invalidación, corrupto, `forzar`), flag
+  CLI/env y integración con ReAct y el planificador (mockeando).
+
 ## [5.4.0] - 2026-08-27 - 🛡️ Sandboxing inteligente
 
 ### Added

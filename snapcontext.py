@@ -124,7 +124,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "5.4.1"
+VERSION = "5.5.0"
 
 # v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
 # de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
@@ -5344,6 +5344,21 @@ def _ejecutar_plan_en_paralelo(pasos: List[dict], args: argparse.Namespace,
     return resultados
 
 
+def _graph_rag_activo(args: argparse.Namespace) -> bool:
+    """v5.5.0: True si el Grafo de Conocimiento está activado.
+
+    Prioridad: flag ``--graph-rag`` > env ``SNAPCONTEXT_GRAPH_RAG=1``.
+    Nunca lanza excepciones (si graph_rag no está disponible → False).
+    """
+    if getattr(args, "graph_rag", False):
+        return True
+    try:
+        import graph_rag as gr                   # noqa: E402
+        return gr.graph_rag_activo(None)
+    except Exception:                            # noqa: BLE001
+        return False
+
+
 def _ejecutar_react(args: argparse.Namespace) -> int:
     """Ejecuta el motor ReAct (`snapcontext [--react] "tarea"`). 0/1.
 
@@ -5367,6 +5382,7 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
         directorio=os.getcwd(),
         auto=bool(getattr(args, "auto", False)),
         max_iter=int(getattr(args, "react_max_iter", 15) or 15),
+        graph_rag=_graph_rag_activo(args),
     )
     resultado = agente.ejecutar(args.consulta)
     return 0 if resultado.get("ok") else 1
@@ -8435,7 +8451,7 @@ CATEGORIAS_AYUDA = (
     ("Modos de ejecución",
      ("--plan", "--auto", "--editor", "--modo-edicion", "--validar", "--no-validar-sintaxis", "--max-intentos-validacion",
       "--asesor", "--asesor-auto", "--asesor-umbral", "--modelo-ligero",
-      "--asesor-profundo",
+      "--asesor-profundo", "--graph-rag",
       "--api", "--api-puerto", "--api-host", "--api-token", "--api-generate-key",
       "--chat", "--web", "--web-puerto", "--demo",
       "--init", "--init-claude", "--historial", "--historial-limpiar",
@@ -9307,6 +9323,12 @@ def crear_parser() -> argparse.ArgumentParser:
         help="Selección local por heurística, sin llamar a Gemini "
              "(útil para probar offline). También desactiva la validación "
              "de carpeta de proyecto.",
+    )
+    parser.add_argument(
+        "--graph-rag", dest="graph_rag", action="store_true", default=False,
+        help="Grafo de conocimiento (v5.5.0): combina AST + embeddings y "
+             "amplía el contexto con archivos relacionados (imports, "
+             "llamadas, herencia). Env: SNAPCONTEXT_GRAPH_RAG=1.",
     )
     parser.add_argument(
         "--iniciar-proyecto", "--no-validar", dest="iniciar_proyecto",

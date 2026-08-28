@@ -56,13 +56,16 @@ class ReactAgent:
 
     def __init__(self, directorio: str = ".", auto: bool = False,
                  max_iter: int = 15, proveedor: Optional[str] = None,
-                 modelo: Optional[str] = None):
+                 modelo: Optional[str] = None, graph_rag: bool = False):
         self.directorio = str(Path(directorio).resolve())
         self.auto = bool(auto)
         self.max_iteraciones = max(int(max_iter), 1)
         self.historial: List[Dict[str, str]] = []
         self.proveedor = proveedor
         self.modelo = modelo
+        # v5.5.0: Grafo de conocimiento (opcional; --graph-rag o env).
+        self.graph_rag = bool(graph_rag)
+        self._grafo: Optional[dict] = None
         # Herramientas disponibles: nombre → callable(argumentos) -> dict.
         self.herramientas: Dict[str, Callable[[dict], dict]] = {
             "editar_archivo": self._tool_editar_archivo,
@@ -210,8 +213,44 @@ class ReactAgent:
                         break
             if len(hallazgos) >= 50:
                 break
-        return {"ok": True, "total": len(hallazgos),
-                "coincidencias": hallazgos}
+        resultado = {"ok": True, "total": len(hallazgos),
+                     "coincidencias": hallazgos}
+        # v5.5.0 (Graph RAG): añade archivos relacionados por dependencias.
+        if self.graph_rag and hallazgos:
+            afectados = sorted({h.split(":", 1)[0] for h in hallazgos
+                                if h.split(":", 1)[0].endswith(".py")})
+            relacionados = self._expander_con_grafo(afectados)
+            if len(relacionados) > len(afectados):
+                # Contexto expandido: originales + vecinos del grafo.
+                resultado["archivos_relacionados"] = relacionados
+        return resultado
+
+    def _grafo_del_proyecto(self) -> Optional[dict]:
+        """Grafo del proyecto (construido una vez, perezosamente)."""
+        if not self.graph_rag:
+            return None
+        if self._grafo is None:
+            try:
+                import graph_rag as gr               # noqa: E402
+                self._grafo = gr.construir_grafo(self.directorio)
+            except Exception:                        # noqa: BLE001
+                self._grafo = {}
+        return self._grafo or None
+
+    def _expander_con_grafo(self, archivos: List[str],
+                            max_adicionales: int = 3) -> List[str]:
+        """v5.5.0: amplía ``archivos`` con vecinos del grafo (best-effort)."""
+        if not self.graph_rag or not archivos:
+            return archivos
+        try:
+            import graph_rag as gr                   # noqa: E402
+            grafo = self._grafo_del_proyecto()
+            if not grafo:
+                return archivos
+            return gr.expandir_contexto(archivos, grafo,
+                                        max_adicionales=max_adicionales)
+        except Exception:                            # noqa: BLE001
+            return archivos
 
     def _tool_ejecutar_pruebas(self, argumentos: dict) -> dict:
         """Corre la suite de pruebas.

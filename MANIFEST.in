@@ -8,6 +8,7 @@ include pyproject.toml
 include ui.py
 include detector_tests.py
 include sandbox_utils.py
+include graph_rag.py
 recursive-include web/static *
 recursive-exclude tests *
 recursive-exclude vscode *
