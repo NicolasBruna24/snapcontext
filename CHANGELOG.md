@@ -4,6 +4,51 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.0.0] - 2026-08-28 - 🤖 Multi-agentes en paralelo
+
+### Added
+- **Nuevo módulo `multi_agent.py`**: sistema multi-agente con roles
+  especializados, activado con `--multi-agent` o `SNAPCONTEXT_MULTI_AGENT=1`.
+  - `Supervisor` (`Supervisor`): coordina el flujo, descompone la tarea y
+    combina los resultados de los agentes con bucle de realimentación.
+  - `Arquitecto` (`Arquitecto`): usa el LLM para generar un plan en JSON
+    (objetivo, módulos, archivos a tocar y pasos). Si el LLM no devuelve JSON
+    válido, degrada a un plan mínimo con la tarea (nunca rompe el flujo).
+  - `Programador` (`Programador`): implementa el código con el editor propio
+    (cadena AST → Parche → Sobrescritura) siguiendo el plan del Arquitecto.
+  - `Tester` (`Tester`): ejecuta las pruebas con la detección automática de
+    v5.3.0 (`detector_tests`) y devuelve éxito/fallo + salida.
+  - `Buzon` (`Buzon`): buzón de mensajes thread-safe para la comunicación
+    entre agentes (`publicar`/`recibir`/`vaciar`/`historial`).
+- **Pipeline con realimentación**: si el Tester detecta fallos, el Supervisor
+  realimenta el error al Programador (hasta `max_reintentos`, por defecto 3).
+  Si no hay pruebas detectadas en el proyecto, se da por completado.
+- **Integración CLI** (`snapcontext.py`): flag `--multi-agent`, variable
+  `SNAPCONTEXT_MULTI_AGENT=1` y función `_ejecutar_multi_agent` enrutada desde
+  `_ejecutar_modo_tarea`. El modo es opcional: `--plan`, ReAct y el flujo
+  clásico siguen intactos. En modo interactivo el Supervisor pide confirmación
+  del plan; con `--auto` la omite.
+- **UX**: mensajes por agente (`🧠 Arquitecto`, `💻 Programador`,
+  `🧪 Tester`, `🤖 Supervisor`).
+- **Verificación temprana de directorio de proyecto** (`snapcontext.py`):
+  extraída a `_advertencia_directorio_proyecto(args)`; en `--auto` ahora
+  continúa sin preguntar (muestra el aviso y sigue).
+
+### 🧪 Tests
+- `tests/test_multi_agent.py` (33 tests): activación por flag/env, Buzon,
+  Arquitecto, Programador, Tester, Supervisor (flujo completo, realimentación,
+  sin pruebas, abortos, `--auto`, cancelación interactiva), integración CLI y
+  enrutamiento, versionado/packaging.
+- `tests/test_proyecto_verificacion.py` (22 tests): detección de raíz de
+  proyecto y advertencia temprana (continuar/demo/salir, `--auto`,
+  `--no-validar-proyecto`).
+- Suite completa: `python -m unittest discover tests` → 855 OK.
+
+### 🔧 Versión
+- `VERSION` en `snapcontext.py` y `pyproject.toml` → `6.0.0`. Se actualizaron
+  las 19 aserciones de versión de los tests de coherencia.
+- `multi_agent` añadido a `py-modules` (`pyproject.toml`) y a `MANIFEST.in`.
+
 ## [5.6.0] - 2026-08-27 - 🌐 Editor multi-lenguaje (Tree-sitter)
 
 ### Added

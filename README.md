@@ -1,6 +1,6 @@
 ﻿# SnapContext
 
-![v4.5.0](https://img.shields.io/badge/version-4.5.0-blue.svg)
+![v6.0.0](https://img.shields.io/badge/version-6.0.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -39,6 +39,47 @@ pip install "snapcontext[web]"          # interfaz web (--web)
 pip install aider-chat                  # ediciones de código
 snapcontext --init                      # asistente inicial + API key
 ```
+
+## 🤖 Multi-agentes en paralelo (v6.0.0)
+
+Para tareas de desarrollo complejas, SnapContext puede coordinar un **equipo de
+agentes especializados** bajo un Supervisor:
+
+| Rol | Descripción |
+| --- | --- |
+| 🧠 **Arquitecto** | Diseña la solución y genera un plan de alto nivel (objetivo, módulos y archivos a tocar) con la IA. |
+| 💻 **Programador** | Implementa el código con el **editor propio** (cadena AST → Parche → Sobrescritura). |
+| 🧪 **Tester** | Ejecuta las pruebas (detección automática de v5.3.0) y devuelve éxito/fallo + salida. |
+| 🤖 **Supervisor** | Coordina el flujo: Arquitecto → Programador → Tester, con **bucle de realimentación** si una prueba falla. |
+
+Los agentes se comunican a través de un **buzón de mensajes** (cola thread-safe)
+y, por ahora, trabajan en *pipeline* (secuencial con transferencia de estado).
+
+### Uso
+
+```bash
+snapcontext --multi-agent "añadir autenticación con Google"
+export SNAPCONTEXT_MULTI_AGENT=1        # activar por defecto (PowerShell: $env:SNAPCONTEXT_MULTI_AGENT="1")
+```
+
+En modo interactivo el Supervisor muestra el plan y pide confirmación; con
+`--auto` (`snapcontext --multi-agent --auto "…"`) ejecuta sin preguntar. El
+modo es **opcional**: `--plan`, ReAct y el flujo clásico siguen intactos.
+
+## 🧭 Verificación temprana del directorio (v5.6.0)
+
+Al inicio, si el directorio actual no parece ser la raíz de un proyecto (sin
+`package.json`, `go.mod`, `pyproject.toml`, `src/`, `tests/`, …), SnapContext
+muestra un aviso y (en modo interactivo) te deja **continuar**, ejecutar la
+**demo** o **salir**. Usa `--no-validar-proyecto` para saltarte este aviso en
+directorios que no siguen la estructura típica.
+
+```bash
+snapcontext "tarea" --no-validar-proyecto
+```
+
+> Para empezar, ejecuta SnapContext en la raíz de tu proyecto o usa `--demo`
+> para probar sin proyecto.
 
 ## 🐳 Sandboxing con Docker (v4.3.0)
 

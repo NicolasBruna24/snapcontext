@@ -124,7 +124,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "5.6.1"
+VERSION = "6.0.0"
 
 # v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
 # de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
@@ -253,6 +253,99 @@ def _detectar_tipo_proyecto(directorio: str) -> Optional[str]:
             if (ruta / carpeta).exists():
                 depurar(f"[Detección] Carpetilla típica de {tipo}: {carpeta}/")
                 return tipo
+    return None
+
+
+# Archivos y carpetas que indican que un directorio es raíz de un proyecto.
+# Usado por _es_directorio_proyecto() para la verificación temprana en main().
+_ARCHIVOS_PROYECTO = (
+    "package.json", "go.mod", "pyproject.toml", "requirements.txt",
+    "Cargo.toml", "pubspec.yaml", "Gemfile", "mix.exs",
+)
+_CARPETAS_PROYECTO = ("src", "lib", "tests", "app", "scripts")
+
+
+def _es_directorio_proyecto(directorio: str) -> bool:
+    """Indica si ``directorio`` parece ser la raíz de un proyecto.
+
+    Devuelve ``True`` si existe al menos uno de los archivos/carpetas
+    reconocidos como indicadores de proyecto (``src/``, ``package.json``,
+    ``go.mod``, ``pyproject.toml``, ``Cargo.toml``, etc.).
+
+    Devuelve ``False`` si el directorio está vacío o solo contiene archivos
+    sueltos sin estructura reconocible.
+    """
+    ruta = Path(directorio)
+    if not ruta.is_dir():
+        return False
+
+    try:
+        entradas = list(ruta.iterdir())
+    except OSError:
+        return False
+
+    if not entradas:
+        return False
+
+    for archivo in _ARCHIVOS_PROYECTO:
+        if (ruta / archivo).is_file():
+            return True
+
+    # *.csproj (C#): busca cualquier archivo con esa extensión en la raíz.
+    if any(f.suffix == ".csproj" for f in entradas if f.is_file()):
+        return True
+
+    for carpeta in _CARPETAS_PROYECTO:
+        if (ruta / carpeta).is_dir():
+            return True
+
+    return False
+
+
+def _advertencia_directorio_proyecto(args: argparse.Namespace) -> Optional[int]:
+    """Advertencia temprana si el directorio no parece una raíz de proyecto.
+
+    Se muestra después del banner y antes de cualquier operación. En modo
+    interactivo ofrece ``[c]`` continuar, ``[d]`` ejecutar la demo o ``[s]``
+    salir; en ``--auto`` (o sin entrada interactiva) continúa (``c``). Devuelve
+    un código de salida si debe terminar (``d``/``s``) o ``None`` para seguir
+    con el flujo normal. No se muestra si se usó ``--no-validar-proyecto`` o un
+    flag que no requiera proyecto (``--demo``, ``--init``, ``--chat``…).
+    """
+    _directorios_proyecto_sin_avisar = frozenset({
+        "demo", "init", "chat", "web", "api", "api_generate_key",
+        "bienvenida", "diagnostico", "reparar", "historial",
+        "historial_limpiar", "setup_path", "iniciar_proyecto",
+        "curador", "daemon", "skills", "local",
+    })
+    _usa_flag_sin_proyecto = any(
+        getattr(args, attr, False) for attr in _directorios_proyecto_sin_avisar
+    )
+    if getattr(args, "no_validar_proyecto", False) or _usa_flag_sin_proyecto:
+        return None
+    _directorio_actual = getattr(args, "directorio", ".") or "."
+    if _es_directorio_proyecto(_directorio_actual):
+        return None
+    _ui_mostrar_banner(VERSION)
+    import ui
+    aviso = ("ℹ SnapContext funciona mejor desde la raíz de un proyecto.\n"
+             "No se detectaron archivos de proyecto en este directorio.")
+    ui.mostrar_estado(aviso, emoji="🧭")
+    # En modo --auto (o sin entrada interactiva) se continúa sin preguntar.
+    if getattr(args, "auto", False):
+        return None
+    opciones = [
+        ("c", "Continuar de todas formas"),
+        ("d", "Ejecutar demo (--demo)"),
+        ("s", "Salir"),
+    ]
+    eleccion = ui.preguntar_interactivo(
+        opciones, "¿Qué quieres hacer?", defecto="c")
+    if eleccion == "d":
+        return _ejecutar_demo()
+    if eleccion == "s":
+        info("Hasta luego. Ejecuta snapcontext en la raíz de tu proyecto.")
+        return 0
     return None
 
 
@@ -5403,6 +5496,53 @@ def _graph_rag_activo(args: argparse.Namespace) -> bool:
         return False
 
 
+def _multi_agent_activo(flag: Optional[bool] = None) -> bool:
+    """v6.0.0: True si el modo multi-agente está activado.
+
+    Prioridad: flag ``--multi-agent`` > env ``SNAPCONTEXT_MULTI_AGENT=1``.
+    """
+    if flag is not None:
+        return bool(flag)
+    return os.environ.get("SNAPCONTEXT_MULTI_AGENT", "").strip() == "1"
+
+
+def _ejecutar_multi_agent(args: argparse.Namespace) -> int:
+    """Ejecuta el sistema multi-agente (`snapcontext --multi-agent "tarea"`).
+
+    Instancia el ``Supervisor`` de ``multi_agent.py`` y ejecuta el pipeline
+    Arquitecto → Programador → Tester. Devuelve 0/1. Es opcional y no altera
+    el resto de modos (``--plan``, ReAct).
+    """
+    consulta = getattr(args, "consulta", None)
+    if not consulta:
+        error("El modo --multi-agent necesita una consulta. Uso:\n"
+              '  snapcontext --multi-agent "añadir un endpoint de login"')
+        return 1
+    try:
+        import multi_agent as ma                       # noqa: E402
+    except Exception as exc:                           # noqa: BLE001
+        error(f"No se pudo cargar el módulo multi_agent: {exc}")
+        return 1
+    directorio = getattr(args, "directorio", ".") or "."
+    raiz = str(resolver_raiz(directorio))
+    supervisor = ma.Supervisor(
+        directorio=raiz,
+        tarea=consulta,
+        auto=bool(getattr(args, "auto", False)),
+        proveedor=getattr(args, "provider", None),
+        modelo=getattr(args, "modelo", None),
+        max_reintentos=max(1, int(getattr(args, "max_reintentos", 3) or 3)),
+        comando_test=getattr(args, "comando_test", None),
+    )
+    resultado = supervisor.ejecutar()
+    if resultado.get("ok"):
+        exito("🏁 Multi-agente: la tarea se completó.")
+        return 0
+    error("Multi-agente: " + str(resultado.get("error")
+          or "la tarea no se completó."))
+    return 1
+
+
 def _ejecutar_react(args: argparse.Namespace) -> int:
     """Ejecuta el motor ReAct (`snapcontext [--react] "tarea"`). 0/1.
 
@@ -5444,6 +5584,10 @@ def _ejecutar_modo_tarea(args: argparse.Namespace) -> int:
     """
     if bool(getattr(args, "plan", False)):
         return _ejecutar_planificador(args)          # legacy explícito
+    # v6.0.0: multi-agente (--multi-agent o SNAPCONTEXT_MULTI_AGENT=1) gana
+    # sobre ReAct, que sigue siendo el modo por defecto para el resto.
+    if _multi_agent_activo(getattr(args, "multi_agent", None) or None):
+        return _ejecutar_multi_agent(args)
     # v5.2.0: ReAct es el modo por defecto (--react es redundante aquí).
     if getattr(args, "react", False) or getattr(args, "consulta", None):
         return _ejecutar_react(args)
@@ -8495,12 +8639,15 @@ CATEGORIAS_AYUDA = (
     ("Modos de ejecución",
      ("--plan", "--auto", "--editor", "--modo-edicion", "--validar", "--no-validar-sintaxis", "--max-intentos-validacion",
       "--asesor", "--asesor-auto", "--asesor-umbral", "--modelo-ligero",
-      "--asesor-profundo", "--graph-rag",
+      "--asesor-profundo", "--graph-rag", "--multi-agent",
       "--api", "--api-puerto", "--api-host", "--api-token", "--api-generate-key",
       "--chat", "--web", "--web-puerto", "--demo",
       "--init", "--init-claude", "--historial", "--historial-limpiar",
       "--diagnostico", "--reparar", "--bienvenida")),
     ("Selección de archivos",
+     ("consulta", "--local", "--iniciar-proyecto", "--no-validar-proyecto",
+     ("consulta", "--local", "--iniciar-proyecto", "--no-validar-proyecto",
+      "--experto", "--vista-previa", "--carpetas", "--max-archivos", "--candidatos")),
      ("consulta", "--local", "--iniciar-proyecto", "--experto",
       "--vista-previa", "--carpetas", "--max-archivos", "--candidatos")),
     ("Proveedores de IA",
@@ -9369,6 +9516,13 @@ def crear_parser() -> argparse.ArgumentParser:
              "de carpeta de proyecto.",
     )
     parser.add_argument(
+        "--multi-agent", dest="multi_agent", action="store_true", default=False,
+        help="Sistema multi-agente (v6.0.0): un Supervisor coordina a un "
+             "Arquitecto (plan), un Programador (editor propio) y un Tester "
+             "(pruebas) con bucle de realimentación. Env: "
+             "SNAPCONTEXT_MULTI_AGENT=1.",
+    )
+    parser.add_argument(
         "--graph-rag", dest="graph_rag", action="store_true", default=False,
         help="Grafo de conocimiento (v5.5.0): combina AST + embeddings y "
              "amplía el contexto con archivos relacionados (imports, "
@@ -9380,6 +9534,13 @@ def crear_parser() -> argparse.ArgumentParser:
         help="Desactiva por completo la validación de carpeta de proyecto: "
              "trabaja en el directorio actual (o --directorio) aunque esté "
              "vacío. Ideal para empezar un proyecto desde cero.",
+    )
+    parser.add_argument(
+        "--no-validar-proyecto", dest="no_validar_proyecto",
+        action="store_true",
+        help="Omite la verificación temprana de directorio de proyecto "
+             "(mostrada al inicio cuando no se detectan archivos de proyecto). "
+             "Para usuarios avanzados que quieren saltar este aviso.",
     )
     parser.add_argument(
         "--vista-previa", action="store_true",
@@ -10522,6 +10683,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                 _cp.iniciar_daemon_fondo()
         except Exception:                        # noqa: BLE001 — nunca bloquea
             pass
+        # v5.6.0: verificación temprana de directorio de proyecto.
+        # Si el directorio actual no parece ser raíz de un proyecto y no se ha
+        # usado un flag que no requiera proyecto, muestra un aviso útil.
+        _salida_proyecto = _advertencia_directorio_proyecto(args)
+        if _salida_proyecto is not None:
+            return _salida_proyecto
         # v3.1.1: --bienvenida explícito ejecuta el tutorial y marca el
         # primer uso como completado (por si quiere volver a verlo).
         if getattr(args, "bienvenida", False):
