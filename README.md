@@ -1,6 +1,6 @@
 ﻿# SnapContext
 
-![v6.0.0](https://img.shields.io/badge/version-6.0.0-blue.svg)
+![v6.1.0](https://img.shields.io/badge/version-6.1.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -39,6 +39,46 @@ pip install "snapcontext[web]"          # interfaz web (--web)
 pip install aider-chat                  # ediciones de código
 snapcontext --init                      # asistente inicial + API key
 ```
+
+## 🔍 Manejo de contexto inteligente (v6.1.0)
+
+Los modelos locales (p. ej. `deepseek-r1:14b`, con 4096 tokens de contexto)
+fallan constantemente al recibir archivos grandes. Con el editor propio
+(`--editor propio`), SnapContext ahora gestiona el contexto automáticamente:
+
+1. **Estima los tokens** del archivo antes de enviarlo (`tiktoken` si está
+   disponible; si no, la regla práctica 1 token ≈ 4 caracteres).
+2. Si supera `--max-context-tokens` (3000 por defecto), **extrae solo el bloque
+   relevante** (la función/clase mencionada en la tarea, detectada con
+   tree-sitter o regex) y lo envía junto a un resumen AST del resto:
+
+   ```text
+   ℹ Archivo grande (4458 tokens). Usando contexto selectivo (bloque: 'parsear_archivo')...
+   ```
+
+3. Si el proveedor falla por límite de contexto, **reintenta con el archivo
+   completo** (el modelo real puede tener más contexto del estimado) y, si
+   vuelve a fallar, **pasa a la siguiente estrategia**
+   (AST → Parche → Sobrescritura).
+4. Opcionalmente, con `--editor-fallback`, si el editor propio no puede editar
+   un archivo **invoca Aider automáticamente** (si está instalado):
+
+   ```text
+   ⚠ El editor propio no pudo editar este archivo. Usando Aider como fallback...
+   ```
+
+### Flags
+
+```bash
+# Límite de tokens por petición (por defecto 3000)
+snapcontext "renombra la función parsear_archivo" --editor propio --max-context-tokens 2000
+
+# Fallback automático a Aider cuando el editor propio falla
+snapcontext "arregla el parser" --editor propio --editor-fallback
+```
+
+El comportamiento es **opcional y compatible hacia atrás**: sin flags se usa
+el umbral por defecto (3000 tokens) y no se invoca Aider.
 
 ## 🤖 Multi-agentes en paralelo (v6.0.0)
 

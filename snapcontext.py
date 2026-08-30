@@ -124,12 +124,18 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.0.0"
+VERSION = "6.1.0"
 
 # v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
 # de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
 # + bloques relevantes) para no explotar la ventana de contexto del modelo.
 MAX_CONTEXT_LINES = 600
+
+# v6.1.0: límite de TOKENS estimados a enviar al proveedor en una petición de
+# edición. Los modelos locales (deepseek-r1:14b, llama3.2…) tienen a menudo
+# solo 4096 tokens de contexto; por encima de este umbral se usa
+# context_utils.seleccionar_contexto. Configurable con --max-context-tokens.
+MAX_CONTEXT_TOKENS = 3000
 
 # v3.1.0 — Claves de API reconocidas para el modo por defecto (offline).
 CLAVES_API_CONOCIDAS = (
@@ -2758,7 +2764,8 @@ def _aplicar_operaciones_ast(contenido: str, operaciones: List[dict]) -> Optiona
 def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
                 proveedor: Optional[str] = None,
                 modelo: Optional[str] = None,
-                conciso: bool = False) -> bool:
+                conciso: bool = False,
+                max_context_tokens: Optional[int] = None) -> bool:
     """Editor propio (Fase 3 — Edición basada en AST).
 
     1) Lee el contenido del archivo.
@@ -2773,6 +2780,12 @@ def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
 
     Devuelve ``True`` si tuvo éxito; ``False`` si no se pudo editar (para que el
     agente haga fallback a parche o sobrescritura).
+
+    v6.1.0: con ``max_context_tokens`` los archivos grandes se envían con
+    contexto selectivo (:func:`context_utils.seleccionar_contexto`); las
+    operaciones AST se aplican igualmente sobre el contenido completo, por lo
+    que en ese caso se descarta la op ``"completo"`` (reescribiría el archivo
+    entero solo con el fragmento mostrado).
     """
     if not archivo or not str(archivo).strip():
         error("La ruta del archivo no puede estar vacía.")
@@ -2800,12 +2813,34 @@ def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
     proveedor = proveedor or cargar_configuracion().get("provider") or PROVEEDOR_DEFECTO
     lenguaje = resumen.get("lenguaje") or _lenguaje_archivo(ruta_posix,
                                                             contenido) or "?"
+    # v6.1.0 — Contexto selectivo: si el archivo supera el presupuesto de
+    # tokens se envía resumen AST + bloque objetivo + bloques relevantes.
+    # Las operaciones siguen aplicándose sobre `contenido` (el archivo entero).
+    try:
+        import context_utils as _ctx
+        _limite = (max_context_tokens if max_context_tokens is not None
+                   else MAX_CONTEXT_TOKENS)
+        _objetivo = _ctx.objetivo_en_mensaje(contenido, lenguaje, tarea)
+        contenido_envio = _ctx.seleccionar_contexto(
+            contenido, lenguaje, objetivo=_objetivo, max_tokens=int(_limite))
+        truncado = contenido_envio != contenido
+        if truncado:
+            if _objetivo:
+                info(f"ℹ Archivo grande ({_ctx.estimar_tokens(contenido)} "
+                     f"tokens). Usando contexto selectivo (bloque: "
+                     f"'{_objetivo}')...")
+            else:
+                info(f"ℹ Archivo grande ({_ctx.estimar_tokens(contenido)} "
+                     "tokens). Usando contexto selectivo...")
+    except Exception as _exc:          # noqa: BLE001 — nunca romper el modo AST
+        depurar(f"[EditorAST] contexto selectivo falló: {_exc}")
+        contenido_envio, truncado = contenido, False
     num_lineas = contenido.count("\n") + 1
     if conciso:
         prompt = (
             f"Tarea: {tarea}\nArchivo: {ruta_posix} ({lenguaje})\n"
             f"Símbolos: {_formatear_resumen_ast(resumen, ruta_posix)}\n\n"
-            f"```\n{contenido}\n```\n\n"
+            f"```\n{contenido_envio}\n```\n\n"
             f"Responde SOLO una lista JSON de operaciones "
             f'[{{"tipo": "renombrar", "nombre": "x", "nuevo": "y"}}] '
             f'o [{{"tipo": "completo", "codigo": "..."}}]. Sin texto extra.'
@@ -2818,7 +2853,7 @@ def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
             f"Archivo: {ruta_posix}  (lenguaje: {lenguaje}, {num_lineas} líneas)\n\n"
             f"Resumen del AST (símbolos disponibles y sus posiciones):\n"
             f"{_formatear_resumen_ast(resumen, ruta_posix)}\n\n"
-            f"Contenido actual completo:\n```\n{contenido}\n```\n\n"
+            f"Contenido actual completo:\n```\n{contenido_envio}\n```\n\n"
             f"Reglas de edición:\n"
             f"- Conserva el estilo existente (indentación, comillas, convenciones).\n"
             f"- Modifica SOLO lo necesario para la tarea; no reorganices el resto.\n"
@@ -2829,6 +2864,11 @@ def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
             f'[{{"tipo": "completo", "codigo": "def fn(): ...\\n..."}}]\n'
             f"Sin explicaciones ni markdown fuera del JSON."
         )
+        if truncado:
+            prompt += (
+                "\nNOTA: solo se muestra parte del archivo por límites de "
+                "contexto. Responde SOLO con operaciones (\"renombrar\" / "
+                "\"insertar_import\"); NO uses \"completo\".")
     try:
         respuesta = _enviar_al_proveedor(
             proveedor, modelo, [{"role": "user", "content": prompt}])
@@ -2837,6 +2877,13 @@ def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
         return False
 
     opos = _interpretar_operaciones_ast(respuesta)
+    if truncado:
+        # v6.1.0: con contexto selectivo una op "completo" reemplazaría TODO
+        # el archivo solo con el fragmento mostrado → se descarta y quedan las
+        # operaciones seguras (renombrar/insertar_import), que se aplican sobre
+        # el contenido completo. Si no queda ninguna, el modo AST falla y la
+        # cadena sigue con parche/sobrescribir (que sí manejan el recorte).
+        opos = [op for op in opos if op.get("tipo") != "completo"]
     if not opos:
         depurar(f"[EditorAST] El proveedor no devolvió operaciones AST para '{ruta_posix}'.")
         return False
@@ -4765,9 +4812,17 @@ def _generar_plan(consulta: str, proveedor: Optional[str] = None,
 
     # Memoria de proyecto (v0.15.0): CLAUDE.md como contexto persistente.
     if MEMORIA_PROYECTO:
+        # v6.1.0: el contenido del archivo CLAUDE.md se limita por tokens con
+        # contexto selectivo (antes: recorte bruto a 3000 caracteres).
+        try:
+            import context_utils as _ctxm
+            memoria_ctx = _ctxm.seleccionar_contexto(
+                MEMORIA_PROYECTO, "markdown", max_tokens=750)
+        except Exception as _exc:       # noqa: BLE001 — best-effort
+            depurar(f"[plan] contexto selectivo de CLAUDE.md falló: {_exc}")
+            memoria_ctx = MEMORIA_PROYECTO[:3000]
         prompt += ("\n\nMEMORIA DEL PROYECTO (CLAUDE.md, respeta sus "
-                   "convenciones al proponer pasos):\n"
-                   + MEMORIA_PROYECTO[:3000])
+                   "convenciones al proponer pasos):\n" + memoria_ctx)
         info("📄 Memoria del proyecto (CLAUDE.md) incluida en la planificación.")
 
 
@@ -5072,6 +5127,8 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
             proveedor=getattr(args, "provider", None),
             modelo_ligero=getattr(args, "modelo_ligero", False),
             auto=getattr(args, "auto", False),
+            max_context_tokens=getattr(args, "max_context_tokens", None),
+            editor_fallback=getattr(args, "editor_fallback", False),
         )
         return (todo_ok, f"EditorPropio sobre {len(seleccion)} archivo(s)")
 
@@ -8638,6 +8695,7 @@ def _pintar(texto: str, clave: str) -> str:
 CATEGORIAS_AYUDA = (
     ("Modos de ejecución",
      ("--plan", "--auto", "--editor", "--modo-edicion", "--validar", "--no-validar-sintaxis", "--max-intentos-validacion",
+      "--max-context-tokens", "--editor-fallback",
       "--asesor", "--asesor-auto", "--asesor-umbral", "--modelo-ligero",
       "--asesor-profundo", "--graph-rag", "--multi-agent",
       "--api", "--api-puerto", "--api-host", "--api-token", "--api-generate-key",
@@ -8646,10 +8704,7 @@ CATEGORIAS_AYUDA = (
       "--diagnostico", "--reparar", "--bienvenida")),
     ("Selección de archivos",
      ("consulta", "--local", "--iniciar-proyecto", "--no-validar-proyecto",
-     ("consulta", "--local", "--iniciar-proyecto", "--no-validar-proyecto",
       "--experto", "--vista-previa", "--carpetas", "--max-archivos", "--candidatos")),
-     ("consulta", "--local", "--iniciar-proyecto", "--experto",
-      "--vista-previa", "--carpetas", "--max-archivos", "--candidatos")),
     ("Proveedores de IA",
      ("--provider", "--model", "--no-persist")),
     ("Permisos y seguridad",
@@ -9828,6 +9883,23 @@ def crear_parser() -> argparse.ArgumentParser:
         default=MAX_INTENTOS_VALIDACION, metavar="N",
         help=f"Intentos máximos de validación de sintaxis antes de cancelar la "
              f"edición (por defecto: {MAX_INTENTOS_VALIDACION}).",
+    )
+    # v6.1.0 — Manejo de contexto inteligente (modelos con poca ventana).
+    parser.add_argument(
+        "--max-context-tokens", type=int, default=MAX_CONTEXT_TOKENS,
+        metavar="N",
+        help=f"Límite máximo de tokens estimados a enviar al proveedor en una "
+             f"sola petición de edición (por defecto: {MAX_CONTEXT_TOKENS}). Los "
+             f"archivos más grandes se envían con contexto selectivo (resumen "
+             f"AST + bloque objetivo), evitando los fallos por ventana de "
+             f"contexto de los modelos pequeños (p. ej. deepseek-r1:14b).",
+    )
+    parser.add_argument(
+        "--editor-fallback", dest="editor_fallback", action="store_true",
+        help="v6.1.0: si el editor propio falla (por contexto o por estrategia), "
+             "intenta automáticamente Aider como respaldo para los archivos "
+             "fallidos (requiere 'aider' en el PATH; si no, muestra una "
+             "sugerencia clara).",
     )
     # Aprendizaje autónomo / memoria avanzada (v3.0.0)
     parser.add_argument(

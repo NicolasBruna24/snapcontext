@@ -216,6 +216,9 @@ class Orquestador:
                         proveedor=getattr(args, "provider", None),
                         modelo_ligero=getattr(args, "modelo_ligero", False),
                         auto=getattr(args, "auto", False),
+                        max_context_tokens=getattr(
+                            args, "max_context_tokens", None),
+                        editor_fallback=getattr(args, "editor_fallback", False),
                     )
                     self._emitir_tipo("editor", accion="fin", ok=ok)
                 else:

@@ -21,6 +21,22 @@ logs de depuración visibles con ``--depurar`` (marcas ``[Agente…]``).
 import subprocess
 from typing import List, Optional, Union
 
+# v6.1.0 — Manejo de contexto inteligente: por encima de este umbral (tokens)
+# se envía contexto selectivo (resumen AST + bloques) en lugar del archivo
+# completo. Configurable desde la CLI con --max-context-tokens.
+MAX_CONTEXT_TOKENS = 3000
+
+
+def _es_error_contexto(exc: Exception) -> bool:
+    """¿El error del proveedor parece de límite de contexto? (v6.1.0)
+
+    Delega en :func:`context_utils.es_error_contexto` (implementación única,
+    compartida con el planificador y otros módulos).
+    """
+    import context_utils
+    return context_utils.es_error_contexto(exc)
+
+
 def _tarea_estructura(tarea: str) -> bool:
     """Heurística simple para `auto`: ¿la tarea parece una refactorización estructural?
 
@@ -45,25 +61,33 @@ def _tarea_estructura(tarea: str) -> bool:
 
 def _construir_prompt_edicion(modo: str, mensaje: str, archivo: str,
                               contenido_actual: str, lenguaje: str,
-                              conciso: bool, error_msj: str = "") -> tuple:
-    """Construye el prompt de edición para el proveedor (v4.7.0).
+                              conciso: bool, error_msj: str = "",
+                              truncado: Optional[bool] = None,
+                              contexto: Optional[str] = None) -> tuple:
+    """Construye el prompt de edición para el proveedor (v4.7.0 / v6.1.0).
 
     Devuelve ``(prompt, truncado)``:
 
     - Si el archivo tiene ≤ ``sc.MAX_CONTEXT_LINES`` líneas, se inyecta
       completo (comportamiento clásico de v4.x) y ``truncado=False``.
     - Si lo supera, se envía contexto selectivo (resumen AST + bloques
-      relevantes vía ``sc._extraer_contexto_selectivo``), ``truncado=True``
+      relevantes vía ``sc._extraer_contexto_selectivo`` o ``contexto`` si el
+      llamador ya seleccionó contexto por tokens en v6.1.0), ``truncado=True``
       y el formato de respuesta cambia:
         * modo "parche": diff unificado solo del bloque mostrado.
         * modo "sobrescribir": bloque entre marcadores ``<<<ANTES>>>`` /
           ``<<<DESPUES>>>`` / ``<<<FIN>>>`` para reinsertarlo en el original.
+
+    Con ``truncado``/``contexto`` explícitos el llamador (v6.1.0) fuerza el
+    modo reducido basado en tokens (``--max-context-tokens``) sin depender
+    solo del número de líneas.
     """
     import snapcontext as sc
 
     num_lineas = (contenido_actual.count("\n") + 1) if contenido_actual else 0
-    max_lineas = int(getattr(sc, "MAX_CONTEXT_LINES", 600))
-    truncado = num_lineas > max_lineas
+    if truncado is None:
+        max_lineas = int(getattr(sc, "MAX_CONTEXT_LINES", 600))
+        truncado = num_lineas > max_lineas
     reintento = ""
     if error_msj:
         reintento = (
@@ -73,8 +97,9 @@ def _construir_prompt_edicion(modo: str, mensaje: str, archivo: str,
 
     if modo == "parche":
         if truncado:
-            contexto = sc._extraer_contexto_selectivo(contenido_actual,
-                                                      mensaje, archivo)
+            if contexto is None:
+                contexto = sc._extraer_contexto_selectivo(contenido_actual,
+                                                          mensaje, archivo)
             prompt = (
                 f"Genera un parche unificado (unified diff) que modifique SOLO "
                 f"el bloque mostrado para cumplir con la tarea.\n"
@@ -115,8 +140,9 @@ def _construir_prompt_edicion(modo: str, mensaje: str, archivo: str,
 
     # modo == "sobrescribir"
     if truncado:
-        contexto = sc._extraer_contexto_selectivo(contenido_actual, mensaje,
-                                                  archivo)
+        if contexto is None:
+            contexto = sc._extraer_contexto_selectivo(contenido_actual,
+                                                      mensaje, archivo)
         prompt = (
             f"Tarea: {mensaje}\n"
             f"El archivo {archivo} ({lenguaje}, {num_lineas} líneas) es "
@@ -353,8 +379,13 @@ class AgenteEditorPropio:
 
     def editar_ast(self, archivo: str, tarea: str,
                    directorio: str = ".", modelo: Optional[str] = None,
-                   conciso: bool = False) -> bool:
-        """Edita ``archivo`` con base en su AST usando el proveedor de IA."""
+                   conciso: bool = False,
+                   max_context_tokens: Optional[int] = None) -> bool:
+        """Edita ``archivo`` con base en su AST usando el proveedor de IA.
+
+        Desde v6.1.0 ``max_context_tokens`` permite recortar el contenido
+        enviado al proveedor mediante :func:`context_utils.seleccionar_contexto`.
+        """
         import snapcontext as sc
 
         pref = sc.cargar_configuracion()
@@ -362,7 +393,60 @@ class AgenteEditorPropio:
         sc.depurar(f"[AgenteEditorPropio] Editando por AST '{archivo}' en '{directorio}'")
         return sc._editor_ast(archivo, tarea, directorio=directorio,
                               proveedor=proveedor, modelo=modelo,
-                              conciso=conciso)
+                              conciso=conciso,
+                              max_context_tokens=max_context_tokens)
+
+    def _preparar_contenido_envio(self, archivo: str, mensaje: str,
+                                  contenido_actual: str,
+                                  max_context_tokens: Optional[int]):
+        """Decide el contenido que se enviará al proveedor (v6.1.0).
+
+        Basándose en el tamaño en tokens (``context_utils.estimar_tokens``),
+        devuelve ``(contenido_a_enviar, truncado, objetivo, n_tokens)``:
+
+        - si el archivo cabe en ``max_context_tokens`` → se envía completo;
+        - si lo supera → se selecciona contexto selectivo (resumen AST +
+          bloque objetivo + bloques relevantes) y se notifica al usuario.
+        """
+        import context_utils as ctx
+        import snapcontext as sc
+
+        limite = max_context_tokens if max_context_tokens is not None \
+            else MAX_CONTEXT_TOKENS
+        n = ctx.estimar_tokens(contenido_actual or "")
+        if n <= int(limite or 0) or n == 0:
+            return contenido_actual, False, None, n
+        lenguaje = sc._lenguaje_archivo(archivo, contenido_actual) or "?"
+        objetivo = ctx.objetivo_en_mensaje(contenido_actual, lenguaje, mensaje)
+        reducido = ctx.seleccionar_contexto(
+            contenido_actual, lenguaje, objetivo=objetivo,
+            max_tokens=int(limite))
+        if objetivo:
+            sc.info(f"ℹ Archivo grande ({n} tokens). Usando contexto selectivo "
+                    f"(bloque: '{objetivo}')...")
+        else:
+            sc.info(f"ℹ Archivo grande ({n} tokens). Usando contexto "
+                    "selectivo...")
+        return reducido, True, objetivo, n
+
+    def _ejecutar_con_aider(self, archivos: List[str], mensaje: str,
+                            directorio: str) -> bool:
+        """Fallback automático a Aider cuando el editor propio falla (v6.1.0)."""
+        import snapcontext as sc
+
+        if not archivos:
+            return True
+        if shutil.which("aider") is None:
+            sc.aviso("Aider no está instalado para el fallback. "
+                     "Instálalo con:  pip install aider-chat")
+            return False
+        sc.aviso("⚠ El editor propio no pudo editar este archivo. "
+                 "Usando Aider como fallback...")
+        try:
+            return sc.ejecutar_aider(archivos, mensaje, directorio)
+        except Exception as exc:
+            sc.error(f"Aider falló: {exc}")
+            return False
 
     @staticmethod
     def _aplicar_parche_preview(parche: str, contenido_actual: str):
@@ -413,9 +497,14 @@ class AgenteEditorPropio:
                              contenido_actual: str, modelo: Optional[str],
                              directorio: str, validar: bool = True,
                              max_intentos_validacion: int = 3,
-                             conciso: bool = False,
-                             auto: bool = False) -> bool:
-        """Intenta editar `archivo` pidiendo un parche unificado al proveedor."""
+                             conciso: bool = False, auto: bool = False,
+                             max_context_tokens: Optional[int] = None) -> bool:
+        """Intenta editar `archivo` pidiendo un parche unificado al proveedor.
+
+        v6.1.0: si el archivo supera ``max_context_tokens`` se envía contexto
+        selectivo; si el proveedor falla por límite de contexto, se reintenta
+        con el archivo completo antes de declarar el fallo de esta estrategia.
+        """
         import snapcontext as sc
 
         pref = sc.cargar_configuracion()
@@ -425,13 +514,36 @@ class AgenteEditorPropio:
                       if contenido_actual else 0)
         max_val = max(1, int(max_intentos_validacion))
 
+        # v6.1.0: contenido a enviar (completo o contexto selectivo por tokens).
+        contenido_envio, truncado, _objetivo, _n_tokens = \
+            self._preparar_contenido_envio(archivo, mensaje, contenido_actual,
+                                           max_context_tokens)
+
         error_msj = ""
         for intento in range(1, max_val + 1):
             prompt, _truncado = _construir_prompt_edicion(
-                "parche", mensaje, archivo, contenido_actual, lenguaje,
-                conciso, error_msj=error_msj)
-            respuesta = sc._enviar_al_proveedor(
-                proveedor, modelo, [{"role": "user", "content": prompt}])
+                "parche", mensaje, archivo, contenido_envio, lenguaje,
+                conciso, error_msj=error_msj, truncado=truncado)
+            try:
+                respuesta = sc._enviar_al_proveedor(
+                    proveedor, modelo, [{"role": "user", "content": prompt}])
+            except RuntimeError as exc:
+                if truncado and _es_error_contexto(exc):
+                    # El modelo real puede tener más contexto que la estimación.
+                    sc.info("⚠ El proveedor falló por límite de contexto. "
+                            "Reintentando con el archivo completo...")
+                    contenido_envio = contenido_actual
+                    truncado = False
+                    prompt_completo, _c = _construir_prompt_edicion(
+                        "parche", mensaje, archivo, contenido_actual, lenguaje,
+                        conciso, error_msj=error_msj, truncado=False)
+                    respuesta = sc._enviar_al_proveedor(
+                        proveedor, modelo,
+                        [{"role": "user", "content": prompt_completo}])
+                else:
+                    sc.error(f"[EditorPropio] El proveedor falló en modo "
+                             f"parche: {exc}")
+                    return False
             diff_limpio = respuesta
             if "--- " in diff_limpio and "+++ " in diff_limpio:
                 idx_inicio = diff_limpio.find("--- ")
@@ -531,8 +643,14 @@ class AgenteEditorPropio:
                                    contenido_actual: str, modelo: Optional[str],
                                    directorio: str, validar: bool = True,
                                    max_intentos_validacion: int = 3,
-                                   conciso: bool = False) -> bool:
-        """Sobrescribe `archivo` con el código completo que devuelve el proveedor."""
+                                   conciso: bool = False,
+                                   max_context_tokens: Optional[int] = None) -> bool:
+        """Sobrescribe `archivo` con el código completo que devuelve el proveedor.
+
+        v6.1.0: los archivos grandes usan contexto selectivo (bloque objetivo)
+        y, si el proveedor falla por límite de contexto, se reintenta con el
+        archivo completo antes de fallar esta estrategia.
+        """
         import snapcontext as sc
 
         pref = sc.cargar_configuracion()
@@ -540,14 +658,37 @@ class AgenteEditorPropio:
         lenguaje = sc._lenguaje_archivo(archivo, contenido_actual) or "?"
         max_val = max(1, int(max_intentos_validacion))
 
+        # v6.1.0: contenido a enviar (completo o contexto selectivo por tokens).
+        contenido_envio, truncado, _objetivo, _n_tokens = \
+            self._preparar_contenido_envio(archivo, mensaje, contenido_actual,
+                                           max_context_tokens)
+
         error_msj = ""
         nuevo_contenido = ""
         for intento in range(1, max_val + 1):
-            prompt, truncado = _construir_prompt_edicion(
-                "sobrescribir", mensaje, archivo, contenido_actual, lenguaje,
-                conciso, error_msj=error_msj)
-            respuesta = sc._enviar_al_proveedor(
-                proveedor, modelo, [{"role": "user", "content": prompt}])
+            prompt, _t = _construir_prompt_edicion(
+                "sobrescribir", mensaje, archivo, contenido_envio, lenguaje,
+                conciso, error_msj=error_msj, truncado=truncado)
+            try:
+                respuesta = sc._enviar_al_proveedor(
+                    proveedor, modelo, [{"role": "user", "content": prompt}])
+            except RuntimeError as exc:
+                if truncado and _es_error_contexto(exc):
+                    # El modelo real puede tener más contexto que la estimación.
+                    sc.info("⚠ El proveedor falló por límite de contexto. "
+                            "Reintentando con el archivo completo...")
+                    contenido_envio = contenido_actual
+                    truncado = False
+                    prompt_completo, _c = _construir_prompt_edicion(
+                        "sobrescribir", mensaje, archivo, contenido_actual,
+                        lenguaje, conciso, error_msj=error_msj, truncado=False)
+                    respuesta = sc._enviar_al_proveedor(
+                        proveedor, modelo,
+                        [{"role": "user", "content": prompt_completo}])
+                else:
+                    sc.error(f"[EditorPropio] El proveedor falló en modo "
+                             f"sobrescribir: {exc}")
+                    return False
             nuevo_contenido = respuesta
             if nuevo_contenido.startswith("```"):
                 lineas = nuevo_contenido.splitlines()
@@ -681,7 +822,8 @@ class AgenteEditorPropio:
                                   raiz, modelo: Optional[str],
                                   conciso: bool, validar: bool,
                                   max_intentos_validacion: int,
-                                  auto: bool) -> bool:
+                                  auto: bool,
+                                  max_context_tokens: Optional[int] = None) -> bool:
         """Edita un único archivo recorriendo su cadena de estrategias.
 
         Lógica extraída de ``ejecutar()`` en v4.6.0 para soportar el rollback
@@ -712,19 +854,22 @@ class AgenteEditorPropio:
                 if estrategia == "ast":
                     conseguido = self.editar_ast(arch, mensaje,
                                                  str(raiz), modelo,
-                                                 conciso=conciso)
+                                                 conciso=conciso,
+                                                 max_context_tokens=max_context_tokens)
                 elif estrategia == "parche":
                     conseguido = self._aplicar_modo_parche(
                         arch, mensaje, contenido_actual, modelo, str(raiz),
                         validar=validar,
                         max_intentos_validacion=max_intentos_validacion,
-                        conciso=conciso, auto=auto)
+                        conciso=conciso, auto=auto,
+                        max_context_tokens=max_context_tokens)
                 elif estrategia == "sobrescribir":
                     conseguido = self._aplicar_modo_sobrescribir(
                         arch, mensaje, contenido_actual, modelo, str(raiz),
                         validar=validar,
                         max_intentos_validacion=max_intentos_validacion,
-                        conciso=conciso)
+                        conciso=conciso,
+                        max_context_tokens=max_context_tokens)
                 else:
                     conseguido = False
             except Exception as exc:
@@ -776,6 +921,8 @@ class AgenteEditorPropio:
         proveedor: Optional[str] = None,
         modelo_ligero: bool = False,
         auto: bool = False,
+        max_context_tokens: Optional[int] = None,
+        editor_fallback: bool = False,
     ) -> bool:
         """Aplica las modificaciones para `archivos` con el `mensaje` especificado.
 
@@ -791,6 +938,12 @@ class AgenteEditorPropio:
         - Resolución interactiva de conflictos de parche (omitida con ``auto``).
         - Al fallar todo, error claro con estrategias intentadas + sugerencia
           ``--editor aider`` y registro del fallo en ~/.snapcontext/logs/.
+
+        v6.1.0:
+        - ``max_context_tokens``: si un archivo supera este umbral se usa
+          contexto selectivo (resumen AST + bloque objetivo) en el prompt.
+        - ``editor_fallback``: si el editor propio falla en todos los archivos,
+          intenta automáticamente Aider (si está instalado) como respaldo.
         """
         import snapcontext as sc
         from pathlib import Path
@@ -843,12 +996,14 @@ class AgenteEditorPropio:
             snapshots.append((str(camino), contenido_bytes, existia))
 
         fallo_excepcion = None
+        fallidos: List[str] = []
         for arch in archivos:
             try:
                 conseguido = self._editar_archivo_en_cadena(
                     arch, mensaje, modo_edicion, estrategia_aprendida,
                     raiz, modelo, conciso, validar,
-                    max_intentos_validacion, auto)
+                    max_intentos_validacion, auto,
+                    max_context_tokens=max_context_tokens)
             except Exception as exc:
                 sc.depurar(f"[AgenteEditorPropio] Excepción editando "
                            f"'{arch}': {exc}")
@@ -856,6 +1011,13 @@ class AgenteEditorPropio:
                 fallo_excepcion = exc
             if not conseguido:
                 todo_ok = False
+                fallidos.append(arch)
+
+        # v6.1.0 — Fallback automático a Aider cuando el editor propio falla.
+        if fallidos and editor_fallback:
+            if self._ejecutar_con_aider(fallidos, mensaje, str(raiz)):
+                todo_ok = True        # Aider cubrió todos los fallidos.
+                fallo_excepcion = None
 
         # v4.6.0 — Rollback transaccional: si algo falló, se restaura TODO.
         if not todo_ok or fallo_excepcion is not None:

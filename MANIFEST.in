@@ -11,6 +11,7 @@ include sandbox_utils.py
 include graph_rag.py
 include parser_universal.py
 include multi_agent.py
+include context_utils.py
 recursive-include web/static *
 recursive-exclude tests *
 recursive-exclude vscode *

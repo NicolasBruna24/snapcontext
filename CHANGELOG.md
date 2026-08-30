@@ -4,6 +4,70 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.1.0] - 2026-08-29 - 🧠 Manejo de contexto inteligente y fallback a Aider
+
+### Added
+- **Nuevo módulo `context_utils.py`**: manejo de contexto inteligente para no
+  desbordar la ventana de tokens del modelo (crítico en modelos locales como
+  `deepseek-r1:14b`, con 4096 tokens).
+  - `estimar_tokens(texto, modelo)`: usa `tiktoken` si está disponible; si no,
+    la regla práctica 1 token ≈ 4 caracteres.
+  - `estimar_tokens_de_archivo(ruta)`: estimación leyendo el archivo de disco.
+  - `extraer_bloques_relevantes(contenido, lenguaje, objetivo)`: extrae
+    funciones/clases con tree-sitter (vía `parser_universal`) o con regex
+    básico como respaldo; devuelve `(resumen_ast, bloques)` y coloca primero
+    el bloque `objetivo` si se indica.
+  - `seleccionar_contexto(contenido, lenguaje, objetivo, max_tokens=3000)`:
+    si el archivo cabe en el presupuesto se devuelve completo; si no, se
+    compone resumen AST + bloque objetivo + bloques relevantes hasta llenar
+    `max_tokens`.
+  - `objetivo_en_mensaje(...)`: detecta la función/clase mencionada en la
+    tarea para priorizar el bloque correcto.
+  - `es_error_contexto(exc)`: detección unificada de errores de límite de
+    contexto (Anthropic `exceed_context_size_error`, OpenAI/Ollama/DeepSeek
+    `context length`, Gemini `context window`, …).
+- **Editor propio con contexto selectivo (`agentes.py`)**: `_aplicar_modo_parche`
+  y `_aplicar_modo_sobrescribir` estiman los tokens del archivo antes de llamar
+  al proveedor; si supera `--max-context-tokens` envían solo el bloque
+  relevante + resumen (el parche devuelto se reinserta en el archivo original).
+  Si el proveedor falla por límite de contexto se **reintenta con el archivo
+  completo** (el modelo real puede tener más contexto del estimado) y, si
+  vuelve a fallar, se **pasa a la siguiente estrategia**
+  (AST → Parche → Sobrescritura).
+- **Modo AST (`snapcontext.py`)**: `_editor_ast` acepta `max_context_tokens`,
+  reduce el contenido enviado con `seleccionar_contexto` y descarta la
+  operación `completo` cuando el contexto está truncado (las operaciones
+  `renombrar`/`insertar_import` se aplican sobre el archivo completo, nunca
+  sobre el fragmento).
+- **Fallback a Aider**: con `--editor-fallback`, si el editor propio no puede
+  editar un archivo se invoca Aider automáticamente (si está instalado) para
+  ese archivo, o se muestra una sugerencia clara al usuario.
+- **Planificador (`snapcontext.py`)**: el contenido de `CLAUDE.md` incluido en
+  `_generar_plan` se limita por tokens con `seleccionar_contexto` (antes:
+  recorte bruto a 3000 caracteres); `_ejecutar_paso_plan` propaga
+  `--max-context-tokens` y `--editor-fallback` al editor propio, igual que el
+  orquestador en el flujo clásico.
+
+### CLI
+- `--max-context-tokens N` (3000): límite máximo de tokens a enviar al modelo
+  en una sola petición.
+- `--editor-fallback`: cuando el editor propio falla por contexto, invoca
+  Aider automáticamente (si está instalado) para ese archivo.
+
+### 🧪 Tests
+- `tests/test_context_utils.py` (24 tests): estimación de tokens (con y sin
+  `tiktoken`), extracción de bloques (tree-sitter, `ast` y fallback regex),
+  selección de contexto (archivo pequeño devuelve todo, grande devuelve
+  fragmento dentro del presupuesto, objetivo priorizado), `objetivo_en_mensaje`,
+  constantes compartidas entre módulos, flags CLI, `_editor_ast` con
+  `max_context_tokens` e integración del editor propio con proveedor mockeado
+  (contexto selectivo y reintento tras error de contexto).
+
+### 🔧 Versión
+- `VERSION` en `snapcontext.py` y `pyproject.toml` → `6.1.0`. Se actualizaron
+  las 21 aserciones de versión de los tests de coherencia (20 ficheros).
+- `context_utils` añadido a `py-modules` (`pyproject.toml`) y a `MANIFEST.in`.
+
 ## [6.0.0] - 2026-08-28 - 🤖 Multi-agentes en paralelo
 
 ### Added
