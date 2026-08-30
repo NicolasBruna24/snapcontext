@@ -51,6 +51,7 @@ __all__ = [
     "OPCIONES_IMPACTO_DEFECTO",
     "mostrar_estado",
     "mostrar_error",
+    "mostrar_razonamiento",
 ]
 
 VERSION_UI = "4.8.0"
@@ -251,6 +252,38 @@ def mostrar_estado(mensaje: str, emoji: str = "⚙️") -> None:
         _imprimir(texto)
         return
     _console.print(f"[cyan]{texto}[/cyan]")
+
+
+def mostrar_razonamiento(texto: str,
+                         titulo: str = "🧠 Razonamiento del modelo",
+                         max_caracteres: int = 500) -> bool:
+    """Muestra el razonamiento (chain-of-thought) del modelo en un panel.
+
+    Borde verde y texto gris para distinguirlo de la acción/resultado. Si el
+    texto supera ``max_caracteres`` se trunca y se indica ``[ver más]``.
+    Devuelve ``True`` si se mostró algo, ``False`` si ``texto`` estaba vacío.
+    """
+    texto = (texto or "").strip()
+    if not texto:
+        return False
+    truncado = len(texto) > max_caracteres
+    visible = texto[:max_caracteres].rstrip() + ("…" if truncado else "")
+    if RICH_DISPONIBLE:
+        cuerpo = Text(visible, style="grey78")
+        if truncado:
+            cuerpo.append("\n\n[dim][ver más] razonamiento truncado a "
+                          f"{max_caracteres} caracteres[/dim]")
+        _console.print(Panel(cuerpo, title=titulo, border_style="green",
+                             subtitle="chain-of-thought"))
+    else:
+        linea = "─" * max(10, min(len(titulo) + 8, 60))
+        _imprimir(f"┌─ {titulo} {linea}")
+        _imprimir(visible)
+        if truncado:
+            _imprimir(f"[ver más] razonamiento truncado a "
+                      f"{max_caracteres} caracteres")
+        _imprimir("└" + "─" * (len(linea) + len(titulo) + 3))
+    return True
 
 
 def mostrar_error(mensaje: str) -> None:

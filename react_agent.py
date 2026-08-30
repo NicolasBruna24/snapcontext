@@ -25,6 +25,7 @@ from typing import Callable, Dict, List, Optional
 
 import snapcontext as sc
 import detector_tests as det
+import ui
 
 
 UMBRAL_RESUMEN_TOKENS_DEFAULT = 8000   # dispara resumen automático del historial
@@ -56,7 +57,8 @@ class ReactAgent:
 
     def __init__(self, directorio: str = ".", auto: bool = False,
                  max_iter: int = 15, proveedor: Optional[str] = None,
-                 modelo: Optional[str] = None, graph_rag: bool = False):
+                 modelo: Optional[str] = None, graph_rag: bool = False,
+                 mostrar_razonamiento: bool = False):
         self.directorio = str(Path(directorio).resolve())
         self.auto = bool(auto)
         self.max_iteraciones = max(int(max_iter), 1)
@@ -65,6 +67,9 @@ class ReactAgent:
         self.modelo = modelo
         # v5.5.0: Grafo de conocimiento (opcional; --graph-rag o env).
         self.graph_rag = bool(graph_rag)
+        # v6.2.0: mostrar el razonamiento COMPLETO del modelo en cada turno
+        # (--mostrar-razonamiento o env SNAPCONTEXT_MOSTRAR_RAZONAMIENTO).
+        self.mostrar_razonamiento = bool(mostrar_razonamiento)
         self._grafo: Optional[dict] = None
         # Herramientas disponibles: nombre → callable(argumentos) -> dict.
         self.herramientas: Dict[str, Callable[[dict], dict]] = {
@@ -341,6 +346,9 @@ class ReactAgent:
         intento = 0
         while intento < MAX_REINTENTOS_JSON:
             bruto = self._llamar_llm(mensajes)
+            # v6.2.0: conservar la respuesta bruta para poder mostrar el
+            # razonamiento completo (<think>…) cuando el flag está activo.
+            self._ultima_respuesta_bruta = bruto
             decision = self._extraer_json(bruto)
             if decision is not None and ("accion" in decision or "action"
                                          in decision):
@@ -446,6 +454,12 @@ class ReactAgent:
                                      f"{MAX_REINTENTOS_JSON} reintentos",
                         "iteraciones": iteracion, "abortado": True}
             accion = decision["accion"]
+            if self.mostrar_razonamiento:
+                # v6.2.0: razonamiento COMPLETO del modelo (no el resumido).
+                _raz = sc._extraer_razonamiento(
+                    getattr(self, "_ultima_respuesta_bruta", "")) \
+                    or decision["pensamiento"]
+                ui.mostrar_razonamiento(_raz)
             sc.info(f"[{iteracion}/{self.max_iteraciones}] 💭 "
                     f"{decision['pensamiento'][:200]}")
             if accion == "finalizar":

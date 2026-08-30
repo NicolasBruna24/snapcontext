@@ -380,11 +380,14 @@ class AgenteEditorPropio:
     def editar_ast(self, archivo: str, tarea: str,
                    directorio: str = ".", modelo: Optional[str] = None,
                    conciso: bool = False,
-                   max_context_tokens: Optional[int] = None) -> bool:
+                   max_context_tokens: Optional[int] = None,
+                   mostrar_razonamiento: bool = False) -> bool:
         """Edita ``archivo`` con base en su AST usando el proveedor de IA.
 
         Desde v6.1.0 ``max_context_tokens`` permite recortar el contenido
         enviado al proveedor mediante :func:`context_utils.seleccionar_contexto`.
+        Desde v6.2.0 ``mostrar_razonamiento`` muestra el chain-of-thought del
+        modelo antes de aplicar el cambio.
         """
         import snapcontext as sc
 
@@ -394,7 +397,8 @@ class AgenteEditorPropio:
         return sc._editor_ast(archivo, tarea, directorio=directorio,
                               proveedor=proveedor, modelo=modelo,
                               conciso=conciso,
-                              max_context_tokens=max_context_tokens)
+                              max_context_tokens=max_context_tokens,
+                              mostrar_razonamiento=mostrar_razonamiento)
 
     def _preparar_contenido_envio(self, archivo: str, mensaje: str,
                                   contenido_actual: str,
@@ -544,6 +548,9 @@ class AgenteEditorPropio:
                     sc.error(f"[EditorPropio] El proveedor falló en modo "
                              f"parche: {exc}")
                     return False
+            respuesta, _raz = sc._procesar_razonamiento(
+                respuesta,
+                activo=getattr(self, "_mostrar_razonamiento", False))
             diff_limpio = respuesta
             if "--- " in diff_limpio and "+++ " in diff_limpio:
                 idx_inicio = diff_limpio.find("--- ")
@@ -689,6 +696,9 @@ class AgenteEditorPropio:
                     sc.error(f"[EditorPropio] El proveedor falló en modo "
                              f"sobrescribir: {exc}")
                     return False
+            respuesta, _raz = sc._procesar_razonamiento(
+                respuesta,
+                activo=getattr(self, "_mostrar_razonamiento", False))
             nuevo_contenido = respuesta
             if nuevo_contenido.startswith("```"):
                 lineas = nuevo_contenido.splitlines()
@@ -823,7 +833,8 @@ class AgenteEditorPropio:
                                   conciso: bool, validar: bool,
                                   max_intentos_validacion: int,
                                   auto: bool,
-                                  max_context_tokens: Optional[int] = None) -> bool:
+                                  max_context_tokens: Optional[int] = None,
+                                  mostrar_razonamiento: bool = False) -> bool:
         """Edita un único archivo recorriendo su cadena de estrategias.
 
         Lógica extraída de ``ejecutar()`` en v4.6.0 para soportar el rollback
@@ -841,6 +852,9 @@ class AgenteEditorPropio:
             except Exception:
                 pass
 
+        # v6.2.0: el razonamiento del modelo se muestra si el flag está
+        # activo (se propaga desde ejecutar()).
+        self._mostrar_razonamiento = bool(mostrar_razonamiento)
         cadena = self._cadena_modos(arch, mensaje, modo_edicion)
         # El skill aprendido se coloca el primero en la cadena.
         if estrategia_aprendida and estrategia_aprendida in cadena:
@@ -855,7 +869,11 @@ class AgenteEditorPropio:
                     conseguido = self.editar_ast(arch, mensaje,
                                                  str(raiz), modelo,
                                                  conciso=conciso,
-                                                 max_context_tokens=max_context_tokens)
+                                                 max_context_tokens=max_context_tokens,
+                                                 mostrar_razonamiento=getattr(
+                                                     self,
+                                                     "_mostrar_razonamiento",
+                                                     False))
                 elif estrategia == "parche":
                     conseguido = self._aplicar_modo_parche(
                         arch, mensaje, contenido_actual, modelo, str(raiz),
@@ -923,6 +941,7 @@ class AgenteEditorPropio:
         auto: bool = False,
         max_context_tokens: Optional[int] = None,
         editor_fallback: bool = False,
+        mostrar_razonamiento: bool = False,
     ) -> bool:
         """Aplica las modificaciones para `archivos` con el `mensaje` especificado.
 
@@ -1003,7 +1022,8 @@ class AgenteEditorPropio:
                     arch, mensaje, modo_edicion, estrategia_aprendida,
                     raiz, modelo, conciso, validar,
                     max_intentos_validacion, auto,
-                    max_context_tokens=max_context_tokens)
+                    max_context_tokens=max_context_tokens,
+                    mostrar_razonamiento=mostrar_razonamiento)
             except Exception as exc:
                 sc.depurar(f"[AgenteEditorPropio] Excepción editando "
                            f"'{arch}': {exc}")

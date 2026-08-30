@@ -2237,6 +2237,35 @@ pip install tree-sitter tree-sitter-languages tree-sitter-language-pack
 - **Ollama**, **DeepSeek** y **Groq** por sus modelos open-source.
 - La comunidad open-source por las herramientas que hacen posible este proyecto.
 
+## 🧠 Mostrar razonamiento del modelo
+
+A partir de la versión 6.2.0, SnapContext puede mostrar el **razonamiento
+interno (chain-of-thought)** del modelo antes de cada acción o respuesta, en
+todos los modos principales (chat, planificador, editor propio y ReAct):
+
+```bash
+# Flag CLI
+snapcontext "añade tests para el parser" --mostrar-razonamiento
+
+# Variable de entorno (equivalente)
+export SNAPCONTEXT_MOSTRAR_RAZONAMIENTO=1
+```
+
+Cómo funciona:
+
+1. Si la respuesta del proveedor incluye un campo de razonamiento
+   (`reasoning`, `thinking`, `chain_of_thought`, `reasoning_content`,
+   `thoughts`) o bloques `<think>…</think>` (DeepSeek-R1 y otros modelos
+   locales), se muestra en un panel antes del resultado.
+2. Si el modelo no lo proporciona, se activa el **modo de dos pasos**: una
+   llamada extra pide el razonamiento paso a paso y después se ejecuta la
+   acción normal (con una advertencia, porque duplica las llamadas).
+3. Los bloques `<think>…</think>` se eliminan del texto útil, de forma que no
+   rompen el parseo de JSON del planificador ni los parches del editor.
+
+El modo está **desactivado por defecto**: sin el flag ni la variable de
+entorno, el flujo es idéntico al anterior y no añade ninguna llamada extra.
+
 ## Licencia
 
 MIT. Open-source y libre de usarlo, estudiarlo y mejorarlo.

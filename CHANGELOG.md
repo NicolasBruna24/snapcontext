@@ -4,6 +4,30 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.2.0] - 2026-08-29 - 🧠 Mostrar razonamiento del modelo (chain-of-thought)
+
+### Added
+- Flag `--mostrar-razonamiento` y variable de entorno
+  `SNAPCONTEXT_MOSTRAR_RAZONAMIENTO=1` (valores `1`/`true`/`yes`) para mostrar
+  el razonamiento del modelo antes de cada acción o respuesta.
+- `ui.mostrar_razonamiento()`: panel con el razonamiento (borde verde, texto
+  gris, truncado a 500 caracteres con aviso `[ver más]`).
+- `_extraer_razonamiento()` en `snapcontext.py`: detecta los campos
+  `reasoning`, `thinking`, `chain_of_thought`, `reasoning_content`,
+  `thoughts` (top-level o anidados tipo OpenAI/Ollama) y bloques
+  `<think>…</think>` en texto plano.
+- Integración en chat (`--chat`), planificador (`_generar_plan` y paso
+  `consultar`), editor propio (AST/parche/sobrescribir) y ReAct (razonamiento
+  completo por turno en lugar del pensamiento resumido).
+- Modo de dos pasos: si el modelo no devuelve razonamiento explícito, se pide
+  primero el razonamiento paso a paso y luego se ejecuta la acción (con
+  advertencia de lentitud; solo con el flag activo).
+- Los bloques `<think>…</think>` se eliminan siempre del texto útil antes de
+  parsear JSON o parches (evita fallos con DeepSeek-R1 y similares).
+
+### Changed
+- `pyproject.toml` y `VERSION` → `6.2.0`.
+
 ## [6.1.0] - 2026-08-29 - 🧠 Manejo de contexto inteligente y fallback a Aider
 
 ### Added

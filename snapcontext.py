@@ -124,7 +124,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.1.0"
+VERSION = "6.2.0"
 
 # v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
 # de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
@@ -2765,7 +2765,8 @@ def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
                 proveedor: Optional[str] = None,
                 modelo: Optional[str] = None,
                 conciso: bool = False,
-                max_context_tokens: Optional[int] = None) -> bool:
+                max_context_tokens: Optional[int] = None,
+                mostrar_razonamiento: bool = False) -> bool:
     """Editor propio (Fase 3 — Edición basada en AST).
 
     1) Lee el contenido del archivo.
@@ -2876,6 +2877,8 @@ def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
         error(f"[EditorAST] Error generando cambios para {ruta_posix}: {exc}")
         return False
 
+    respuesta, _raz_ast = _procesar_razonamiento(
+        respuesta, activo=mostrar_razonamiento)
     opos = _interpretar_operaciones_ast(respuesta)
     if truncado:
         # v6.1.0: con contexto selectivo una op "completo" reemplazaría TODO
@@ -4039,6 +4042,126 @@ Los comandos /run, /explore, /fix, /review y /server se ejecutan en un hilo
 separado para no bloquear el chat."""
 
 
+# ---------------------------------------------------------------------------
+# Razonamiento del modelo (chain-of-thought) — v6.2.0
+# ---------------------------------------------------------------------------
+_CLAVES_RAZONAMIENTO = ("reasoning", "reasoning_content", "thinking",
+                        "chain_of_thought", "thoughts", "razonamiento",
+                        "thought")
+_RE_THINK = re.compile(r"<think>(.*?)</think>", re.S | re.I)
+_RE_THINK_ABIERTO = re.compile(r"</?think>", re.I)
+
+# Estado de sesión del modo razonamiento (mutable, sin globals).
+_RAZONAMIENTO_ESTADO = {"banner": False, "aviso_dos_pasos": False}
+
+
+def _extraer_razonamiento(respuesta) -> Optional[str]:
+    """Extrae el razonamiento (chain-of-thought) de una respuesta del modelo.
+
+    Acepta un dict (campos ``reasoning``/``thinking``/``chain_of_thought``/
+    ``reasoning_content``/``thoughts`` en el nivel superior o anidados como
+    ``message`` de Ollama o ``choices[0].message`` de OpenAI) o un str con
+    bloques ``<think>…</think>`` (DeepSeek-R1 y otros modelos locales).
+    Devuelve el texto del razonamiento o ``None`` si no hay.
+    """
+    if respuesta is None:
+        return None
+    if isinstance(respuesta, dict):
+        for clave in _CLAVES_RAZONAMIENTO:
+            valor = respuesta.get(clave)
+            if isinstance(valor, str) and valor.strip():
+                return valor.strip()
+        for anidado in (respuesta.get("message"),
+                        respuesta.get("delta")):
+            if isinstance(anidado, dict):
+                encontrado = _extraer_razonamiento(anidado)
+                if encontrado:
+                    return encontrado
+        for choice in respuesta.get("choices") or []:
+            if isinstance(choice, dict):
+                encontrado = _extraer_razonamiento(choice.get("message"))
+                if encontrado:
+                    return encontrado
+        return None
+    texto = str(respuesta)
+    if not texto:
+        return None
+    bloques = _RE_THINK.findall(texto)
+    if bloques:
+        return "\n".join(b.strip() for b in bloques if b.strip()) or None
+    return None
+
+
+def _quitar_razonamiento(texto: str) -> str:
+    """Elimina los bloques ``<think>…</think>`` de un texto plano.
+
+    Los modelos que los emiten romperían el parseo de JSON del planificador
+    y los parches del editor si se dejaran en el texto útil. Si el texto no
+    contiene razonamiento se devuelve **tal cual** (sin ``strip()``), para no
+    alterar el whitespace de las respuestas del proveedor (compatibilidad).
+    """
+    if not texto:
+        return texto or ""
+    limpio = _RE_THINK.sub("", texto)
+    limpio = _RE_THINK_ABIERTO.sub("", limpio)
+    if limpio == texto:
+        # Sin razonamiento: respetar el texto original byte a byte.
+        return texto
+    return limpio.strip()
+
+
+def _razonamiento_activo(args=None) -> bool:
+    """¿Mostrar el razonamiento? Flag ``--mostrar-razonamiento`` o variable
+    de entorno ``SNAPCONTEXT_MOSTRAR_RAZONAMIENTO`` (``1``/``true``/``yes``).
+    """
+    bruto = (os.environ.get("SNAPCONTEXT_MOSTRAR_RAZONAMIENTO")
+             or "").strip().lower()
+    if bruto in ("1", "true", "yes", "si", "sí", "on"):
+        return True
+    return bool(getattr(args, "mostrar_razonamiento", False))
+
+
+def _procesar_razonamiento(respuesta, activo: bool = False,
+                           avisar: bool = True,
+                           titulo: str = "🧠 Razonamiento del modelo") -> tuple:
+    """Muestra (si ``activo``) el razonamiento y devuelve ``(limpio, raz)``.
+
+    Siempre elimina los bloques ``<think>…</think>`` del texto útil. Con
+    ``avisar=False`` no muestra el mensaje de "sin razonamiento explícito"
+    (útil cuando el llamador gestiona el modo de dos pasos).
+    """
+    raz = _extraer_razonamiento(respuesta)
+    limpio = (_quitar_razonamiento(respuesta)
+              if isinstance(respuesta, str) else respuesta)
+    if activo:
+        if raz:
+            import ui as _ui
+            _ui.mostrar_razonamiento(raz, titulo=titulo)
+        elif avisar:
+            info("ℹ El modelo no proporcionó razonamiento explícito.")
+    return limpio, raz
+
+
+def _razonamiento_dos_pasos(tarea: str, proveedor: Optional[str],
+                            modelo: Optional[str] = None) -> Optional[str]:
+    """Modo de dos pasos: pide primero SOLO el razonamiento de ``tarea``.
+
+    Se usa cuando el modelo no devuelve razonamiento explícito y el usuario
+    activó ``--mostrar-razonamiento``. Devuelve el texto del razonamiento o
+    ``None`` si la llamada falla (nunca rompe el flujo principal).
+    """
+    prompt = ("Por favor, genera tu razonamiento paso a paso para la "
+              "siguiente tarea, sin ejecutar ninguna acción.\n\nTarea: "
+              + (tarea or "").strip())
+    try:
+        respuesta = _enviar_al_proveedor(
+            proveedor, modelo, [{"role": "user", "content": prompt}])
+    except Exception:                   # noqa: BLE001 — nunca romper el flujo
+        return None
+    raz = _extraer_razonamiento(respuesta)
+    return raz or (str(respuesta).strip() or None)
+
+
 def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
                          mensajes: List[dict]) -> str:
     """Envía ``mensajes`` ([{"role": ..., "content": ...}, ...]) al proveedor.
@@ -4507,8 +4630,33 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             error(f"Error hablando con {PROVEEDORES[proveedor]['nombre']}: {exc}")
             historial_chat.pop()
             continue
-        historial_chat.append({"role": "assistant", "content": respuesta})
-        _emitir(sys.stdout, _pintar(respuesta, _VERDE))
+        _raz_activo = _razonamiento_activo()
+        if _raz_activo and not _RAZONAMIENTO_ESTADO.get("banner"):
+            _RAZONAMIENTO_ESTADO["banner"] = True
+            info("🧠 Mostrando razonamiento del modelo "
+                 "(--mostrar-razonamiento)")
+        respuesta_limpia, raz = _procesar_razonamiento(respuesta,
+                                                       activo=False)
+        if _raz_activo and raz:
+            import ui as _ui
+            _ui.mostrar_razonamiento(raz)
+        elif _raz_activo:
+            # Modo de dos pasos (v6.2.0): el modelo no etiqueta su
+            # razonamiento → se pide explícitamente antes de la respuesta.
+            if not _RAZONAMIENTO_ESTADO.get("aviso_dos_pasos"):
+                _RAZONAMIENTO_ESTADO["aviso_dos_pasos"] = True
+                aviso("⚠ El modelo no devuelve razonamiento explícito: se "
+                      "usará el modo de dos pasos (duplica las llamadas y "
+                      "puede ralentizar modelos lentos).")
+            raz2 = _razonamiento_dos_pasos(linea, proveedor, modelo)
+            if raz2:
+                import ui as _ui
+                _ui.mostrar_razonamiento(raz2)
+            else:
+                info("ℹ El modelo no proporcionó razonamiento explícito.")
+        historial_chat.append({"role": "assistant",
+                               "content": respuesta_limpia})
+        _emitir(sys.stdout, _pintar(respuesta_limpia, _VERDE))
         _emitir(sys.stdout, "")
 
 
@@ -4886,6 +5034,10 @@ def _generar_plan(consulta: str, proveedor: Optional[str] = None,
             raise RuntimeError(
                 f"Error al generar el plan con {cfg['nombre']}: {exc}") from exc
 
+    # v6.2.0: muestra el razonamiento (chain-of-thought) si está activado y
+    # limpia los bloques <think> antes de parsear el JSON del plan.
+    texto, _raz_plan = _procesar_razonamiento(texto,
+                                              activo=_razonamiento_activo())
     depurar(f"Plan recibido ({len(texto)} caracteres): {texto[:200]}")
     return _normalizar_pasos(parsear_json(texto))
 
@@ -5040,6 +5192,8 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
                              f"Paso a aclarar: {descripcion}\n"
                              "Responde de forma breve y útil."}],
             )
+            respuesta, _raz = _procesar_razonamiento(
+                respuesta, activo=_razonamiento_activo(args))
             _emitir(sys.stdout, _pintar(respuesta, _VERDE))
             return (True, "respuesta mostrada")
         except RuntimeError as exc:
@@ -5624,6 +5778,7 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
         auto=bool(getattr(args, "auto", False)),
         max_iter=int(getattr(args, "react_max_iter", 15) or 15),
         graph_rag=_graph_rag_activo(args),
+        mostrar_razonamiento=bool(getattr(args, "mostrar_razonamiento", False)),
     )
     resultado = agente.ejecutar(args.consulta)
     return 0 if resultado.get("ok") else 1
@@ -8695,7 +8850,7 @@ def _pintar(texto: str, clave: str) -> str:
 CATEGORIAS_AYUDA = (
     ("Modos de ejecución",
      ("--plan", "--auto", "--editor", "--modo-edicion", "--validar", "--no-validar-sintaxis", "--max-intentos-validacion",
-      "--max-context-tokens", "--editor-fallback",
+      "--max-context-tokens", "--editor-fallback", "--mostrar-razonamiento",
       "--asesor", "--asesor-auto", "--asesor-umbral", "--modelo-ligero",
       "--asesor-profundo", "--graph-rag", "--multi-agent",
       "--api", "--api-puerto", "--api-host", "--api-token", "--api-generate-key",
@@ -9894,6 +10049,13 @@ def crear_parser() -> argparse.ArgumentParser:
              f"AST + bloque objetivo), evitando los fallos por ventana de "
              f"contexto de los modelos pequeños (p. ej. deepseek-r1:14b).",
     )
+    parser.add_argument(
+        "--mostrar-razonamiento", dest="mostrar_razonamiento",
+        action="store_true",
+        help="v6.2.0: muestra el razonamiento del modelo (chain-of-thought) "
+             "antes de cada acción/respuesta en chat, planificador, editor y "
+             "ReAct. También activable con la variable de entorno "
+             "SNAPCONTEXT_MOSTRAR_RAZONAMIENTO=1.")
     parser.add_argument(
         "--editor-fallback", dest="editor_fallback", action="store_true",
         help="v6.1.0: si el editor propio falla (por contexto o por estrategia), "
