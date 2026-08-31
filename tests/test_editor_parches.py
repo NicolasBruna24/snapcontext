@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests v6.3.0: mejora del editor de parches (fuzzy matching, resincronización
+"""Tests v6.4.0: mejora del editor de parches (fuzzy matching, resincronización
 de bloques, flag --mostrar-diff y mensajes de error claros)."""
 
 import os
@@ -19,7 +19,7 @@ import ui                     # noqa: E402
 
 
 class TestVariantesYFuzzy(unittest.TestCase):
-    """Emparejamiento por variantes y difuso (v6.3.0)."""
+    """Emparejamiento por variantes y difuso (v6.4.0)."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="sc630fz_")
@@ -184,7 +184,7 @@ class TestVariantesYFuzzy(unittest.TestCase):
         self.assertEqual(sc.UMBRAL_DIFUSO_BLOQUE, 0.80)
 
 class TestMostrarDiffInteractivo(unittest.TestCase):
-    """Flag --mostrar-diff y preview interactivo (v6.3.0)."""
+    """Flag --mostrar-diff y preview interactivo (v6.4.0)."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="sc630md_")

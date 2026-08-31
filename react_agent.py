@@ -58,7 +58,8 @@ class ReactAgent:
     def __init__(self, directorio: str = ".", auto: bool = False,
                  max_iter: int = 15, proveedor: Optional[str] = None,
                  modelo: Optional[str] = None, graph_rag: bool = False,
-                 mostrar_razonamiento: bool = False):
+                 mostrar_razonamiento: bool = False,
+                 sesion_docker: bool = False):
         self.directorio = str(Path(directorio).resolve())
         self.auto = bool(auto)
         self.max_iteraciones = max(int(max_iter), 1)
@@ -70,6 +71,9 @@ class ReactAgent:
         # v6.2.0: mostrar el razonamiento COMPLETO del modelo en cada turno
         # (--mostrar-razonamiento o env SNAPCONTEXT_MOSTRAR_RAZONAMIENTO).
         self.mostrar_razonamiento = bool(mostrar_razonamiento)
+        # v6.4.0: persistencia Docker por sesión (--sandbox-session). El agente
+        # crea la sesión al empezar y la destruye al terminar (éxito/aborto).
+        self.sesion_docker = bool(sesion_docker)
         self._grafo: Optional[dict] = None
         # Herramientas disponibles: nombre → callable(argumentos) -> dict.
         self.herramientas: Dict[str, Callable[[dict], dict]] = {
@@ -441,67 +445,82 @@ class ReactAgent:
             else ""
         sc.info(f"🧠 Modo ReAct activado ({self.proveedor}, máx. "
                 f"{self.max_iteraciones} iteraciones{sandbox_txt}).")
-        for iteracion in range(1, self.max_iteraciones + 1):
-            self._resumir_si_hace_falta()
+        # v6.4.0: si se pidió --sandbox-session, iniciar la sesión Docker
+        # persistente (un único contenedor reutilizado para toda la tarea).
+        if self.sesion_docker and getattr(sc, "_SANDBOX_ACTIVO", False):
             try:
-                decision = self._pedir_decision(list(self.historial))
+                sc._asegurar_sesion_docker(self.directorio)
             except Exception as exc:                     # noqa: BLE001
-                return {"ok": False, "resultado": f"error del LLM: {exc}",
-                        "iteraciones": iteracion - 1, "abortado": True}
-            if decision is None:
-                return {"ok": False,
-                        "resultado": "el LLM no devolvió JSON válido tras "
-                                     f"{MAX_REINTENTOS_JSON} reintentos",
-                        "iteraciones": iteracion, "abortado": True}
-            accion = decision["accion"]
-            if self.mostrar_razonamiento:
-                # v6.2.0: razonamiento COMPLETO del modelo (no el resumido).
-                _raz = sc._extraer_razonamiento(
-                    getattr(self, "_ultima_respuesta_bruta", "")) \
-                    or decision["pensamiento"]
-                ui.mostrar_razonamiento(_raz)
-            sc.info(f"[{iteracion}/{self.max_iteraciones}] 💭 "
-                    f"{decision['pensamiento'][:200]}")
-            if accion == "finalizar":
-                resumen = str(decision["argumentos"].get("resumen", "")
-                              or decision["pensamiento"] or "Tarea finalizada.")
-                sc.exito("🏁 ReAct: " + resumen[:300])
-                return {"ok": True, "resultado": resumen,
-                        "iteraciones": iteracion, "abortado": False}
-            if not self.auto:
-                respuesta = self._preguntar_continuar(decision)
-                if respuesta == "a":
+                sc.aviso(f"[ReAct] No se pudo iniciar la sesión Docker: {exc}")
+        try:
+            for iteracion in range(1, self.max_iteraciones + 1):
+                self._resumir_si_hace_falta()
+                try:
+                    decision = self._pedir_decision(list(self.historial))
+                except Exception as exc:                 # noqa: BLE001
+                    return {"ok": False, "resultado": f"error del LLM: {exc}",
+                            "iteraciones": iteracion - 1, "abortado": True}
+                if decision is None:
                     return {"ok": False,
-                            "resultado": "abortado por el usuario",
+                            "resultado": "el LLM no devolvió JSON válido tras "
+                                         f"{MAX_REINTENTOS_JSON} reintentos",
                             "iteraciones": iteracion, "abortado": True}
-                if respuesta == "s":
-                    self.historial.append({
-                        "role": "user",
-                        "content": f"[OBSERVACIÓN] Acción '{accion}' omitida "
-                                   "por el usuario."})
-                    continue
-            resultado_accion = self._ejecutar_accion(accion,
-                                                     decision["argumentos"])
-            if resultado_accion is None:
-                observacion = (f"ACCION DESCONOCIDA: '{accion}'. Válidas: "
-                               f"{', '.join(sorted(self.herramientas))}.")
-                ok_accion = False
-            else:
-                observacion = self._observar_resultado(resultado_accion)
-                ok_accion = bool(resultado_accion.get("ok"))
-            icono = "✅" if ok_accion else "⚠️"
-            sc.info(f"   {icono} Acción: {accion}")
-            sc.exito(observacion.splitlines()[0])
-            self.historial.append({"role": "assistant",
-                                   "content": json.dumps(
-                                       decision, ensure_ascii=False)})
-            self.historial.append({
-                "role": "user",
-                "content": f"[OBSERVACIÓN de '{accion}']\n{observacion}"})
-        return {"ok": False,
-                "resultado": f"Límite de {self.max_iteraciones} iteraciones "
-                             "alcanzado sin finalizar.",
-                "iteraciones": self.max_iteraciones, "abortado": False}
+                accion = decision["accion"]
+                if self.mostrar_razonamiento:
+                    # v6.2.0: razonamiento COMPLETO del modelo (no el resumido).
+                    _raz = sc._extraer_razonamiento(
+                        getattr(self, "_ultima_respuesta_bruta", "")) \
+                        or decision["pensamiento"]
+                    ui.mostrar_razonamiento(_raz)
+                sc.info(f"[{iteracion}/{self.max_iteraciones}] 💭 "
+                        f"{decision['pensamiento'][:200]}")
+                if accion == "finalizar":
+                    resumen = str(decision["argumentos"].get("resumen", "")
+                                  or decision["pensamiento"] or "Tarea finalizada.")
+                    sc.exito("🏁 ReAct: " + resumen[:300])
+                    return {"ok": True, "resultado": resumen,
+                            "iteraciones": iteracion, "abortado": False}
+                if not self.auto:
+                    respuesta = self._preguntar_continuar(decision)
+                    if respuesta == "a":
+                        return {"ok": False,
+                                "resultado": "abortado por el usuario",
+                                "iteraciones": iteracion, "abortado": True}
+                    if respuesta == "s":
+                        self.historial.append({
+                            "role": "user",
+                            "content": f"[OBSERVACIÓN] Acción '{accion}' omitida "
+                                       "por el usuario."})
+                        continue
+                resultado_accion = self._ejecutar_accion(
+                    accion, decision["argumentos"])
+                if resultado_accion is None:
+                    observacion = (f"ACCION DESCONOCIDA: '{accion}'. Válidas: "
+                                   f"{', '.join(sorted(self.herramientas))}.")
+                    ok_accion = False
+                else:
+                    observacion = self._observar_resultado(resultado_accion)
+                    ok_accion = bool(resultado_accion.get("ok"))
+                icono = "✅" if ok_accion else "⚠️"
+                sc.info(f"   {icono} Acción: {accion}")
+                sc.exito(observacion.splitlines()[0])
+                self.historial.append({"role": "assistant",
+                                       "content": json.dumps(
+                                           decision, ensure_ascii=False)})
+                self.historial.append({
+                    "role": "user",
+                    "content": f"[OBSERVACIÓN de '{accion}']\n{observacion}"})
+            return {"ok": False,
+                    "resultado": f"Límite de {self.max_iteraciones} iteraciones "
+                                 "alcanzado sin finalizar.",
+                    "iteraciones": self.max_iteraciones, "abortado": False}
+        finally:
+            # v6.4.0: destruir la sesión al terminar (éxito, aborto o excepción).
+            if self.sesion_docker:
+                try:
+                    sc._destruir_sesion_si_aplica()
+                except Exception:                        # noqa: BLE001
+                    pass
 
     def _preguntar_continuar(self, decision: dict) -> str:
         """Pregunta continuar/abortar/saltar en modo interactivo."""

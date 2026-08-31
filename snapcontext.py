@@ -124,7 +124,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.3.0"
+VERSION = "6.4.0"
 
 # v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
 # de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
@@ -686,6 +686,12 @@ def _registrar_manejadores_senales() -> None:
     """
     def _manejar(signum, frame):  # noqa: ARG001
         _apagar_subprocesos()
+        # v6.4.0: si hay una sesión Docker persistente, destruirla en Ctrl+C /
+        # SIGTERM para no dejar contenedores huérfanos.
+        try:
+            _destruir_sesion_si_aplica()
+        except Exception:                                  # noqa: BLE001
+            pass
         error(f"Señal {signum} recibida. SnapContext se está cerrando...")
         raise SystemExit(0)
 
@@ -3869,10 +3875,25 @@ def _ejecutar_comando(comando: str, directorio: str = ".",
     if decision == _SANDBOX_ABORTAR:
         return (-1, "", "Comando peligroso abortado (no hay sandbox Docker disponible).")
     if decision == _SANDBOX_CONTENEDOR:
-        if _SANDBOX_ACTIVO:
-            info(f"[sandbox] Ejecutando en contenedor: {comando}")
-        comando = _envolver_sandbox(comando, str(raiz))
-        raiz = Path.cwd()  # docker se lanza desde el host; el mount ya es absoluto
+        # v6.4.0: con --sandbox-session se reutiliza una sesión Docker en toda
+        # la tarea; si está solicitada, se ejecuta con `docker exec` del mismo
+        # contenedor (se crea de forma perezosa en el primer comando).
+        if _SESION_DOCKER_SOLICITADA:
+            import sandbox_session as ss                           # noqa: E402
+            if _asegurar_sesion_docker(str(raiz)):
+                info(f"🐳 Ejecutando en sesión Docker: {comando}")
+                comando = ss.comando_en_sesion(comando)
+                raiz = Path.cwd()  # docker se lanza desde el host
+            else:
+                if _SANDBOX_ACTIVO:
+                    info(f"[sandbox] Ejecutando en contenedor: {comando}")
+                comando = _envolver_sandbox(comando, str(raiz))
+                raiz = Path.cwd()
+        else:
+            if _SANDBOX_ACTIVO:
+                info(f"[sandbox] Ejecutando en contenedor: {comando}")
+            comando = _envolver_sandbox(comando, str(raiz))
+            raiz = Path.cwd()  # docker se lanza desde el host; el mount ya es absoluto
     try:
         proc = subprocess.run(
             comando,
@@ -3908,6 +3929,10 @@ _SANDBOX_VARS_CLAVE = ("GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
 _SANDBOX_ACTIVO: bool = False
 _SANDBOX_IMAGEN: str = SANDBOX_IMAGEN_DEFECTO
 _SANDBOX_COMANDO_PREP: Optional[str] = None
+# v6.4.0: persistencia Docker por sesión (--sandbox-session). Cuando está
+# activa, los comandos se ejecutan en un único contenedor reutilizado en toda
+# la tarea en lugar de `docker run --rm` por comando. Se solicita en main().
+_SESION_DOCKER_SOLICITADA: bool = False
 
 # ── Sandboxing inteligente (v5.4.0) ──────────────────────────────────────
 # Política por comando (además del sandbox forzado de --sandbox):
@@ -4124,6 +4149,48 @@ def _envolver_sandbox(comando: str, directorio: str = ".") -> str:
         comando = f"{_SANDBOX_COMANDO_PREP} && ({comando})"
     partes.extend(["sh", "-c", comando])
     return shlex.join(partes)
+# --- Persistencia Docker por sesión (v6.4.0) ---------------------------------
+def _configurar_sesion_docker(solicitada: bool) -> None:
+    """Fija el estado global de sesión persistente (para CLI y tests)."""
+    global _SESION_DOCKER_SOLICITADA
+    _SESION_DOCKER_SOLICITADA = bool(solicitada)
+
+
+def _asegurar_sesion_docker(directorio: str) -> Optional[str]:
+    """Devuelve el contenedor de sesión activo, creándolo si hace falta.
+
+    La sesión se crea de forma perezosa en el primer comando de la tarea
+    (``--sandbox-session``). Si ya existe en memoria la reutiliza (sin volver
+    a lanzar ``docker run``). Devuelve el nombre del contenedor o ``None``.
+    """
+    import sandbox_session as ss                                   # noqa: E402
+    if ss.sesion_nombre() is not None:
+        return ss.sesion_nombre()
+    nombre = ss.crear_sesion(directorio, _SANDBOX_IMAGEN,
+                             _SANDBOX_COMANDO_PREP,
+                             vars_entorno=_SANDBOX_VARS_CLAVE)
+    return nombre
+
+
+def _destruir_sesion_si_aplica() -> None:
+    """Destruye la sesión Docker si la tarea la solicitó (v6.4.0).
+
+    Se llama al finalizar el plan o el bucle ReAct y desde el manejador de
+    señales, de modo que no queden contenedores huérfanos. Nunca lanza.
+    """
+    if not _SESION_DOCKER_SOLICITADA:
+        return
+    try:
+        import sandbox_session as ss                               # noqa: E402
+        ss.destruir_sesion()
+    except Exception as exc:                                       # noqa: BLE001
+        aviso(f"[salida] No se pudo destruir la sesión Docker ({exc}).")
+
+
+def _limpiar_sesiones_huérfanas(auto: bool = False) -> int:
+    """Elimina contenedores ``snap-session-*`` sobrantes (--sandbox-session-clean)."""
+    import sandbox_session as ss                                   # noqa: E402
+    return ss.limpiar_huérfanos(auto=auto)
 
 
 def _ejecutar_pruebas_argv(comando: List[str], directorio: str) -> tuple:
@@ -4168,9 +4235,21 @@ def _lanzar_proceso_fondo(comando: str, directorio: str = ".",
         return {"ok": False, "error": f"El directorio no existe: {raiz}"}
     # v4.3.0: los procesos en segundo plano también respetan --sandbox.
     if _SANDBOX_ACTIVO:
-        info(f"[sandbox] Ejecutando en contenedor (background): {comando}")
-        comando = _envolver_sandbox(comando, str(raiz))
-        raiz = Path.cwd()
+        # v6.4.0: con --sandbox-session se lanzan dentro del contenedor de sesión.
+        if _SESION_DOCKER_SOLICITADA:
+            import sandbox_session as ss                           # noqa: E402
+            if _asegurar_sesion_docker(str(raiz)):
+                info(f"🐳 Ejecutando en sesión Docker (background): {comando}")
+                comando = ss.comando_en_sesion(comando)
+                raiz = Path.cwd()
+            else:
+                info(f"[sandbox] Ejecutando en contenedor (background): {comando}")
+                comando = _envolver_sandbox(comando, str(raiz))
+                raiz = Path.cwd()
+        else:
+            info(f"[sandbox] Ejecutando en contenedor (background): {comando}")
+            comando = _envolver_sandbox(comando, str(raiz))
+            raiz = Path.cwd()
     try:
         if capture_output:
             proc = subprocess.Popen(
@@ -6006,8 +6085,14 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
         max_iter=int(getattr(args, "react_max_iter", 15) or 15),
         graph_rag=_graph_rag_activo(args),
         mostrar_razonamiento=bool(getattr(args, "mostrar_razonamiento", False)),
+        sesion_docker=bool(getattr(args, "sandbox_session", False)),
     )
-    resultado = agente.ejecutar(args.consulta)
+    # v6.4.0: la sesión Docker se crea de forma perezosa y se destruye con
+    # total garantía al terminar el bucle ReAct (éxito, aborto o excepción).
+    try:
+        resultado = agente.ejecutar(args.consulta)
+    finally:
+        _destruir_sesion_si_aplica()
     return 0 if resultado.get("ok") else 1
 
 
@@ -6093,6 +6178,7 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
                                 f"{paso['descripcion']}{sufijo}")
         if not _preguntar_si("\n¿Quieres ejecutar estos pasos? (s/n): "):
             aviso("Plan cancelado por el usuario.")
+            _destruir_sesion_si_aplica()
             return 0
 
     # 3) Ejecución (v1.4.0): con --paralelo N (y --auto) se lanzan varios pasos
@@ -6257,6 +6343,9 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
             f"{r['descripcion']} [{r['accion']}] ({r['resultado']})"
             for r in resultados)
         _actualizar_claude_md_automatico(resumen, raiz)
+    # v6.4.0: al terminar el plan (éxito, aborto o error) se destruye la sesión
+    # Docker persistente para no dejar contenedores huérfanos.
+    _destruir_sesion_si_aplica()
     return 0 if todo_ok or abortar else 1
 
 
@@ -9097,7 +9186,7 @@ CATEGORIAS_AYUDA = (
     ("Planificador y bucles",
      ("--paralelo", "--max-intentos", "--test-loop", "--server-loop",
       "--manual-loop", "--comando-test", "--sandbox", "--no-sandbox",
-      "--sandbox-imagen",
+      "--sandbox-session", "--sandbox-session-clean", "--sandbox-imagen",
       "--sandbox-comando", "--dispositivo", "--url-defecto",
       "--max-iteraciones")),
     ("Otros",
@@ -10077,6 +10166,21 @@ def crear_parser() -> argparse.ArgumentParser:
              "ejecuta en Docker, incluso si se detecta peligro. Tiene "
              "prioridad sobre --sandbox y sobre SNAPCONTEXT_SANDBOX=1. "
              "Equivalente a la variable SNAPCONTEXT_SANDBOX=0.",
+    )
+    parser.add_argument(
+        "--sandbox-session", dest="sandbox_session", action="store_true",
+        help="(v6.4.0) Persistencia de Docker por sesión: crea UN contenedor "
+             "al inicio de la tarea y lo reutiliza para todos los comandos "
+             "(mantiene estado: `npm install` → `npm test`, `pip install` → "
+             "`pytest`). Se destruye al finalizar (o con Ctrl+C). Sin este "
+             "flag se usa `docker run --rm` (comportamiento histórico).",
+    )
+    parser.add_argument(
+        "--sandbox-session-clean", dest="sandbox_session_clean",
+        action="store_true",
+        help="(v6.4.0) Elimina los contenedores de sesión huérfanos "
+             "(snap-session-*) de sesiones anteriores y sale. Con "
+             "--auto los borra sin preguntar.",
     )
     parser.add_argument(
         "--sandbox-imagen", dest="sandbox_imagen", default=None,
@@ -11123,6 +11227,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         CONFIRMAR_ACCIONES = getattr(args, "confirmar", True)
         # v4.8.0: sincroniza el modo no interactivo de la capa UI (--auto).
         _ui_configurar_auto(bool(getattr(args, "auto", False)))
+# v4.8.0: sincroniza el modo no interactivo de la capa UI (--auto).
+        _ui_configurar_auto(bool(getattr(args, "auto", False)))
+        # v6.4.0: `--sandbox-session-clean` limpia contenedores huérfanos y sale.
+        if getattr(args, "sandbox_session_clean", False):
+            _limpiar_sesiones_huérfanas(
+                auto=bool(getattr(args, "auto", False)))
+            return 0
         # v4.3.0/v5.4.0: política de sandbox. --no-sandbox gana sobre todo;
         # después --sandbox explícito; y SNAPCONTEXT_SANDBOX=1 activa el
         # contenedor para todo (no estricto: si falta Docker se continúa sin
@@ -11130,6 +11241,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         if getattr(args, "no_sandbox", False) or \
                 os.environ.get("SNAPCONTEXT_SANDBOX") == "0":
             _configurar_no_sandbox(True)
+        elif getattr(args, "sandbox_session", False):
+            if not _docker_disponible():
+                raise RuntimeError(
+                    "--sandbox-session solicita Docker pero no está disponible "
+                    "(¿instalado? ¿el daemon está en ejecución?). Instala Docker "
+                    "Desktop o inicia el servicio 'docker'.")
+            _activar_sandbox(
+                imagen=getattr(args, "sandbox_imagen", None),
+                comando_prep=getattr(args, "sandbox_comando", None),
+                estricto=True)
+            _SESION_DOCKER_SOLICITADA = True
         elif getattr(args, "sandbox", False):
             _activar_sandbox(
                 imagen=getattr(args, "sandbox_imagen", None),

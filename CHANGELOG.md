@@ -4,6 +4,41 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.4.0] - 2026-08-30 - Persistencia de Docker por sesión
+
+### Added
+- **Nuevo módulo `sandbox_session.py`**: ciclo de vida completo de una sesión
+  Docker persistente (`crear_sesion`, `obtener_sesion`, `ejecutar_en_sesion`,
+  `destruir_sesion`, `limpiar_huérfanos`). El contenedor se lanza con
+  `docker run -d --name snap-session-<id> -v "<proyecto>:/workspace"
+  -w /workspace <imagen> tail -f /dev/null`, de modo que el sistema de
+  archivos y las dependencias instaladas persisten entre comandos
+  (`npm install` → `npm test`, `pip install -r requirements.txt` → `pytest`).
+- **Nuevo flag `--sandbox-session`**: mantiene **un único contenedor vivo**
+  durante toda la tarea (plan de varios pasos o bucle ReAct) en lugar de un
+  `docker run --rm` por comando. La sesión se crea de forma perezosa en el
+  primer comando, se reutiliza para todos los demás (con `docker exec`) y se
+  destruye al finalizar (éxito, aborto o error), incluido en `Ctrl+C`/`SIGTERM`.
+- **Nuevo flag `--sandbox-session-clean`**: busca y elimina contenedores
+  `snap-session-*` huérfanos de sesiones anteriores (con confirmación en modo
+  interactivo, automáticamente en `--auto`) y sale.
+- El id de sesión se guarda en `~/.snapcontext/session_id.txt`, lo que permite
+  recuperar sesiones entre invocaciones.
+- Integración en `_ejecutar_comando`, el planificador (`_ejecutar_plan`,
+  `_ejecutar_paso_plan`) y el agente ReAct (`ReactAgent(sesion_docker=...)`).
+- Manejadores de señales actualizados: la sesión Docker se destruye también al
+  interrumpir con `Ctrl+C`, evitando contenedores huérfanos.
+
+### Compatibility
+- Sin `--sandbox-session`, el comportamiento es idéntico al de la versión
+  anterior (`docker run --rm` por comando). El contenedor de sesión monta
+  **solo** el directorio del proyecto en `/workspace`, igual que el sandbox.
+
+### Tests
+- `tests/test_sandbox_session.py`: 26 casos (creación, reutilización,
+  destrucción, huérfanos, integración en plan/ReAct, compatibilidad, Ctrl+C).
+
+
 ## [6.3.0] - 2026-08-30 - Mejora del editor de parches (fuzzy matching y resolución de conflictos)
 
 ### Added

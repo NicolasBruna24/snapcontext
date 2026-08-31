@@ -1,8 +1,8 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests de la estructura de la extensiÃ³n VS Code â€” v0.16.0.
+"""Tests de la estructura de la extensión VS Code — v0.16.0.
 
-Validan que el paquete en ``vscode/`` es coherente (manifiesto JSON vÃ¡lido,
+Validan que el paquete en ``vscode/`` es coherente (manifiesto JSON válido,
 comandos registrados, entry point presente, webview copiada y scripts de
 empaquetado) sin necesidad de Node.js.
 """
@@ -65,12 +65,12 @@ class TestEstructuraVsCode(unittest.TestCase):
             self.assertIn(comando, codigo)
         # Canal de salida dedicado.
         self.assertIn('"SnapContext Output"', codigo)
-        # Usa la CLI/mÃ³dulo python con el workspace como directorio.
+        # Usa la CLI/módulo python con el workspace como directorio.
         self.assertIn('"-m", "snapcontext"', codigo)
         self.assertIn("cwd: ws", codigo)
         self.assertIn("--no-confirmar", codigo)
         self.assertIn("--plan", codigo)
-        # MigraciÃ³n a TypeScript (v3.2.0).
+        # Migración a TypeScript (v3.2.0).
         self.assertIn("import * as vscode from \"vscode\"", codigo)
         self.assertIn("vscode.ExtensionContext", codigo)
 
@@ -91,7 +91,7 @@ class TestEstructuraVsCode(unittest.TestCase):
 
 class TestVersionCli(unittest.TestCase):
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "6.3.0")
+        self.assertEqual(sc.VERSION, "6.4.0")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests del modo autÃ³nomo (--auto) â€” v0.17.0."""
+"""Tests del modo autónomo (--auto) — v0.17.0."""
 
 import sys
 import unittest
@@ -117,19 +117,19 @@ class TestPlanificadorAuto(unittest.TestCase):
     ]
 
     def test_auto_salta_confirmaciones_y_menues(self):
-        """Con --auto no se pide confirmaciÃ³n del plan ni menÃº por paso."""
+        """Con --auto no se pide confirmación del plan ni menú por paso."""
         with mock.patch.object(sc, "_generar_plan", return_value=self.PASOS), \
              mock.patch.object(sc, "_preguntar_si",
-                               side_effect=AssertionError("no debÃ­a preguntar")), \
+                               side_effect=AssertionError("no debía preguntar")), \
              mock.patch.object(sc, "_ejecutar_paso_plan",
                                return_value=(True, "ok")) as ep, \
              mock.patch.object(sc, "_guardar_historial", return_value=True):
             codigo = sc._ejecutar_planificador(_args_base(auto=True))
         self.assertEqual(codigo, 0)
-        self.assertEqual(ep.call_count, 2)      # ambos pasos sin menÃº
+        self.assertEqual(ep.call_count, 2)      # ambos pasos sin menú
 
     def test_reintentos_automaticos_hasta_exito(self):
-        """Un paso fallido se reintenta (hasta 3) y luego continÃºa."""
+        """Un paso fallido se reintenta (hasta 3) y luego continúa."""
         efectos = [(False, "fallo1"), (False, "fallo2"), (True, "ok"),
                    (True, "ok")]
         with mock.patch.object(sc, "_generar_plan", return_value=self.PASOS), \
@@ -137,11 +137,11 @@ class TestPlanificadorAuto(unittest.TestCase):
                                side_effect=efectos) as ep:
             codigo = sc._ejecutar_planificador(_args_base(auto=True))
         self.assertEqual(codigo, 0)
-        # Paso 1: 3 intentos (2 fallos + 1 Ã©xito); paso 2: 1 intento.
+        # Paso 1: 3 intentos (2 fallos + 1 éxito); paso 2: 1 intento.
         self.assertEqual(ep.call_count, 4)
 
     def test_agota_tres_intentos_y_continua(self):
-        """Tras 3 fallos del paso 1 se pasa al paso 2 (que tiene Ã©xito)."""
+        """Tras 3 fallos del paso 1 se pasa al paso 2 (que tiene éxito)."""
         efectos = [(False, f"fallo{i}") for i in range(3)] + [(True, "ok")]
         guardados = []
         with mock.patch.object(sc, "_generar_plan", return_value=self.PASOS), \
@@ -149,14 +149,14 @@ class TestPlanificadorAuto(unittest.TestCase):
              mock.patch.object(sc, "_guardar_historial",
                                side_effect=lambda e: guardados.append(e)):
             codigo = sc._ejecutar_planificador(_args_base(auto=True))
-        # El plan acaba "parcial" (paso 1 fallÃ³) â†’ cÃ³digo 1, pero avanzÃ³.
+        # El plan acaba "parcial" (paso 1 falló) → código 1, pero avanzó.
         self.assertEqual(codigo, 1)
         entrada = guardados[-1]
         self.assertEqual(entrada["pasos"][0]["intentos"], 3)
         self.assertEqual(entrada["resultado"], "parcial")
 
     def test_sin_auto_se_mantiene_el_comportamiento_interactivo(self):
-        """Sin --auto: confirmaciÃ³n inicial + menÃº por paso como en 0.12."""
+        """Sin --auto: confirmación inicial + menú por paso como en 0.12."""
         with mock.patch.object(sc, "_generar_plan", return_value=[
                 self.PASOS[0]]), \
              mock.patch.object(sc, "_preguntar_si", return_value=True) as ps, \
@@ -166,8 +166,8 @@ class TestPlanificadorAuto(unittest.TestCase):
                                             (True, "ok3")]) as ep:
             codigo = sc._ejecutar_planificador(_args_base(auto=False))
         self.assertEqual(codigo, 0)
-        ps.assert_called_once()          # confirmaciÃ³n inicial presente
-        self.assertEqual(ep.call_count, 3)   # r â†’ reintento manual x2
+        ps.assert_called_once()          # confirmación inicial presente
+        self.assertEqual(ep.call_count, 3)   # r → reintento manual x2
 
 
 class TestFlagsAutoCli(unittest.TestCase):
@@ -183,7 +183,7 @@ class TestFlagsAutoCli(unittest.TestCase):
         self.assertTrue(args.plan)
 
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "6.3.0")
+        self.assertEqual(sc.VERSION, "6.4.0")
 
 
 if __name__ == "__main__":

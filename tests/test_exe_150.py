@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests de la v1.5.0: empaquetado .exe (PyInstaller + NSIS)."""
 
@@ -14,11 +14,11 @@ import snapcontext as sc  # noqa: E402
 
 class TestVersion(unittest.TestCase):
     def test_version_150_coherente(self):
-        self.assertEqual(sc.VERSION, "6.3.0")
+        self.assertEqual(sc.VERSION, "6.4.0")
 
 
 class TestEstaticoWeb(unittest.TestCase):
-    """El estÃ¡tico de la web debe resolverse igual en dev y 'frozen' (exe)."""
+    """El estático de la web debe resolverse igual en dev y 'frozen' (exe)."""
 
     def test_estatico_existe_en_desarrollo(self):
         # web/app.py resuelve web/static tanto con __file__ como con
@@ -28,7 +28,7 @@ class TestEstaticoWeb(unittest.TestCase):
         except ImportError:                      # fastapi no instalada
             self.skipTest("web (fastapi) no instalada")
         self.assertTrue((app_web._ESTATICO / "index.html").is_file(),
-                        f"No se encontrÃ³: {app_web._ESTATICO}")
+                        f"No se encontró: {app_web._ESTATICO}")
 
     def test_frozen_usa_meipass(self):
         try:

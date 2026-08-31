@@ -1,7 +1,7 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests de la v0.10.0: Claude (Anthropic), --chat, historial persistente,
-lectura de archivos y ejecuciÃ³n de comandos genÃ©ricos."""
+lectura de archivos y ejecución de comandos genéricos."""
 
 import json
 import sys
@@ -35,14 +35,14 @@ class TestProveedorAnthropic(unittest.TestCase):
 
     def test_falta_clave_lanza_runtimeerror(self):
         if sc.anthropic is None:
-            self.skipTest("librerÃ­a 'anthropic' no instalada")
+            self.skipTest("librería 'anthropic' no instalada")
         with mock.patch.dict("os.environ", {}, clear=True):
             with self.assertRaises(RuntimeError) as ctx:
                 sc.seleccionar_archivos_con_anthropic("c", ["a.py"])
         self.assertIn("ANTHROPIC_API_KEY", str(ctx.exception))
 
     def test_libreria_faltante_mensaje_instalacion(self):
-        """Sin librerÃ­a instalada, se sugiere pip install snapcontext[anthropic]."""
+        """Sin librería instalada, se sugiere pip install snapcontext[anthropic]."""
         original = sc.anthropic
         sc.anthropic = None
         try:
@@ -63,7 +63,7 @@ class TestHistorialPersistente(unittest.TestCase):
         parche.start()
         self.addCleanup(parche.stop)
         self.addCleanup(self.tmp.cleanup)
-        # HISTORIAL_PATH se calculÃ³ al importar; lo re-apuntamos al tmp.
+        # HISTORIAL_PATH se calculó al importar; lo re-apuntamos al tmp.
         parche2 = mock.patch.object(
             sc, "HISTORIAL_PATH", self.dir_tmp / "historial.json")
         parche2.start()
@@ -77,7 +77,7 @@ class TestHistorialPersistente(unittest.TestCase):
             "fecha": "2026-08-22T10:00:00",
             "consulta": "arreglar login",
             "archivos": ["lib/login.dart"],
-            "resultado": "Ã©xito",
+            "resultado": "éxito",
             "duracion": 12.5,
         }
         self.assertTrue(sc._guardar_historial(entrada))
@@ -87,21 +87,21 @@ class TestHistorialPersistente(unittest.TestCase):
         self.assertEqual(sc._cargar_historial(), [entrada])
 
     def test_limpiar_borra_el_archivo(self):
-        sc._guardar_historial({"consulta": "x", "resultado": "Ã©xito"})
+        sc._guardar_historial({"consulta": "x", "resultado": "éxito"})
         self.assertTrue((self.dir_tmp / "historial.json").exists())
         self.assertTrue(sc._limpiar_historial())
         self.assertFalse((self.dir_tmp / "historial.json").exists())
-        self.assertTrue(sc._limpiar_historial())  # sin archivo tambiÃ©n ok
+        self.assertTrue(sc._limpiar_historial())  # sin archivo también ok
 
     def test_mostrar_historial_devuelve_conteo(self):
         for i in range(3):
-            sc._guardar_historial({"consulta": f"tarea {i}", "resultado": "Ã©xito"})
+            sc._guardar_historial({"consulta": f"tarea {i}", "resultado": "éxito"})
         self.assertEqual(sc._mostrar_historial(), 3)
 
     def test_recorte_del_historial(self):
         limite = getattr(sc, "MAX_HISTORIAL_ENTRADAS", 200)
         for i in range(limite + 10):
-            sc._guardar_historial({"consulta": f"t{i}", "resultado": "Ã©xito"})
+            sc._guardar_historial({"consulta": f"t{i}", "resultado": "éxito"})
         self.assertLessEqual(len(sc._cargar_historial()), limite)
 
 
@@ -168,11 +168,11 @@ class TestFlagsCLI(unittest.TestCase):
         self.assertTrue(args.vista_previa)
 
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "6.3.0")
+        self.assertEqual(sc.VERSION, "6.4.0")
 
 
 class TestComandosAgenteChat(unittest.TestCase):
-    """Tests del REPL de comandos de agente (--chat) aÃ±adidos tras 0.10.0."""
+    """Tests del REPL de comandos de agente (--chat) añadidos tras 0.10.0."""
 
     def setUp(self):
         import tempfile
@@ -186,7 +186,7 @@ class TestComandosAgenteChat(unittest.TestCase):
                          else "echo prueba", str(self.dir_tmp), confirmar=False)
 
     def test_run_sin_comando_avisa(self):
-        sc._cmd_chat_run("")   # no debe lanzar excepciÃ³n
+        sc._cmd_chat_run("")   # no debe lanzar excepción
 
     def test_read_contenido_e_inexistente(self):
         sc._cmd_chat_read(str(self.dir_tmp / "demo.txt"))
@@ -209,7 +209,7 @@ class TestComandosAgenteChat(unittest.TestCase):
         """_/cmd_chat_alias debe convertir el alias igual que la CLI."""
         with mock.patch.object(sc, "flujo_principal", return_value=0) as fp:
             codigo = sc._cmd_chat_alias(
-                "review", "'revisar cÃ³digo' --local --vista-previa")
+                "review", "'revisar código' --local --vista-previa")
         self.assertEqual(codigo, 0)
         fp.assert_called_once()
         args = fp.call_args[0][0]
@@ -237,7 +237,7 @@ class TestComandosAgenteChat(unittest.TestCase):
         self.assertEqual(len(datos), 1)
         self.assertEqual(datos[0]["tipo"], "sesion-chat")
         self.assertEqual(datos[0]["mensajes"], 3)
-        sc._cmd_chat_save([])   # sesiÃ³n vacÃ­a: solo aviso
+        sc._cmd_chat_save([])   # sesión vacía: solo aviso
 
     def test_edit_con_archivo_inexistente_no_falla(self):
         sc._cmd_chat_edit(str(self.dir_tmp / "no_existe.txt"))

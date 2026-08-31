@@ -393,6 +393,38 @@ se ofrece elegir entre `[a]plicar de todas formas`, `[v]er el diff`,
 En modo `--auto` no se pregunta: se salta automáticamente a la siguiente
 estrategia. Funciona igual desde la CLI que desde `--chat`.
 
+### 🐳 Persistencia de Docker por sesión (v6.4.0)
+
+Por defecto cada comando se ejecuta en un contenedor efímero
+(`docker run --rm`), lo que impide flujos que compartan estado entre comandos.
+Con `--sandbox-session`, SnapContext mantiene **un único contenedor vivo**
+durante toda la tarea:
+
+```bash
+# Plan de varios pasos con un solo contenedor (npm install → npm test comparten estado)
+python snapcontext.py --auto --sandbox "npm install && npm test" --sandbox-session "actualiza la dependencia X y ejecuta los tests"
+
+# Bucle ReAct con sesión persistente
+python snapcontext.py --react "instala pytest y arregla los tests" --sandbox --sandbox-session
+```
+
+Cómo funciona:
+
+- La sesión se crea de forma **perezosa** en el primer comando
+  (`docker run -d --name snap-session-<id> -v "<proyecto>:/workspace"
+  -w /workspace <imagen> tail -f /dev/null`) y se reutiliza para **todos**
+  los comandos posteriores mediante `docker exec`.
+- El id se guarda en `~/.snapcontext/session_id.txt`.
+- Al finalizar la tarea (éxito, aborto o error), e incluso al pulsar
+  `Ctrl+C`, la sesión se **destruye automáticamente** para no dejar
+  contenedores huérfanos.
+- Si una ejecución anterior dejó huérfanos, límpialos con:
+  `python snapcontext.py --sandbox-session-clean` (pedirá confirmación; en
+  `--auto` los elimina sin preguntar).
+- Compatibilidad: sin `--sandbox-session` el comportamiento es exactamente el
+  de siempre (`docker run --rm` por comando). El contenedor de sesión monta
+  **solo** el directorio del proyecto en `/workspace`.
+
 ### 📝 Mejora del editor de parches (v6.3.0)
 
 El editor de parches es ahora mucho más tolerante gracias al **fuzzy matching real**
