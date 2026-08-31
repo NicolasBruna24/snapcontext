@@ -4,6 +4,53 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.6.0] - 2026-08-30 - Skills dinámicos (reglas abstractas)
+
+### Added
+- **Nuevo módulo `skill_abstraction.py`**: el Curador ya no guarda pasos fijos
+  (frágiles ante renombrados y cambios de estructura), sino **reglas
+  abstractas** extraídas de planes exitosos: `patron`, `accion`,
+  `archivos_afectados` y `dependencias`.
+  - `extraer_regla(plan, contexto)`: usa el LLM y, si falla, una heurística de
+    respaldo (archivos más editados, confianza 0.6).
+  - `aplicar_regla(regla, tarea)`: devuelve pasos sugeridos si la tarea
+    coincide con el patrón (similitud ≥ 0.45), o `None`.
+  - `guardar_regla`: persiste en la nueva tabla `reglas` (SQLite) y **refuerza**
+    reglas similares (similitud ≥ 0.85) en vez de duplicarlas (+0.05 confianza,
+    +1 uso).
+  - `inyectar_en_claudemd` / `inyectar_todas_las_reglas`: añade reglas con
+    confianza > 0.8 a la sección `## Reglas aprendidas` de `CLAUDE.md`/
+    `SNAPCONTEXT.md`, de forma **idempotente** y sanitizada (sin ```` ``` ````
+    ni caracteres de control).
+- **Enriquecimiento del planificador** (`_enriquecer_prompt_con_reglas`):
+  antes de generar un plan, se inyectan en el prompt las reglas cuyo patrón
+  coincide con la tarea, priorizadas por confianza (máx. 3, encabezado
+  `REGLAS APRENDIDAS`).
+- **Integración del curador**: tras un plan totalmente exitoso se extrae y
+  guarda la regla en un hilo secundario (`snap-skills-dinamicos`), sin
+  bloquear al usuario. Mensajes: `🧠 Extrayendo regla abstracta...`,
+  `📝 Nueva regla aprendida: ...`, `📄 Regla inyectada en CLAUDE.md`.
+- **Migración de base de datos**: nueva tabla `reglas` (patrón, acción,
+  archivos/dependencias JSON, confianza, usos, fecha).
+- **Nuevos flags CLI**: `--skills-dinamicos` (activado por defecto) /
+  `--sin-skills-dinamicos`, y `--inyectar-reglas` (fuerza la inyección de
+  todas las reglas en CLAUDE.md y termina).
+
+### Compatibility
+- Activado por defecto pero completamente opcional: con
+  `--sin-skills-dinamicos` el comportamiento es idéntico al de v6.5.0. La
+  extracción es asíncrona y solo se ejecuta tras planes exitosos.
+
+### Security
+- Reglas sanitizadas antes de inyectarse en CLAUDE.md (sin bloques de código
+  ni caracteres de control); nunca se ejecutan, solo enriquecen prompts y
+  documentación.
+
+### Tests
+- `tests/test_skill_abstraction.py`: 25 casos (extracción LLM/heurística,
+  aplicación de reglas, inyección idempotente, migración de BD, curador,
+  enriquecimiento del planificador y flags CLI).
+
 ## [6.5.0] - 2026-08-30 - UI Web interactiva (timeline de ReAct y diff viewer)
 
 ### Added

@@ -2334,6 +2334,45 @@ Cómo funciona:
 El modo está **desactivado por defecto**: sin el flag ni la variable de
 entorno, el flujo es idéntico al anterior y no añade ninguna llamada extra.
 
+## 🧠 Skills dinámicos (v6.6.0)
+
+SnapContext ya no guarda solo pasos fijos: a partir de v6.6.0 el Curador
+Proactivo extrae **reglas abstractas de arquitectura/estilo** de cada plan
+exitoso y las reutiliza en futuras tareas.
+
+### Cómo funciona
+1. Tras un plan **totalmente exitoso** (de forma asíncrona, sin bloquear), se
+   pide al LLM que resuma el plan como una regla: `patron`, `accion`,
+   `archivos_afectados` y `dependencias`. Si el LLM falla, hay una heurística
+   de respaldo (archivos más editados, confianza 0.6).
+2. La regla se guarda en la tabla `reglas` de la base de datos SQLite. Si ya
+   existía una regla similar (similitud ≥ 0.85), se **refuerza**: +0.05 de
+   confianza y +1 uso, sin duplicar.
+3. Las reglas con confianza > 0.8 se **inyectan automáticamente** en
+   `CLAUDE.md`/`SNAPCONTEXT.md`, en la sección `## Reglas aprendidas`
+   (idempotente: nunca se duplican líneas).
+4. Antes de generar un plan, el planificador busca reglas cuyo patrón coincida
+   con la tarea (similitud ≥ 0.45) y **enriquece el prompt** con las de mayor
+   confianza, bajo el encabezado `REGLAS APRENDIDAS`.
+
+### Flags
+- `--skills-dinamicos` (activado por defecto): extracción y aplicación de
+  reglas abstractas.
+- `--sin-skills-dinamicos`: desactiva todo el sistema de reglas.
+- `--inyectar-reglas`: fuerza la inyección de todas las reglas aprendidas en
+  `CLAUDE.md` y termina (útil tras actualizar desde versiones anteriores).
+
+Mensajes que verás:
+```
+🧠 Extrayendo regla abstracta del plan exitoso...
+📝 Nueva regla aprendida: añadir endpoint de pagos (confianza: 1.0)
+📄 Regla inyectada en CLAUDE.md
+```
+
+Seguridad: las reglas se sanitizan antes de inyectarse (sin bloques de código
+` ``` ` ni caracteres de control, longitud máxima por campo), y nunca se
+ejecutan: solo enriquecen prompts y documentación.
+
 ## 🌐 UI Web interactiva (v6.5.0)
 
 Con `--web --web-interactive`, la interfaz web se convierte en un **centro de

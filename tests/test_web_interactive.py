@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests de la UI web interactiva (v6.5.0).
+"""Tests de la UI web interactiva (v6.6.0).
 
 Cubre el hub ``web.interactive`` (timeline ReAct, diff conflicts, validación y
 seguridad), los endpoints de ``web.app`` en modo interactivo, el flag

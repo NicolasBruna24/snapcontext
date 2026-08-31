@@ -124,7 +124,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.5.0"
+VERSION = "6.6.0"
 
 # v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
 # de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
@@ -5278,6 +5278,10 @@ def _generar_plan(consulta: str, proveedor: Optional[str] = None,
                    "convenciones al proponer pasos):\n" + memoria_ctx)
         info("📄 Memoria del proyecto (CLAUDE.md) incluida en la planificación.")
 
+    # Skills dinámicos (v6.6.0): reglas abstractas aprendidas de planes
+    # exitosos enriquecen el prompt (máx. 3, priorizadas por confianza).
+    prompt = _enriquecer_prompt_con_reglas(prompt, consulta)
+
 
     tipo = cfg["tipo"]
     if tipo == "gemini":
@@ -6119,6 +6123,47 @@ def _ejecutar_modo_tarea(args: argparse.Namespace) -> int:
     return flujo_principal(args)
 
 
+def _aprender_regla_en_fondo(consulta: str, resultados: list,
+                             raiz: str = ".") -> Optional[threading.Thread]:
+    """Extrae (en un hilo demonio) una regla abstracta de un plan exitoso.
+
+    v6.6.0: usa ``skill_abstraction.extraer_regla`` (LLM con fallback
+    heurístico), la guarda en la tabla ``reglas`` y, si supera el umbral de
+    confianza, la inyecta en CLAUDE.md. Nunca lanza ni bloquea.
+
+    Se omite si ``SKILLS_DINAMICOS`` está desactivado o si se corre bajo un
+    test runner (evita hilos con sqlite/imports nativos al cerrar el proceso).
+    """
+    if not SKILLS_DINAMICOS:
+        return None
+    _argv0 = (sys.argv[0] or "").lower()
+    if any(x in _argv0 for x in ("unittest", "pytest", "py.test")):
+        return None
+
+    def _trabajo():
+        try:
+            import skill_abstraction as _sa
+            info("🧠 Extrayendo regla abstracta del plan exitoso...")
+            plan = {"tarea": consulta, "pasos": resultados}
+            regla = _sa.extraer_regla(plan, {"directorio": raiz})
+            regla = _sa.guardar_regla(regla, directorio=raiz)
+            if regla:
+                info("📝 Nueva regla aprendida: "
+                     f"{regla.get('patron', '')} "
+                     f"(confianza: {regla.get('confianza', 1.0):.2f})")
+                if float(regla.get("confianza", 0)) > \
+                        _sa.UMBRAL_CONFIANZA_INYECCION:
+                    if _sa.inyectar_en_claudemd(regla, raiz):
+                        info("📄 Regla inyectada en CLAUDE.md")
+        except Exception as exc:         # noqa: BLE001 — nunca romper
+            depurar(f"[skills-dinamicos] extracción falló: {exc}")
+
+    hilo = threading.Thread(target=_trabajo, daemon=True,
+                            name="snap-skills-dinamicos")
+    hilo.start()
+    return hilo
+
+
 def _ejecutar_planificador(args: argparse.Namespace) -> int:
     """Modo planificador (`snapcontext --plan "tarea"`, legacy desde v5.2.0).
 
@@ -6337,6 +6382,12 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
         except Exception as exc:
             aviso(f"[aprendizaje] No se pudo registrar la tarea ({exc})")
 
+    # Skills dinámicos (v6.6.0): si el plan fue todo exitoso, extraer una
+    # regla abstracta en segundo plano (nunca bloquea al usuario).
+    if todo_ok and SKILLS_DINAMICOS and not getattr(
+            args, "sin_aprendizaje", False):
+        _aprender_regla_en_fondo(consulta, resultados, str(raiz))
+
     # Memoria de proyecto (v0.15.0): tras un plan exitoso se propone (con
     # confirmación) actualizar CLAUDE.md con lo aprendido.
     if todo_ok and MEMORIA_PROYECTO:
@@ -6430,10 +6481,39 @@ def _db_init() -> str:
                 estado   TEXT DEFAULT 'pendiente',
                 fecha    TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS reglas (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                patron             TEXT NOT NULL,
+                accion             TEXT NOT NULL DEFAULT '',
+                archivos_afectados TEXT,
+                dependencias       TEXT,
+                confianza          REAL DEFAULT 1.0,
+                usos               INTEGER DEFAULT 0,
+                creado             TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         """)
         _DB_CONEXION.commit()
         _db_migrar_curador()
+        _db_migrar_reglas()
     return str(ruta)
+
+
+def _db_migrar_reglas() -> None:
+    """Migración v6.6.0: crea la tabla ``reglas`` (skills dinámicos) si falta.
+
+    Idempotente: usa ``CREATE TABLE IF NOT EXISTS``, de modo que las bases
+    creadas antes de v6.6.0 se actualizan sin perder datos.
+    """
+    _db_ejecutar(
+        "CREATE TABLE IF NOT EXISTS reglas ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "patron TEXT NOT NULL, "
+        "accion TEXT NOT NULL DEFAULT '', "
+        "archivos_afectados TEXT, "
+        "dependencias TEXT, "
+        "confianza REAL DEFAULT 1.0, "
+        "usos INTEGER DEFAULT 0, "
+        "creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
 
 
 def _db_migrar_curador() -> None:
@@ -6866,12 +6946,14 @@ def _aprender_de_tarea(consulta: str, todo_ok: bool,
             conf = _skill_registrar_exito(int(skill_previo["id"]))
             depurar(f"[aprendizaje] Skill #{skill_previo['id']} reforzado "
                     f"(confiabilidad {conf:.2f})")
-            return int(skill_previo["id"])
-        nuevo_id = _skill_generar(consulta, resultados, raiz)
-        if nuevo_id is not None:
-            info(f"[aprendizaje] Nuevo skill guardado: "
-                 f"{_skill_normalizar_nombre(consulta)} (#{nuevo_id})")
-        return nuevo_id
+            id_skill = int(skill_previo["id"])
+        else:
+            id_skill = _skill_generar(consulta, resultados, raiz)
+            if id_skill is not None:
+                info(f"[aprendizaje] Nuevo skill guardado: "
+                     f"{_skill_normalizar_nombre(consulta)} (#{id_skill})")
+        _aprender_regla_en_fondo(consulta, resultados, raiz)
+        return id_skill
 
     if skill_previo is not None:
         conf = _skill_registrar_fallo(int(skill_previo["id"]))
@@ -8410,6 +8492,32 @@ MEMORIA_MAX_CARACTERES = 6000
 # Contexto persistente del proyecto cargado al inicio (cadena vacía si no hay
 # memoria). La rellenan flujo_principal, --chat y --plan.
 MEMORIA_PROYECTO = ""
+
+# Skills dinámicos (v6.6.0): extracción de reglas abstractas de planes
+# exitosos. Activado por defecto; se desactiva con --sin-skills-dinamicos.
+SKILLS_DINAMICOS = True
+
+
+def _enriquecer_prompt_con_reglas(prompt: str, consulta: str) -> str:
+    """Skills dinámicos (v6.6.0): añade las reglas aprendidas que coinciden
+    con ``consulta`` al ``prompt`` del planificador (máx. 3, priorizadas por
+    confianza). Si ``SKILLS_DINAMICOS`` está desactivado, no hay reglas o
+    falla la búsqueda, devuelve el prompt intacto. Nunca lanza.
+    """
+    if not SKILLS_DINAMICOS:
+        return prompt
+    try:
+        import skill_abstraction as _sa
+        reglas = _sa.buscar_reglas(consulta)
+        if reglas:
+            bloque = "\n".join(_sa.regla_a_linea(r) for r in reglas)
+            prompt += ("\n\nREGLAS APRENDIDAS de tareas anteriores "
+                       "(tenlas en cuenta al proponer pasos):\n" + bloque)
+            info("🧠 Regla(s) aprendida(s) aplicada(s) al plan ("
+                 f"{len(reglas)}).")
+    except Exception as exc:             # noqa: BLE001 — best-effort
+        depurar(f"[skills-dinamicos] búsqueda de reglas falló: {exc}")
+    return prompt
 
 
 def _buscar_claude_md(raiz: str = ".") -> Optional[Path]:
@@ -10439,6 +10547,25 @@ def crear_parser() -> argparse.ArgumentParser:
         help="Desactiva el aprendizaje continuo (no genera ni refuerza "
              "skills al terminar las tareas).",
     )
+    parser.add_argument(
+        "--skills-dinamicos", dest="skills_dinamicos",
+        action="store_true", default=True,
+        help="(v6.6.0) Skills dinámicos: extrae reglas abstractas de planes "
+             "exitosos y las reutiliza en el planificador (activado por "
+             "defecto).",
+    )
+    parser.add_argument(
+        "--sin-skills-dinamicos", dest="skills_dinamicos",
+        action="store_false",
+        help="Desactiva los skills dinámicos (no extrae ni aplica reglas "
+             "abstractas).",
+    )
+    parser.add_argument(
+        "--inyectar-reglas", action="store_true",
+        help="(v6.6.0) Fuerza la inyección de todas las reglas aprendidas en "
+             "CLAUDE.md/SNAPCONTEXT.md (sección '## Reglas aprendidas') y "
+             "termina.",
+    )
     # Ayuda agrupada por categorías (-h/--help) — v1.7.
     parser.add_argument(
         "-h", "--help", action=_AyudaAccion,
@@ -11327,6 +11454,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         # existe, para todos los modos que hablan con el agente.
         global MEMORIA_PROYECTO
         MEMORIA_PROYECTO = _cargar_claude_md()
+        # Skills dinámicos (v6.6.0): flag global (activado por defecto,
+        # se desactiva con --sin-skills-dinamicos).
+        global SKILLS_DINAMICOS
+        SKILLS_DINAMICOS = bool(getattr(args, "skills_dinamicos", True))
         if MEMORIA_PROYECTO:
             info("📄 Memoria de proyecto cargada ("
                  + (_buscar_claude_md().name or "CLAUDE.md") + ").")
@@ -11364,6 +11495,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         # --curador ejecuta una pasada única del curador y termina.
         if getattr(args, "curador", False):
             _curador_ejecutar()
+            return 0
+        # v6.6.0: --inyectar-reglas vuelca todas las reglas aprendidas en
+        # CLAUDE.md/SNAPCONTEXT.md y termina (idempotente).
+        if getattr(args, "inyectar_reglas", False):
+            import skill_abstraction as _sa
+            añadidas = _sa.inyectar_todas_las_reglas(
+                getattr(args, "directorio", ".") or ".")
+            info(f"📄 Reglas inyectadas en CLAUDE.md: {añadidas} nueva(s).")
             return 0
         # v3.5.0/4.2.0: asesor de código (--asesor/--sugerir/--asesor-auto/
         # --asesor-profundo; el profundo implica ejecutar el análisis).

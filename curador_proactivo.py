@@ -44,6 +44,7 @@ __all__ = [
     "ejecutar_curador",
     "estado_curador",
     "notificar_mejora",
+    "aprender_de_plan",
     "daemon_proactivo",
     "iniciar_daemon_fondo",
 ]
@@ -368,6 +369,35 @@ def ejecutar_curador(auto: Optional[bool] = None,
                                proveedor=proveedor))
     sc._kv_fijar(CLAVE_ULTIMA_PASADA, _ahora())          # noqa: SLF001
     return resultados
+
+
+# ---------------------------------------------------------------------------
+# Skills dinámicos (v6.6.0): reglas abstractas de planes exitosos
+# ---------------------------------------------------------------------------
+def aprender_de_plan(consulta: str, resultados: list, raiz: str = ".",
+                     auto: bool = True) -> Optional[dict]:
+    """Extrae y persiste una regla abstracta de un plan exitoso.
+
+    Puente del curador hacia ``skill_abstraction``: extrae la regla (LLM con
+    fallback heurístico), la guarda en la tabla ``reglas`` (reforzando
+    confianza/usos si ya existía una similar) y, si supera el umbral de
+    confianza y ``auto`` está activo, la inyecta en CLAUDE.md. Devuelve la
+    regla guardada o ``None``. Nunca lanza.
+    """
+    try:
+        import skill_abstraction as _sa
+        sc = _sc()
+        if not getattr(sc, "SKILLS_DINAMICOS", True):
+            return None
+        plan = {"tarea": consulta, "pasos": resultados}
+        regla = _sa.extraer_regla(plan, {"directorio": raiz})
+        regla = _sa.guardar_regla(regla, directorio=raiz)
+        if regla and auto and float(regla.get("confianza", 0)) > \
+                _sa.UMBRAL_CONFIANZA_INYECCION:
+            _sa.inyectar_en_claudemd(regla, raiz)
+        return regla or None
+    except Exception:                    # noqa: BLE001 — nunca romper
+        return None
 
 
 def estado_curador() -> dict:
