@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 # Nombre verificado disponible en PyPI (18/08/2026): pypi.org/pypi/snapcontext → 404.
 # Alternativas si algún día estuviera ocupado: "snapcontext-cli" o "snapcontext-tool".
 name = "snapcontext"
-version = "6.6.0"
+version = "6.7.0"
 description = "SnapContext: Asistente de IA con contexto automático para desarrollo"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -77,6 +77,12 @@ mcp_avanzado = [
     "tree-sitter-languages>=1.10.0",
     "tree-sitter-language-pack>=0.2.0",
 ]
+# v6.7.0: herramientas MCP de bases de datos (--db-url).
+# SQLite funciona sin dependencias (sqlite3 de la stdlib).
+db = [
+    "psycopg2-binary>=2.9.0",
+    "pymysql>=1.1.0",
+]
 
 [project.urls]
 # TODO: apunta a tu repositorio real (no bloquea la publicación si lo dejas).
@@ -99,11 +105,12 @@ snapcontext = "snapcontext:main"
 # v6.0.0: multi_agent (sistema multi-agente) también se incluye.
 # v6.1.0: context_utils (manejo de contexto inteligente) también se incluye.
 # v6.6.0: skill_abstraction (skills dinámicos / reglas abstractas) también.
+# v6.7.0: mcp_tools_db y mcp_tools_api (expansión MCP: BD y APIs).
 py-modules = ["snapcontext", "agentes", "orquestador", "ui", "react_agent",
               "curador_proactivo", "telegram_gateway", "discord_gateway",
               "detector_tests", "sandbox_utils", "graph_rag",
               "parser_universal", "multi_agent", "context_utils",
-              "skill_abstraction"]
+              "skill_abstraction", "mcp_tools_db", "mcp_tools_api"]
 packages = ["web"]
 
 [tool.setuptools.package-data]

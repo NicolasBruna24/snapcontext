@@ -53,6 +53,8 @@ class ReactAgent:
     ACCIONES_VALIDAS = (
         "editar_archivo", "ejecutar_comando", "buscar_codigo",
         "ejecutar_pruebas", "leer_archivo", "finalizar",
+        # v6.7.0: expansión MCP — bases de datos y APIs externas.
+        "db_query", "db_schema", "api_request", "api_inspect",
     )
 
     def __init__(self, directorio: str = ".", auto: bool = False,
@@ -94,6 +96,11 @@ class ReactAgent:
             "buscar_codigo": self._tool_buscar_codigo,
             "ejecutar_pruebas": self._tool_ejecutar_pruebas,
             "leer_archivo": self._tool_leer_archivo,
+            # v6.7.0: expansión MCP (bases de datos y APIs externas).
+            "db_query": self._tool_db_query,
+            "db_schema": self._tool_db_schema,
+            "api_request": self._tool_api_request,
+            "api_inspect": self._tool_api_inspect,
         }
         if self.proveedor is None:
             try:
@@ -203,6 +210,51 @@ class ReactAgent:
             comando, self.directorio, timeout=300)
         return {"ok": codigo == 0, "codigo": codigo,
                 "stdout": stdout, "stderr": stderr}
+
+    def _tool_db_query(self, argumentos: dict) -> dict:
+        """Consulta SQL de SOLO LECTURA sobre la BD conectada (v6.7.0)."""
+        try:
+            import mcp_tools_db as dbt
+        except Exception as exc:                 # noqa: BLE001
+            return {"ok": False, "error": f"mcp_tools_db no disponible: {exc}"}
+        consulta = str(argumentos.get("consulta", "")).strip()
+        if not consulta:
+            return {"ok": False, "error": "falta 'consulta'"}
+        auto = self.auto or bool(argumentos.get("auto", False))
+        return dbt.db_query(consulta, auto=auto)
+
+    def _tool_db_schema(self, argumentos: dict) -> dict:
+        """Esquema de la base de datos conectada (v6.7.0)."""
+        try:
+            import mcp_tools_db as dbt
+        except Exception as exc:                 # noqa: BLE001
+            return {"ok": False, "error": f"mcp_tools_db no disponible: {exc}"}
+        return dbt.db_schema()
+
+    def _tool_api_request(self, argumentos: dict) -> dict:
+        """Petición HTTP externa (GET/POST/...) (v6.7.0)."""
+        try:
+            import mcp_tools_api as apit
+        except Exception as exc:                 # noqa: BLE001
+            return {"ok": False, "error": f"mcp_tools_api no disponible: {exc}"}
+        url = str(argumentos.get("url", "")).strip()
+        if not url:
+            return {"ok": False, "error": "falta 'url'"}
+        return apit.api_request(
+            url, metodo=str(argumentos.get("metodo", "GET")),
+            headers=argumentos.get("headers") or {},
+            body=str(argumentos.get("body", "") or ""))
+
+    def _tool_api_inspect(self, argumentos: dict) -> dict:
+        """Análisis de una API externa (status, tiempo, tamaño) (v6.7.0)."""
+        try:
+            import mcp_tools_api as apit
+        except Exception as exc:                 # noqa: BLE001
+            return {"ok": False, "error": f"mcp_tools_api no disponible: {exc}"}
+        url = str(argumentos.get("url", "")).strip()
+        if not url:
+            return {"ok": False, "error": "falta 'url'"}
+        return apit.api_inspect(url)
 
     def _tool_buscar_codigo(self, argumentos: dict) -> dict:
         """Busca una regex en los archivos de texto del proyecto."""

@@ -124,7 +124,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.6.0"
+VERSION = "6.7.0"
 
 # v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
 # de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
@@ -7328,6 +7328,36 @@ HERRAMIENTAS_PREDEFINIDAS = {
         "parametros": {"pid": "int"},
         "requiere_permiso": False,
     },
+    # v6.7.0: expansión MCP — bases de datos (solo lectura) y APIs externas.
+    "db_query": {
+        "descripcion": "Ejecuta una consulta SQL de SOLO LECTURA (SELECT, SHOW, "
+                       "DESCRIBE, EXPLAIN) sobre la base de datos conectada "
+                       "(conectar antes con --db-url o db_connect). Requiere "
+                       "confirmación del usuario en modo interactivo.",
+        "parametros": {"consulta": "str", "auto": "bool=False"},
+        "requiere_permiso": False,   # la validación/confirmación es interna
+    },
+    "db_schema": {
+        "descripcion": "Devuelve el esquema de la base de datos conectada "
+                       "(tablas, columnas, tipos, claves).",
+        "parametros": {},
+        "requiere_permiso": False,          # solo lectura
+    },
+    "api_request": {
+        "descripcion": "Hace una petición HTTP (GET/POST/PUT/PATCH/DELETE/HEAD) "
+                       "a una URL externa y devuelve status, cabeceras y cuerpo "
+                       "(JSON parseado si aplica).",
+        "parametros": {"url": "str", "metodo": "str='GET'",
+                       "headers": "dict={}", "body": "str=''",
+                       "timeout": "float=15"},
+        "requiere_permiso": True,
+    },
+    "api_inspect": {
+        "descripcion": "Inspecciona una URL con GET: status, tiempo de "
+                       "respuesta, tamaño y tipo de contenido.",
+        "parametros": {"url": "str", "timeout": "float=15"},
+        "requiere_permiso": False,          # solo lectura (GET)
+    },
 }
 
 
@@ -8378,6 +8408,43 @@ def _ejecutar_herramienta_mcp(nombre: str, argumentos: Optional[dict] = None,
         elif nombre == "execute_command_status":
             resultado = _estado_proceso_fondo(_entero_opcional(
                 argumentos.get("pid")))
+        elif nombre == "db_query":
+            try:
+                import mcp_tools_db as _dbt
+                resultado = _dbt.db_query(
+                    str(argumentos.get("consulta", "")),
+                    auto=bool(argumentos.get("auto", False)))
+            except ImportError as exc:
+                resultado = {"ok": False,
+                             "error": f"mcp_tools_db no disponible: {exc}"}
+        elif nombre == "db_schema":
+            try:
+                import mcp_tools_db as _dbt
+                resultado = _dbt.db_schema()
+            except ImportError as exc:
+                resultado = {"ok": False,
+                             "error": f"mcp_tools_db no disponible: {exc}"}
+        elif nombre == "api_request":
+            try:
+                import mcp_tools_api as _apit
+                resultado = _apit.api_request(
+                    str(argumentos.get("url", "")),
+                    metodo=str(argumentos.get("metodo", "GET")),
+                    headers=dict(argumentos.get("headers") or {}),
+                    body=str(argumentos.get("body", "")),
+                    timeout=_entero_opcional(argumentos.get("timeout")) or 15)
+            except ImportError as exc:
+                resultado = {"ok": False,
+                             "error": f"mcp_tools_api no disponible: {exc}"}
+        elif nombre == "api_inspect":
+            try:
+                import mcp_tools_api as _apit
+                resultado = _apit.api_inspect(
+                    str(argumentos.get("url", "")),
+                    timeout=_entero_opcional(argumentos.get("timeout")) or 15)
+            except ImportError as exc:
+                resultado = {"ok": False,
+                             "error": f"mcp_tools_api no disponible: {exc}"}
         else:
             # Herramienta de usuario definida en mcp_tools.json → comando.
             if cfg.get("plugin"):
@@ -10357,6 +10424,19 @@ def crear_parser() -> argparse.ArgumentParser:
         "--web-puerto", type=int, default=8000,
         help="Puerto para la interfaz web (por defecto: 8000). Requiere --web.",
     )
+    # v6.7.0: expansión MCP — conexión perezosa a base de datos.
+    parser.add_argument(
+        "--db-url", default=None,
+        help="(v6.7.0) URL de la base de datos para las herramientas MCP "
+             "(db_query/db_schema). Ej: sqlite:///ruta/db.sqlite, "
+             "postgresql://user:pass@localhost/db, mysql://user:pass@host/db.",
+    )
+    parser.add_argument(
+        "--db-driver", default=None,
+        choices=("sqlite", "postgresql", "mysql"),
+        help="(v6.7.0) Fuerza el driver de la base de datos (por defecto se "
+             "deduce de --db-url).",
+    )
     parser.add_argument(
         "--web-interactive", action="store_true",
         help="(v6.5.0) Activa el centro de control web interactivo además de la "
@@ -11272,6 +11352,34 @@ def flujo_principal(args: argparse.Namespace) -> int:
                     directorio=getattr(args, "directorio", ".") or ".")
             except Exception as exc:        # nunca romper la salida
                 depurar(f"[memoria] actualización falló: {exc}")
+
+def conectar_db_inicial(args: argparse.Namespace) -> int:
+    """Conecta perezosamente a la base de datos si se pasó ``--db-url`` (v6.7.0).
+
+    Prepara la conexión para las herramientas MCP ``db_query``/``db_schema``.
+    Devuelve 0 (éxito), 1 (error de conexión) o 2 (driver no instalado).
+    """
+    url = (getattr(args, "db_url", None) or "").strip()
+    if not url:
+        return 0
+    info("🐘 Conectando a base de datos...")
+    try:
+        import mcp_tools_db as dbt
+    except Exception as exc:                    # noqa: BLE001
+        aviso(f"⚠️ Herramientas de base de datos no disponibles: {exc}")
+        return 2
+    try:
+        resultado = dbt.db_connect(url,
+                                   driver=getattr(args, "db_driver", None))
+    except Exception as exc:                    # noqa: BLE001
+        error(f"⚠️ Error de conexión: {exc}")
+        return 1
+    if resultado.get("ok"):
+        exito(f"✅ Conectado a {resultado.get('motor', 'base de datos')}")
+        return 0
+    error(f"⚠️ Error de conexión: {resultado.get('error', 'desconocido')}")
+    return 1
+
 
 def iniciar_servidor_web(args: argparse.Namespace) -> int:
     """Arranca la interfaz web (FastAPI + WebSockets) en http://localhost:puerto.

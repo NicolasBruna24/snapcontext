@@ -4,6 +4,27 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.7.0] - 2026-08-30 - Expansión de MCP (bases de datos y APIs)
+
+### Added
+- **Nuevo módulo `mcp_tools_db.py`**: herramientas MCP nativas de solo lectura para bases de datos:
+  - `db_connect`: conexión perezosa a SQLite (nativo), PostgreSQL (`psycopg2`) y MySQL (`pymysql`).
+  - `db_query`: ejecución de consultas de solo lectura (`SELECT`, `SHOW`, `DESCRIBE`, `EXPLAIN`, `PRAGMA`) con validación estricta y confirmación interactiva (`¿Ejecutar consulta: ...? (s/n)`). En modo `--auto` no solicita confirmación manteniendo el bloqueo de consultas de escritura (`INSERT`, `UPDATE`, `DELETE`, etc.).
+  - `db_schema`: inspección completa del esquema de base de datos (tablas, columnas, tipos, primary keys).
+  - `db_disconnect`: cierre y limpieza de conexión de sesión.
+- **Nuevo módulo `mcp_tools_api.py`**: herramientas MCP para inspección y consumo seguro de APIs externas:
+  - `api_request`: peticiones HTTP (GET, POST, HEAD, OPTIONS, etc.) usando `httpx`, con soporte para parseo JSON automático, límite de tamaño de respuesta y filtrado de cabeceras sensibles (`Authorization`, `Cookie`, `X-Api-Key`, etc.).
+  - `api_inspect`: análisis de rendimiento y metadatos de endpoints (código de estado HTTP, tiempo de respuesta, tamaño de payload, headers del servidor).
+- **Integración con ReAct y Planificador**: registro de `db_query`, `db_schema`, `api_request` y `api_inspect` como acciones nativas en `ReactAgent` y en el dispatcher MCP de `snapcontext.py`.
+- **Nuevos flags CLI**:
+  - `--db-url <url>`: URL de conexión de base de datos (`sqlite:///...`, `postgresql://...`, `mysql://...`).
+  - `--db-driver <driver>`: especificación o forzado de driver (`sqlite`, `postgresql`, `mysql`).
+- **Nuevas dependencias opcionales**: grupo `[db]` en `pyproject.toml` (`psycopg2-binary`, `pymysql`).
+- **Tests unitarios e integración**:
+  - `tests/test_mcp_tools_db.py` (22 casos).
+  - `tests/test_mcp_tools_api.py` (12 casos).
+  - `tests/test_mcp_expansion.py` (5 casos).
+
 ## [6.6.0] - 2026-08-30 - Skills dinámicos (reglas abstractas)
 
 ### Added

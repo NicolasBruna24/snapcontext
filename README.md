@@ -1,4 +1,4 @@
-﻿# SnapContext
+# SnapContext
 
 ![v6.1.0](https://img.shields.io/badge/version-6.1.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
@@ -33,6 +33,7 @@ O manualmente:
 
 ```bash
 pip install snapcontext                 # base
+pip install "snapcontext[db]"           # bases de datos (PostgreSQL/MySQL)
 pip install "snapcontext[embeddings]"   # búsqueda semántica local (opcional)
 pip install "snapcontext[anthropic]"    # Claude
 pip install "snapcontext[web]"          # interfaz web (--web)
@@ -2333,6 +2334,45 @@ Cómo funciona:
 
 El modo está **desactivado por defecto**: sin el flag ni la variable de
 entorno, el flujo es idéntico al anterior y no añade ninguna llamada extra.
+
+## 🌐 Expansión de MCP (v6.7.0)
+
+A partir de la versión 6.7.0, SnapContext expande su ecosistema MCP nativo con herramientas de **solo lectura** para interactuar con bases de datos relacionales e inspeccionar APIs externas.
+
+### 🐘 Bases de Datos (`mcp_tools_db.py`)
+Permite conectar a bases de datos y ejecutar consultas de lectura seguras integradas con el agente ReAct y el planificador:
+- **`db_connect(url, driver=None)`**: Conexión perezosa a SQLite (nativo en Python), PostgreSQL (`psycopg2`) o MySQL (`pymysql`).
+- **`db_query(consulta, auto=False)`**: Ejecuta consultas de **solo lectura** (`SELECT`, `SHOW`, `DESCRIBE`, `EXPLAIN`, `PRAGMA`).
+  - Bloquea estrictamente sentencias de modificación (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, etc.).
+  - En modo interactivo solicita confirmación al usuario: `¿Ejecutar consulta: <consulta>? (s/n)`.
+  - En modo `--auto` ejecuta sin preguntar (manteniendo la validación estricta de solo lectura).
+- **`db_schema()`**: Obtiene la lista completa de tablas, columnas, tipos de datos y primary keys.
+- **`db_disconnect()`**: Cierra la conexión activa y limpia el contexto de sesión.
+
+#### Flags CLI para Bases de Datos
+- `--db-url <url>`: URL de conexión (ej: `sqlite:///datos.db`, `postgresql://user:pass@localhost:5432/mi_db`, `mysql://user:pass@localhost:3306/mi_db`).
+- `--db-driver <driver>`: Forzado opcional del driver (`sqlite`, `postgresql`, `mysql`).
+
+```bash
+# Conectar a SQLite y consultar esquemas / datos con ReAct
+snapcontext "Analiza el esquema de la base de datos y dime cuántos usuarios hay" --db-url sqlite:///app.db
+
+# Conectar a PostgreSQL
+snapcontext "Verifica los pedidos pendientes" --db-url postgresql://postgres:secret@localhost:5432/ecommerce
+```
+
+### 🌐 APIs Externas (`mcp_tools_api.py`)
+Permite inspeccionar endpoints REST y analizar respuestas:
+- **`api_request(url, metodo="GET", headers={}, body="", timeout=15)`**: Realiza peticiones HTTP (`GET`, `POST`, `HEAD`, `OPTIONS`, etc.) mediante `httpx`.
+  - Parsea respuestas JSON automáticamente.
+  - Oculta cabeceras sensibles en las observaciones (`Authorization`, `Cookie`, `X-Api-Key`, etc.).
+  - Aplica límite de seguridad al tamaño de cuerpo (`MAX_CUERPO = 200,000`).
+- **`api_inspect(url, timeout=15)`**: Análisis rápido de salud y rendimiento (código HTTP, tiempo de respuesta en ms, tamaño en bytes, content-type y headers del servidor).
+
+```bash
+# Inspeccionar un endpoint y razonar sobre el resultado
+snapcontext "Inspecciona https://api.github.com y dime qué headers de rate-limit devuelve" --react
+```
 
 ## 🧠 Skills dinámicos (v6.6.0)
 
