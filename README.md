@@ -2334,6 +2334,40 @@ Cómo funciona:
 El modo está **desactivado por defecto**: sin el flag ni la variable de
 entorno, el flujo es idéntico al anterior y no añade ninguna llamada extra.
 
+## 🌐 UI Web interactiva (v6.5.0)
+
+Con `--web --web-interactive`, la interfaz web se convierte en un **centro de
+control para agentes autónomos** (además de la web clásica, que sigue intacta):
+
+```bash
+snapcontext --web --web-interactive
+# ℹ Interfaz web en http://localhost:8000  (Ctrl+C para salir)...
+# ℹ 🌐 Interfaz web interactiva: http://localhost:8000/interactive
+```
+
+Abre `http://localhost:8000/interactive` en tu navegador y verás:
+
+- **Timeline de ReAct**: cada ciclo Pensamiento → Acción → Observación llega en
+  tiempo real por WebSocket (`/ws/interactive`) como una tarjeta coloreada
+  (🟡 pensamiento, 🔵 acción, 🟢 observación, 🔴 error), con marca de tiempo
+  relativa ("hace Xs") y detalles expandibles.
+- **Diff viewer interactivo**: si el editor propio no puede aplicar un parche,
+  se abre un modal con Monaco Editor en modo diff (original ⇆ propuesto).
+  Puedes *Aceptar todo*, *Rechazar todo* o editar y *Aceptar líneas
+  seleccionadas*; el resultado se envía de vuelta por WebSocket y se aplica de
+  forma transaccional (solo tras tu confirmación explícita).
+- **Panel de control**: estado del agente, contador de pasos, tiempo total y
+  logs estructurados con niveles (info/warning/error).
+
+Notas:
+- El modo es **opt-in**: sin `--web-interactive`, `--web` funciona exactamente
+  como antes.
+- El hub (`web/interactive.py`) es no bloqueante: los eventos se descartan si
+  la cola está llena, nunca ralentizan al agente.
+- Los contenidos se validan y recortan (máx. 400k caracteres) antes de
+  transportarse; el contenido aceptado en el diff viewer solo se escribe en el
+  archivo objetivo.
+
 ## Licencia
 
 MIT. Open-source y libre de usarlo, estudiarlo y mejorarlo.

@@ -59,7 +59,8 @@ class ReactAgent:
                  max_iter: int = 15, proveedor: Optional[str] = None,
                  modelo: Optional[str] = None, graph_rag: bool = False,
                  mostrar_razonamiento: bool = False,
-                 sesion_docker: bool = False):
+                 sesion_docker: bool = False,
+                 web_interactive: bool = False):
         self.directorio = str(Path(directorio).resolve())
         self.auto = bool(auto)
         self.max_iteraciones = max(int(max_iter), 1)
@@ -74,6 +75,17 @@ class ReactAgent:
         # v6.4.0: persistencia Docker por sesión (--sandbox-session). El agente
         # crea la sesión al empezar y la destruye al terminar (éxito/aborto).
         self.sesion_docker = bool(sesion_docker)
+        # v6.5.0: UI web interactiva (--web-interactive). Si está activa, cada
+        # paso del bucle se emite por WebSocket (timeline Pensamiento→Acción→
+        # Observación) sin ralentizar el agente (emisión nunca bloquea).
+        self.web_interactive = bool(web_interactive)
+        self._wi = None
+        if self.web_interactive:
+            try:
+                import web.interactive as _wi
+                self._wi = _wi
+            except Exception:                        # noqa: BLE001
+                self._wi = None
         self._grafo: Optional[dict] = None
         # Herramientas disponibles: nombre → callable(argumentos) -> dict.
         self.herramientas: Dict[str, Callable[[dict], dict]] = {
@@ -466,6 +478,12 @@ class ReactAgent:
                                          f"{MAX_REINTENTOS_JSON} reintentos",
                             "iteraciones": iteracion, "abortado": True}
                 accion = decision["accion"]
+                _wi = self._wi
+                if _wi is not None:
+                    _wi.enviar_paso_react(iteracion, "pensamiento",
+                                          decision.get("pensamiento", ""))
+                    _wi.enviar_estado("Pensando...",
+                                      decision.get("pensamiento", "")[:200])
                 if self.mostrar_razonamiento:
                     # v6.2.0: razonamiento COMPLETO del modelo (no el resumido).
                     _raz = sc._extraer_razonamiento(
@@ -494,6 +512,13 @@ class ReactAgent:
                         continue
                 resultado_accion = self._ejecutar_accion(
                     accion, decision["argumentos"])
+                if self._wi is not None:
+                    self._wi.enviar_paso_react(iteracion, "accion", accion,
+                                               argumentos=json.dumps(
+                                                   decision.get("argumentos",
+                                                                {}),
+                                                   ensure_ascii=False)[:2000])
+                    self._wi.enviar_estado("Ejecutando acción", accion)
                 if resultado_accion is None:
                     observacion = (f"ACCION DESCONOCIDA: '{accion}'. Válidas: "
                                    f"{', '.join(sorted(self.herramientas))}.")
@@ -504,6 +529,10 @@ class ReactAgent:
                 icono = "✅" if ok_accion else "⚠️"
                 sc.info(f"   {icono} Acción: {accion}")
                 sc.exito(observacion.splitlines()[0])
+                if self._wi is not None:
+                    self._wi.enviar_paso_react(
+                        iteracion, "error" if not ok_accion else "observacion",
+                        observacion[:4000])
                 self.historial.append({"role": "assistant",
                                        "content": json.dumps(
                                            decision, ensure_ascii=False)})

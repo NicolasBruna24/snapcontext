@@ -637,6 +637,26 @@ class AgenteEditorPropio:
                                  mostrar_diff=mostrar_diff)
         if ok or auto:
             return "ok" if ok else "reintentar"
+        # v6.5.0: con la UI web interactiva activa (--web-interactive), el
+        # conflicto se resuelve visualmente (diff viewer Monaco) en lugar del
+        # menú de terminal. Si el usuario no responde, se pasa a "reintentar".
+        try:
+            import web.interactive as _wi
+            if _wi.esta_activo():
+                respuesta = _wi.enviar_conflicto_diff(
+                    archivo, contenido_actual,
+                    preview if preview is not None else diff)
+                if respuesta is not None and \
+                        respuesta.get("decision") == "aceptar":
+                    nuevo = respuesta.get("contenido")
+                    if nuevo and self.sobrescribir(archivo, nuevo, directorio):
+                        return "ok"
+                _wi.enviar_log("info",
+                               f"Conflicto de '{archivo}' no resuelto en la "
+                               "web; se pasa a la siguiente estrategia.")
+                return "reintentar"
+        except ImportError:
+            pass
         while True:
             opcion = sc._menu_conflicto_parche()
             if opcion == "a":

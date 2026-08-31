@@ -4,6 +4,46 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.5.0] - 2026-08-30 - UI Web interactiva (timeline de ReAct y diff viewer)
+
+### Added
+- **Centro de control web interactivo** (`--web-interactive`, junto a `--web`):
+  - **Timeline de ReAct en tiempo real** (`http://localhost:8000/interactive`):
+    cada paso (🟡 Pensamiento → 🔵 Acción → 🟢 Observación / 🔴 Error) se
+    muestra como tarjeta coloreada con marca de tiempo relativa ("hace Xs") y
+    detalles expandibles.
+  - **Diff viewer interactivo** (Monaco Editor en modo diff): cuando el editor
+    propio encuentra un conflicto de parche, se abre un modal con
+    original ⇆ propuesto y botones *Aceptar todo*, *Rechazar todo* y *Aceptar
+    líneas seleccionadas*. La respuesta vuelve por WebSocket y se aplica de
+    forma transaccional (`sobrescribir` tras confirmación explícita).
+  - **Panel de control**: estado del agente ("Pensando…", "Ejecutando
+    acción"), contador de pasos, tiempo total y logs estructurados
+    (info/warning/error).
+- **Nuevo módulo `web/interactive.py`**: hub thread-safe y **no bloqueante**
+  entre el agente y la web (cola de eventos con `put_nowait`; esperas por
+  `threading.Event` para los diffs), con validación y recorte de contenidos
+  (máx. 400k caracteres). Si el modo está inactivo, todo es un no-op.
+- Nuevos archivos estáticos: `web/static/interactive.html` y
+  `web/static/interactive.js`.
+- Nuevos endpoints (solo en modo interactivo): `GET /interactive`,
+  `GET /interactive/health`, `WS /ws/interactive` y montaje de `/static`.
+- `ReactAgent(web_interactive=...)`: emite `react_step` / `agent_status` en
+  cada fase del bucle sin ralentizarlo.
+
+### Compatibility
+- Sin `--web-interactive`, la web actual (`--web`) funciona exactamente igual;
+  el flag es opt-in y los endpoints nuevos no se registran.
+
+### Security
+- Los diffs se validan antes de aplicarse: cadenas con tamaño máximo, el
+  contenido del cliente nunca se ejecuta y solo se escribe en el archivo
+  objetivo tras confirmación explícita del usuario en la web.
+
+### Tests
+- `tests/test_web_interactive.py`: 31 casos (hub, timeline, conflictos de
+  diff, endpoints y flags, integración con ReAct y con el editor propio).
+
 ## [6.4.0] - 2026-08-30 - Persistencia de Docker por sesión
 
 ### Added

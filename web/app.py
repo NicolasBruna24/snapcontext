@@ -122,14 +122,26 @@ def _lanzar_tarea_api(tipo: str, cuerpo: dict) -> dict:
             "url": f"{API_PREFIJO}/tasks/{task_id}"}
 
 
-def crear_app(api_token: Optional[str] = None) -> FastAPI:
+def crear_app(api_token: Optional[str] = None,
+              interactiva: bool = False) -> FastAPI:
     """Construye y devuelve la app FastAPI (rutas + WebSocket + API v3.6.0).
 
     ``api_token`` fija la clave exigida en los endpoints ``/api/v1/*``; si se
     omite, se usa (o genera) la guardada en ``~/.snapcontext/config.json``
     bajo la clave ``"api_key"``.
+
+    ``interactiva=True`` (v6.5.0, ``--web-interactive``) activa además el
+    centro de control interactivo: ruta ``/interactive`` (timeline de ReAct +
+    diff viewer) y WebSocket ``/ws/interactive``.
     """
     app = FastAPI(title="SnapContext Web", version="3.6.0")
+
+    # ---- Modo interactivo (v6.5.0) ---------------------------------------
+    _clientes_interactivos: "Dict[int, queue.Queue]" = {}
+    _tarea_difusor: Optional[asyncio.Task] = None
+    if interactiva:
+        import web.interactive as wi            # noqa: E402
+        wi.activar()                            # cola compartida del hub
 
     # ---- Autenticación de la API (v3.6.0) -------------------------------
     _clave_api = _clave_api_efectiva(api_token)
@@ -325,6 +337,91 @@ def crear_app(api_token: Optional[str] = None) -> FastAPI:
     @app.get("/")
     async def raiz():
         return FileResponse(_ESTATICO / "index.html")
+
+    # ---- UI interactiva (v6.5.0) -----------------------------------------
+    if interactiva:
+        from fastapi.staticfiles import StaticFiles    # noqa: E402
+        app.mount("/static", StaticFiles(directory=str(_ESTATICO)))
+
+        @app.get("/interactive")
+        async def interactiva_ruta():
+            """Página del centro de control interactivo."""
+            return FileResponse(_ESTATICO / "interactive.html")
+
+        @app.get("/interactive/health")
+        async def interactiva_salud():
+            return {"estado": "ok", "modo": "interactivo"}
+
+        @app.websocket("/ws/interactive")
+        async def _ws_interactivo(websocket: WebSocket):
+            """WebSocket del centro de control interactivo (v6.5.0).
+
+            Difunde los eventos del hub (``react_step``, ``diff_conflict``,
+            ``agent_status``, ``log_interactivo``) a todos los clientes y
+            reenvía sus respuestas (``diff_respuesta``) al hub.
+            """
+            await websocket.accept()
+            cola_cliente: "queue.Queue[dict]" = queue.Queue()
+            _clientes_interactivos[id(cola_cliente)] = cola_cliente
+
+            async def _difundir():
+                while True:
+                    try:
+                        evento = await asyncio.to_thread(
+                            cola_cliente.get, True, 0.5)
+                    except queue.Empty:
+                        continue
+                    try:
+                        await websocket.send_json(evento)
+                    except Exception:
+                        return
+
+            tarea_difusion = asyncio.create_task(_difundir())
+            try:
+                while True:
+                    datos = await websocket.receive_text()
+                    try:
+                        mensaje = dict(json.loads(datos))
+                    except (json.JSONDecodeError, ValueError):
+                        await websocket.send_json(
+                            {"tipo": "log_interactivo", "nivel": "error",
+                             "texto": "✖ Mensaje JSON inválido."})
+                        continue
+                    if isinstance(mensaje.get("contenido"), str) and \
+                            len(mensaje["contenido"]) > 400_000:
+                        mensaje["contenido"] = \
+                            mensaje["contenido"][:400_000]
+                    try:
+                        await asyncio.to_thread(wi._recibir_mensaje, mensaje)
+                    except Exception:        # noqa: BLE001 — blindaje
+                        pass
+            except Exception:                # noqa: BLE001 — conexión cerrada
+                pass
+            finally:
+                tarea_difusion.cancel()
+                _clientes_interactivos.pop(id(cola_cliente), None)
+
+        @app.on_event("startup")
+        async def _arrancar_difusor_interactivo():
+            """Hilo que reparte los eventos del hub a todos los clientes."""
+            nonlocal _tarea_difusor
+
+            async def _bucle():
+                cola_hub = wi.cola_eventos()
+                while cola_hub is not None:
+                    try:
+                        evento = await asyncio.to_thread(
+                            cola_hub.get, True, 0.5)
+                    except queue.Empty:
+                        continue
+                    except Exception:        # noqa: BLE001 — hub cerrado
+                        return
+                    for cola_cliente in list(
+                            _clientes_interactivos.values()):
+                        cola_cliente.put(evento)
+
+            _tarea_difusor = asyncio.create_task(_bucle())
+
 
     @app.get("/health")
     async def salud():
@@ -689,12 +786,16 @@ def _explorar_web(mensaje: dict) -> list:
         return []
 
 
-def arrancar_servidor(puerto: int = 8000) -> None:
-    """Arranca uvicorn con la app FastAPI (bloquea hasta detenerse)."""
+def arrancar_servidor(puerto: int = 8000, interactiva: bool = False) -> None:
+    """Arranca uvicorn con la app FastAPI (bloquea hasta detenerse).
+
+    ``interactiva=True`` (v6.5.0) añade el centro de control interactivo
+    (``/interactive`` + ``/ws/interactive``).
+    """
     import uvicorn
 
     uvicorn.run(
-        crear_app(),
+        crear_app(interactiva=interactiva),
         host="127.0.0.1",
         port=int(puerto),
         log_level="warning",

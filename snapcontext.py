@@ -124,7 +124,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.4.0"
+VERSION = "6.5.0"
 
 # v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
 # de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
@@ -6086,6 +6086,7 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
         graph_rag=_graph_rag_activo(args),
         mostrar_razonamiento=bool(getattr(args, "mostrar_razonamiento", False)),
         sesion_docker=bool(getattr(args, "sandbox_session", False)),
+        web_interactive=bool(getattr(args, "web_interactive", False)),
     )
     # v6.4.0: la sesión Docker se crea de forma perezosa y se destruye con
     # total garantía al terminar el bucle ReAct (éxito, aborto o excepción).
@@ -10249,6 +10250,14 @@ def crear_parser() -> argparse.ArgumentParser:
         help="Puerto para la interfaz web (por defecto: 8000). Requiere --web.",
     )
     parser.add_argument(
+        "--web-interactive", action="store_true",
+        help="(v6.5.0) Activa el centro de control web interactivo además de la "
+             "web actual: timeline de ReAct en tiempo real (Pensamiento→Acción→"
+             "Observación), diff viewer Monaco para resolver conflictos de "
+             "parches y panel de estado del agente en http://localhost:8000/"
+             "interactive. Requiere --web.",
+    )
+    parser.add_argument(
         "--demo", action="store_true",
         help="Ejecuta una demo autónoma de SnapContext: crea un proyecto de prueba "
              "temporal, muestra la selección de archivos (--vista-previa --local) y "
@@ -11142,8 +11151,12 @@ def iniciar_servidor_web(args: argparse.Namespace) -> int:
 
     Importa ``web.app`` de forma diferida para que la CLI funcione sin FastAPI;
     si falta la dependencia opcional, devuelve un mensaje claro y sal con 1.
+
+    v6.5.0: con ``--web-interactive`` se activa además el centro de control
+    interactivo (timeline ReAct + diff viewer) en ``/interactive``.
     """
     puerto = int(getattr(args, "web_puerto", 8000) or 8000)
+    interactiva = bool(getattr(args, "web_interactive", False))
     try:
         from web.app import arrancar_servidor
     except ImportError as exc:
@@ -11154,10 +11167,19 @@ def iniciar_servidor_web(args: argparse.Namespace) -> int:
         )
         return 1
     info(f"Interfaz web en http://localhost:{puerto}  (Ctrl+C para salir)...")
+    if interactiva:
+        info(f"🌐 Interfaz web interactiva: http://localhost:{puerto}/interactive")
     try:
-        arrancar_servidor(puerto=puerto)
+        arrancar_servidor(puerto=puerto, interactiva=interactiva)
     except KeyboardInterrupt:
         info("Interfaz web detenida.")
+    finally:
+        if interactiva:
+            try:
+                from web.interactive import desactivar as _desactivar_hub
+                _desactivar_hub()
+            except Exception:                # noqa: BLE001 — limpieza best-effort
+                pass
     return 0
 
 
