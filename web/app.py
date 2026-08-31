@@ -323,6 +323,34 @@ def crear_app(api_token: Optional[str] = None,
             return {"ok": True}
         return respuesta
 
+    @app.post("/webhook/github")
+    @app.post("/api/github/webhook")
+    async def github_webhook(request: Request):
+        """Recibe un webhook de GitHub con verificación de firma HMAC SHA-256 (v6.8.0)."""
+        try:
+            import github_gateway as gh
+        except ImportError:
+            raise HTTPException(
+                status_code=503,
+                detail="Gateway de GitHub no disponible.")
+
+        secreto = gh.obtener_webhook_secreto()
+        cuerpo = await request.body()
+        firma = request.headers.get("X-Hub-Signature-256") or request.headers.get("X-Hub-Signature") or ""
+
+        if secreto and not gh.validar_firma(cuerpo, firma, secreto):
+            raise HTTPException(status_code=401, detail="Firma de GitHub inválida.")
+
+        tipo_evento = request.headers.get("X-GitHub-Event", "pull_request")
+        try:
+            datos = json.loads(cuerpo.decode("utf-8") or "{}")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Cuerpo JSON inválido.")
+
+        evento_parseado = gh.parsear_evento(datos, tipo_evento=tipo_evento)
+        tarea_id = gh.procesar_evento(evento_parseado)
+        return {"ok": True, "evento": tipo_evento, "tarea_id": tarea_id}
+
     @app.get(f"{API_PREFIJO}/tasks/{{task_id}}",
              dependencies=[Depends(_autorizar)])
     async def api_task(task_id: str):

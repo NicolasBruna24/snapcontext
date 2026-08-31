@@ -150,6 +150,24 @@ async def send_telegram_message(chat_id, text: str,
 
 
 # ---------------------------------------------------------------------------
+# Envío de notificaciones push (v6.8.0)
+# ---------------------------------------------------------------------------
+def enviar_notificacion(chat_id: str | int, mensaje: str) -> bool:
+    """Envío sincrónico/asincrónico de notificación push a Telegram."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(send_telegram_message(chat_id, mensaje))
+            return True
+        return loop.run_until_complete(send_telegram_message(chat_id, mensaje))
+    except RuntimeError:
+        return asyncio.run(send_telegram_message(chat_id, mensaje))
+    except Exception as exc:
+        print(f"✖ [telegram] Error en enviar_notificacion: {exc}")
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Motor: ejecuta el pipeline de SnapContext y captura la respuesta
 # ---------------------------------------------------------------------------
 _MENSAJE_BIENVENIDA = (
@@ -159,8 +177,15 @@ _MENSAJE_BIENVENIDA = (
     "1. Detecto el tipo de proyecto y selecciono los archivos relevantes.\n"
     "2. Ejecuto el motor de IA sobre ellos.\n"
     "3. Te devuelvo el resultado aquí mismo.\n\n"
-    "Comandos: /fix <tarea> (bucle de pruebas) · /plan <tarea> "
-    "(planificador) · /help"
+    "Comandos síncronos:\n"
+    "- `/fix <tarea>` — bucle de pruebas\n"
+    "- `/plan <tarea>` — planificador\n\n"
+    "Comandos asíncronos (v6.8.0):\n"
+    "- `/pr <numero>` — revisar Pull Request en segundo plano\n"
+    "- `/tests [rama]` — ejecutar suite de pruebas en segundo plano\n"
+    "- `/status` — ver estado de tareas en cola\n"
+    "- `/cancel <id>` — cancelar tarea en cola\n"
+    "- `/help` — muestra esta ayuda."
 )
 
 
@@ -221,10 +246,66 @@ def _ejecutar_pipeline(consulta: str, argv_extra: list) -> str:
 
 
 async def run_agent_async(query: str, chat_id=None) -> str:
-    """Ejecuta el agente sin bloquear el event loop y devuelve la respuesta.
+    """Ejecuta el agente o gestiona comandos asíncronos."""
+    texto = (query or "").strip()
+    if texto.startswith("/"):
+        partes = texto.split(None, 1)
+        comando = partes[0].lower().lstrip("/")
+        argumento = partes[1].strip() if len(partes) > 1 else ""
 
-    Wrapper asíncrono sobre :func:`_ejecutar_pipeline` (executor de hilos).
-    """
+        # Comandos asíncronos de tareas (v6.8.0)
+        if comando == "pr":
+            try:
+                import task_queue as tq
+                num = int(argumento) if argumento.isdigit() else 0
+                tid = tq.encolar_tarea(
+                    tipo="pr_review",
+                    datos={"numero": num, "instruccion": f"Revisar PR #{num}"},
+                    chat_id=chat_id,
+                    canal="telegram",
+                )
+                return f"🔔 Tarea encolada (ID: {tid})\nRevisando PR #{num} en segundo plano."
+            except Exception as exc:
+                return f"❌ Error encolando PR: {exc}"
+
+        elif comando in ("tests", "test"):
+            try:
+                import task_queue as tq
+                tid = tq.encolar_tarea(
+                    tipo="tests",
+                    datos={"rama": argumento or "main"},
+                    chat_id=chat_id,
+                    canal="telegram",
+                )
+                return f"🔔 Tarea encolada (ID: {tid})\nEjecutando suite de pruebas (rama: {argumento or 'actual'}) en segundo plano."
+            except Exception as exc:
+                return f"❌ Error encolando pruebas: {exc}"
+
+        elif comando == "status":
+            try:
+                import task_queue as tq
+                tareas = tq.listar_tareas(limite=5)
+                if not tareas:
+                    return "📋 No hay tareas registradas en la cola."
+                lineas = ["📋 *Estado de Tareas Recientes:*"]
+                for t in tareas:
+                    simbolo = "⏳" if t["estado"] in ("pendiente", "ejecutando") else ("✅" if t["estado"] == "completada" else "❌")
+                    lineas.append(f"{simbolo} `#{t['id']}` [{t['tipo']}] — *{t['estado']}*")
+                return "\n".join(lineas)
+            except Exception as exc:
+                return f"❌ Error consultando estado: {exc}"
+
+        elif comando == "cancel":
+            try:
+                import task_queue as tq
+                tid = int(argumento) if argumento.isdigit() else 0
+                ok = tq.cancelar_tarea(tid)
+                if ok:
+                    return f"✅ Tarea #{tid} cancelada correctamente."
+                return f"⚠️ No se pudo cancelar la tarea #{tid} (no existe o ya no está pendiente)."
+            except Exception as exc:
+                return f"❌ Error cancelando tarea: {exc}"
+
     consulta, argv_extra = _limpiar_consulta(query)
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
@@ -262,11 +343,14 @@ async def handle_telegram_update(update_data: dict) -> None:
 
 async def _procesar_y_responder(chat_id, texto: str) -> None:
     """Ejecuta el agente y envía el resultado al chat."""
-    await send_telegram_message(
-        chat_id, "⏳ Procesando tu solicitud con SnapContext…")
+    cmd_directo = texto.strip().split()[0].lower().lstrip("/") if texto.startswith("/") else ""
+    if cmd_directo not in ("pr", "tests", "test", "status", "cancel"):
+        await send_telegram_message(
+            chat_id, "⏳ Procesando tu solicitud con SnapContext…")
     try:
         respuesta = await run_agent_async(texto, chat_id=chat_id)
     except Exception as exc:                    # noqa: BLE001 — siempre responder
         respuesta = f"✖ Error inesperado: {exc}"
     await send_telegram_message(chat_id, respuesta)
+
 

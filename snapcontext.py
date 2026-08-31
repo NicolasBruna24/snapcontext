@@ -124,7 +124,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.7.0"
+VERSION = "6.8.0"
 
 # v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
 # de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
@@ -6495,7 +6495,29 @@ def _db_init() -> str:
         _DB_CONEXION.commit()
         _db_migrar_curador()
         _db_migrar_reglas()
+        _db_migrar_tareas()
     return str(ruta)
+
+
+def _db_migrar_tareas() -> None:
+    """Migración v6.8.0: crea la tabla ``tareas`` (cola de tareas asíncronas) si falta.
+
+    Idempotente: usa ``CREATE TABLE IF NOT EXISTS``, permitiendo que tareas de
+    GitHub/Telegram/Discord se encolen y procesen en segundo plano.
+    """
+    _db_ejecutar(
+        "CREATE TABLE IF NOT EXISTS tareas ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "tipo TEXT NOT NULL, "
+        "estado TEXT NOT NULL, "
+        "datos TEXT NOT NULL, "
+        "resultado TEXT, "
+        "chat_id TEXT, "
+        "canal TEXT, "
+        "creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+        "actualizado TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+    _db_ejecutar(
+        "CREATE INDEX IF NOT EXISTS idx_tareas_estado ON tareas(estado)")
 
 
 def _db_migrar_reglas() -> None:
@@ -7110,6 +7132,18 @@ def _daemon_tick(intervalo_horas: int = DAEMON_INTERVALO_HORAS_DEFECTO,
         _db_ejecutar("UPDATE cola SET estado = 'hecho' WHERE id = ?",
                      (tarea["id"],))
         resultado["procesados"].append(skill["id"])
+
+    # v6.8.0: procesa tareas asíncronas encoladas (GitHub/Telegram/Discord)
+    try:
+        import task_queue as _tq
+        while True:
+            t_res = _tq.procesar_siguiente_tarea()
+            if not t_res:
+                break
+            resultado.setdefault("tareas_asincronas", []).append(t_res["id"])
+    except Exception as exc:
+        depurar(f"[daemon] Error procesando cola de tareas: {exc}")
+
     return resultado
 
 
@@ -7877,6 +7911,76 @@ def _ejecutar_comando_telegram(subargv: List[str]) -> int:
     if args.accion == "webhook-registrar":
         ok, detalle = tg.registrar_webhook()
         (exito if ok else error)(f"setWebhook: {detalle}")
+        return 0 if ok else 1
+
+    parser.print_help()
+    return 1
+
+
+def _ejecutar_comando_github(subargv: List[str]) -> int:
+    """Despacha el subcomando ``snapcontext github <accion> [...]`` (v6.8.0)."""
+    import argparse as _ap
+
+    try:
+        import github_gateway as gh
+    except ImportError as exc:
+        error(f"El gateway de GitHub no se pudo cargar: {exc}")
+        return 1
+
+    parser = _ap.ArgumentParser(prog="snapcontext github", add_help=False)
+    sub = parser.add_subparsers(dest="accion")
+
+    p_setup = sub.add_parser("setup", help="Guarda credenciales y webhook de GitHub.")
+    p_setup.add_argument("--token", default=None, help="Personal Access Token de GitHub.")
+    p_setup.add_argument("--secret", "--webhook-secret", dest="secret", default=None,
+                         help="Secreto para validar la firma HMAC del webhook.")
+    p_setup.add_argument("--webhook-url", dest="webhook_url", default=None,
+                         help="URL pública (ngrok/dominio); el webhook queda en <url>/webhook/github.")
+
+    sub.add_parser("estado", help="Muestra la configuración actual de GitHub.")
+
+    p_hook = sub.add_parser("webhook-registrar", help="Registra el webhook en un repositorio de GitHub.")
+    p_hook.add_argument("--repo", required=True, help="Repositorio en GitHub (ej: owner/repo).")
+    p_hook.add_argument("--webhook-url", dest="webhook_url", default=None, help="URL pública del webhook.")
+    p_hook.add_argument("--secret", dest="secret", default=None, help="Secreto HMAC del webhook.")
+
+    if not subargv or subargv[0] in ("-h", "--help", "help"):
+        info("Uso: snapcontext github <setup|estado|webhook-registrar> [...]\n"
+             "  setup [--token <TOKEN>] [--secret <SECRET>] [--webhook-url <URL>]\n"
+             "  webhook-registrar --repo <owner/repo> [--webhook-url <URL>] [--secret <SECRET>]")
+        return 0
+    try:
+        args = parser.parse_args(subargv)
+    except SystemExit:
+        return 1
+
+    if args.accion == "setup":
+        guardado = gh.guardar_configuracion_github(
+            webhook_secret=getattr(args, "secret", None),
+            token=getattr(args, "token", None),
+            webhook_url=getattr(args, "webhook_url", None),
+        )
+        exito("Configuración de GitHub guardada en ~/.snapcontext/config.json ('github').")
+        info(f"  webhook_url    : {guardado.get('webhook_url') or '(sin definir)'}")
+        info(f"  token          : {_oculto(guardado.get('token'))}")
+        info(f"  webhook_secret : {_oculto(guardado.get('webhook_secret'))}")
+        return 0
+
+    if args.accion == "estado":
+        token = gh.obtener_github_token()
+        secreto = gh.obtener_webhook_secreto()
+        url = gh.obtener_webhook_url()
+        exito("Estado del gateway de GitHub:")
+        info(f"  token          : {_oculto(token)}")
+        info(f"  webhook_secret : {_oculto(secreto)}")
+        info(f"  webhook_url    : {url or '(no definida)'}")
+        return 0 if (token or secreto) else 1
+
+    if args.accion == "webhook-registrar":
+        url = getattr(args, "webhook_url", None) or gh.obtener_webhook_url() or ""
+        secreto = getattr(args, "secret", None) or gh.obtener_webhook_secreto() or ""
+        ok, detalle = gh.configurar_webhook(url=url, secreto=secreto, repo=args.repo)
+        (exito if ok else error)(f"GitHub Webhook: {detalle}")
         return 0 if ok else 1
 
     parser.print_help()
@@ -10437,6 +10541,19 @@ def crear_parser() -> argparse.ArgumentParser:
         help="(v6.7.0) Fuerza el driver de la base de datos (por defecto se "
              "deduce de --db-url).",
     )
+    # v6.8.0: omnicanalidad avanzada — GitHub webhooks y tareas asíncronas.
+    parser.add_argument(
+        "--github-webhook-secreto", default=None,
+        help="(v6.8.0) Secreto para validar firmas HMAC de webhooks de GitHub.",
+    )
+    parser.add_argument(
+        "--github-token", default=None,
+        help="(v6.8.0) Token de GitHub (PAT) para interactuar con la API (comentar PRs, diffs).",
+    )
+    parser.add_argument(
+        "--webhook-url", default=None,
+        help="(v6.8.0) URL pública del webhook de SnapContext para registrar en servicios externos.",
+    )
     parser.add_argument(
         "--web-interactive", action="store_true",
         help="(v6.5.0) Activa el centro de control web interactivo además de la "
@@ -11473,6 +11590,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     # v4.5.0: gateway de omnicanalidad — `snapcontext discord setup ...`.
     if argv and argv[0].lower() == "discord":
         return _ejecutar_comando_discord(argv[1:])
+    # v6.8.0: gateway de omnicanalidad — `snapcontext github setup ...`.
+    if argv and argv[0].lower() == "github":
+        return _ejecutar_comando_github(argv[1:])
     # v5.0.0: curador proactivo — `snapcontext curador estado|ejecutar|activar|desactivar`.
     if argv and argv[0].lower() == "curador":
         return _ejecutar_comando_curador(argv[1:])

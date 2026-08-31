@@ -4,6 +4,34 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.8.0] - 2026-08-30 - Omnicanalidad avanzada (GitHub + tareas asíncronas + notificaciones)
+
+### Added
+- **Nuevo módulo `github_gateway.py`**: integración bidireccional con GitHub:
+  - `validar_firma`: verificación criptográfica de firmas HMAC SHA-256 (`X-Hub-Signature-256`) y SHA-1 (`X-Hub-Signature`) contra peticiones falsificadas.
+  - `parsear_evento`: extracción normalizada de metadatos para eventos `pull_request`, `issues`, `push`, `issue_comment`.
+  - `procesar_evento`: encolado automático de tareas asíncronas (`pr_review`, `plan`, `tests`) a partir de eventos de webhook.
+  - `obtener_pr_diff` y `comentar_pr`: integración con la API REST de GitHub para inspeccionar diffs y comentar resoluciones de PRs e issues.
+  - `configurar_webhook`: registro automatizado de webhooks en repositorios remotos.
+  - Subcomando CLI: `snapcontext github setup|estado|webhook-registrar`.
+- **Nuevo módulo `task_queue.py`**: sistema de cola SQLite persistente para tareas en segundo plano:
+  - Tabla `tareas` (`id`, `tipo`, `estado`, `datos`, `resultado`, `chat_id`, `canal`, `creado`, `actualizado`).
+  - Funciones `encolar_tarea`, `consumir_tarea`, `actualizar_estado_tarea`, `obtener_tarea`, `listar_tareas`, `cancelar_tarea`.
+  - Worker demonio (`iniciar_worker` / `_daemon_tick`) para consumir y ejecutar tareas pesadas sin bloquear el CLI.
+  - Notificaciones push al finalizar tareas (`✅ Tarea {id} completada`, `❌ Tarea {id} falló`).
+- **Nuevos comandos asíncronos en Telegram y Discord**:
+  - `/pr <numero>`: encola la revisión del Pull Request.
+  - `/tests [rama]`: encola la ejecución de pruebas en segundo plano.
+  - `/status`: consulta el estado de las tareas en cola.
+  - `/cancel <id>`: cancela una tarea pendiente.
+  - Notificaciones proactivas con `enviar_notificacion(chat_id, mensaje, canal)`.
+- **Endpoints Webhook**: rutas `/webhook/github` y `/api/github/webhook` en la interfaz web FastAPI.
+- **Nuevos flags CLI**: `--github-webhook-secreto`, `--github-token`, `--webhook-url`.
+- **Tests**:
+  - `tests/test_github_gateway.py` (15 casos).
+  - `tests/test_task_queue.py` (15 casos).
+  - `tests/test_omnicanalidad_avanzada.py` (10 casos).
+
 ## [6.7.0] - 2026-08-30 - Expansión de MCP (bases de datos y APIs)
 
 ### Added

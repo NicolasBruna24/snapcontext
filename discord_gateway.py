@@ -195,14 +195,38 @@ async def send_discord_message(webhook_url: Optional[str], content: str,
 
 
 # ---------------------------------------------------------------------------
+# Envío de notificaciones push (v6.8.0)
+# ---------------------------------------------------------------------------
+def enviar_notificacion(canal_id_o_webhook: Optional[str], mensaje: str) -> bool:
+    """Envío sincrónico/asincrónico de notificación push a Discord."""
+    try:
+        url = canal_id_o_webhook or obtener_webhook_url()
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(send_discord_message(url, mensaje))
+            return True
+        return loop.run_until_complete(send_discord_message(url, mensaje))
+    except RuntimeError:
+        return asyncio.run(send_discord_message(canal_id_o_webhook or obtener_webhook_url(), mensaje))
+    except Exception as exc:
+        print(f"✖ [discord] Error en enviar_notificacion: {exc}")
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Handler de interacciones
 # ---------------------------------------------------------------------------
 _MENSAJE_BIENVENIDA = (
     "👋 Hola, soy **SnapContext**, tu asistente de desarrollo con contexto "
-    "automático.\n\nComandos disponibles:\n"
+    "automático.\n\nComandos síncronos:\n"
     "- `/snap <tarea>` — ejecuta el pipeline completo.\n"
     "- `/fix <tarea>` — bucle de pruebas (equivalente a `snapcontext fix`).\n"
-    "- `/plan <tarea>` — planificador (`snapcontext --plan`).\n"
+    "- `/plan <tarea>` — planificador (`snapcontext --plan`).\n\n"
+    "Comandos asíncronos (v6.8.0):\n"
+    "- `/pr <numero>` — revisar Pull Request en segundo plano.\n"
+    "- `/tests [rama]` — ejecutar pruebas en segundo plano.\n"
+    "- `/status` — ver estado de tareas en cola.\n"
+    "- `/cancel <id>` — cancelar tarea en cola.\n"
     "- `/help` — muestra esta ayuda."
 )
 
@@ -225,9 +249,9 @@ def _extraer_consulta(interaction_data: dict) -> tuple:
         argv_extra = ["--test-loop"]
     elif comando == "plan":
         argv_extra = ["--plan"]
-    elif comando in ("start", "help"):
-        # Se conserva el nombre para que el handler responda directamente.
-        return (comando, "", [])
+    elif comando in ("start", "help", "pr", "tests", "test", "status", "cancel"):
+        # Se conserva el comando para que se procese adecuadamente
+        return (comando, consulta, [])
     return (comando, consulta, argv_extra)
 
 
@@ -280,7 +304,7 @@ async def handle_discord_interaction(interaction_data: dict) -> Optional[dict]:
         return None
 
     tarea = asyncio.create_task(
-        _procesar_y_responder(canal, consulta or comando,
+        _procesar_y_responder(canal, comando, consulta,
                               argv_extra, interaction_id, interaction_token))
     # Referencia viva para que la tarea no sea recolectada prematuramente.
     _TAREAS_ACTIVAS.add(tarea)
@@ -290,18 +314,72 @@ async def handle_discord_interaction(interaction_data: dict) -> Optional[dict]:
     return {"type": 5}
 
 
-async def _procesar_y_responder(canal, consulta: str, argv_extra: list,
+async def _procesar_y_responder(canal, comando: str, consulta: str, argv_extra: list,
                                 interaction_id: str,
                                 interaction_token: str) -> None:
-    """Ejecuta el agente y envía el resultado al canal."""
-    try:
-        from telegram_gateway import _ejecutar_pipeline
-        loop = asyncio.get_running_loop()
-        respuesta = await loop.run_in_executor(
-            None, _ejecutar_pipeline, consulta, argv_extra)
-    except Exception as exc:                    # noqa: BLE001 — siempre responder
-        respuesta = f"✖ Error inesperado: {exc}"
+    """Ejecuta el agente o comandos en cola y envía el resultado al canal."""
+    # Comandos asíncronos v6.8.0
+    if comando == "pr":
+        try:
+            import task_queue as tq
+            num = int(consulta) if consulta.isdigit() else 0
+            tid = tq.encolar_tarea(
+                tipo="pr_review",
+                datos={"numero": num, "instruccion": f"Revisar PR #{num}"},
+                chat_id=canal,
+                canal="discord",
+            )
+            respuesta = f"🔔 **Tarea encolada** (ID: `{tid}`)\nRevisando PR #{num} en segundo plano."
+        except Exception as exc:
+            respuesta = f"❌ Error encolando PR: {exc}"
+    elif comando in ("tests", "test"):
+        try:
+            import task_queue as tq
+            tid = tq.encolar_tarea(
+                tipo="tests",
+                datos={"rama": consulta or "main"},
+                chat_id=canal,
+                canal="discord",
+            )
+            respuesta = f"🔔 **Tarea encolada** (ID: `{tid}`)\nEjecutando suite de pruebas (rama: `{consulta or 'actual'}`) en segundo plano."
+        except Exception as exc:
+            respuesta = f"❌ Error encolando pruebas: {exc}"
+    elif comando == "status":
+        try:
+            import task_queue as tq
+            tareas = tq.listar_tareas(limite=5)
+            if not tareas:
+                respuesta = "📋 No hay tareas registradas en la cola."
+            else:
+                lineas = ["📋 **Estado de Tareas Recientes:**"]
+                for t in tareas:
+                    simbolo = "⏳" if t["estado"] in ("pendiente", "ejecutando") else ("✅" if t["estado"] == "completada" else "❌")
+                    lineas.append(f"{simbolo} `#{t['id']}` [{t['tipo']}] — **{t['estado']}**")
+                respuesta = "\n".join(lineas)
+        except Exception as exc:
+            respuesta = f"❌ Error consultando estado: {exc}"
+    elif comando == "cancel":
+        try:
+            import task_queue as tq
+            tid = int(consulta) if consulta.isdigit() else 0
+            ok = tq.cancelar_tarea(tid)
+            if ok:
+                respuesta = f"✅ Tarea `#{tid}` cancelada correctamente."
+            else:
+                respuesta = f"⚠️ No se pudo cancelar la tarea `#{tid}` (no existe o ya no está pendiente)."
+        except Exception as exc:
+            respuesta = f"❌ Error cancelando tarea: {exc}"
+    else:
+        try:
+            from telegram_gateway import _ejecutar_pipeline
+            loop = asyncio.get_running_loop()
+            respuesta = await loop.run_in_executor(
+                None, _ejecutar_pipeline, consulta or comando, argv_extra)
+        except Exception as exc:                    # noqa: BLE001 — siempre responder
+            respuesta = f"✖ Error inesperado: {exc}"
+
     await send_discord_message(None, respuesta,
                                interaction_id=interaction_id,
                                interaction_token=interaction_token)
+
 

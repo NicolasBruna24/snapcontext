@@ -2335,6 +2335,45 @@ Cómo funciona:
 El modo está **desactivado por defecto**: sin el flag ni la variable de
 entorno, el flujo es idéntico al anterior y no añade ninguna llamada extra.
 
+## 🌐 Omnicanalidad avanzada (v6.8.0)
+
+SnapContext 6.8.0 introduce integración nativa con **GitHub Webhooks**, una **cola de tareas asíncronas persistente** (SQLite) y **notificaciones push** integradas con Telegram y Discord.
+
+### 🐙 Integración con GitHub (`github_gateway.py`)
+- **Validación de firmas HMAC SHA-256**: Verifica la autenticidad de los webhooks de GitHub en `POST /webhook/github` con tiempo constante.
+- **Parseo y automatización**:
+  - `pull_request` (opened, synchronize): Encola automáticamente una tarea `pr_review`.
+  - `issues` (opened): Encola la planificación o resolución de incidencias (`plan`).
+  - `push`: Ejecuta suites de pruebas automatizadas en segundo plano (`tests`).
+- **Integración API REST de GitHub**: Permite consultar diffs (`obtener_pr_diff`) y publicar comentarios (`comentar_pr`) directamente en PRs e Issues.
+
+#### Configuración de GitHub
+```bash
+# Configuración inicial de credenciales
+snapcontext github setup --token ghp_xxxx --secret mi_secreto_webhook --webhook-url https://mi-dominio.com
+
+# Registro del webhook en un repositorio de GitHub
+snapcontext github webhook-registrar --repo owner/proyecto
+```
+
+### ⚡ Cola de Tareas Asíncronas y Worker (`task_queue.py`)
+- Las tareas pesadas ya no bloquean la respuesta del webhook ni la CLI.
+- Se persisten en la tabla SQLite `tareas` con estados `pendiente`, `ejecutando`, `completada`, `fallida`, `cancelada`.
+- El daemon (`snapcontext --daemon`) o el worker en segundo plano consumen tareas y envían notificaciones push al finalizar.
+
+### 💬 Nuevos Comandos en Telegram y Discord
+- `/pr <numero>`: Encola la revisión asíncrona de un Pull Request.
+- `/tests [rama]`: Encola la ejecución de pruebas en segundo plano.
+- `/status`: Consulta el estado actual de las tareas recientes.
+- `/cancel <id>`: Cancela una tarea en cola pendiente.
+
+```
+Usuario: /pr 42
+SnapContext: 🔔 Tarea encolada (ID: 15) - Revisando PR #42 en segundo plano.
+... (al finalizar)
+SnapContext: ✅ Tarea 15 (pr_review) completada: Revisión de PR #42 completada con éxito.
+```
+
 ## 🌐 Expansión de MCP (v6.7.0)
 
 A partir de la versión 6.7.0, SnapContext expande su ecosistema MCP nativo con herramientas de **solo lectura** para interactuar con bases de datos relacionales e inspeccionar APIs externas.
