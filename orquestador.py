@@ -219,6 +219,7 @@ class Orquestador:
                         max_context_tokens=getattr(
                             args, "max_context_tokens", None),
                         editor_fallback=getattr(args, "editor_fallback", False),
+                        mostrar_diff=getattr(args, "mostrar_diff", False),
                     )
                     self._emitir_tipo("editor", accion="fin", ok=ok)
                 else:

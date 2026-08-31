@@ -270,7 +270,7 @@ class TestEnvVersion(unittest.TestCase):
     """Versionado y packaging del módulo."""
 
     def test_version_560(self):
-        self.assertEqual(sc.VERSION, "6.1.0")
+        self.assertEqual(sc.VERSION, "6.3.0")
 
     def test_pyproject_incluye_tree_sitter(self):
         texto = open(os.path.join(os.path.dirname(os.path.dirname(

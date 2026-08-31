@@ -4,6 +4,50 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.3.0] - 2026-08-30 - Mejora del editor de parches (fuzzy matching y resolución de conflictos)
+
+### Added
+- **Emparejamiento difuso por etapas** en `_aplicar_hunks_incremental()`: la
+  búsqueda exacta (con `strip()`) ya no es el único método. Ahora, cuando un
+  hunk no encaja en la posición declarada, se prueban, en orden y solo cuando
+  la anterior falla:
+  1. Coincidencia exacta cerca de la posición declarada.
+  2. Coincidencia por **variantes** (espacios colapsados y sin comentario final
+     `#`/`//`), tolerando reindentaciones y comentarios añadidos/eliminados.
+  3. Búsqueda **difusa real** con `difflib.SequenceMatcher` (ratio medio de las
+     líneas de contexto ≥ `UMBRAL_DIFUSO_HUNKS` = 0.85, y ≥
+     `UMBRAL_DIFUSO_LINEA` = 0.90 por línea), tolerando variables renombradas.
+  4. **Resincronización a nivel de bloque**: si nada encaja, se busca en TODO el
+     archivo la ventana más parecida al bloque original del hunk
+     (≥ `UMBRAL_DIFUSO_BLOQUE` = 0.80) y se reemplaza conservando las líneas de
+     contexto locales del usuario.
+- Umbrales configurados como constantes de módulo: `UMBRAL_DIFUSO_HUNKS` (0.85),
+  `UMBRAL_DIFUSO_LINEA` (0.90) y `UMBRAL_DIFUSO_BLOQUE` (0.80).
+- Nuevo flag `--mostrar-diff`: muestra el diff propuesto (coloreado con
+  `rich.syntax.Syntax`, lenguaje `diff`) ANTES de aplicar un parche y pregunta si
+  aplicarlo (`[a]`), cancelarlo (`[c]`) o editarlo manualmente (`[e]`). En modo
+  `--auto` muestra el diff sin bloquear. Sin el flag, el parche se aplica sin
+  preguntar (comportamiento histórico).
+- Nuevos helpers en `snapcontext.py`:`_variantes_linea()`,
+  `_lineas_equivalentes()`, `_quitar_comentario()`, `_ratio_bloque()`,
+  `_contar_cambios_parche()` y `_mostrar_diff_parche()`; y en `ui.py`
+  `mostrar_diff()` y `preguntar_interactivo()`.
+- Mensajes de error más claros cuando el parche no puede aplicarse: se muestra el
+  proceso seguido, el umbral usado y una sugerencia accionable (`--editor aider`
+  o edición manual). Con `--mostrar-diff` se visualiza el diff antes de fallar.
+- Tests `tests/test_editor_parches.py` (17 casos): fuzzy matching con espacios
+  cambiados, comentarios añadidos, variables renombradas, hunk de añadido puro,
+  desplazamiento acumulativo, resincronización de bloques, fallo controlado,
+  umbrales expuestos, `--mostrar-diff` (aplicar/cancelar/editar/fallo) y modo sin
+  preguntar.
+
+### Changed
+- `pyproject.toml` y `VERSION` → `6.3.0`.
+- `agentes.py` y `orquestador.py`: el flag `mostrar_diff` se propaga desde la CLI
+  a `ejecutar()` → estrategia de parche → `_aplicar_con_conflicto()`.
+- Rendimiento: `difflib.SequenceMatcher` solo se usa cuando el hunk falla en las
+  etapas exactas/variantes (el caso normal no paga el coste).
+
 ## [6.2.0] - 2026-08-29 - 🧠 Mostrar razonamiento del modelo (chain-of-thought)
 
 ### Added

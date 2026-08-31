@@ -338,12 +338,16 @@ class AgenteEditorPropio:
         parche: str,
         directorio: str = ".",
         contenido_esperado: Optional[str] = None,
+        mostrar_diff: bool = False,
     ) -> bool:
         """Aplica un parche unificado en ``directorio`` (v3.3.0).
 
         Con ``contenido_esperado`` se valida antes que el archivo coincida
         con el usado para generar el parche y, si hay conflicto, se intenta
         la resolución incremental línea a línea.
+
+        Desde v6.3.0 ``mostrar_diff`` muestra el diff propuesto y pide
+        confirmación antes de aplicar (sin ``--mostrar-diff`` no pregunta).
 
         Devuelve ``True`` si se aplicó con éxito, ``False`` si falló.
         """
@@ -352,7 +356,8 @@ class AgenteEditorPropio:
         sc.depurar(f"[AgenteEditorPropio] Aplicando parche en '{directorio}'")
         return sc._aplicar_parche_con_resolucion(
             parche, directorio=directorio,
-            contenido_esperado=contenido_esperado)
+            contenido_esperado=contenido_esperado,
+            mostrar_diff=mostrar_diff)
 
     def _cadena_modos(self, archivo: str, mensaje: str,
                       modo_edicion: str) -> List[str]:
@@ -502,12 +507,15 @@ class AgenteEditorPropio:
                              directorio: str, validar: bool = True,
                              max_intentos_validacion: int = 3,
                              conciso: bool = False, auto: bool = False,
-                             max_context_tokens: Optional[int] = None) -> bool:
+                             max_context_tokens: Optional[int] = None,
+                             mostrar_diff: bool = False) -> bool:
         """Intenta editar `archivo` pidiendo un parche unificado al proveedor.
 
         v6.1.0: si el archivo supera ``max_context_tokens`` se envía contexto
         selectivo; si el proveedor falla por límite de contexto, se reintenta
         con el archivo completo antes de declarar el fallo de esta estrategia.
+        v6.3.0: con ``mostrar_diff`` se muestra y confirma el diff antes de
+        aplicarlo (flag ``--mostrar-diff``).
         """
         import snapcontext as sc
 
@@ -565,7 +573,8 @@ class AgenteEditorPropio:
                 # v3.3.0: validación previa + resolución de conflictos.
                 return self._aplicar_con_conflicto(
                     archivo, diff_limpio, directorio, contenido_actual,
-                    preview=None, auto=auto) == "ok"
+                    preview=None, auto=auto,
+                    mostrar_diff=mostrar_diff) == "ok"
 
             # v3.4.0: validar la sintaxis del contenido resultante.
             preview, aplicados = self._aplicar_parche_preview(
@@ -574,7 +583,8 @@ class AgenteEditorPropio:
                 # No se pudo reproducir en memoria → se omite la validación.
                 return self._aplicar_con_conflicto(
                     archivo, diff_limpio, directorio, contenido_actual,
-                    preview=None, auto=auto) == "ok"
+                    preview=None, auto=auto,
+                    mostrar_diff=mostrar_diff) == "ok"
 
             sc.info(f"Validando sintaxis de {archivo}...")
             exito, err = sc._validar_sintaxis(archivo, preview, directorio)
@@ -592,7 +602,7 @@ class AgenteEditorPropio:
             sc.exito("Sintaxis válida.")
             resultado = self._aplicar_con_conflicto(
                 archivo, diff_limpio, directorio, contenido_actual,
-                preview=preview, auto=auto)
+                preview=preview, auto=auto, mostrar_diff=mostrar_diff)
             if resultado == "ok":
                 return True
             if resultado == "cancelar":
@@ -608,17 +618,23 @@ class AgenteEditorPropio:
     def _aplicar_con_conflicto(self, archivo: str, diff: str,
                                directorio: str, contenido_actual: str,
                                preview: Optional[str] = None,
-                               auto: bool = False) -> str:
+                               auto: bool = False,
+                               mostrar_diff: bool = False) -> str:
         """Aplica el parche resolviendo conflictos de forma interactiva.
 
         Devuelve ``"ok"``, ``"reintentar"`` o ``"cancelar"``.
         En modo ``--auto`` no pregunta: devuelve el resultado directo para que
         ``ejecutar()`` pase a la siguiente estrategia.
+
+        v6.3.0: con ``mostrar_diff`` el primer intento muestra el diff y pide
+        confirmación (``--mostrar-diff``); la opción "aplicar de todas
+        formas" del menú ya es una confirmación y no vuelve a preguntar.
         """
         import snapcontext as sc
 
         ok = self.aplicar_parche(diff, directorio,
-                                 contenido_esperado=contenido_actual)
+                                 contenido_esperado=contenido_actual,
+                                 mostrar_diff=mostrar_diff)
         if ok or auto:
             return "ok" if ok else "reintentar"
         while True:
@@ -834,11 +850,14 @@ class AgenteEditorPropio:
                                   max_intentos_validacion: int,
                                   auto: bool,
                                   max_context_tokens: Optional[int] = None,
-                                  mostrar_razonamiento: bool = False) -> bool:
+                                  mostrar_razonamiento: bool = False,
+                                  mostrar_diff: bool = False) -> bool:
         """Edita un único archivo recorriendo su cadena de estrategias.
 
         Lógica extraída de ``ejecutar()`` en v4.6.0 para soportar el rollback
         transaccional multiarchivo sin duplicar código.
+        Desde v6.3.0 ``mostrar_diff`` pide confirmación antes de aplicar
+        parches (flag ``--mostrar-diff``).
         """
         import snapcontext as sc
         from pathlib import Path
@@ -855,6 +874,9 @@ class AgenteEditorPropio:
         # v6.2.0: el razonamiento del modelo se muestra si el flag está
         # activo (se propaga desde ejecutar()).
         self._mostrar_razonamiento = bool(mostrar_razonamiento)
+        # v6.3.0: con --mostrar-diff se muestra y confirma el parche antes
+        # de aplicarlo (se propaga desde ejecutar()).
+        self._mostrar_diff = bool(mostrar_diff)
         cadena = self._cadena_modos(arch, mensaje, modo_edicion)
         # El skill aprendido se coloca el primero en la cadena.
         if estrategia_aprendida and estrategia_aprendida in cadena:
@@ -880,7 +902,8 @@ class AgenteEditorPropio:
                         validar=validar,
                         max_intentos_validacion=max_intentos_validacion,
                         conciso=conciso, auto=auto,
-                        max_context_tokens=max_context_tokens)
+                        max_context_tokens=max_context_tokens,
+                        mostrar_diff=getattr(self, "_mostrar_diff", False))
                 elif estrategia == "sobrescribir":
                     conseguido = self._aplicar_modo_sobrescribir(
                         arch, mensaje, contenido_actual, modelo, str(raiz),
@@ -942,6 +965,7 @@ class AgenteEditorPropio:
         max_context_tokens: Optional[int] = None,
         editor_fallback: bool = False,
         mostrar_razonamiento: bool = False,
+        mostrar_diff: bool = False,
     ) -> bool:
         """Aplica las modificaciones para `archivos` con el `mensaje` especificado.
 
@@ -963,10 +987,17 @@ class AgenteEditorPropio:
           contexto selectivo (resumen AST + bloque objetivo) en el prompt.
         - ``editor_fallback``: si el editor propio falla en todos los archivos,
           intenta automáticamente Aider (si está instalado) como respaldo.
+
+        v6.3.0:
+        - ``mostrar_diff``: muestra el diff propuesto y pide confirmación
+          antes de aplicar cada parche (flag ``--mostrar-diff``).
         """
         import snapcontext as sc
         from pathlib import Path
 
+        # v6.3.0: el flag se guarda en la instancia para que las estrategias
+        # de la cadena (parche) puedan consultarlo.
+        self._mostrar_diff = bool(mostrar_diff)
         raiz = Path(directorio).resolve()
         todo_ok = True
         conciso = _prompts_concisos(
@@ -1023,7 +1054,8 @@ class AgenteEditorPropio:
                     raiz, modelo, conciso, validar,
                     max_intentos_validacion, auto,
                     max_context_tokens=max_context_tokens,
-                    mostrar_razonamiento=mostrar_razonamiento)
+                    mostrar_razonamiento=mostrar_razonamiento,
+                    mostrar_diff=mostrar_diff)
             except Exception as exc:
                 sc.depurar(f"[AgenteEditorPropio] Excepción editando "
                            f"'{arch}': {exc}")

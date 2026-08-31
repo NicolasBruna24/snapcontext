@@ -58,7 +58,7 @@ import unicodedata
 import warnings
 import webbrowser
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 # v5.4.0: detección de comandos peligrosos para el sandboxing inteligente.
 from sandbox_utils import es_comando_peligroso
@@ -124,7 +124,7 @@ except ImportError:  # pragma: no cover
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.2.0"
+VERSION = "6.3.0"
 
 # v4.7.0: límite de líneas de un archivo para inyectarlo completo en el prompt
 # de edición. Por encima de este umbral se usa contexto selectivo (resumen AST
@@ -2234,6 +2234,18 @@ def _aplicar_parche(parche: str, directorio: str = ".") -> bool:
 # ---------------------------------------------------------------------------
 # Manejo de conflictos y aplicación incremental (v3.3.0)
 # ---------------------------------------------------------------------------
+
+# v6.3.0 — Umbrales de similitud del emparejamiento difuso de parches:
+#   - UMBRAL_DIFUSO_HUNKS: ratio MEDIO mínimo de las líneas de contexto de un
+#     hunk para aceptar una posición candidata (búsqueda global).
+#   - UMBRAL_DIFUSO_LINEA: ratio mínimo por línea individual de contexto.
+#   - UMBRAL_DIFUSO_BLOQUE: ratio mínimo a nivel de bloque para la
+#     resincronización (ventana más parecida en todo el archivo).
+UMBRAL_DIFUSO_HUNKS = 0.85
+UMBRAL_DIFUSO_LINEA = 0.90
+UMBRAL_DIFUSO_BLOQUE = 0.80
+
+
 def _ruta_del_parche(parche: str) -> Optional[str]:
     """Extrae la ruta del archivo objetivo del encabezado del parche.
 
@@ -2312,14 +2324,118 @@ def _parsear_hunks(parche: str) -> List[tuple]:
     return [(i, l) for i, l in hunks if any(marca != " " for marca, _ in l)]
 
 
-def _aplicar_hunks_incremental(parche: str, directorio: str) -> bool:
+def _quitar_comentario(linea: str) -> str:
+    """Elimina de forma conservadora un comentario final ``#`` o ``//``.
+
+    Solo se recorta si el marcador está al inicio de la línea o va precedido
+    de un espacio (así no se rompen URLs tipo ``https://…`` ni cadenas que
+    contengan ``#``). Devuelve la línea sin el comentario y sin espacios
+    finales.
+    """
+    idx = linea.find("#")
+    if idx == 0 or (idx > 0 and linea[idx - 1].isspace()):
+        return linea[:idx].rstrip()
+    idx = linea.find("//")
+    while idx != -1:
+        if idx == 0 or linea[idx - 1].isspace():
+            return linea[:idx].rstrip()
+        idx = linea.find("//", idx + 1)
+    return linea
+
+
+def _variantes_linea(linea: str) -> Tuple[str, str, str]:
+    """Variantes progresivamente más laxas de una línea (v6.3.0).
+
+    1. La línea tal cual (sin salto final).
+    2. Con los espacios colapsados (tolera indentación/espacios extra).
+    3. Además, sin comentario final ``#``/``//`` (tolera comentarios
+       añadidos o eliminados por el usuario o el formateador).
+
+    Se usan en el emparejamiento por variantes del editor de parches; la
+    variante 1 reproduce la comparación exacta histórica.
+    """
+    cruda = linea.rstrip("\r\n")
+    normalizada = " ".join(cruda.split())
+    return cruda, normalizada, _quitar_comentario(normalizada)
+
+
+def _lineas_equivalentes(a: str, b: str) -> bool:
+    """True si dos líneas coinciden en alguna de sus variantes (v6.3.0)."""
+    va, vb = _variantes_linea(a), _variantes_linea(b)
+    return va[0] == vb[0] or va[1] == vb[1] or va[2] == vb[2]
+
+
+def _ratio_bloque(a: str, b: str) -> float:
+    """Ratio de similitud de dos bloques de texto (v6.3.0).
+
+    ``SequenceMatcher.real_quick_ratio`` y ``quick_ratio`` son cotas
+    superiores del ratio final: se usan para descartar ventanas imposibles
+    sin pagar el coste completo. Devuelve 0.0 si no supera
+    ``UMBRAL_DIFUSO_BLOQUE``.
+    """
+    sm = difflib.SequenceMatcher(None, a, b)
+    if sm.real_quick_ratio() < UMBRAL_DIFUSO_BLOQUE \
+            or sm.quick_ratio() < UMBRAL_DIFUSO_BLOQUE:
+        return 0.0
+    return sm.ratio()
+
+
+def _contar_cambios_parche(parche: str) -> Tuple[int, int]:
+    """Cuenta ``(añadidas, eliminadas)`` en un diff unificado (v6.3.0)."""
+    anadidas = eliminadas = 0
+    en_hunk = False
+    for linea in (parche or "").splitlines():
+        if linea.startswith("@@"):
+            en_hunk = True
+            continue
+        if not en_hunk:
+            continue
+        if linea.startswith("+"):
+            anadidas += 1
+        elif linea.startswith("-"):
+            eliminadas += 1
+    return anadidas, eliminadas
+
+
+def _mostrar_diff_parche(parche: str, ruta: Optional[str] = None) -> None:
+    """Muestra el diff propuesto coloreado (rich.syntax, 'diff') — v6.3.0.
+
+    Importa ``ui`` de forma tardía (patrón de ``_procesar_razonamiento``)
+    para que tests y consumidores puedan sustituir ``ui.mostrar_diff``.
+    Nunca lanza: un fallo de UI no debe impedir aplicar el parche.
+    """
+    try:
+        import ui as _ui
+        anadidas, eliminadas = _contar_cambios_parche(parche)
+        _ui.mostrar_diff(ruta or "(parche)", anadidas, eliminadas, parche)
+    except Exception as exc:                   # noqa: BLE001 - blindaje UI
+        depurar(f"[EditorPropio] No se pudo mostrar el diff: {exc}")
+
+
+def _aplicar_hunks_incremental(parche: str, directorio: str,
+                               mostrar_diff: bool = False) -> bool:
     """Resolución automática de conflictos: aplica el parche línea a línea.
 
     Estrategia puramente Python (sin git/patch): para cada hunk busca el
-    bloque original con tolerancia a desfases (posiciones cercanas + búsqueda
-    difusa por contexto con difflib) y aplica solo las líneas modificadas.
-    Los hunks irresolubles se omiten con aviso; se escribe el resultado si al
-    menos un hunk se aplicó, siempre con copia de seguridad previa.
+    bloque original con tolerancia a desfases y aplica solo las líneas
+    modificadas, siempre con copia de seguridad previa.
+
+    v6.3.0 — emparejamiento difuso por etapas (solo se prueba la etapa
+    siguiente cuando la anterior no encuentra sitio, de modo que el caso
+    exacto no paga el coste de ``SequenceMatcher``):
+      1. Coincidencia exacta cerca de la posición declarada.
+      2. Coincidencia por variantes (espacios colapsados, sin comentarios)
+         cerca de la posición declarada.
+      3. Búsqueda difusa global: mayor ratio medio de las líneas de contexto
+         con ``difflib.SequenceMatcher`` (umbral ``UMBRAL_DIFUSO_HUNKS``).
+      4. Resincronización a nivel de bloque: si nada encaja, se busca en TODO
+         el archivo la ventana más parecida al bloque original del hunk
+         (umbral ``UMBRAL_DIFUSO_BLOQUE``) y se reemplaza conservando las
+         líneas de contexto locales del usuario.
+
+    Los hunks irresolubles abortan la operación (todo-o-nada desde v4.6.0)
+    dejando el archivo intacto. Con ``mostrar_diff`` se muestra el diff
+    propuesto antes de declarar el fallo.
 
     Devuelve True si se aplicó algún cambio.
     """
@@ -2357,13 +2473,29 @@ def _aplicar_hunks_incremental(parche: str, directorio: str) -> bool:
     def _n_borrar(bloque: List[tuple]) -> int:
         return sum(1 for marca, _ in bloque if marca != "+")
 
-    # Umbral de similitud por línea para el emparejamiento difuso (v4.6.0).
-    UMBRAL_LINEA = 0.90
+    def _coincide_variantes(desde: int, bloque: List[tuple]) -> bool:
+        """True si las líneas no-'+' encajan tolerando espacios/comentarios.
+
+        v6.3.0: compara las variantes laxas (espacios colapsados y sin
+        comentario final) línea a línea; TODAS las líneas no-'+' deben
+        encajar en el mismo punto para evitar emparejamientos caprichosos.
+        """
+        idx = desde
+        for marca, texto in bloque:
+            if marca == "+":
+                continue
+            if idx >= len(resultado):
+                return False
+            if not _lineas_equivalentes(texto, resultado[idx]):
+                return False
+            idx += 1
+        return True
 
     def _coincide_difusa(desde: int, bloque: List[tuple]) -> bool:
         """True si ``resultado[desde:]`` encaja de forma difusa con las líneas
-        no-'+' del bloque (``difflib.SequenceMatcher``, ratio ≥ ``UMBRAL_LINEA``
-        por línea de contexto). Tolera comentarios añadidos y espacios."""
+        no-'+' del bloque (``difflib.SequenceMatcher``, ratio ≥
+        ``UMBRAL_DIFUSO_LINEA`` por línea de contexto). Tolera comentarios
+        añadidos y espacios."""
         idx = desde
         for marca, texto in bloque:
             if marca == "+":
@@ -2373,12 +2505,14 @@ def _aplicar_hunks_incremental(parche: str, directorio: str) -> bool:
             if resultado[idx] != texto:
                 sm = difflib.SequenceMatcher(None, texto.strip(),
                                              resultado[idx].strip())
-                if sm.ratio() < UMBRAL_LINEA:
+                if sm.ratio() < UMBRAL_DIFUSO_LINEA:
                     return False
             idx += 1
         return True
 
     desplazamiento = 0                     # acumulado por hunks previos
+    hubo_resincronizacion = False          # v6.3.0: algún hunk se recolocó
+    lineas_norm: Optional[List[str]] = None  # perezoso (solo si hace falta)
     for inicio_orig, cambios in hunks:
         base = max(inicio_orig - 1 + desplazamiento, 0)
         n_borrados = _n_borrar(cambios)
@@ -2392,16 +2526,25 @@ def _aplicar_hunks_incremental(parche: str, directorio: str) -> bool:
                     _coincide(candidato, cambios):
                 posicion = candidato
                 break
-        # 2) Búsqueda difusa real con difflib.SequenceMatcher (v4.6.0).
+        # 2) v6.3.0: coincidencia por variantes cerca de la posición
+        #    declarada (espacios colapsados, sin comentarios finales).
+        if posicion < 0:
+            for delta in offsets:
+                candidato = base + delta
+                if 0 <= candidato <= len(resultado) and \
+                        _coincide_variantes(candidato, cambios):
+                    posicion = candidato
+                    break
+        # 3) Búsqueda difusa real con difflib.SequenceMatcher (v4.6.0).
         #    Se busca el candidato cuyo conjunto de líneas de contexto tiene
-        #    mayor ratio de similitud medio; se acepta solo por encima de un
-        #    umbral global (0.85), tolerando comentarios/espacios cambiados.
+        #    mayor ratio de similitud medio; se acepta solo por encima de
+        #    UMBRAL_DIFUSO_HUNKS (0.85), tolerando comentarios/espacios
+        #    cambiados.
         if posicion < 0:
             contexto_idx = [i for i, (m, _) in enumerate(cambios)
                             if m == " " and _.strip()]
             if contexto_idx:
                 lineas_stripped = [l.strip() for l in resultado]
-                UMBRAL_GLOBAL = 0.85
                 mejor_ratio, mejor_cand = 0.0, -1
                 limite = max(1, len(resultado) - n_borrados + 1)
                 textos_ctx = [(i, cambios[i][1].strip())
@@ -2420,17 +2563,62 @@ def _aplicar_hunks_incremental(parche: str, directorio: str) -> bool:
                         promedio = ratio_total / n_ctx
                         if promedio > mejor_ratio:
                             mejor_ratio, mejor_cand = promedio, candidato
-                if mejor_cand >= 0 and mejor_ratio >= UMBRAL_GLOBAL \
+                if mejor_cand >= 0 and mejor_ratio >= UMBRAL_DIFUSO_HUNKS \
                         and _coincide_difusa(mejor_cand, cambios):
                     posicion = mejor_cand
-        if posicion < 0 or not (_coincide(posicion, cambios)
-                                or _coincide_difusa(posicion, cambios)):
+        # 4) v6.3.0 — Resincronización a nivel de bloque: si el hunk no encaja
+        #    ni de forma exacta ni difusa, se busca en TODO el archivo la
+        #    ventana del mismo tamaño más parecida al bloque original
+        #    (contexto + líneas eliminadas) y se reemplaza. Como las líneas
+        #    de contexto se conservan del archivo, el reemplazo respeta los
+        #    cambios locales del usuario.
+        resincronizado = False
+        if posicion < 0:
+            bloque_original = [texto for marca, texto in cambios
+                               if marca in (" ", "-")]
+            n_bloque = len(bloque_original)
+            if n_bloque:
+                texto_bloque = "\n".join(bloque_original)
+                texto_bloque_norm = "\n".join(
+                    " ".join(l.split()) for l in bloque_original)
+                if lineas_norm is None:
+                    lineas_norm = [" ".join(l.split()) for l in resultado]
+                mejor_ratio, mejor_cand = 0.0, -1
+                limite = max(0, len(resultado) - n_bloque + 1)
+                for candidato in range(limite):
+                    ratio = _ratio_bloque(
+                        texto_bloque,
+                        "\n".join(resultado[candidato:candidato + n_bloque]))
+                    if ratio < UMBRAL_DIFUSO_BLOQUE:
+                        ratio = max(ratio, _ratio_bloque(
+                            texto_bloque_norm,
+                            "\n".join(
+                                lineas_norm[candidato:candidato + n_bloque])))
+                    if ratio > mejor_ratio:
+                        mejor_ratio, mejor_cand = ratio, candidato
+                if mejor_cand >= 0 and mejor_ratio >= UMBRAL_DIFUSO_BLOQUE:
+                    posicion = mejor_cand
+                    resincronizado = True
+                    hubo_resincronizacion = True
+        if posicion < 0 or not (
+                resincronizado
+                or _coincide(posicion, cambios)
+                or _coincide_variantes(posicion, cambios)
+                or _coincide_difusa(posicion, cambios)):
             # v4.6.0: antes se omitía el hunk y se escribía una aplicación
-            # PARCIAL (estado mixto potencialmente inválido). Ahora se aborta
-            # toda la operación dejando el archivo intacto.
-            error(f"[EditorPropio] Hunk en línea {inicio_orig} no aplicable "
-                  "ni siquiera de forma difusa; operación abortada para "
-                  "evitar estados mixtos.")
+            # PARCIAL (estado mixto potencialmente inválido). Se aborta toda
+            # la operación dejando el archivo intacto.
+            # v6.3.0: mensaje claro con el proceso seguido, el umbral usado y
+            # una sugerencia accionable; con --mostrar-diff se muestra antes
+            # el diff propuesto para revisarlo o editarlo a mano.
+            if mostrar_diff:
+                _mostrar_diff_parche(parche, ruta)
+            error("El parche no pudo aplicarse limpiamente.\n"
+                  f"  Buscando coincidencia difusa... (umbral "
+                  f"{UMBRAL_DIFUSO_HUNKS})\n"
+                  "  No se encontró una coincidencia suficiente.\n"
+                  "  Sugerencia: Prueba con '--editor aider' o edita "
+                  "manualmente.")
             return False
 
         # v4.6.0: las líneas de contexto (' ') se conservan tal cual están en
@@ -2449,15 +2637,20 @@ def _aplicar_hunks_incremental(parche: str, directorio: str) -> bool:
         resultado[posicion:posicion + n_borrados] = nuevo_bloque
         desplazamiento += len(nuevo_bloque) - n_borrados
 
-    exito(f"[EditorPropio] Parche aplicado con resolución incremental "
-          f"(línea a línea) sobre '{ruta}'.")
+    if hubo_resincronizacion:
+        exito(f"[EditorPropio] Parche aplicado con resolución incremental "
+              f"(línea a línea, resincronizando bloques) sobre '{ruta}'.")
+    else:
+        exito(f"[EditorPropio] Parche aplicado con resolución incremental "
+              f"(línea a línea) sobre '{ruta}'.")
     return _editor_sobrescribir(ruta, "\n".join(resultado) + "\n",
                                 directorio=directorio)
 
 
 def _aplicar_parche_con_resolucion(parche: str, directorio: str = ".",
-                                   contenido_esperado: Optional[str] = None
-                                   ) -> bool:
+                                   contenido_esperado: Optional[str] = None,
+                                   mostrar_diff: bool = False,
+                                   preguntar: Optional[Callable] = None) -> bool:
     """Aplica un parche con validación previa y resolución de conflictos.
 
     Flujo (v3.3.0):
@@ -2468,7 +2661,39 @@ def _aplicar_parche_con_resolucion(parche: str, directorio: str = ".",
       3. Resolución automática: aplicación incremental línea a línea.
       4. Si todo falla, avisa para resolución manual (ya no sobrescribe a
          ciegas).
+
+    v6.3.0: con ``mostrar_diff`` (flag ``--mostrar-diff``) muestra el diff
+    propuesto y pregunta [a]plicar / [c]ancelar / [e]ditar manualmente ANTES
+    de tocar nada. En modo ``--auto`` no se bloquea: se muestra el diff y se
+    aplica. Sin el flag, comportamiento histórico (aplicar sin preguntar).
+    ``preguntar`` permite inyectar la función de pregunta en tests; si es
+    ``None`` se usa ``ui.preguntar_interactivo``.
     """
+    ruta = _ruta_del_parche(parche)
+    if mostrar_diff and (parche or "").strip():
+        import ui as _ui
+        _mostrar_diff_parche(parche, ruta)
+        opciones = [
+            ("a", "Aplicar el parche"),
+            ("c", "Cancelar (no cambiar nada)"),
+            ("e", "Editar manualmente"),
+        ]
+        mensaje = f"Diff propuesto para '{ruta or 'archivo'}' — ¿qué hacemos?"
+        if preguntar is not None:
+            eleccion = preguntar(opciones, mensaje, defecto="a")
+        else:
+            eleccion = _ui.preguntar_interactivo(
+                opciones, mensaje, defecto="a")
+        if eleccion == "c":
+            info("[EditorPropio] Parche cancelado por el usuario; no se "
+                 "realizó ningún cambio.")
+            return False
+        if eleccion == "e":
+            aviso("[EditorPropio] Edición manual solicitada: el parche se "
+                  f"descarta sin tocar '{ruta or 'el archivo'}'. Las copias "
+                  "de seguridad previas están en ~/.snapcontext/backups/.")
+            return False
+
     ok_validacion, detalle = _validar_parche_previo(
         parche, directorio, contenido_esperado)
     if not ok_validacion:
@@ -2481,7 +2706,8 @@ def _aplicar_parche_con_resolucion(parche: str, directorio: str = ".",
         return True
     info("[EditorPropio] Conflicto detectado; probando resolución "
          "incremental (línea a línea)...")
-    return _aplicar_hunks_incremental(parche, directorio)
+    return _aplicar_hunks_incremental(parche, directorio,
+                                      mostrar_diff=mostrar_diff)
 
 
 
@@ -5283,6 +5509,7 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
             auto=getattr(args, "auto", False),
             max_context_tokens=getattr(args, "max_context_tokens", None),
             editor_fallback=getattr(args, "editor_fallback", False),
+            mostrar_diff=getattr(args, "mostrar_diff", False),
         )
         return (todo_ok, f"EditorPropio sobre {len(seleccion)} archivo(s)")
 
@@ -8851,6 +9078,7 @@ CATEGORIAS_AYUDA = (
     ("Modos de ejecución",
      ("--plan", "--auto", "--editor", "--modo-edicion", "--validar", "--no-validar-sintaxis", "--max-intentos-validacion",
       "--max-context-tokens", "--editor-fallback", "--mostrar-razonamiento",
+      "--mostrar-diff",
       "--asesor", "--asesor-auto", "--asesor-umbral", "--modelo-ligero",
       "--asesor-profundo", "--graph-rag", "--multi-agent",
       "--api", "--api-puerto", "--api-host", "--api-token", "--api-generate-key",
@@ -10056,6 +10284,14 @@ def crear_parser() -> argparse.ArgumentParser:
              "antes de cada acción/respuesta en chat, planificador, editor y "
              "ReAct. También activable con la variable de entorno "
              "SNAPCONTEXT_MOSTRAR_RAZONAMIENTO=1.")
+    # v6.3.0 — Revisión interactiva del parche antes de aplicar.
+    parser.add_argument(
+        "--mostrar-diff", dest="mostrar_diff", action="store_true",
+        help="v6.3.0: muestra el diff propuesto (coloreado) antes de aplicar "
+             "un parche y pregunta si aplicarlo, cancelarlo o editarlo "
+             "manualmente. En modo --auto muestra el diff sin bloquear. Sin "
+             "este flag el parche se aplica sin preguntar (como siempre).",
+    )
     parser.add_argument(
         "--editor-fallback", dest="editor_fallback", action="store_true",
         help="v6.1.0: si el editor propio falla (por contexto o por estrategia), "

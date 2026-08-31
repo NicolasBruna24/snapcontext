@@ -393,6 +393,42 @@ se ofrece elegir entre `[a]plicar de todas formas`, `[v]er el diff`,
 En modo `--auto` no se pregunta: se salta automáticamente a la siguiente
 estrategia. Funciona igual desde la CLI que desde `--chat`.
 
+### 📝 Mejora del editor de parches (v6.3.0)
+
+El editor de parches es ahora mucho más tolerante gracias al **fuzzy matching real**
+y a la **resolución automática de conflictos**. Cuando `git apply`/`patch` fallan y
+la resolución incremental no encuentra una coincidencia exacta, se prueban, en
+orden y solo cuando la anterior falla:
+
+1. **Coincidencia exacta** cerca de la posición declarada del hunk.
+2. **Coincidencia por variantes**: tolera reindentaciones y comentarios
+   añadidos/eliminados (espacios colapsados y sin comentario final `#`/`//`).
+3. **Emparejamiento difuso real** con `difflib.SequenceMatcher`: busca la mayor
+   similitud de las líneas de contexto (ratio medio ≥ 0.85, ≥ 0.90 por línea),
+   tolerando comentarios, espacios y **variables renombradas**.
+4. **Resincronización a nivel de bloque**: si nada encaja, busca en todo el archivo
+   la ventana más parecida al bloque original (≥ 0.80) y la reemplaza conservando
+   las líneas de contexto locales del usuario.
+
+Estos umbrales (`UMBRAL_DIFUSO_HUNKS`, `UMBRAL_DIFUSO_LINEA`,
+`UMBRAL_DIFUSO_BLOQUE`) solo se consultan cuando un hunk falla: el caso normal no
+paga el coste de `SequenceMatcher`. Si un hunk sigue sin encajar, la operación se
+aborta **sin tocar nada** (todo-o-nada) y verás un mensaje claro con una sugerencia
+accionable.
+
+> **`--mostrar-diff`**: muestra el diff propuesto (coloreado) antes de aplicarlo y
+> pregunta si aplicarlo (`[a]`), cancelarlo (`[c]`) o editarlo manualmente (`[e]`).
+> En modo `--auto` muestra el diff sin bloquear. Sin el flag el parche se aplica
+> sin preguntar, exactamente como siempre.
+
+```bash
+# Revisar cada parche antes de aplicarlo
+snapcontext "añadir endpoint de métricas" --editor propio --mostrar-diff
+
+# Comportamiento por defecto: aplica sin preguntar
+snapcontext "añadir endpoint de métricas" --editor propio
+```
+
 **Optimizado para modelos locales (Ollama)**: si el proveedor es Ollama, el
 editor usa automáticamente **prompts concisos** en sus tres estrategias (menos
 contexto e instrucciones directas). También puedes forzarlos en cualquier

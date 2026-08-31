@@ -201,7 +201,8 @@ class TestResolucionConConflictos(unittest.TestCase):
                                   return_value=True) as inc:
             self.assertTrue(sc._aplicar_parche_con_resolucion(
                 self.parche, self.tmp))
-            inc.assert_called_once_with(self.parche, self.tmp)
+            inc.assert_called_once_with(
+                self.parche, self.tmp, mostrar_diff=False)
 
     def test_validacion_previa_avisa_pero_intenta(self):
         # Contenido esperado distinto del actual → aviso y reintento igual.

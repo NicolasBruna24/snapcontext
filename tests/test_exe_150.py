@@ -14,7 +14,7 @@ import snapcontext as sc  # noqa: E402
 
 class TestVersion(unittest.TestCase):
     def test_version_150_coherente(self):
-        self.assertEqual(sc.VERSION, "6.1.0")
+        self.assertEqual(sc.VERSION, "6.3.0")
 
 
 class TestEstaticoWeb(unittest.TestCase):
