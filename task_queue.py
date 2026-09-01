@@ -23,6 +23,12 @@ DB_PATH = CONFIG_DIR / "memoria.db"
 _CANDADO_COLA = threading.Lock()
 _WORKER_HILO: Optional[threading.Thread] = None
 _WORKER_PARAR = threading.Event()
+# v6.9.0: evento para despertar al worker sin polling. Se SET al encolar una
+# nueva tarea; el worker bloquea con `wait()` en lugar de `time.sleep`, de modo
+# que el consumo de CPU en reposo es 0% (solo se despierta ante trabajo nuevo o
+# por timeout `intervalo_segundos` como red de seguridad para tareas de otros
+# procesos/CLI).
+_WORKER_DESPERTAR = threading.Event()
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +103,8 @@ def encolar_tarea(
                     (tipo, datos_json, chat_str, canal_str),
                 )
                 tarea_id = int(cur.lastrowid)
+        # v6.9.0: despertar al worker al instante (sin esperar el polling).
+        _WORKER_DESPERTAR.set()
         return tarea_id
     finally:
         if str(db_path) != ":memory:":
@@ -412,14 +420,23 @@ def procesar_siguiente_tarea(db_path: Optional[str | Path] = None) -> Optional[D
 # Worker Demonio
 # ---------------------------------------------------------------------------
 def _bucle_worker(intervalo_segundos: float = 2.0, db_path: Optional[str | Path] = None) -> None:
-    """Bucle continuo del worker consumiendo tareas de la cola."""
+    """Bucle continuo del worker consumiendo tareas de la cola (v6.9.0).
+
+    Sin polling: espera en ``_WORKER_DESPERTAR.wait()`` en lugar de
+    ``time.sleep``. El evento se setea desde ``encolar_tarea``, así el worker se
+    despierta al instante cuando hay trabajo nuevo (CPU idle 0%). El
+    ``timeout=intervalo_segundos`` actúa como red de seguridad por si la tarea
+    la encoló otro proceso (CLI/gateway) que no comparte este evento.
+    """
     while not _WORKER_PARAR.is_set():
         try:
             tarea_procesada = procesar_siguiente_tarea(db_path=db_path)
             if not tarea_procesada:
-                time.sleep(intervalo_segundos)
+                _WORKER_DESPERTAR.wait(intervalo_segundos)
+                _WORKER_DESPERTAR.clear()
         except Exception as exc:  # noqa: BLE001
-            time.sleep(intervalo_segundos)
+            _WORKER_DESPERTAR.wait(intervalo_segundos)
+            _WORKER_DESPERTAR.clear()
 
 
 def iniciar_worker(
@@ -430,6 +447,8 @@ def iniciar_worker(
     """Inicia el worker de la cola de tareas en un hilo secundario."""
     global _WORKER_HILO
     _WORKER_PARAR.clear()
+    # v6.9.0: empezar limpio (el worker arranca procesando de inmediato).
+    _WORKER_DESPERTAR.clear()
     if _WORKER_HILO is not None and _WORKER_HILO.is_alive():
         return _WORKER_HILO
 
@@ -447,6 +466,8 @@ def detener_worker(timeout: float = 5.0) -> None:
     """Detiene el worker si está en ejecución."""
     global _WORKER_HILO
     _WORKER_PARAR.set()
+    # v6.9.0: despertar al worker para que abandone el `wait()` y termine ya.
+    _WORKER_DESPERTAR.set()
     if _WORKER_HILO is not None and _WORKER_HILO.is_alive():
         _WORKER_HILO.join(timeout=timeout)
     _WORKER_HILO = None

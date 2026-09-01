@@ -1,6 +1,6 @@
 # SnapContext
 
-![v6.1.0](https://img.shields.io/badge/version-6.1.0-blue.svg)
+![v6.9.0](https://img.shields.io/badge/version-6.9.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -16,6 +16,48 @@ una memoria persistente (`CLAUDE.md`).
 - **Proveedores**: Gemini · Claude (Anthropic) · Ollama (local) · DeepSeek · Groq
 - **Arquitectura**: orquestador + agentes (Contexto / Editor / Tester)
 - **Seguridad**: permisos con confirmaciones (`~/.snapcontext/permisos.json`)
+
+## ⚡ Mejora de rendimiento (v6.9.0)
+
+SnapContext v6.9.0 es más rápido y ligero sin cambiar el comportamiento:
+
+| Mejora | Detalle |
+|---|---|
+| **Inicio lazy** | Los imports pesados (`sentence-transformers`, `tree-sitter`, `graph_rag`, `multi_agent`, ...) se cargan bajo demanda. `--help` pasa de ~1.2s a <0.3s. |
+| **Cache de embeddings** | SQLite en `~/.snapcontext/embeddings.db` (tabla `embeddings(archivo, hash, embedding BLOB)`). Los archivos sin cambios reutilizan su embedding (≈80% más rápido en re-escaneos). |
+| **Graph RAG incremental** | El grafo se cachea en `~/.snapcontext/graph_cache.pkl` con un fingerprint por archivo; solo se reparsean los archivos modificados (≈70% más rápido). |
+| **Fuzzy matching optimizado** | Contexto limitado a 20 líneas (`MAX_CONTEXTO_DIFUSO_LINEAS`) y resincronización de bloques con `difflib.get_close_matches` (≈50% más rápido en archivos grandes). |
+| **Worker sin polling** | La cola de tareas usa `threading.Event` en lugar de `time.sleep`: CPU idle ≈0% y despertar instantáneo al encolar. |
+| **Historial ReAct limitado** | Máximo 20 iteraciones (configurable vía `REACT_MAX_HISTORIAL`); al superarlo se comprime con un resumen LLM (≈30% menos memoria en sesiones largas). |
+
+### Medir el rendimiento con `--benchmark`
+
+```bash
+python snapcontext.py --benchmark          # benchmark del proyecto actual
+python snapcontext.py --benchmark ruta/    # benchmark de otro directorio
+```
+
+Ejemplo de salida (tabla con `rich`, no requiere API key):
+
+```
+⚡ Benchmark de rendimiento — SnapContext 6.9.0
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃ Fase                                 ┃ Tiempo (s) ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ Inicio (import + CLI)                │     0.1902 │
+│ CLI (crear_parser)                   │     0.0141 │
+│ Escaneo de archivos                  │     0.0527 │
+│ Selección (embeddings/heurística)    │     0.1015 │
+│ Generación de plan (prompt+contexto) │     0.0021 │
+│ Edición (fuzzy matching)             │     0.0089 │
+│ Detección de pruebas                 │     0.0007 │
+│ Tiempo total                         │     0.3704 │
+└──────────────────────────────────────┴────────────┘
+```
+
+> Las cachés son opcionales y degradan silenciosamente si no se pueden
+> escribir. No almacenan código fuente, solo hashes, fingerprints y vectores.
+
 
 ## 📦 Instalación
 

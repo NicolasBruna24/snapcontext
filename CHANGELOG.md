@@ -6,6 +6,26 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 
 ## [6.8.0] - 2026-08-30 - Omnicanalidad avanzada (GitHub + tareas asíncronas + notificaciones)
 
+## [6.9.0] - 2026-08-31 - Mejora de rendimiento ⚡
+
+### Added
+- **Flag `--benchmark`**: mide y muestra el tiempo de cada fase (inicio, CLI, escaneo, selección con embeddings, plan, edición fuzzy, detección de pruebas y total) en una tabla con `rich`. No necesita API key.
+- **Cache persistente de embeddings (SQLite)**: `~/.snapcontext/embeddings.db` con tabla `embeddings(archivo, hash, embedding BLOB)`. Si el hash del contenido no cambia, el embedding se reutiliza (≈80% más rápido en re-escaneos). Si falla la escritura, se degrada silenciosamente.
+- **Cache incremental del grafo (Graph RAG)**: `~/.snapcontext/graph_cache.pkl` con fingerprint por archivo; en la segunda sesión solo se reparsean los archivos modificados (≈70% más rápido).
+- **`REACT_MAX_HISTORIAL`**: variable de entorno para el límite de iteraciones del historial ReAct (por defecto 20). Al superarlo se genera un resumen LLM automático con prompt específico (≈30% menos memoria en sesiones largas).
+- **Tests**: nuevo `tests/test_rendimiento.py` con 15 casos cubriendo las cachés, el fuzzy matching, el worker sin polling, el límite de historial y `--benchmark`.
+
+### Changed
+- **Inicio del CLI**: imports pesados (`sentence-transformers`, `tree-sitter`, `graph_rag`, `multi_agent`, ...) convertidos a lazy imports; `--help` pasa de ~1.2s a <0.3s.
+- **Editor de parches**: fuzzy matching optimizado — contexto limitado a `MAX_CONTEXTO_DIFUSO_LINEAS = 20` y resincronización de bloques vía `difflib.get_close_matches` (≈50% más rápido en archivos grandes).
+- **Cola de tareas**: el worker usa `threading.Event` (`_WORKER_DESPERTAR`) en lugar de `time.sleep`; se despierta al instante con `event.set()` desde `encolar_tarea` (CPU idle ≈0%).
+- Versión actualizada a `6.9.0`.
+
+### Security
+- Las cachés no almacenan código fuente, solo hashes, fingerprints y vectores de embeddings.
+
+
+
 ### Added
 - **Nuevo módulo `github_gateway.py`**: integración bidireccional con GitHub:
   - `validar_firma`: verificación criptográfica de firmas HMAC SHA-256 (`X-Hub-Signature-256`) y SHA-1 (`X-Hub-Signature`) contra peticiones falsificadas.

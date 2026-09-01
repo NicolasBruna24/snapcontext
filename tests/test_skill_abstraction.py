@@ -273,7 +273,7 @@ class TestFlagsCli(unittest.TestCase):
         self.assertTrue(args.inyectar_reglas)
 
     def test_version_660(self):
-        self.assertEqual(sc.VERSION, "6.8.0")
+        self.assertEqual(sc.VERSION, "6.9.0")
 
 
 if __name__ == "__main__":

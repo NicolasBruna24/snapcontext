@@ -32,6 +32,19 @@ UMBRAL_RESUMEN_TOKENS_DEFAULT = 8000   # dispara resumen automático del histori
 MAX_REINTENTOS_JSON = 3                # reintentos si el LLM no devuelve JSON válido
 LLM_TIMEOUT_SEG = int(os.environ.get("REACT_LLM_TIMEOUT", "300"))
 MAX_SALIDA_OBSERVACION = 4000          # caracteres máx. de una observación
+# v6.9.0: límite de iteraciones de historial del bucle ReAct (configurable con
+# REACT_MAX_HISTORIAL). Por encima del límite se comprime el historial con un
+# resumen LLM para acotar el uso de memoria en sesiones largas.
+MAX_HISTORIAL_DEFAULT = 20             # ~2 entradas de historial por iteración
+
+
+def _max_historial() -> int:
+    """Nº máximo de iteraciones antes de resumir el historial (v6.9.0)."""
+    bruto = os.environ.get("REACT_MAX_HISTORIAL", "")
+    try:
+        return max(1, int(bruto))
+    except (TypeError, ValueError):
+        return MAX_HISTORIAL_DEFAULT
 
 
 def estimar_tokens(texto: str) -> int:
@@ -62,10 +75,15 @@ class ReactAgent:
                  modelo: Optional[str] = None, graph_rag: bool = False,
                  mostrar_razonamiento: bool = False,
                  sesion_docker: bool = False,
-                 web_interactive: bool = False):
+                 web_interactive: bool = False,
+                 max_historial: Optional[int] = None):
         self.directorio = str(Path(directorio).resolve())
         self.auto = bool(auto)
         self.max_iteraciones = max(int(max_iter), 1)
+        # v6.9.0: límite de historial (por defecto MAX_HISTORIAL_DEFAULT=20).
+        self.max_historial = (
+            max(int(max_historial), 1) if max_historial
+            else _max_historial())
         self.historial: List[Dict[str, str]] = []
         self.proveedor = proveedor
         self.modelo = modelo
@@ -467,9 +485,28 @@ class ReactAgent:
                    for m in self.historial)
 
     def _resumir_si_hace_falta(self) -> bool:
-        """Si el historial supera el umbral, lo comprime a un resumen."""
+        """Si el historial supera el umbral de tokens, lo comprime a un resumen."""
         if self._tokens_historial() <= _umbral_resumen():
             return False
+        self._comprimir_historial()
+        return True
+
+    def _resumir_por_longitud(self) -> bool:
+        """Si el historial supera ``max_historial`` iteraciones, lo comprime.
+
+        v6.9.0: cada iteración añade ~2 entradas al historial; al superar el
+        límite configurable (por defecto 20 iteraciones) se genera un resumen
+        LLM para acotar el uso de memoria en sesiones largas.
+        """
+        if len(self.historial) <= 2 * self.max_historial:
+            return False
+        self._comprimir_historial()
+        return True
+
+    def _comprimir_historial(self) -> None:
+        """Comprime ``self.historial`` a un resumen LLM del trabajo previo."""
+        if not self.historial:
+            return
         sistema = self.historial[0]
         cuerpo = self.historial[1:]
         pedido = [
@@ -485,13 +522,12 @@ class ReactAgent:
         try:
             resumen = self._llamar_llm(pedido, timeout=180)
         except Exception:                                # noqa: BLE001
-            resumen = cuerpo[-1].get("content", "")      # fallback seguro
+            resumen = (cuerpo[-1].get("content", "") if cuerpo else "")
         self.historial = [sistema, {
             "role": "user",
             "content": f"[RESUMEN DEL TRABAJO PREVIO]\n{resumen}\n\n"
                        "[FIN DEL RESUMEN] Continúa la tarea.",
         }]
-        return True
 
     # ------------------------------------------------------------------
     # Bucle principal ReAct
@@ -591,6 +627,11 @@ class ReactAgent:
                 self.historial.append({
                     "role": "user",
                     "content": f"[OBSERVACIÓN de '{accion}']\n{observacion}"})
+                # v6.9.0: si el historial acumulado supera max_historial
+                # iteraciones, se resume automáticamente (acota la memoria).
+                if self._resumir_por_longitud():
+                    sc.info(f"[ReAct] Historial resumido tras superar "
+                            f"{self.max_historial} iteraciones de contexto.")
             return {"ok": False,
                     "resultado": f"Límite de {self.max_iteraciones} iteraciones "
                                  "alcanzado sin finalizar.",

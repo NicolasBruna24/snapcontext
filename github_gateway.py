@@ -268,7 +268,7 @@ def obtener_pr_diff(repo: str, numero: int | str, token: Optional[str] = None) -
     tok = token or obtener_github_token()
     headers = {
         "Accept": "application/vnd.github.v3.diff",
-        "User-Agent": "SnapContext-Agent/6.8.0",
+        "User-Agent": "SnapContext-Agent/6.9.0",
     }
     if tok:
         headers["Authorization"] = f"token {tok}"
@@ -293,7 +293,7 @@ def comentar_pr(repo: str, numero: int | str, mensaje: str, token: Optional[str]
     headers = {
         "Authorization": f"token {tok}",
         "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "SnapContext-Agent/6.8.0",
+        "User-Agent": "SnapContext-Agent/6.9.0",
     }
     url = f"{API_GITHUB}/repos/{repo}/issues/{numero}/comments"
     try:
@@ -323,7 +323,7 @@ def configurar_webhook(
     headers = {
         "Authorization": f"token {tok}",
         "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "SnapContext-Agent/6.8.0",
+        "User-Agent": "SnapContext-Agent/6.9.0",
     }
     destino = url.rstrip("/")
     if not destino.endswith("/webhook/github"):
