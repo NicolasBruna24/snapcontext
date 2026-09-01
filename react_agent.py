@@ -68,6 +68,9 @@ class ReactAgent:
         "ejecutar_pruebas", "leer_archivo", "finalizar",
         # v6.7.0: expansión MCP — bases de datos y APIs externas.
         "db_query", "db_schema", "api_request", "api_inspect",
+        # v6.10.0: navegador (Playwright) — ver/depurar interfaces visuales.
+        "browser_abrir", "browser_screenshot", "browser_click",
+        "browser_type", "browser_get_text", "browser_analizar_imagen",
     )
 
     def __init__(self, directorio: str = ".", auto: bool = False,
@@ -76,9 +79,19 @@ class ReactAgent:
                  mostrar_razonamiento: bool = False,
                  sesion_docker: bool = False,
                  web_interactive: bool = False,
-                 max_historial: Optional[int] = None):
+                 max_historial: Optional[int] = None,
+                 browser: bool = False):
         self.directorio = str(Path(directorio).resolve())
         self.auto = bool(auto)
+        # v6.10.0: modo navegador (--browser). Activa las herramientas de
+        # Playwright; si está inactivo, las herramientas dan error claro.
+        self.browser = bool(browser)
+        if self.browser:
+            try:
+                import mcp_tools_browser as btool
+                btool.browser_activar()
+            except Exception:                            # noqa: BLE001
+                pass
         self.max_iteraciones = max(int(max_iter), 1)
         # v6.9.0: límite de historial (por defecto MAX_HISTORIAL_DEFAULT=20).
         self.max_historial = (
@@ -107,6 +120,7 @@ class ReactAgent:
             except Exception:                        # noqa: BLE001
                 self._wi = None
         self._grafo: Optional[dict] = None
+        self._accion_actual = ""    # v6.10.0: última acción solicitada
         # Herramientas disponibles: nombre → callable(argumentos) -> dict.
         self.herramientas: Dict[str, Callable[[dict], dict]] = {
             "editar_archivo": self._tool_editar_archivo,
@@ -119,6 +133,13 @@ class ReactAgent:
             "db_schema": self._tool_db_schema,
             "api_request": self._tool_api_request,
             "api_inspect": self._tool_api_inspect,
+            # v6.10.0: navegador (Playwright), activado con --browser.
+            "browser_abrir": self._tool_browser,
+            "browser_screenshot": self._tool_browser,
+            "browser_click": self._tool_browser,
+            "browser_type": self._tool_browser,
+            "browser_get_text": self._tool_browser,
+            "browser_analizar_imagen": self._tool_browser,
         }
         if self.proveedor is None:
             try:
@@ -148,6 +169,16 @@ class ReactAgent:
             "- ejecutar_pruebas(archivo=None): corre la suite de pruebas "
             "(opcionalmente un solo archivo).\n"
             "- leer_archivo(ruta): lee un archivo (truncado si es enorme).\n"
+            # v6.10.0: navegador (solo con --browser; si no, dará error).
+            "- browser_abrir(url, wait_for?, timeout?): abre una URL en el "
+            "navegador headless.\n"
+            "- browser_screenshot(url?, full_page?, selector?): captura de "
+            "pantalla (base64) para VER la interfaz.\n"
+            "- browser_click(selector) / browser_type(selector, texto): "
+            "interactúa con la página.\n"
+            "- browser_get_text(selector): extrae el texto de un elemento.\n"
+            "- browser_analizar_imagen(imagen_base64, pregunta): análisis "
+            "visual con un modelo de visión.\n"
             "- finalizar(resumen): termina cuando la tarea está completa.\n\n"
             f"Herramientas válidas: {lista}.\n\n"
             "FORMATO DE SALIDA OBLIGATORIO: UN ÚNICO objeto JSON válido, sin "
@@ -273,6 +304,92 @@ class ReactAgent:
         if not url:
             return {"ok": False, "error": "falta 'url'"}
         return apit.api_inspect(url)
+
+    # ------------------------------------------------------------------
+    # v6.10.0: herramientas de navegador (Playwright) — modo --browser
+    # ------------------------------------------------------------------
+    def _tool_browser(self, argumentos: dict, accion: str = "") -> dict:
+        """Despacha una herramienta de navegador a mcp_tools_browser.
+
+        Todas las herramientas comparten esta pasarela: el módulo valida el
+        modo (--browser), la disponibilidad de Playwright y nunca lanza.
+        """
+        try:
+            import mcp_tools_browser as btool
+        except Exception as exc:                 # noqa: BLE001
+            return {"ok": False,
+                    "error": f"mcp_tools_browser no disponible: {exc}"}
+        # Determinar la herramienta por el nombre del método parcheado.
+        if not accion:
+            accion = self._accion_actual or ""
+        args = dict(argumentos or {})
+        if accion == "browser_abrir":
+            return btool.browser_abrir(
+                str(args.get("url", "")),
+                wait_for=(str(args["wait_for"])
+                          if args.get("wait_for") else None),
+                timeout=int(args.get("timeout", 30) or 30))
+        if accion == "browser_screenshot":
+            resultado = btool.browser_screenshot(
+                str(args.get("url", "") or ""),
+                full_page=bool(args.get("full_page", False)),
+                selector=(str(args["selector"])
+                          if args.get("selector") else None))
+            if resultado.get("ok") and self.modelo_soporta_vision():
+                # v6.10.0: si hay visión, analizar la captura automáticamente.
+                analisis = btool.browser_analizar_imagen(
+                    resultado.get("imagen", ""),
+                    "¿Ves algún error visual (CSS roto, elementos "
+                    "superpuestos, textos cortados)? Descríbelo.")
+                if analisis.get("ok"):
+                    resultado["analisis"] = analisis.get("analisis", "")
+            return resultado
+        if accion == "browser_click":
+            return btool.browser_click(str(args.get("selector", "")))
+        if accion == "browser_type":
+            return btool.browser_type(str(args.get("selector", "")),
+                                      str(args.get("texto", "")))
+        if accion == "browser_get_text":
+            return btool.browser_get_text(str(args.get("selector", "")))
+        if accion == "browser_analizar_imagen":
+            return btool.browser_analizar_imagen(
+                str(args.get("imagen_base64", "")),
+                str(args.get("pregunta", "")))
+        if accion == "browser_cerrar":
+            return btool.browser_cerrar()
+        return {"ok": False, "error": f"acción de navegador desconocida: "
+                                      f"{accion}"}
+
+    def modelo_soporta_vision(self) -> bool:
+        """True si el proveedor/modelo activo soporta imágenes (v6.10.0)."""
+        try:
+            import mcp_tools_browser as btool
+            return btool.modelo_soporta_vision(self.proveedor, self.modelo)
+        except Exception:                        # noqa: BLE001
+            return False
+
+    # Pasarelas por acción: `_ejecutar_accion` resuelve `_tool_{accion}`.
+    def _tool_browser_abrir(self, argumentos: dict) -> dict:
+        return self._tool_browser(argumentos, accion="browser_abrir")
+
+    def _tool_browser_screenshot(self, argumentos: dict) -> dict:
+        return self._tool_browser(argumentos, accion="browser_screenshot")
+
+    def _tool_browser_click(self, argumentos: dict) -> dict:
+        return self._tool_browser(argumentos, accion="browser_click")
+
+    def _tool_browser_type(self, argumentos: dict) -> dict:
+        return self._tool_browser(argumentos, accion="browser_type")
+
+    def _tool_browser_get_text(self, argumentos: dict) -> dict:
+        return self._tool_browser(argumentos, accion="browser_get_text")
+
+    def _tool_browser_analizar_imagen(self, argumentos: dict) -> dict:
+        return self._tool_browser(argumentos,
+                                  accion="browser_analizar_imagen")
+
+    def _tool_browser_cerrar(self, argumentos: dict) -> dict:
+        return self._tool_browser(argumentos, accion="browser_cerrar")
 
     def _tool_buscar_codigo(self, argumentos: dict) -> dict:
         """Busca una regex en los archivos de texto del proyecto."""
@@ -458,7 +575,8 @@ class ReactAgent:
     def _observar_resultado(resultado: dict) -> str:
         """Convierte el resultado crudo en un mensaje legible para el LLM."""
         partes = ["ok" if resultado.get("ok") else "FALLO"]
-        for clave in ("ruta", "comando", "codigo", "total", "lineas"):
+        for clave in ("ruta", "comando", "codigo", "total", "lineas",
+                      "url", "titulo"):
             if clave in resultado:
                 partes.append(f"{clave}={resultado[clave]}")
         mensaje = " | ".join(partes)
@@ -466,7 +584,8 @@ class ReactAgent:
             valor = str(resultado.get(clave) or "").strip()
             if valor:
                 mensaje += f"\n{clave}: {valor[:1200]}"
-        for clave in ("stdout", "coincidencias", "contenido", "diff"):
+        for clave in ("stdout", "coincidencias", "contenido", "diff",
+                      "texto", "analisis"):
             valor = resultado.get(clave)
             if isinstance(valor, list):
                 valor = "\n".join(str(v) for v in valor)
@@ -643,6 +762,13 @@ class ReactAgent:
                     sc._destruir_sesion_si_aplica()
                 except Exception:                        # noqa: BLE001
                     pass
+            # v6.10.0: cerrar el navegador (sesión persistente por tarea).
+            if self.browser:
+                try:
+                    import mcp_tools_browser as btool
+                    btool.browser_cerrar()
+                except Exception:                        # noqa: BLE001
+                    pass
 
     def _preguntar_continuar(self, decision: dict) -> str:
         """Pregunta continuar/abortar/saltar en modo interactivo."""
@@ -663,11 +789,17 @@ class ReactAgent:
         Devuelve el dict de resultado, o ``None`` si la acción no existe.
         """
         # Resolución dinámica por nombre: permite que los tests parcheen
-        # las herramientas a nivel de clase (_tool_*).
+        # las herramientas a nivel de clase (_tool_*). v6.10.0: se registra
+        # la acción actual (usada por la pasarela _tool_browser) y se cae
+        # al mapeo self.herramientas si no existe el método _tool_<accion>.
         if accion not in self.herramientas:
             return None
+        self._accion_actual = accion
         try:
-            resultado = getattr(self, f"_tool_{accion}")(argumentos or {})
+            metodo = getattr(self, f"_tool_{accion}", None)
+            if metodo is None:
+                metodo = self.herramientas[accion]
+            resultado = metodo(argumentos or {})
         except Exception as exc:                         # noqa: BLE001
             resultado = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         return resultado if isinstance(resultado, dict) else {"ok": True}

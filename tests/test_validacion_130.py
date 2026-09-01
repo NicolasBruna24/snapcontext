@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests de la v1.3.0: validación de carpeta permisiva y --iniciar-proyecto."""
 
@@ -11,7 +11,7 @@ from orquestador import Orquestador, VISTA_PREVIA
 
 
 class TestEsProyectoValido(unittest.TestCase):
-    """_es_proyecto_valido() debe aceptar carpetas/archivos VACÍOS (v1.3.0)."""
+    """_es_proyecto_valido() debe aceptar carpetas/archivos VACÃOS (v1.3.0)."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="sc_valid_")
@@ -126,7 +126,7 @@ class TestIniciarProyecto(unittest.TestCase):
 class TestVersion(unittest.TestCase):
     def test_version_130_coherente(self):
         import snapcontext as sc
-        self.assertEqual(sc.VERSION, "6.9.0")
+        self.assertEqual(sc.VERSION, "6.10.0")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests de la Fase 3 del Editor Propio (Edición basada en AST) — v2.2.0."""
 
@@ -174,7 +174,7 @@ class TestFlagsEdicionAST(unittest.TestCase):
         self.assertEqual(args2.modo_edicion, "auto")
 
     def test_version_es_2_2_0(self):
-        self.assertEqual(sc.VERSION, "6.9.0")
+        self.assertEqual(sc.VERSION, "6.10.0")
 
 
 if __name__ == "__main__":

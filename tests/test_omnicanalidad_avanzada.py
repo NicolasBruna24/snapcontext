@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests de integración para Omnicanalidad Avanzada (v6.8.0).
 
@@ -126,7 +126,7 @@ class TestCliFlagsYVersion(unittest.TestCase):
         self.assertEqual(args.webhook_url, "https://hook.ejemplo.com")
 
     def test_version_6_8_0(self):
-        self.assertEqual(sc.VERSION, "6.9.0")
+        self.assertEqual(sc.VERSION, "6.10.0")
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 # Nombre verificado disponible en PyPI (18/08/2026): pypi.org/pypi/snapcontext → 404.
 # Alternativas si algún día estuviera ocupado: "snapcontext-cli" o "snapcontext-tool".
 name = "snapcontext"
-version = "6.9.0"
+version = "6.10.0"
 description = "SnapContext: Asistente de IA con contexto automático para desarrollo"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -83,6 +83,11 @@ db = [
     "psycopg2-binary>=2.9.0",
     "pymysql>=1.1.0",
 ]
+# v6.10.0: navegador para el agente (--browser). Playwright requiere además
+# `playwright install chromium` tras instalarse.
+browser = [
+    "playwright>=1.40.0",
+]
 
 [project.urls]
 # TODO: apunta a tu repositorio real (no bloquea la publicación si lo dejas).
@@ -112,6 +117,7 @@ py-modules = ["snapcontext", "agentes", "orquestador", "ui", "react_agent",
               "detector_tests", "sandbox_utils", "graph_rag",
               "parser_universal", "multi_agent", "context_utils",
               "skill_abstraction", "mcp_tools_db", "mcp_tools_api",
+              "mcp_tools_browser",
               "github_gateway", "task_queue"]
 packages = ["web"]
 

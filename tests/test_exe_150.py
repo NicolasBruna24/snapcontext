@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests de la v1.5.0: empaquetado .exe (PyInstaller + NSIS)."""
 
@@ -14,7 +14,7 @@ import snapcontext as sc  # noqa: E402
 
 class TestVersion(unittest.TestCase):
     def test_version_150_coherente(self):
-        self.assertEqual(sc.VERSION, "6.9.0")
+        self.assertEqual(sc.VERSION, "6.10.0")
 
 
 class TestEstaticoWeb(unittest.TestCase):

@@ -1,0 +1,410 @@
+.............................................................C:\Python314\Lib\tempfile.py:962: ResourceWarning: Implicitly cleaning up <TemporaryDirectory 'C:\\Users\\bruna\\AppData\\Local\\Temp\\tmpicjgzsmn'>
+  _warnings.warn(warn_message, ResourceWarning)
+.C:\Python314\Lib\tempfile.py:962: ResourceWarning: Implicitly cleaning up <TemporaryDirectory 'C:\\Users\\bruna\\AppData\\Local\\Temp\\tmph_0av5f3'>
+  _warnings.warn(warn_message, ResourceWarning)
+....................s.................................................................⚠ Asesor de código — 1 sugerencia(s):
+  1. [BAJA] m.py:1 — El nombre 'd' no es descriptivo.
+       → Renómbralo a algo como 'datos'.
+       (aplicable automáticamente con --asesor-auto)
+✔ Asesor: sin sugerencias. El código está limpio. ✔
+✔ [asesor-auto] Aplicado en m.py:1 — Renómbralo a 'datos'.
+⚠ [asesor-auto] Cambio descartado en m.py (validación falló: SyntaxError).
+⚠ [asesor] duplicado (m.py:3) → extrae
+✔ Sugerencia aceptada: extráela
+✔ [asesor] Sin sugerencias: el código está limpio.
+ℹ $ cmd /c echo hola
+hola"
+⚠ [auto] Paso 'ejecutar' denegado por permisos guardados (permisos.json).
+ℹ $ cmd /c echo hola
+hola"
+✔ Modo autónomo (--auto): 2 paso(s) se ejecutarán sin confirmaciones, con hasta 3 reintentos por paso. Permisos guardados en permisos.json siguen aplicándose.
+
+✔ Paso 1/2 [consultar]: paso uno
+⚠ Paso 1 falló (intento 1/3); reintentando automáticamente…
+⚠ Paso 1 falló (intento 2/3); reintentando automáticamente…
+⚠ Paso 1 agotó sus 3 intentos; se continúa con el siguiente paso.
+
+✔ Paso 2/2 [consultar]: paso dos
+
+✔ ── Resumen del plan ──────────────────────────────
+  ✖ Paso 1 [consultar] paso uno (fallo: fallo2, 3 intento(s))
+  ✔ Paso 2 [consultar] paso dos (éxito: ok)
+✔ Resultado: 1/2 paso(s) exitoso(s).
+⚠ [aprendizaje] Skill #1 marcado para revision (confiabilidad 0.75)
+✔ Modo autónomo (--auto): 2 paso(s) se ejecutarán sin confirmaciones, con hasta 3 reintentos por paso. Permisos guardados en permisos.json siguen aplicándose.
+
+✔ Paso 1/2 [consultar]: paso uno
+
+✔ Paso 2/2 [consultar]: paso dos
+
+✔ ── Resumen del plan ──────────────────────────────
+  ✔ Paso 1 [consultar] paso uno (éxito: ok)
+  ✔ Paso 2 [consultar] paso dos (éxito: ok)
+✔ Resultado: 2/2 paso(s) exitoso(s).
+✔ Modo autónomo (--auto): 2 paso(s) se ejecutarán sin confirmaciones, con hasta 3 reintentos por paso. Permisos guardados en permisos.json siguen aplicándose.
+
+✔ Paso 1/2 [consultar]: paso uno
+⚠ Paso 1 falló (intento 1/3); reintentando automáticamente…
+⚠ Paso 1 falló (intento 2/3); reintentando automáticamente…
+
+✔ Paso 2/2 [consultar]: paso dos
+
+✔ ── Resumen del plan ──────────────────────────────
+  ✔ Paso 1 [consultar] paso uno (éxito: ok, 3 intento(s))
+  ✔ Paso 2 [consultar] paso dos (éxito: ok)
+✔ Resultado: 2/2 paso(s) exitoso(s).
+✔ Plan generado (1 paso(s)):
+  1. [consultar] paso uno
+
+✔ Paso 1/1 [consultar]: paso uno
+
+✔ Paso 1/1 [consultar]: paso uno
+
+✔ Paso 1/1 [consultar]: paso uno
+
+✔ ── Resumen del plan ──────────────────────────────
+  ✔ Paso 1 [consultar] paso uno (éxito: ok3)
+✔ Resultado: 1/1 paso(s) exitoso(s).
+ℹ ℹ Archivo grande (5823 tokens). Usando contexto selectivo (bloque: 'vieja')...
+✔ [EditorAST] Edición AST aplicada sobre grande.py (método AST).
+✔ [EditorPropio] Archivo actualizado: grande.py
+ℹ ℹ Archivo grande (5816 tokens). Usando contexto selectivo (bloque: 'funcion_050')...
+ℹ ℹ Archivo grande (5816 tokens). Usando contexto selectivo (bloque: 'funcion_002')...
+ℹ ⚠ El proveedor falló por límite de contexto. Reintentando con el archivo completo...
+✔ [EditorPropio] Archivo actualizado: grande.py
+ℹ ℹ Archivo grande (5816 tokens). Usando contexto selectivo (bloque: 'funcion_001')...
+ℹ [EditorPropio] Bloque reinsertado en el archivo original (contexto selectivo).
+✔ [EditorPropio] Archivo actualizado: grande.py
+ℹ === SnapContext · Demo (sin API key) ===
+ℹ Creando un proyecto de prueba temporal...
+ℹ ── FASE 1 · Selección de archivos (--vista-previa --local) ──
+ℹ Repositorio: C:\Users\bruna\AppData\Local\Temp\snapcontext-demo-so9lf0t7
+  [depuración] [Detección] requirements.txt encontrado → tipo: python
+  [depuración] [Orquestador] Tipo de proyecto detectado: python
+  [depuración] [Detección] Carpetas para python: ['src', 'app', 'lib', 'tests', 'scripts']
+  [depuración] [Detección] Extensiones para python: ['.py', '.pyx', '.pxd', '.ipynb']
+ℹ Escaneando el repositorio para encontrar candidatos...
+  [depuración] [AgenteContexto] Escaneando 'C:\Users\bruna\AppData\Local\Temp\snapcontext-demo-so9lf0t7' (carpetas=['src', 'app', 'lib', 'tests', 'scripts'], extensiones=['.py', '.pyx', '.pxd', '.ipynb'], max_candidatos=80)...
+⚙️ Escaneando archivos del repo... ------------------------------- 100% 0:00:00
+.......................................................................................✖ El parche no pudo aplicarse limpiamente.
+  Buscando coincidencia difusa... (umbral 0.85)
+  No se encontró una coincidencia suficiente.
+  Sugerencia: Prueba con '--editor aider' o edita manualmente.
+.......................................✖ ✖ El editor propio no pudo completar la edición.
+  Archivo: m.py
+  Estrategias intentadas: ast → parche → sobrescribir
+  Motivo: ninguna estrategia produjo un cambio válido (revisa la salida anterior).
+  Sugerencia: prueba con '--editor aider' o revisa la tarea manualmente.
+✖ [EditorPropio] Edición incompleta; revirtiendo TODOS los archivos al estado original (rollback v4.6.0)...
+.....✖ [EditorPropio] Backup de modulo.py falló (disco lleno); edición cancelada por seguridad.
+..✖ El parche no pudo aplicarse limpiamente.
+  Buscando coincidencia difusa... (umbral 0.85)
+  No se encontró una coincidencia suficiente.
+  Sugerencia: Prueba con '--editor aider' o edita manualmente.
+.✖ ✖ Excepción durante la edición múltiple: boom
+✖ [EditorPropio] Edición incompleta; revirtiendo TODOS los archivos al estado original (rollback v4.6.0)...
+..✖ [EditorPropio] Edición incompleta; revirtiendo TODOS los archivos al estado original (rollback v4.6.0)...
+.  [depuración] [AgenteContexto] 3 candidato(s) relevante(s) localmente.
+ℹ 3 candidato(s) relevante(s) localmente.
+⚠ Modo --local: selección por heurística, sin proveedor de IA.
+
+✔ Archivos seleccionados (3):
+   • tests/test_main.py
+   • src/main.py
+   • src/__init__.py
+⚠ Modo --vista-previa: no se ejecuta Aider.
+ℹ ── FASE 2 · Bucle de pruebas (Editor → Tester) ──
+ℹ Iteración 1 de 3 — Aider...
+ℹ → Aider (demo) intenta corregir el saludo... (aún quedará un error)
+ℹ Ejecutando pruebas: C:\Python314\python.exe -c from src.main import saludar; assert saludar('Mundo') == 'Hola, Mundo', 'saludo incorrecto'; print('prueba superada')
+  [depuración] [AgenteTester] Ejecutando pruebas: C:\Python314\python.exe -c from src.main import saludar; assert saludar('Mundo') == 'Hola, Mundo', 'saludo incorrecto'; print('prueba superada')
+⚠ Pruebas fallidas (código 1). Se envía el error a Aider para que lo corrija...
+ℹ Iteración 2 de 3 — Aider...
+ℹ → Aider (demo) recibe el error realimentado y corrige 'name' → 'nombre'.
+ℹ Ejecutando pruebas: C:\Python314\python.exe -c from src.main import saludar; assert saludar('Mundo') == 'Hola, Mundo', 'saludo incorrecto'; print('prueba superada')
+  [depuración] [AgenteTester] Ejecutando pruebas: C:\Python314\python.exe -c from src.main import saludar; assert saludar('Mundo') == 'Hola, Mundo', 'saludo incorrecto'; print('prueba superada')
+✔ ¡Pruebas superadas en la iteración 2!
+
+==============================================
+  RESUMEN DE LA DEMO
+==============================================
+✔ Tiempo total: 0.1 s
+✔ Archivos seleccionados (3):
+   • src/__init__.py
+   • src/main.py
+   • tests/test_main.py
+✔ Resultado de las pruebas: ÉXITO ✔
+
+✔ [EditorPropio] Parche unificado aplicado correctamente con git apply.
+  [depuración] [EditorPropio] git apply falló (código 1): error git
+✔ [EditorPropio] Parche unificado aplicado correctamente con patch.
+⚠ [EditorPropio] Parche vacío; no se aplicaron cambios.
+⚠ [EditorPropio] Parche vacío; no se aplicaron cambios.
+ℹ Editor propio: usando prompts concisos (modelo ligero).
+ℹ Editor propio: usando estrategia PARCHE para 'modulo.py'...
+ℹ Editor propio: usando estrategia SOBRESCRIBIR para 'modulo.py'...
+ℹ Validando sintaxis de modulo.py...
+✔ Sintaxis válida.
+ℹ Editor propio: usando prompts concisos (modelo ligero).
+  [depuración] [skills-editor] Reutilizando estrategia 'sobrescribir' del skill #5.
+ℹ [skills] Reutilizando patrón de edición aprendido: 'sobrescribir'.
+ℹ Editor propio: usando estrategia PARCHE para 'modulo.py'...
+ℹ Validando sintaxis de modulo.py...
+✔ Sintaxis válida.
+✖ [discord] Error enviando mensaje: sin red
+✔ [EditorPropio] Parche aplicado con resolución incremental (línea a línea) sobre 'g.py'.
+  [depuración] [EditorPropio] Backup guardado en C:\Users\bruna\.snapcontext\backups\20260831_221049_g.py
+✔ [EditorPropio] Archivo actualizado: g.py
+✔ [EditorPropio] Parche aplicado con resolución incremental (línea a línea) sobre 'f.py'.
+  [depuración] [EditorPropio] Backup guardado en C:\Users\bruna\.snapcontext\backups\20260831_221049_f.py
+✔ [EditorPropio] Archivo actualizado: f.py
+ℹ Editor propio: usando prompts concisos (modelo ligero).
+ℹ Editor propio: usando estrategia PARCHE para 'modulo.py'...
+ℹ Validando sintaxis de modulo.py...
+✔ Sintaxis válida.
+ℹ Editor propio: usando prompts concisos (modelo ligero).
+ℹ [skills] Reutilizando patrón de edición aprendido: 'sobrescribir'.
+ℹ Editor propio: usando estrategia SOBRESCRIBIR para 'modulo.py'...
+ℹ Validando sintaxis de modulo.py...
+✔ Sintaxis válida.
+ℹ [EditorPropio] Conflicto detectado; probando resolución incremental (línea a línea)...
+  [depuración] [skills-editor] Reutilizando estrategia 'parche' del skill #7.
+  [depuración] [skills-editor] No se pudo guardar el skill: db rota
+ℹ Editor propio: usando prompts concisos (modelo ligero).
+ℹ Editor propio: usando estrategia PARCHE para 'm.py'...
+ℹ Editor propio: usando estrategia SOBRESCRIBIR para 'm.py'...
+ℹ [EditorPropio] Rollback completado: todos los archivos fueron restaurados.
+ℹ Se conserva la versión original de 'm.py'.
+ℹ Editor propio: usando prompts concisos (modelo ligero).
+ℹ Editor propio: usando estrategia AST para 'm.py'...
+ℹ Editor propio: usando estrategia PARCHE para 'm.py'...
+ℹ Editor propio: usando estrategia SOBRESCRIBIR para 'm.py'...
+ℹ [EditorPropio] Rollback completado: todos los archivos fueron restaurados.
+  [depuración] [EditorPropio] Backup guardado en C:\Users\bruna\AppData\Local\Temp\sc460bkp_1oesozqa\_backups\20260831_221049_modulo.py
+✔ [EditorPropio] Archivo actualizado: modulo.py
+✔ [EditorPropio] Parche aplicado con resolución incremental (línea a línea) sobre 'f.py'.
+  [depuración] [EditorPropio] Backup guardado en C:\Users\bruna\.snapcontext\backups\20260831_221049_f.py
+✔ [EditorPropio] Archivo actualizado: f.py
+ℹ Editor propio: usando prompts concisos (modelo ligero).
+  [depuración] [AgenteEditorPropio] Excepción editando 'b.py': boom
+ℹ [EditorPropio] Rollback completado: todos los archivos fueron restaurados.
+ℹ Editor propio: usando prompts concisos (modelo ligero).
+ℹ Editor propio: usando prompts concisos (modelo ligero).
+ℹ [EditorPropio] Rollback completado: todos los archivos fueron restaurados.
+                         🔗 Análisis de Impacto Previo                         
+┌─────────────────────┬───────────────────────────┬───────────────────────────┐
+│                     │ 🔗 Dependencia            │                           │
+│ 📁 Archivo Afectado │ (Función/Clase)           │ 📊 Acción Sugerida        │
+├─────────────────────┼───────────────────────────┼───────────────────────────┤
+│ utils.py            │ main.py                   │ Revisar y actualizar los  │
+│                     │                           │ usos tras el cambio       │
+└─────────────────────┴───────────────────────────┴───────────────────────────┘
+.⚠ ⚠️ Atención: El cambio en 'utils.py' afecta a los siguientes archivos: [main.py].
+                         🔗 Análisis de Impacto Previo                         
+┌─────────────────────┬───────────────────────────┬───────────────────────────┐
+│                     │ 🔗 Dependencia            │                           │
+│ 📁 Archivo Afectado │ (Función/Clase)           │ 📊 Acción Sugerida        │
+├─────────────────────┼───────────────────────────┼───────────────────────────┤
+│ utils.py            │ main.py                   │ Revisar y actualizar los  │
+│                     │                           │ usos tras el cambio       │
+└─────────────────────┴───────────────────────────┴───────────────────────────┘
+..ℹ Editor propio: usando prompts concisos (modelo ligero).
+ℹ Edición cancelada por el usuario tras el análisis de impacto.
+⚠ ⚠️ Atención: El cambio en 'utils.py' afecta a los siguientes archivos: [main.py].
+                         🔗 Análisis de Impacto Previo                         
+┌─────────────────────┬───────────────────────────┬───────────────────────────┐
+│                     │ 🔗 Dependencia            │                           │
+│ 📁 Archivo Afectado │ (Función/Clase)           │ 📊 Acción Sugerida        │
+├─────────────────────┼───────────────────────────┼───────────────────────────┤
+│ utils.py            │ main.py                   │ Revisar y actualizar los  │
+│                     │                           │ usos tras el cambio       │
+└─────────────────────┴───────────────────────────┴───────────────────────────┘
+.⚠ ⚠️ Atención: El cambio en 'utils.py' afecta a los siguientes archivos: [main.py].
+                         🔗 Análisis de Impacto Previo                         
+┌─────────────────────┬───────────────────────────┬───────────────────────────┐
+│                     │ 🔗 Dependencia            │                           │
+│ 📁 Archivo Afectado │ (Función/Clase)           │ 📊 Acción Sugerida        │
+├─────────────────────┼───────────────────────────┼───────────────────────────┤
+│ utils.py            │ main.py                   │ Revisar y actualizar los  │
+│                     │                           │ usos tras el cambio       │
+└─────────────────────┴───────────────────────────┴───────────────────────────┘
+.....✖ [EditorPropio] La respuesta no contenía los marcadores <<<ANTES>>>/<<<DESPUES>>>/<<<FIN>>>.
+✖ [EditorPropio] Contenido resultante vacío; no se escribe el archivo.
+✖ [EditorPropio] La respuesta no contenía los marcadores <<<ANTES>>>/<<<DESPUES>>>/<<<FIN>>>.
+✖ [EditorPropio] Contenido resultante vacío; no se escribe el archivo.
+✖ [EditorPropio] La respuesta no contenía los marcadores <<<ANTES>>>/<<<DESPUES>>>/<<<FIN>>>.
+✖ [EditorPropio] Contenido resultante vacío; no se escribe el archivo.
+...................ℹ [impacto] Archivos añadidos a la edición por impacto: main.py
+ℹ ℹ Archivo grande (5816 tokens). Usando contexto selectivo (bloque: 'funcion_003')...
+ℹ ℹ Archivo grande (5816 tokens). Usando contexto selectivo (bloque: 'funcion_003')...
+ℹ [EditorPropio] Bloque reinsertado en el archivo original (contexto selectivo).
+  [depuración] [AgenteEditorPropio] Sobrescribiendo 'grande.py' en 'C:\Users\bruna\AppData\Local\Temp\sc470ctx_h7l1i0s5'
+  [depuración] [EditorPropio] Backup guardado en C:\Users\bruna\AppData\Local\Temp\sc470ctx_h7l1i0s5\_backups\20260831_221049_grande.py
+✔ [EditorPropio] Archivo actualizado: grande.py
+ℹ Editor propio: usando prompts concisos (modelo ligero).
+  [depuración] [skills-editor] Reutilizando estrategia 'parche' del skill #5.
+ℹ [skills] Reutilizando patrón de edición aprendido: 'parche'.
+ℹ Editor propio: usando estrategia AST para 'modulo.py'...
+  [depuración] [AgenteEditorPropio] Editando por AST 'modulo.py' en 'C:\Users\bruna\AppData\Local\Temp\tmp_tz26blx'
+ℹ Editor propio: usando estrategia SOBRESCRIBIR para 'modulo.py'...
+ℹ Validando sintaxis de modulo.py...
+✔ Sintaxis válida.
+⚠ [EditorAST] No existe el archivo: no_existe.py
+✔ [EditorAST] Edición AST aplicada sobre modulo.py (método AST).
+  [depuración] [EditorPropio] Backup guardado en C:\Users\bruna\AppData\Local\Temp\tmptt0gdx0m\.snapcontext_backups\20260831_221049_modulo.py
+✔ [EditorPropio] Archivo actualizado: modulo.py
+✔ [EditorAST] Edición AST aplicada sobre modulo.py (método AST).
+  [depuración] [EditorPropio] Backup guardado en C:\Users\bruna\AppData\Local\Temp\tmpb11fw0ll\.snapcontext_backups\20260831_221049_modulo.py
+✔ [EditorPropio] Archivo actualizado: modulo.py
+  [depuración] [EditorAST] El proveedor no devolvió operaciones AST para 'modulo.py'.
+⚠ [EditorAST] Sin analizador AST para 'notas.txt'; se delega el cambio.
+app.py · +1 añadida(s) · -0 eliminada(s)
+--- a/app.py                                                                   
++++ b/app.py                                                                   
+@@ -1,3 +1,4 @@                                                                
+ x = 1                                                                         
+ y = 2                                                                         
+ z = x + y                                                                     
++r = z * 2                                                                     
+                                                                               
+.✔ [EditorPropio] Parche unificado aplicado correctamente con git apply.
+app.py · +1 añadida(s) · -0 eliminada(s)
+--- a/app.py                                                                   
++++ b/app.py                                                                   
+@@ -1,3 +1,4 @@                                                                
+ x = 1                                                                         
+ y = 2                                                                         
+ z = x + y                                                                     
++r = z * 2                                                                     
+                                                                               
+..ℹ [EditorPropio] Parche cancelado por el usuario; no se realizó ningún cambio.
+app.py · +1 añadida(s) · -0 eliminada(s)
+--- a/app.py                                                                   
++++ b/app.py                                                                   
+@@ -1,3 +1,4 @@                                                                
+ x = 1                                                                         
+ y = 2                                                                         
+ z = x + y                                                                     
++r = z * 2                                                                     
+                                                                               
+...............✖ Acceso denegado: el archivo '../secreto.txt' contiene referencias a directorios padre o raíz.
+.✖ La ruta del archivo no puede estar vacía.
+✖ La ruta del archivo no puede estar vacía.
+................................................................C:\Users\bruna\OneDrive\Desktop\SnapContext\graph_rag.py:184: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x00000230A017F5B0>
+  def _visitar(nodo: ast.AST, contexto: str) -> None:
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+C:\Users\bruna\OneDrive\Desktop\SnapContext\graph_rag.py:184: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x000002309EB804F0>
+  def _visitar(nodo: ast.AST, contexto: str) -> None:
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+..............................................................................................................................................................................................⚠ [EditorPropio] Edición manual solicitada: el parche se descarta sin tocar 'app.py'. Las copias de seguridad previas están en ~/.snapcontext/backups/.
+✔ [EditorPropio] Parche aplicado con resolución incremental (línea a línea) sobre 'app.py'.
+  [depuración] [EditorPropio] Backup guardado en C:\Users\bruna\.snapcontext\backups\20260831_221049_app.py
+✔ [EditorPropio] Archivo actualizado: app.py
+✔ [EditorPropio] Parche aplicado con resolución incremental (línea a línea) sobre 'g.py'.
+  [depuración] [EditorPropio] Backup guardado en C:\Users\bruna\.snapcontext\backups\20260831_221049_g.py
+✔ [EditorPropio] Archivo actualizado: g.py
+✔ [EditorPropio] Parche aplicado con resolución incremental (línea a línea) sobre 'h.py'.
+  [depuración] [EditorPropio] Backup guardado en C:\Users\bruna\.snapcontext\backups\20260831_221049_h.py
+✔ [EditorPropio] Archivo actualizado: h.py
+✔ [EditorPropio] Parche aplicado con resolución incremental (línea a línea) sobre 'f.py'.
+  [depuración] [EditorPropio] Backup guardado en C:\Users\bruna\.snapcontext\backups\20260831_221049_f.py
+✔ [EditorPropio] Archivo actualizado: f.py
+✔ [EditorPropio] Parche aplicado con resolución incremental (línea a línea) sobre 'j.py'.
+  [depuración] [EditorPropio] Backup guardado en C:\Users\bruna\.snapcontext\backups\20260831_221049_j.py
+✔ [EditorPropio] Archivo actualizado: j.py
+✔ [EditorPropio] Parche aplicado con resolución incremental (línea a línea, resincronizando bloques) sobre 'exp.py'.
+  [depuración] [EditorPropio] Backup guardado en C:\Users\bruna\.snapcontext\backups\20260831_221049_exp.py
+✔ [EditorPropio] Archivo actualizado: exp.py
+✔ [EditorPropio] Parche aplicado con resolución incremental (línea a línea, resincronizando bloques) sobre 'i.py'.
+  [depuración] [EditorPropio] Backup guardado en C:\Users\bruna\.snapcontext\backups\20260831_221049_i.py
+✔ [EditorPropio] Archivo actualizado: i.py
+✔ [EditorPropio] Parche aplicado con resolución incremental (línea a línea) sobre 'k.py'.
+  [depuración] [EditorPropio] Backup guardado en C:\Users\bruna\.snapcontext\backups\20260831_221049_k.py
+✔ [EditorPropio] Archivo actualizado: k.py
+  [depuración] [AgenteEditorPropio] Sobrescribiendo 'test.txt' en 'C:\Users\bruna\AppData\Local\Temp\tmpy10rotgi'
+✔ [EditorPropio] Archivo actualizado: test.txt
+  [depuración] [EditorPropio] Backup guardado en C:\Users\bruna\AppData\Local\Temp\tmp98ntygoa\.snapcontext_backups\20260831_221049_main.dart
+✔ [EditorPropio] Archivo actualizado: lib/main.dart
+✔ [EditorPropio] Archivo actualizado: src/nuevo.py
+ℹ [embeddings] Indexando el proyecto (primera vez o índice vacío)…
+⚠ [embeddings] El proyecto ha cambiado; reindexando…
+ℹ [embeddings] Indexando el proyecto (primera vez o índice vacío)…
+ℹ 🔗 Grafo de conocimiento: expandiendo contexto con 1 archivo(s) relacionado(s).
+⚠ No se pudieron leer las herramientas MCP (C:\Users\bruna\AppData\Local\Temp\tmpvq3roja3\mcp_tools.json): Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+⚠ [mcp] Herramienta de usuario inválida ignorada: {'nombre': '', 'comando': 'invalida'}
+⚠ [mcp] Herramienta de usuario inválida ignorada: {'nombre': 'sin_comando'}
+  [depuración] [mcp] Ejecutando herramienta 'grep' con {'patron': 'x'}
+  [depuración] [mcp] Ejecutando herramienta 'execute_command' con {'comando': 'cmd /c echo ok'}
+  [depuración] [mcp] Ejecutando herramienta 'saluda' con {}
+  [depuración] [mcp] Ejecutando herramienta 'read_file' con {'ruta': 'C:\\Users\\bruna\\AppData\\Local\\Temp\\tmpmcwny5ki\\proyecto\\saludo.py'}
+⚠ _leer_archivo: no existe o no es archivo: C:\Users\bruna\OneDrive\Desktop\SnapContext\no_existe.py
+⚠ Función de condición desconocida: 'funcion_rara'. Soportadas: archivo_existe, archivo_contiene, comando_exito, variable_existe.
+⚠ Condición de paso mal formada: 'sin parentesis'. Se interpreta como no cumplida.
+  [depuración] [mcp] Ejecutando herramienta 'ast_avanzado' con {'ruta': 'x.py'}
+  [depuración] [mcp] Ejecutando herramienta 'semantic_search' con {'consulta': 'login', 'directorio': '.', 'max_resultados': 5}
+✔ [paso 1] [ejecutar]: condicional
+⚠ [paso 1] condición no cumplida (archivo_existe('no_existe_nada.py')); se salta.
+✔ [paso 1] [ejecutar]: A falla
+  ✖ [paso 1] terminado (simulado)
+✔ [paso 2] [ejecutar]: B independiente
+  ✔ [paso 2] terminado (simulado)
+⚠ [paso 3] saltado: dependencia(s) sin éxito ([1]).
+✔ [paso 4] [ejecutar]: depende del paso 2 (éxito)
+  ✔ [paso 4] terminado (simulado)
+ℹ 🌐 Abriendo navegador...
+✔ ✅ Navegador listo
+ℹ 🌐 Abriendo navegador...
+✔ ✅ Navegador listo
+ℹ 🌐 Abriendo navegador...
+ℹ 🖱️ Haciendo clic en #lento...
+ℹ 🖱️ Haciendo clic en #boton...
+✔ ✅ Click realizado
+ℹ ⌨️ Escribiendo en #usuario...
+✔ ✅ Texto escrito
+ℹ 📸 Capturando pantalla de http://localhost:3000...
+✔ ✅ Captura guardada
+ℹ 📸 Capturando pantalla de http://localhost:3000...
+✔ ✅ Captura guardada
+ℹ 🌐 Abriendo navegador...
+✔ ✅ Navegador listo
+ℹ 📸 Capturando pantalla de http://localhost:3000...
+✔ ✅ Captura guardada
+✔ Memoria actualizada: C:\Users\bruna\AppData\Local\Temp\tmpcz6c57ua\proy\CLAUDE.md
+  [depuración] [mcp] Ejecutando herramienta 'list_files' con {'directorio': 'C:\\Users\\bruna\\AppData\\Local\\Temp\\tmpv1mrptqs', 'max_archivos': 60}
+  [depuración] [mcp] Ejecutando herramienta 'git_status' con {'directorio': 'C:\\Users\\bruna\\AppData\\Local\\Temp\\tmpv1mrptqs'}
+⚠ Sin generación por IA (sin conexión); se usará una plantilla básica.
+✔ Memoria de proyecto creada: C:\Users\bruna\AppData\Local\Temp\tmpv1mrptqs\CLAUDE.md
+  [depuración] [mcp] Ejecutando herramienta 'list_files' con {'directorio': 'C:\\Users\\bruna\\AppData\\Local\\Temp\\tmp2cz136pe', 'max_archivos': 60}
+  [depuración] [mcp] Ejecutando herramienta 'git_status' con {'directorio': 'C:\\Users\\bruna\\AppData\\Local\\Temp\\tmp2cz136pe'}
+ℹ Contenido generado con Ollama.
+✔ Memoria de proyecto creada: C:\Users\bruna\AppData\Local\Temp\tmp2cz136pe\CLAUDE.md
+  [depuración] [mcp] Ejecutando herramienta 'list_files' con {'directorio': 'C:\\Users\\bruna\\AppData\\Local\\Temp\\tmp0ue49fzc', 'max_archivos': 60}
+  [depuración] [mcp] Ejecutando herramienta 'git_status' con {'directorio': 'C:\\Users\\bruna\\AppData\\Local\\Temp\\tmp0ue49fzc'}
+ℹ Contenido generado con Ollama.
+⚠ Operación cancelada; no se modificó la memoria.
+  [depuración] [mcp] Ejecutando herramienta 'list_files' con {'directorio': 'C:\\Users\\bruna\\AppData\\Local\\Temp\\tmp0ue49fzc', 'max_archivos': 60}
+  [depuración] [mcp] Ejecutando herramienta 'git_status' con {'directorio': 'C:\\Users\\bruna\\AppData\\Local\\Temp\\tmp0ue49fzc'}
+ℹ Contenido generado con Ollama.
+✔ Memoria de proyecto creada: C:\Users\bruna\AppData\Local\Temp\tmp0ue49fzc\CLAUDE.md
+ℹ Generando plan con Ollama (llama3.2)...
+  [depuración] [mcp] Ejecutando herramienta 'git_status' con {}
+  [depuración] [mcp] Ejecutando herramienta 'list_files' con {'max_archivos': 30}
+ℹ 🛠 Contexto MCP del proyecto añadido al planificador.
+ℹ 📄 Memoria del proyecto (CLAUDE.md) incluida en la planificación.
+  [depuración] Plan recibido (13 caracteres): {"pasos": []}
+  [depuración] [aprendizaje] Skill #1 reforzado (confiabilidad 0.80)
+  [depuración] [curador] Sin acciones necesarias.
+ℹ [aprendizaje] Nuevo skill guardado: anadir-modo-oscuro (#1)
+ℹ [aprendizaje] Nuevo skill guardado: refactor-del-carrito (#1)
+  [depuración] [aprendizaje] Skill #1 reforzado (confiabilidad 0.65)
+✔ [curador] 1 skill(s) archivado(s), 0 fusion/fusiones.
+✔ [curador] 0 skill(s) archivado(s), 1 fusion/fusiones.
+⚠ [curador] Skill #1 'roto' tiene baja confiabilidad; revisar o regenerar.
+  [depuración] [curador] Sin acciones necesarias.
+  [depuración] [curador] Sin acciones necesarias.
+  [depuración] [curador] Sin acciones necesarias.
+ℹ Repositorio: C:\Users\bruna\OneDrive\Desktop\SnapContext
+ℹ Escaneando el repositorio para encontrar candidatos...
+⚙️ Escaneando archivos del repo... ------------------------------- 100% 0:00:00
+ℹ 62 candidato(s) relevante(s) localmente.
+⚙️ Escaneando archivos del repo... ------------------------------- 100% 0:00:00

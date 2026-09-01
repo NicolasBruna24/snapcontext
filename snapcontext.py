@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.9.0"
+VERSION = "6.10.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -6193,13 +6193,30 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
         mostrar_razonamiento=bool(getattr(args, "mostrar_razonamiento", False)),
         sesion_docker=bool(getattr(args, "sandbox_session", False)),
         web_interactive=bool(getattr(args, "web_interactive", False)),
+        browser=bool(getattr(args, "browser", False)),
     )
+    # v6.10.0: activar el modo navegador si se pidió --browser. La sesión
+    # (navegador headless persistente) se cierra al terminar la tarea.
+    if bool(getattr(args, "browser", False)):
+        try:
+            import mcp_tools_browser as btool
+            btool.browser_activar(
+                headless=not bool(getattr(args, "browser_headed", False)))
+            info("🌐 Modo navegador activado (--browser).")
+        except Exception as exc:                         # noqa: BLE001
+            aviso(f"⚠️ No se pudo activar el modo navegador: {exc}")
     # v6.4.0: la sesión Docker se crea de forma perezosa y se destruye con
     # total garantía al terminar el bucle ReAct (éxito, aborto o excepción).
     try:
         resultado = agente.ejecutar(args.consulta)
     finally:
         _destruir_sesion_si_aplica()
+        # v6.10.0: liberar el navegador al terminar (éxito, aborto o error).
+        try:
+            import mcp_tools_browser as _btool
+            _btool.browser_cerrar()
+        except Exception:                                # noqa: BLE001
+            pass
     return 0 if resultado.get("ok") else 1
 
 
@@ -7494,6 +7511,48 @@ HERRAMIENTAS_PREDEFINIDAS = {
         "parametros": {"url": "str", "timeout": "float=15"},
         "requiere_permiso": False,          # solo lectura (GET)
     },
+    # v6.10.0: herramientas de navegador (Playwright) para depuración visual.
+    "browser_abrir": {
+        "descripcion": "Abre una URL en el navegador headless (Playwright); "
+                       "espera opcionalmente a que aparezca un selector.",
+        "parametros": {"url": "str", "wait_for": "str?", "timeout": "int=30"},
+        "requiere_permiso": False,
+    },
+    "browser_screenshot": {
+        "descripcion": "Captura de pantalla (base64 PNG) de la página actual "
+                       "o de una URL; página completa o un selector concreto.",
+        "parametros": {"url": "str?", "full_page": "bool=False",
+                       "selector": "str?"},
+        "requiere_permiso": False,
+    },
+    "browser_click": {
+        "descripcion": "Hace clic en un elemento de la página actual.",
+        "parametros": {"selector": "str"},
+        "requiere_permiso": True,
+    },
+    "browser_type": {
+        "descripcion": "Escribe texto en un campo de entrada de la página "
+                       "actual.",
+        "parametros": {"selector": "str", "texto": "str"},
+        "requiere_permiso": True,
+    },
+    "browser_get_text": {
+        "descripcion": "Extrae el texto de un elemento de la página actual.",
+        "parametros": {"selector": "str"},
+        "requiere_permiso": False,
+    },
+    "browser_analizar_imagen": {
+        "descripcion": "Analiza una captura (base64) con un modelo de visión "
+                       "(Gemini 2.5 Pro / Claude 3.7 Sonnet) para detectar "
+                       "errores visuales.",
+        "parametros": {"imagen_base64": "str", "pregunta": "str"},
+        "requiere_permiso": False,
+    },
+    "browser_cerrar": {
+        "descripcion": "Cierra el navegador y libera recursos.",
+        "parametros": {},
+        "requiere_permiso": False,
+    },
 }
 
 
@@ -7511,6 +7570,14 @@ def _cargar_herramientas_mcp() -> dict:
     """
     herramientas = {nombre: dict(cfg)
                     for nombre, cfg in HERRAMIENTAS_PREDEFINIDAS.items()}
+    # v6.10.0: herramientas de navegador (Playwright), solo si Playwright
+    # está instalado (import perezoso; si falta no se ofrecen).
+    try:
+        import mcp_tools_browser as _btool
+        if _btool._importar_playwright():
+            _btool.registrar_en(herramientas)
+    except Exception:                                    # noqa: BLE001
+        pass
     try:
         if MCP_TOOLS_PATH.is_file():
             datos = json.loads(MCP_TOOLS_PATH.read_text(encoding="utf-8"))
@@ -8652,6 +8719,47 @@ def _ejecutar_herramienta_mcp(nombre: str, argumentos: Optional[dict] = None,
             except ImportError as exc:
                 resultado = {"ok": False,
                              "error": f"mcp_tools_api no disponible: {exc}"}
+        elif nombre.startswith("browser_"):
+            # v6.10.0: herramientas de navegador (Playwright, modo --browser).
+            try:
+                import mcp_tools_browser as _btool
+            except ImportError as exc:
+                resultado = {"ok": False,
+                             "error": f"mcp_tools_browser no disponible: {exc}"}
+            else:
+                accion = nombre[len("browser_"):]
+                if accion == "abrir":
+                    resultado = _btool.browser_abrir(
+                        str(argumentos.get("url", "")),
+                        wait_for=(str(argumentos["wait_for"])
+                                  if argumentos.get("wait_for") else None),
+                        timeout=_entero_opcional(
+                            argumentos.get("timeout")) or 30)
+                elif accion == "screenshot":
+                    resultado = _btool.browser_screenshot(
+                        str(argumentos.get("url", "") or ""),
+                        full_page=bool(argumentos.get("full_page", False)),
+                        selector=(str(argumentos["selector"])
+                                  if argumentos.get("selector") else None))
+                elif accion == "click":
+                    resultado = _btool.browser_click(
+                        str(argumentos.get("selector", "")))
+                elif accion == "type":
+                    resultado = _btool.browser_type(
+                        str(argumentos.get("selector", "")),
+                        str(argumentos.get("texto", "")))
+                elif accion == "get_text":
+                    resultado = _btool.browser_get_text(
+                        str(argumentos.get("selector", "")))
+                elif accion == "analizar_imagen":
+                    resultado = _btool.browser_analizar_imagen(
+                        str(argumentos.get("imagen_base64", "")),
+                        str(argumentos.get("pregunta", "")))
+                elif accion == "cerrar":
+                    resultado = _btool.browser_cerrar()
+                else:
+                    resultado = {"ok": False,
+                                 "error": f"acción desconocida: {nombre}"}
         else:
             # Herramienta de usuario definida en mcp_tools.json → comando.
             if cfg.get("plugin"):
@@ -10567,6 +10675,20 @@ def crear_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--vista-previa", action="store_true",
         help="Solo muestra los archivos seleccionados y sale, sin ejecutar Aider.",
+    )
+    # v6.10.0: modo navegador (Playwright) — ver/depurar interfaces visuales.
+    parser.add_argument(
+        "--browser", dest="browser", action="store_true", default=False,
+        help="(v6.10.0) Activa el modo navegador: el agente puede abrir "
+             "URLs, tomar capturas de pantalla, hacer clic, escribir y "
+             "analizar la interfaz visual (requiere 'pip install "
+             "snapcontext[browser]' y 'playwright install chromium').",
+    )
+    parser.add_argument(
+        "--browser-headed", dest="browser_headed", action="store_true",
+        default=False,
+        help="(v6.10.0) Muestra la ventana del navegador (por defecto es "
+             "headless, sin interfaz gráfica).",
     )
     # v6.9.0: benchmark de rendimiento por fases.
     parser.add_argument(

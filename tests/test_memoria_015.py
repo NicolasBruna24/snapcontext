@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests de la memoria de proyecto (CLAUDE.md) — v0.15.0."""
 
@@ -179,7 +179,7 @@ class TestFlagsMemoriaCli(BaseMemoria):
             ["--init-claude"]).init_claude)
 
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "6.9.0")
+        self.assertEqual(sc.VERSION, "6.10.0")
 
 
 if __name__ == "__main__":

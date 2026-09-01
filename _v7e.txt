@@ -1,0 +1,23 @@
+.................................✖ El modo --multi-agent necesita una consulta. Uso:
+  snapcontext --multi-agent "añadir un endpoint de login"
+......................................................✖ El archivo no existe: C:\Users\bruna\AppData\Local\Temp\tmpxwdc915k\no_existe.txt
+.✖ La búsqueda falló (código 1): sin detalle
+...✖ No se pudo leer 'C:\Users\bruna\AppData\Local\Temp\tmpw91f3ldn\no_existe.txt'.
+................s..............✖ ⚠️ No se detectó una carpeta de proyecto típica (lib/, src/, supabase/, etc.).
+Si estás empezando un proyecto desde cero, usa --iniciar-proyecto para saltar esta validación.
+O usa --local para trabajar sin IA (también desactiva la validación).
+También puedes indicar la carpeta con --directorio <ruta>.
+................................................................C:\Python314\Lib\tempfile.py:962: ResourceWarning: Implicitly cleaning up <TemporaryDirectory 'C:\\Users\\bruna\\AppData\\Local\\Temp\\tmp2jykrwwm'>
+  _warnings.warn(warn_message, ResourceWarning)
+.C:\Python314\Lib\tempfile.py:962: ResourceWarning: Implicitly cleaning up <TemporaryDirectory 'C:\\Users\\bruna\\AppData\\Local\\Temp\\tmp94dwy3q0'>
+  _warnings.warn(warn_message, ResourceWarning)
+.......................................................................................................✖ [mcp] falló: {"error": "comando invalido"}
+..............................✖ Acceso denegado: el archivo '../secreto.txt' contiene referencias a directorios padre o raíz.
+.✖ La ruta del archivo no puede estar vacía.
+✖ La ruta del archivo no puede estar vacía.
+.......
+----------------------------------------------------------------------
+Ran 328 tests in 6.039s
+
+OK (skipped=1)
+<sys>:0: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x000002CF792EDA80>

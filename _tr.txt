@@ -1,0 +1,29 @@
+........................................F........✖ El parche no pudo aplicarse limpiamente.
+  Buscando coincidencia difusa... (umbral 0.85)
+  No se encontró una coincidencia suficiente.
+  Sugerencia: Prueba con '--editor aider' o edita manualmente.
+.......
+======================================================================
+FAIL: test_version_es_1_2_0 (tests.test_mcp_014.TestVersionMCPCli.test_version_es_1_2_0)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\bruna\OneDrive\Desktop\SnapContext\tests\test_mcp_014.py", line 220, in test_version_es_1_2_0
+    self.assertEqual(sc.VERSION, "6.9.0")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '6.10.0' != '6.9.0'
+- 6.10.0
+?   ^^
++ 6.9.0
+?   ^
+
+
+----------------------------------------------------------------------
+Ran 56 tests in 0.236s
+
+FAILED (failures=1)
+⚠ No se pudieron leer las herramientas MCP (C:\Users\bruna\AppData\Local\Temp\tmp_96vgect\mcp_tools.json): Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+⚠ [mcp] Herramienta de usuario inválida ignorada: {'nombre': '', 'comando': 'invalida'}
+⚠ [mcp] Herramienta de usuario inválida ignorada: {'nombre': 'sin_comando'}
+⚠ _leer_archivo: no existe o no es archivo: C:\Users\bruna\OneDrive\Desktop\SnapContext\no_existe.py
+✔ [EditorPropio] Parche aplicado con resolución incremental (línea a línea, resincronizando bloques) sobre 'bench.py'.
+✔ [EditorPropio] Archivo actualizado: bench.py

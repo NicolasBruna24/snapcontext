@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests de la v1.6.0: mejoras de la interfaz web (Monaco, D3, UX)."""
 
@@ -17,7 +17,7 @@ INDEX = RAIZ / "web" / "static" / "index.html"
 
 class TestVersion(unittest.TestCase):
     def test_version_160_coherente(self):
-        self.assertEqual(sc.VERSION, "6.9.0")
+        self.assertEqual(sc.VERSION, "6.10.0")
 
 
 class TestFrontendV160(unittest.TestCase):

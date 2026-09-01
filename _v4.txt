@@ -1,0 +1,145 @@
+...................................EEEEEEEEEEEEEE
+======================================================================
+ERROR: test_react_batch_tool (unittest.loader._FailedTest.test_react_batch_tool)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_react_batch_tool
+Traceback (most recent call last):
+  File "C:\Python314\Lib\unittest\loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+ModuleNotFoundError: No module named 'tests.test_react_batch_tool'
+
+
+======================================================================
+ERROR: test_react_web (unittest.loader._FailedTest.test_react_web)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_react_web
+Traceback (most recent call last):
+  File "C:\Python314\Lib\unittest\loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+ModuleNotFoundError: No module named 'tests.test_react_web'
+
+
+======================================================================
+ERROR: test_react_tools (unittest.loader._FailedTest.test_react_tools)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_react_tools
+Traceback (most recent call last):
+  File "C:\Python314\Lib\unittest\loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+ModuleNotFoundError: No module named 'tests.test_react_tools'
+
+
+======================================================================
+ERROR: test_react_tools_extra (unittest.loader._FailedTest.test_react_tools_extra)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_react_tools_extra
+Traceback (most recent call last):
+  File "C:\Python314\Lib\unittest\loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+ModuleNotFoundError: No module named 'tests.test_react_tools_extra'
+
+
+======================================================================
+ERROR: test_react_argparse (unittest.loader._FailedTest.test_react_argparse)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_react_argparse
+Traceback (most recent call last):
+  File "C:\Python314\Lib\unittest\loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+ModuleNotFoundError: No module named 'tests.test_react_argparse'
+
+
+======================================================================
+ERROR: test_react_flags (unittest.loader._FailedTest.test_react_flags)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_react_flags
+Traceback (most recent call last):
+  File "C:\Python314\Lib\unittest\loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+ModuleNotFoundError: No module named 'tests.test_react_flags'
+
+
+======================================================================
+ERROR: test_react_finalizar (unittest.loader._FailedTest.test_react_finalizar)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_react_finalizar
+Traceback (most recent call last):
+  File "C:\Python314\Lib\unittest\loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+ModuleNotFoundError: No module named 'tests.test_react_finalizar'
+
+
+======================================================================
+ERROR: test_react_historial (unittest.loader._FailedTest.test_react_historial)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_react_historial
+Traceback (most recent call last):
+  File "C:\Python314\Lib\unittest\loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+ModuleNotFoundError: No module named 'tests.test_react_historial'
+
+
+======================================================================
+ERROR: test_react_iterar (unittest.loader._FailedTest.test_react_iterar)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_react_iterar
+Traceback (most recent call last):
+  File "C:\Python314\Lib\unittest\loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+ModuleNotFoundError: No module named 'tests.test_react_iterar'
+
+
+======================================================================
+ERROR: test_react_observar (unittest.loader._FailedTest.test_react_observar)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_react_observar
+Traceback (most recent call last):
+  File "C:\Python314\Lib\unittest\loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+ModuleNotFoundError: No module named 'tests.test_react_observar'
+
+
+======================================================================
+ERROR: test_react_prompt (unittest.loader._FailedTest.test_react_prompt)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_react_prompt
+Traceback (most recent call last):
+  File "C:\Python314\Lib\unittest\loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+ModuleNotFoundError: No module named 'tests.test_react_prompt'
+
+
+======================================================================
+ERROR: test_react_resumen (unittest.loader._FailedTest.test_react_resumen)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_react_resumen
+Traceback (most recent call last):
+  File "C:\Python314\Lib\unittest\loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+ModuleNotFoundError: No module named 'tests.test_react_resumen'
+
+
+======================================================================
+ERROR: test_react_sandbox (unittest.loader._FailedTest.test_react_sandbox)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_react_sandbox
+Traceback (most recent call last):
+  File "C:\Python314\Lib\unittest\loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+ModuleNotFoundError: No module named 'tests.test_react_sandbox'
+
+
+======================================================================
+ERROR: test_react_v650 (unittest.loader._FailedTest.test_react_v650)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_react_v650
+Traceback (most recent call last):
+  File "C:\Python314\Lib\unittest\loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+ModuleNotFoundError: No module named 'tests.test_react_v650'
+
+
+----------------------------------------------------------------------
+Ran 49 tests in 0.275s
+
+FAILED (errors=14)

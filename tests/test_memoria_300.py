@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests de la v3.0.0: memoria SQLite, skills, curador y daemon."""
 
@@ -312,7 +312,7 @@ class TestFlagsCLI(unittest.TestCase):
         self.assertEqual(args.daemon_intervalo, 24)
 
     def test_version_300(self):
-        self.assertEqual(sc.VERSION, "6.9.0")
+        self.assertEqual(sc.VERSION, "6.10.0")
 
 
 if __name__ == "__main__":

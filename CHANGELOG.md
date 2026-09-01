@@ -4,6 +4,26 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.10.0] - 2026-08-31 - Navegador y multimodalidad 🌐👁️
+
+### Added
+- **Nuevo módulo `mcp_tools_browser.py`**: herramientas MCP de navegador con **Playwright** que permiten al agente ReAct *ver* y depurar interfaces visuales:
+  - `browser_abrir(url, wait_for?, timeout?)`: abre una URL (espera opcional a un selector CSS).
+  - `browser_screenshot(url?, full_page?, selector?)`: captura de pantalla en base64 PNG (página completa o un elemento concreto).
+  - `browser_click(selector)` / `browser_type(selector, texto)`: interacción con la página (clic y escritura en campos).
+  - `browser_get_text(selector)`: extrae el texto de un elemento.
+  - `browser_analizar_imagen(imagen_base64, pregunta)`: análisis visual con modelos de visión (Gemini 2.5 Pro, Claude 3.7 Sonnet+). Si el modelo no soporta visión devuelve un error claro.
+  - `browser_cerrar()`: cierra el navegador y libera recursos.
+- **Nuevo flag `--browser`**: activa el modo navegador (inicialización perezosa de Playwright). Sin el flag, el agente no puede usar herramientas de navegador. Flag adicional `--browser-headed` para ejecutar con interfaz visible (por defecto headless por seguridad).
+- **Sesión de navegador persistente**: una única instancia de navegador/página se reutiliza durante toda la tarea (similar a la sesión Docker); si el navegador muere inesperadamente se reinicia automáticamente en el siguiente uso.
+- **Integración ReAct**: nuevas acciones válidas `browser_abrir`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_get_text` y `browser_analizar_imagen` (documentadas en el prompt del sistema).
+- **Nueva dependencia opcional**: grupo `[browser]` en `pyproject.toml` (`playwright>=1.40.0`), con instrucciones automáticas (`playwright install chromium`) si falta.
+- **Tests**: `tests/test_mcp_tools_browser.py` (15 casos, Playwright mockeado).
+
+### Security
+- El navegador se ejecuta **headless por defecto** (sin interferir con el usuario).
+- Playwright se carga solo cuando se usa (lazy import); sin `--browser` no se importa nunca.
+
 ## [6.8.0] - 2026-08-30 - Omnicanalidad avanzada (GitHub + tareas asíncronas + notificaciones)
 
 ## [6.9.0] - 2026-08-31 - Mejora de rendimiento ⚡

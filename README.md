@@ -1,6 +1,6 @@
 # SnapContext
 
-![v6.9.0](https://img.shields.io/badge/version-6.9.0-blue.svg)
+![v6.10.0](https://img.shields.io/badge/version-6.10.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -57,6 +57,50 @@ Ejemplo de salida (tabla con `rich`, no requiere API key):
 
 > Las cachés son opcionales y degradan silenciosamente si no se pueden
 > escribir. No almacenan código fuente, solo hashes, fingerprints y vectores.
+
+
+## 🌐 Navegador y multimodalidad (v6.10.0)
+
+SnapContext puede **ver la interfaz de tu aplicación en ejecución** y depurar
+errores visuales de forma autónoma (CSS roto, componentes que no renderizan,
+formularios que fallan, ...).
+
+### Instalación (opcional)
+
+```bash
+pip install 'snapcontext[browser]'
+playwright install chromium
+```
+
+### Uso
+
+```bash
+# Activar el modo navegador para la tarea del agente (headless por defecto)
+snapcontext --browser "revisa la UI en http://localhost:3000 y arregla el botón de login"
+
+# Con interfaz visible (para depurar en vivo)
+snapcontext --browser --browser-headed "comprueba que el dashboard renderiza bien"
+```
+
+Con `--browser` el agente ReAct dispone de estas herramientas MCP:
+
+| Herramienta | Descripción |
+|---|---|
+| `browser_abrir(url, wait_for?, timeout?)` | Abre una URL (espera opcional a un selector). |
+| `browser_screenshot(url?, full_page?, selector?)` | Captura de pantalla en base64 PNG (página completa o elemento). |
+| `browser_click(selector)` / `browser_type(selector, texto)` | Interacción: clic y escritura en campos. |
+| `browser_get_text(selector)` | Extrae el texto de un elemento. |
+| `browser_analizar_imagen(imagen_base64, pregunta)` | Análisis visual con modelos de visión (Gemini 2.5 Pro, Claude 3.7 Sonnet+). |
+| `browser_cerrar()` | Cierra el navegador y libera recursos. |
+
+Notas:
+- El navegador es **headless por defecto** (seguridad; no interfiere con tu
+  escritorio) y se mantiene **persistente durante toda la tarea** (una única
+  instancia; si muere, se reinicia automáticamente).
+- El análisis visual (`browser_analizar_imagen`) requiere un modelo con
+  visión; con otros modelos devuelve un error claro en lugar de fallar.
+- Sin `--browser`, Playwright nunca se importa (carga perezosa) y el agente
+  no dispone de herramientas de navegador.
 
 
 ## 📦 Instalación

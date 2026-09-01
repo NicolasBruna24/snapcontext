@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests de la Fase 2 del Editor Propio (Diffs y Parches Unificados) — v2.1.0."""
 
@@ -98,7 +98,7 @@ class TestFlagsEdicion(unittest.TestCase):
         self.assertEqual(parser.parse_args(["--modo-edicion", "sobrescribir", "c"]).modo_edicion, "sobrescribir")
 
     def test_version_es_2_1_0(self):
-        self.assertEqual(sc.VERSION, "6.9.0")
+        self.assertEqual(sc.VERSION, "6.10.0")
 
 
 if __name__ == "__main__":

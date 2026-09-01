@@ -1,0 +1,53 @@
+.✖ El archivo no existe: C:\Users\bruna\AppData\Local\Temp\tmpsx0y436n\no_existe.txt
+.✖ La búsqueda falló (código 1): sin detalle
+...✖ No se pudo leer 'C:\Users\bruna\AppData\Local\Temp\tmp68xyzz6b\no_existe.txt'.
+................s............................C:\Users\bruna\OneDrive\Desktop\SnapContext\tests\test_parser_universal.py:278: ResourceWarning: unclosed file <_io.TextIOWrapper name='C:\\Users\\bruna\\OneDrive\\Desktop\\SnapContext\\pyproject.toml' mode='r' encoding='utf-8'>
+  encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.......F.........F..
+======================================================================
+FAIL: test_extraer_rust (tests.test_parser_universal.TestExtraccionNodos.test_extraer_rust)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\bruna\OneDrive\Desktop\SnapContext\tests\test_parser_universal.py", line 153, in test_extraer_rust
+    self.assertIsNotNone(nodos)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^
+AssertionError: unexpectedly None
+
+======================================================================
+FAIL: test_parseo_lenguajes (tests.test_parser_universal.TestParseo.test_parseo_lenguajes)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\bruna\OneDrive\Desktop\SnapContext\tests\test_parser_universal.py", line 109, in test_parseo_lenguajes
+    self.assertIsNotNone(arbol, lenguaje)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+AssertionError: unexpectedly None : typescript
+
+----------------------------------------------------------------------
+Ran 70 tests in 1.516s
+
+FAILED (failures=2, skipped=1)
+ℹ Ejecutando alias 'review' con: 'revisar código' --local --vista-previa
+ℹ Explorando 'hola' con findstr...
+⚠ Uso: /explore <tema>
+✔ ── C:\Users\bruna\AppData\Local\Temp\tmp68xyzz6b\demo.txt (1 línea(s)) ────────────────────
+  hola mundo
+⚠ _leer_archivo: no existe o no es archivo: C:\Users\bruna\AppData\Local\Temp\tmp68xyzz6b\no_existe.txt
+⚠ Uso: /read <archivo>
+ℹ $ cmd /c echo prueba
+prueba"
+✔ Comando terminado correctamente.
+⚠ Uso: /run <comando>
+✔ Sesión guardada en C:\Users\bruna\AppData\Local\Temp\tmp9pccafzj\historial.json (3 mensajes).
+⚠ No hay conversación que guardar.
+✔ Historial borrado (C:\Users\bruna\AppData\Local\Temp\tmpv7msb3te\historial.json).
+ℹ No hay historial que borrar.
+✔ Últimas 3 tarea(s) guardada(s) (C:\Users\bruna\AppData\Local\Temp\tmpom1pixz6\historial.json):
+  [?] éxito · ?
+      consulta : tarea 2
+  [?] éxito · ?
+      consulta : tarea 1
+  [?] éxito · ?
+      consulta : tarea 0
+⚠ _leer_archivo: no existe o no es archivo: C:\Users\bruna\AppData\Local\Temp\tmpz5zfmtqp\no.txt
+⚠ _leer_archivo: no existe o no es archivo: C:\Users\bruna\AppData\Local\Temp\tmpz5zfmtqp

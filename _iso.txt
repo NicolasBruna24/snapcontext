@@ -1,0 +1,88 @@
+.....✖ No se pudo obtener un plan válido del proveedor.
+.✖ El modo --plan necesita una consulta. Uso:
+  snapcontext --plan "añadir login con Google"
+....F.....✖ 'C:\Users\bruna\AppData\Local\Temp\tmp4608rlar' no es un repositorio git; no se puede crear la rama 'rama-x'.
+..............................C:\Users\bruna\OneDrive\Desktop\SnapContext\tests\test_parser_universal.py:278: ResourceWarning: unclosed file <_io.TextIOWrapper name='C:\\Users\\bruna\\OneDrive\\Desktop\\SnapContext\\pyproject.toml' mode='r' encoding='utf-8'>
+  encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.F.....F.........F..
+======================================================================
+FAIL: test_version_es_1_2_0 (tests.test_plan_012.TestFlagsPlanCLI.test_version_es_1_2_0)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\bruna\OneDrive\Desktop\SnapContext\tests\test_plan_012.py", line 272, in test_version_es_1_2_0
+    self.assertEqual(sc.VERSION, "6.9.0")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '6.10.0' != '6.9.0'
+- 6.10.0
+?   ^^
++ 6.9.0
+?   ^
+
+
+======================================================================
+FAIL: test_version_560 (tests.test_parser_universal.TestEnvVersion.test_version_560)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\bruna\OneDrive\Desktop\SnapContext\tests\test_parser_universal.py", line 273, in test_version_560
+    self.assertEqual(sc.VERSION, "6.9.0")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '6.10.0' != '6.9.0'
+- 6.10.0
+?   ^^
++ 6.9.0
+?   ^
+
+
+======================================================================
+FAIL: test_extraer_rust (tests.test_parser_universal.TestExtraccionNodos.test_extraer_rust)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\bruna\OneDrive\Desktop\SnapContext\tests\test_parser_universal.py", line 153, in test_extraer_rust
+    self.assertIsNotNone(nodos)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^
+AssertionError: unexpectedly None
+
+======================================================================
+FAIL: test_parseo_lenguajes (tests.test_parser_universal.TestParseo.test_parseo_lenguajes)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\bruna\OneDrive\Desktop\SnapContext\tests\test_parser_universal.py", line 109, in test_parseo_lenguajes
+    self.assertIsNotNone(arbol, lenguaje)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+AssertionError: unexpectedly None : typescript
+
+----------------------------------------------------------------------
+Ran 66 tests in 3.593s
+
+FAILED (failures=4)
+respuesta IA
+ℹ $ cmd /c echo hola
+hola"
+ℹ $ cmd /c exit 5
+✔ Plan generado (1 paso(s)):
+  1. [consultar] p
+⚠ Plan cancelado por el usuario.
+✔ Plan generado (2 paso(s)):
+  1. [ejecutar] paso uno → x
+  2. [consultar] paso dos
+
+✔ Paso 1/2 [ejecutar]: paso uno
+
+✔ Paso 2/2 [consultar]: paso dos
+
+✔ ── Resumen del plan ──────────────────────────────
+  ✔ Paso 1 [ejecutar] paso uno (éxito: ok)
+  ✔ Paso 2 [consultar] paso dos (éxito: ok)
+✔ Resultado: 2/2 paso(s) exitoso(s).
+⚠ El plan vino vacío o mal formado; reintentando...
+⚠ El plan vino vacío o mal formado; reintentando...
+ℹ Generando plan con Ollama (llama3.2)...
+ℹ 🛠 Contexto MCP del proyecto añadido al planificador.
+ℹ Generando plan con Groq (llama-3.3-70b-versatile)...
+ℹ 🛠 Contexto MCP del proyecto añadido al planificador.
+✔ Commit creado: paso: arreglar 'login'
+ℹ 🧩 Plugins cargados: 1 herramienta(s) MCP disponible(s).
+⚠ _leer_archivo: no existe o no es archivo: C:\Users\bruna\AppData\Local\Temp\tmp5fru1pyc\no.txt
+⚠ _leer_archivo: no existe o no es archivo: C:\Users\bruna\AppData\Local\Temp\tmp5fru1pyc
+<sys>:0: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x00000249ED5248B0>

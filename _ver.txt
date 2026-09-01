@@ -1,0 +1,8 @@
+.......................C:\Users\bruna\OneDrive\Desktop\SnapContext\tests\test_parser_universal.py:278: ResourceWarning: unclosed file <_io.TextIOWrapper name='C:\\Users\\bruna\\OneDrive\\Desktop\\SnapContext\\pyproject.toml' mode='r' encoding='utf-8'>
+  encoding="utf-8").read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+..
+----------------------------------------------------------------------
+Ran 25 tests in 0.008s
+
+OK
