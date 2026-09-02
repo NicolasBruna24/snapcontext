@@ -306,7 +306,8 @@ class Supervisor:
                  buzon: Optional[Buzon] = None,
                  archivos: Optional[List[str]] = None,
                  comando_test: Optional[str] = None,
-                 sub_agents: bool = False, max_parallel: int = 3) -> None:
+                 sub_agents: bool = False, max_parallel: int = 3,
+                 lsp: bool = False) -> None:
         self.directorio = str(Path(directorio).resolve())
         self.tarea = tarea
         self.auto = bool(auto)
@@ -319,6 +320,7 @@ class Supervisor:
         # v6.13.0: sub-agentes dinámicos (--sub-agents / --max-parallel).
         self.sub_agents = bool(sub_agents)
         self.max_parallel = max(1, int(max_parallel))
+        self.lsp = bool(lsp)
         self.sub_agentes: List[Any] = []
 
     # ------------------------------------------------------------------
@@ -331,7 +333,8 @@ class Supervisor:
         from sub_agent import SubAgente                # noqa: E402
         sub = SubAgente(rol, directorio=self.directorio,
                         proveedor=self.proveedor, modelo=self.modelo,
-                        buzon=self.buzon, auto=self.auto, browser=browser)
+                        buzon=self.buzon, auto=self.auto, browser=browser,
+                        lsp=self.lsp)
         self.sub_agentes.append(sub)
         if consulta:
             sub.enviar_mensaje(consulta)
@@ -398,6 +401,7 @@ class Supervisor:
             espec.setdefault("directorio", self.directorio)
             espec.setdefault("proveedor", self.proveedor)
             espec.setdefault("modelo", self.modelo)
+            espec.setdefault("lsp", self.lsp)
         from sub_agent import ejecutar_sub_agentes_paralelo  # noqa: E402
         resultados = ejecutar_sub_agentes_paralelo(
             especificaciones, max_parallel=self.max_parallel,

@@ -1,6 +1,6 @@
 # SnapContext
 
-![v6.13.0](https://img.shields.io/badge/version-6.13.0-blue.svg)
+![v6.14.0](https://img.shields.io/badge/version-6.14.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -64,44 +64,6 @@ Ejemplo de salida (tabla con `rich`, no requiere API key):
 SnapContext puede **ver la interfaz de tu aplicación en ejecución** y depurar
 errores visuales de forma autónoma (CSS roto, componentes que no renderizan,
 formularios que fallan, ...).
-
-### Instalación (opcional)
-
-```bash
-pip install 'snapcontext[browser]'
-playwright install chromium
-```
-
-### Uso
-
-```bash
-# Activar el modo navegador para la tarea del agente (headless por defecto)
-snapcontext --browser "revisa la UI en http://localhost:3000 y arregla el botón de login"
-
-# Con interfaz visible (para depurar en vivo)
-snapcontext --browser --browser-headed "comprueba que el dashboard renderiza bien"
-```
-
-Con `--browser` el agente ReAct dispone de estas herramientas MCP:
-
-| Herramienta | Descripción |
-|---|---|
-| `browser_abrir(url, wait_for?, timeout?)` | Abre una URL (espera opcional a un selector). |
-| `browser_screenshot(url?, full_page?, selector?)` | Captura de pantalla en base64 PNG (página completa o elemento). |
-| `browser_click(selector)` / `browser_type(selector, texto)` | Interacción: clic y escritura en campos. |
-| `browser_get_text(selector)` | Extrae el texto de un elemento. |
-| `browser_analizar_imagen(imagen_base64, pregunta)` | Análisis visual con modelos de visión (Gemini 2.5 Pro, Claude 3.7 Sonnet+). |
-| `browser_cerrar()` | Cierra el navegador y libera recursos. |
-
-Notas:
-- El navegador es **headless por defecto** (seguridad; no interfiere con tu
-  escritorio) y se mantiene **persistente durante toda la tarea** (una única
-  instancia; si muere, se reinicia automáticamente).
-- El análisis visual (`browser_analizar_imagen`) requiere un modelo con
-  visión; con otros modelos devuelve un error claro en lugar de fallar.
-- Sin `--browser`, Playwright nunca se importa (carga perezosa) y el agente
-  no dispone de herramientas de navegador.
-
 
 ## 🧠 Prompt Caching (v6.11.0)
 
@@ -240,6 +202,106 @@ snapcontext --multi-agent --sub-agents --max-parallel 5 "mejora el rendimiento"
 > siempre; la funcionalidad es 100 % opcional.
 
 
+## 🔗 LSP e indexación global (v6.14.0)
+
+SnapContext ahora se conecta a **Language Server Protocol (LSP)** para dar al
+agente una comprensión profunda del código: resolución de definiciones,
+referencias globales y tipos — la misma tecnología que usan Cursor, Claude Code
+y los editores modernos.
+
+```bash
+# Activar el LSP (lanza el servidor perezosamente, solo al usarlo)
+snapcontext --lsp "refactoriza la función parsear_datos"
+
+# También con la variable de entorno
+SNAPCONTEXT_LSP=1 snapcontext "arregla el bug del parser"
+```
+
+### Herramientas nuevas para el agente
+
+| Herramienta | Descripción |
+|-------------|-------------|
+| `lsp_definicion(archivo, linea, columna)` | Resuelve dónde se define un símbolo (aunque esté importado de otro módulo). |
+| `lsp_referencias(archivo, linea, columna)` | Encuentra **todas** las referencias a una función/clase en el proyecto. |
+| `lsp_tipo(archivo, linea, columna)` | Devuelve el tipo de una variable/expresión (hover). |
+
+### Servidores soportados (detectados con `shutil.which`)
+
+| Lenguaje | Comando del servidor |
+|----------|---------------------|
+| Python | `pyright-langserver` o `pylsp` |
+| JavaScript/TypeScript | `typescript-language-server` |
+| Go | `gopls` |
+| Rust | `rust-analyzer` |
+| Java | `jdtls` |
+| C# | `OmniSharp` |
+
+### Caché de consultas
+
+- **En memoria** (por sesión) y **persistente** en `~/.snapcontext/lsp_cache.db`
+  (SQLite).
+- Clave: `(archivo, linea, columna, tipo_consulta)`.
+- Invalidación automática por **hash del contenido** del archivo: si cambia,
+  la entrada caduca y se vuelve a consultar.
+
+### Arquitectura
+
+- `lsp_client.py`: cliente JSON-RPC puro sobre stdio (**sin dependencias
+  obligatorias**); `CacheLSP` y `LSPClient` con contexto (`with`), timeouts y
+  cierre ordenado (`shutdown` → `exit` → kill).
+- Inicio **perezoso** (singleton): el servidor solo se lanza en la primera
+  consulta, nunca al abrir la sesión.
+- Integrado en el agente ReAct y en los sub-agentes dinámicos (v6.13.0) cuando
+  `--lsp` está activo.
+- Si el servidor no está instalado o falla: mensaje claro y **continúa sin
+  LSP** (nunca bloquea la tarea).
+
+```bash
+# Servidor LSP de Python opcional (grupo [lsp])
+pip install "snapcontext[lsp]"
+```
+
+
+
+### Instalación (opcional)
+
+```bash
+pip install 'snapcontext[browser]'
+playwright install chromium
+```
+
+### Uso
+
+```bash
+# Activar el modo navegador para la tarea del agente (headless por defecto)
+snapcontext --browser "revisa la UI en http://localhost:3000 y arregla el botón de login"
+
+# Con interfaz visible (para depurar en vivo)
+snapcontext --browser --browser-headed "comprueba que el dashboard renderiza bien"
+```
+
+Con `--browser` el agente ReAct dispone de estas herramientas MCP:
+
+| Herramienta | Descripción |
+|---|---|
+| `browser_abrir(url, wait_for?, timeout?)` | Abre una URL (espera opcional a un selector). |
+| `browser_screenshot(url?, full_page?, selector?)` | Captura de pantalla en base64 PNG (página completa o elemento). |
+| `browser_click(selector)` / `browser_type(selector, texto)` | Interacción: clic y escritura en campos. |
+| `browser_get_text(selector)` | Extrae el texto de un elemento. |
+| `browser_analizar_imagen(imagen_base64, pregunta)` | Análisis visual con modelos de visión (Gemini 2.5 Pro, Claude 3.7 Sonnet+). |
+| `browser_cerrar()` | Cierra el navegador y libera recursos. |
+
+Notas:
+- El navegador es **headless por defecto** (seguridad; no interfiere con tu
+  escritorio) y se mantiene **persistente durante toda la tarea** (una única
+  instancia; si muere, se reinicia automáticamente).
+- El análisis visual (`browser_analizar_imagen`) requiere un modelo con
+  visión; con otros modelos devuelve un error claro en lugar de fallar.
+- Sin `--browser`, Playwright nunca se importa (carga perezosa) y el agente
+  no dispone de herramientas de navegador.
+
+
+
 ## 📦 Instalación
 
 ```bash
@@ -259,6 +321,7 @@ pip install snapcontext                 # base
 pip install "snapcontext[db]"           # bases de datos (PostgreSQL/MySQL)
 pip install "snapcontext[embeddings]"   # búsqueda semántica local (opcional)
 pip install "snapcontext[anthropic]"    # Claude
+pip install "snapcontext[lsp]"          # servidores LSP de Python (--lsp)
 pip install "snapcontext[web]"          # interfaz web (--web)
 pip install aider-chat                  # ediciones de código
 snapcontext --init                      # asistente inicial + API key

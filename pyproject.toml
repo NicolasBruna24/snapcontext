@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 # Nombre verificado disponible en PyPI (18/08/2026): pypi.org/pypi/snapcontext → 404.
 # Alternativas si algún día estuviera ocupado: "snapcontext-cli" o "snapcontext-tool".
 name = "snapcontext"
-version = "6.13.0"
+version = "6.14.0"
 description = "SnapContext: Asistente de IA con contexto automático para desarrollo"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -91,6 +91,13 @@ browser = [
 # v6.12.0: TUI inmersiva en la terminal (--tui) basada en Textual.
 tui = [
     "textual>=0.50.0",
+]
+# v6.14.0: integración con Language Server Protocol (--lsp). El cliente usa
+# JSON-RPC puro sobre stdio (sin dependencias obligatorias); estos paquetes
+# aportan servidores LSP de referencia para Python.
+lsp = [
+    "python-lsp-server>=1.9.0",
+    "pygls>=1.0.0",
 ]
 
 [project.urls]

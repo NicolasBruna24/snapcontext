@@ -72,17 +72,17 @@ class TestTuiApp(unittest.TestCase):
     """La aplicación Textual: creación, bindings y drenaje de cola."""
 
     def _app(self):
-        return tui_app.SnapContextTUI(consulta="prueba", version="6.13.0")
+        return tui_app.SnapContextTUI(consulta="prueba", version="6.14.0")
 
     def test_importacion_y_creacion(self):
         app = self._app()
         self.assertIsNotNone(app)
         self.assertEqual(app.consulta, "prueba")
-        self.assertEqual(app.version, "6.13.0")
+        self.assertEqual(app.version, "6.14.0")
         self.assertIsNone(app.tarea_agente)
 
     def test_titulo_contiene_version(self):
-        self.assertIn("6.13.0", self._app().title)
+        self.assertIn("6.14.0", self._app().title)
 
     def test_bindings_definidos(self):
         acciones = {b[1] for b in tui_app.SnapContextTUI.BINDINGS}
@@ -164,11 +164,11 @@ class TestIntegracionCLI(unittest.TestCase):
         self.assertFalse(args.tui)
 
     def test_version_actualizada(self):
-        self.assertEqual(sc.VERSION, "6.13.0")
+        self.assertEqual(sc.VERSION, "6.14.0")
         ruta = os.path.join(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))), "pyproject.toml")
         with open(ruta, encoding="utf-8") as fh:
-            self.assertIn('version = "6.13.0"', fh.read())
+            self.assertIn('version = "6.14.0"', fh.read())
 
     def test_grupo_tui_en_pyproject(self):
         ruta = os.path.join(os.path.dirname(os.path.dirname(

@@ -4,6 +4,46 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.14.0] - 2026-09-01 - LSP e indexación global 🔗🔍
+
+### Added
+- **`lsp_client.py`** (módulo nuevo): integración con Language Server Protocol.
+  - Clase `LSPClient`: cliente JSON-RPC puro sobre stdio (sin dependencias
+    obligatorias), con `iniciar`, `enviar_peticion` (con timeout),
+    `obtener_definicion`, `obtener_referencias`, `obtener_tipo`, `cerrar` y
+    soporte de contexto (`with`).
+  - `CacheLSP`: caché en memoria + persistente (`~/.snapcontext/lsp_cache.db`,
+    SQLite) con clave `(archivo, linea, columna, tipo_consulta)` e
+    invalidación por hash del contenido del archivo.
+  - Detección de lenguaje por extensión (`.py`, `.ts/.js`, `.go`, `.rs`,
+    `.java`, `.cs`) y de servidores instalados vía `shutil.which`
+    (`pyright-langserver`, `typescript-language-server`, `gopls`,
+    `rust-analyzer`, `jdtls`, `OmniSharp`).
+  - Singleton perezoso (`obtener_cliente_lsp`): el servidor solo se lanza en
+    la primera consulta, nunca al inicio de la sesión.
+- **Herramientas MCP nuevas**: `lsp_definicion`, `lsp_referencias` y
+  `lsp_tipo`, disponibles en el agente ReAct y en los sub-agentes dinámicos
+  cuando `--lsp` está activo.
+- **Flag `--lsp`** y variable de entorno `SNAPCONTEXT_LSP=1`.
+- **Grupo opcional `[lsp]`** en `pyproject.toml`
+  (`python-lsp-server`, `pygls`).
+- 25 tests nuevos en `tests/test_lsp_client.py`.
+
+### Changed
+- `react_agent.py`: nuevo parámetro `lsp` y herramientas LSP registradas
+  condicionalmente (sin `--lsp` devuelven un error claro que sugiere el flag).
+- `sub_agent.py` / `multi_agent.py`: propagación de `lsp` a los sub-agentes.
+
+### Seguridad
+- El servidor LSP corre en el mismo entorno; los comandos son una lista fija
+  (no se construyen con entrada del usuario) y se verifica su existencia con
+  `shutil.which` antes de lanzarlos.
+
+### Robustez
+- Si el servidor no está instalado, falla al arrancar o no responde
+  (timeout), se muestra un mensaje claro y la tarea **continúa sin LSP**.
+
+
 ## [6.13.0] - 2026-09-01 - Sub-agentes dinámicos 🤖🚀
 
 ### Added

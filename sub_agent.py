@@ -107,7 +107,7 @@ class SubAgente:
                  modelo: Optional[str] = None,
                  max_iteraciones: Optional[int] = None,
                  buzon: Optional[Any] = None, auto: bool = True,
-                 browser: bool = False) -> None:
+                 browser: bool = False, lsp: bool = False) -> None:
         rol = str(rol).strip().lower()
         if rol not in ROLES:
             raise ValueError(
@@ -126,7 +126,7 @@ class SubAgente:
         self.agente = ReactAgent(
             directorio=directorio, auto=self.auto,
             max_iter=self.max_iteraciones, proveedor=proveedor,
-            modelo=modelo, browser=browser)
+            modelo=modelo, browser=browser, lsp=lsp)
         permitidas = set(self.config_rol["herramientas"])
         self.herramientas: Dict[str, Callable[[dict], dict]] = {
             nombre_h: fn for nombre_h, fn in self.agente.herramientas.items()
@@ -237,7 +237,8 @@ def ejecutar_sub_agentes_paralelo(
                     proveedor=espec.get("proveedor"),
                     modelo=espec.get("modelo"),
                     buzon=buzon,
-                    browser=bool(espec.get("browser", False)))
+                    browser=bool(espec.get("browser", False)),
+                    lsp=bool(espec.get("lsp", False)))
                 resultados[indice] = sub.ejecutar(espec["consulta"])
             except Exception as exc:               # noqa: BLE001
                 errores[indice] = str(exc)

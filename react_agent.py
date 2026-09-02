@@ -71,6 +71,8 @@ class ReactAgent:
         # v6.10.0: navegador (Playwright) — ver/depurar interfaces visuales.
         "browser_abrir", "browser_screenshot", "browser_click",
         "browser_type", "browser_get_text", "browser_analizar_imagen",
+        # v6.14.0: LSP — resolución de definiciones/referencias/tipos.
+        "lsp_definicion", "lsp_referencias", "lsp_tipo",
     )
 
     def __init__(self, directorio: str = ".", auto: bool = False,
@@ -81,12 +83,16 @@ class ReactAgent:
                  web_interactive: bool = False,
                  max_historial: Optional[int] = None,
                  browser: bool = False,
-                 prompt_caching: Optional[bool] = None):
+                 prompt_caching: Optional[bool] = None,
+                 lsp: bool = False):
         self.directorio = str(Path(directorio).resolve())
         self.auto = bool(auto)
         # v6.10.0: modo navegador (--browser). Activa las herramientas de
         # Playwright; si está inactivo, las herramientas dan error claro.
         self.browser = bool(browser)
+        # v6.14.0: herramientas LSP (--lsp). Si están inactivas, dan error
+        # claro; el cliente se lanza perezosamente en la primera consulta.
+        self.lsp = bool(lsp)
         if self.browser:
             try:
                 import mcp_tools_browser as btool
@@ -154,6 +160,10 @@ class ReactAgent:
             "browser_type": self._tool_browser,
             "browser_get_text": self._tool_browser,
             "browser_analizar_imagen": self._tool_browser,
+            # v6.14.0: LSP (activado con --lsp; cliente perezoso).
+            "lsp_definicion": self._tool_lsp_definicion,
+            "lsp_referencias": self._tool_lsp_referencias,
+            "lsp_tipo": self._tool_lsp_tipo,
         }
         if self.proveedor is None:
             try:
@@ -405,6 +415,59 @@ class ReactAgent:
 
     def _tool_browser_cerrar(self, argumentos: dict) -> dict:
         return self._tool_browser(argumentos, accion="browser_cerrar")
+
+    def _tool_lsp_definicion(self, argumentos: dict) -> dict:
+        return self._tool_lsp(argumentos, accion="lsp_definicion")
+
+    def _tool_lsp_referencias(self, argumentos: dict) -> dict:
+        return self._tool_lsp(argumentos, accion="lsp_referencias")
+
+    def _tool_lsp_tipo(self, argumentos: dict) -> dict:
+        return self._tool_lsp(argumentos, accion="lsp_tipo")
+
+    def _tool_lsp(self, argumentos: dict, accion: str = "") -> dict:
+        """v6.14.0: herramientas LSP (definición/referencias/tipo).
+
+        El cliente LSP se lanza perezosamente en la primera consulta; si el
+        servidor no está disponible se devuelve un error claro y el agente
+        continúa con el resto de herramientas.
+        """
+        if not self.lsp:
+            return {"ok": False,
+                    "error": "LSP inactivo: arranca con --lsp o "
+                             "SNAPCONTEXT_LSP=1 para usar lsp_*."}
+        import lsp_client as lc                  # noqa: E402
+        archivo = str(argumentos.get("archivo", "")).strip()
+        try:
+            linea = int(argumentos.get("linea", 0))
+            columna = int(argumentos.get("columna", 0))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "'linea'/'columna' deben ser "
+                                          "enteros (1-based)."}
+        if not archivo or linea < 1 or columna < 1:
+            return {"ok": False,
+                    "error": "se requiere archivo, linea y columna "
+                             "(1-based)."}
+        cliente = lc.obtener_cliente_lsp(self.directorio)
+        if cliente is None:
+            return {"ok": False,
+                    "error": "LSP no disponible para este lenguaje."}
+        try:
+            if accion == "lsp_definicion":
+                r = cliente.obtener_definicion(archivo, linea, columna)
+                if r:
+                    sc.info(f"LSP: definición encontrada en "
+                            f"{r['archivo']}:{r['linea']}")
+            elif accion == "lsp_referencias":
+                r = cliente.obtener_referencias(archivo, linea, columna)
+            else:
+                r = cliente.obtener_tipo(archivo, linea, columna)
+        except Exception as exc:                 # noqa: BLE001
+            return {"ok": False, "error": f"LSP falló: {exc}"}
+        if r is None:
+            return {"ok": False,
+                    "error": "LSP no devolvió resultados para esa posición."}
+        return {"ok": True, **r}
 
     def _tool_buscar_codigo(self, argumentos: dict) -> dict:
         """Busca una regex en los archivos de texto del proyecto."""

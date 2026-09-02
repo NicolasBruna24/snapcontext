@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.13.0"
+VERSION = "6.14.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -6309,6 +6309,7 @@ def _ejecutar_multi_agent(args: argparse.Namespace) -> int:
         comando_test=getattr(args, "comando_test", None),
         sub_agents=bool(getattr(args, "sub_agents", False)),
         max_parallel=int(getattr(args, "max_parallel", 3) or 3),
+        lsp=bool(getattr(args, "lsp", False)),
     )
     resultado = supervisor.ejecutar()
     if resultado.get("ok"):
@@ -6349,6 +6350,7 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
         browser=bool(getattr(args, "browser", False)),
         prompt_caching=getattr(args, "prompt_caching",
                                PROMPT_CACHING_DEFECTO),
+        lsp=bool(getattr(args, "lsp", False)),
     )
     # v6.10.0: activar el modo navegador si se pidió --browser. La sesión
     # (navegador headless persistente) se cierra al terminar la tarea.
@@ -10818,6 +10820,13 @@ def crear_parser() -> argparse.ArgumentParser:
         "--max-parallel", dest="max_parallel", type=int, default=3,
         help="N\u00famero m\u00e1ximo de sub-agentes en paralelo "
              "(por defecto 3). Usar con --sub-agents.",
+    )
+    parser.add_argument(
+        "--lsp", dest="lsp", action="store_true", default=False,
+        help="LSP (v6.14.0): activa herramientas lsp_definicion / "
+             "lsp_referencias / lsp_tipo en el agente (pyright, tsserver, "
+             "gopls, rust-analyzer...). Cliente perezoso y con cach\u00e9. "
+             "Env: SNAPCONTEXT_LSP=1.",
     )
     parser.add_argument(
         "--graph-rag", dest="graph_rag", action="store_true", default=False,
