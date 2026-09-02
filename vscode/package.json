@@ -1,10 +1,11 @@
 {
-  "name": "snapcontext-vscode",
-  "displayName": "SnapContext",
+  "name": "snapcontext-ai",
+  "displayName": "SnapContext AI",
   "description": "Asistente de IA con contexto automático para desarrollo: chat, planificador y selección inteligente de archivos.",
-  "version": "3.2.0",
+  "version": "6.14.0",
   "publisher": "NicolasBrunaFuentealbaIsaias",
   "license": "MIT",
+  "icon":"snapcontext-icon.png",
   "engines": {
     "vscode": "^1.80.0"
   },
