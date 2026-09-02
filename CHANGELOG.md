@@ -4,6 +4,47 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.13.0] - 2026-09-01 - Sub-agentes dinámicos 🤖🚀
+
+### Added
+- **`sub_agent.py`** (módulo nuevo): sub-agentes ReAct dinámicos.
+  - Clase `SubAgente`: encapsula un `ReactAgent` con historial propio
+    (contexto aislado), prompt de sistema del rol y herramientas
+    restringidas (mínimo privilegio).
+  - `enviar_mensaje()` / `recibir_mensajes()`: buzón individual para
+    comunicación con el Supervisor y otros agentes.
+  - Registro `ROLES` con 5 roles predefinidos: `scout`, `debugger`,
+    `frontender`, `tester` y `documentador` (cada uno con su prompt,
+    sus herramientas y su límite de iteraciones).
+  - `ejecutar_sub_agentes_paralelo()`: hilos con semáforo y límite de
+    concurrencia; los errores por hilo no abortan al resto y los
+    resultados llegan en orden.
+  - Integración con la cola de tareas v6.8.0 (`encolar_sub_agente`,
+    `ejecutar_tarea_sub_agente`, tipo `sub_agente`).
+- **`multi_agent.py`**: el Supervisor ahora puede crear sub-agentes.
+  - `Supervisor.crear_sub_agente(rol)`: instancia y registra sub-agentes.
+  - `Supervisor._detectar_sub_tareas(plan)`: heurística por palabras clave
+    sobre el plan del Arquitecto (documentación → scout, errores →
+    debugger, pruebas → tester, CSS/UI → frontender, docs → documentador).
+  - `Supervisor.ejecutar_sub_tareas(plan)`: detecta y ejecuta en paralelo
+    las sub-tareas delegables y publica los resultados en el `Buzon`
+    (`resultado_sub_agente`, `sub_tarea_completada`).
+  - Nuevos parámetros `sub_agents` y `max_parallel` (fase opcional entre
+    el plan y el bucle Programador→Tester).
+- **CLI** (`snapcontext.py`): flags `--sub-agents` (activa la delegación)
+  y `--max-parallel N` (concurrencia, por defecto 3).
+- **Mensajes de usuario**: `Sub-agente '{rol}' instanciado.` /
+  `Sub-agente '{rol}' completó su tarea.` /
+  `Ejecutando N sub-agentes en paralelo...`.
+- **Tests**: `tests/test_sub_agent.py` con 29 casos (roles, aislamiento,
+  comunicación, paralelismo con límite, buzón, cola de tareas, Supervisor
+  y flags CLI).
+- **README**: sección "🤖 Sub-agentes dinámicos (v6.13.0)".
+
+### Changed
+- Versión 6.13.0 en `snapcontext.py` y `pyproject.toml`; tests de
+  coherencia de versión actualizados.
+
 ## [6.12.0] - 2026-09-01 - TUI inmersiva con Textual 🖥️🚀
 
 ### Added

@@ -1,6 +1,6 @@
 # SnapContext
 
-![v6.12.0](https://img.shields.io/badge/version-6.12.0-blue.svg)
+![v6.13.0](https://img.shields.io/badge/version-6.13.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -197,6 +197,47 @@ snapcontext --tui "revisar login"     # abrir la TUI y lanzar el agente
 
 > **Nota**: el CLI sin `--tui` funciona exactamente igual que antes; la TUI es
 > un modo adicional y Textual es una dependencia opcional (grupo `[tui]`).
+
+
+## 🤖 Sub-agentes dinámicos (v6.13.0)
+
+El equipo multi-agente ahora puede delegar sub-tareas en **sub-agentes
+especializados** que se instancian bajo demanda, con contexto aislado y
+ejecución en paralelo controlada.
+
+```bash
+snapcontext --multi-agent --sub-agents "añade exportación a PDF"
+snapcontext --multi-agent --sub-agents --max-parallel 5 "mejora el rendimiento"
+```
+
+### Roles predefinidos
+
+| Rol | Especialidad | Herramientas |
+|-----|--------------|--------------|
+| `scout` | Leer documentación, explorar código y APIs | `leer_archivo`, `buscar_codigo`, `api_inspect`, `browser_get_text` |
+| `debugger` | Analizar errores y logs, diagnosticar causas | `leer_archivo`, `buscar_codigo`, `ejecutar_comando`, `ejecutar_pruebas` |
+| `frontender` | Revisar CSS/HTML/interfaz | `leer_archivo`, `buscar_codigo`, `editar_archivo`, `browser_*` |
+| `tester` | Ejecutar pruebas aisladas e informar | `ejecutar_pruebas`, `ejecutar_comando`, `leer_archivo` |
+| `documentador` | Generar/actualizar README, CLAUDE.md | `leer_archivo`, `buscar_codigo`, `editar_archivo` |
+
+### Cómo funciona
+
+- **Contexto aislado**: cada sub-agente tiene su propio historial ReAct; no
+  comparte contexto con el agente principal ni con otros sub-agentes.
+- **Detección automática**: el Supervisor analiza el plan del Arquitecto
+  (palabras clave como "documentación", "error", "pruebas", "CSS"...) y
+  delega los pasos aplicables al rol adecuado.
+- **Paralelismo**: los sub-agentes corren en hilos con un semáforo
+  (`--max-parallel`, por defecto 3). También pueden encolarse como tareas
+  asíncronas de la cola v6.8.0 (`sub_agent.encolar_sub_agente`).
+- **Comunicación**: los resultados se publican en el `Buzon` compartido
+  (`resultado_sub_agente`, `sub_tarea_completada`) y cada sub-agente puede
+  recibir mensajes previos a su ejecución (`enviar_mensaje`).
+- **Seguridad**: cada rol solo ve sus herramientas (mínimo privilegio) y
+  respeta los mismos permisos y confirmaciones que el agente principal.
+
+> **Nota**: sin `--sub-agents` el pipeline multi-agente es idéntico al de
+> siempre; la funcionalidad es 100 % opcional.
 
 
 ## 📦 Instalación

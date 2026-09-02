@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.12.0"
+VERSION = "6.13.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -6307,6 +6307,8 @@ def _ejecutar_multi_agent(args: argparse.Namespace) -> int:
         modelo=getattr(args, "modelo", None),
         max_reintentos=max(1, int(getattr(args, "max_reintentos", 3) or 3)),
         comando_test=getattr(args, "comando_test", None),
+        sub_agents=bool(getattr(args, "sub_agents", False)),
+        max_parallel=int(getattr(args, "max_parallel", 3) or 3),
     )
     resultado = supervisor.ejecutar()
     if resultado.get("ok"):
@@ -10804,6 +10806,18 @@ def crear_parser() -> argparse.ArgumentParser:
              "Arquitecto (plan), un Programador (editor propio) y un Tester "
              "(pruebas) con bucle de realimentación. Env: "
              "SNAPCONTEXT_MULTI_AGENT=1.",
+    )
+    parser.add_argument(
+        "--sub-agents", dest="sub_agents", action="store_true", default=False,
+        help="Sub-agentes din\u00e1micos (v6.13.0): el Supervisor instancia "
+             "agentes especializados bajo demanda (scout, debugger, "
+             "frontender, tester, documentador) con contexto aislado y los "
+             "ejecuta en paralelo. Requiere --multi-agent.",
+    )
+    parser.add_argument(
+        "--max-parallel", dest="max_parallel", type=int, default=3,
+        help="N\u00famero m\u00e1ximo de sub-agentes en paralelo "
+             "(por defecto 3). Usar con --sub-agents.",
     )
     parser.add_argument(
         "--graph-rag", dest="graph_rag", action="store_true", default=False,

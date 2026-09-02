@@ -183,7 +183,7 @@ class TestFlagsAutoCli(unittest.TestCase):
         self.assertTrue(args.plan)
 
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "6.12.0")
+        self.assertEqual(sc.VERSION, "6.13.0")
 
 
 if __name__ == "__main__":

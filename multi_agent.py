@@ -305,7 +305,8 @@ class Supervisor:
                  modelo: Optional[str] = None, max_reintentos: int = 3,
                  buzon: Optional[Buzon] = None,
                  archivos: Optional[List[str]] = None,
-                 comando_test: Optional[str] = None) -> None:
+                 comando_test: Optional[str] = None,
+                 sub_agents: bool = False, max_parallel: int = 3) -> None:
         self.directorio = str(Path(directorio).resolve())
         self.tarea = tarea
         self.auto = bool(auto)
@@ -315,6 +316,95 @@ class Supervisor:
         self.buzon = buzon if buzon is not None else Buzon()
         self.archivos = list(archivos or [])
         self.comando_test = comando_test
+        # v6.13.0: sub-agentes dinámicos (--sub-agents / --max-parallel).
+        self.sub_agents = bool(sub_agents)
+        self.max_parallel = max(1, int(max_parallel))
+        self.sub_agentes: List[Any] = []
+
+    # ------------------------------------------------------------------
+    # Sub-agentes dinámicos (v6.13.0)
+    # ------------------------------------------------------------------
+    def crear_sub_agente(self, rol: str, consulta: str = "",
+                         browser: bool = False) -> Any:
+        """Instancia un ``SubAgente`` del rol solicitado y lo registra."""
+        import snapcontext as sc                       # noqa: E402
+        from sub_agent import SubAgente                # noqa: E402
+        sub = SubAgente(rol, directorio=self.directorio,
+                        proveedor=self.proveedor, modelo=self.modelo,
+                        buzon=self.buzon, auto=self.auto, browser=browser)
+        self.sub_agentes.append(sub)
+        if consulta:
+            sub.enviar_mensaje(consulta)
+        sc.info(f"Sub-agente '{rol}' instanciado.")
+        return sub
+
+    @staticmethod
+    def _detectar_sub_tareas(plan: Dict[str, Any]) -> List[dict]:
+        """Detecta pasos del plan delegables a roles de sub-agente.
+
+        Heurística por palabras clave sobre la descripción de cada paso del
+        plan (y del objetivo). Devuelve especificaciones ``{rol, consulta}``
+        sin duplicados, en orden de aparición.
+        """
+        from sub_agent import ROLES                    # noqa: E402
+        claves: Dict[str, tuple] = {
+            "scout": ("documentaci", "investiga", "busca", "explora",
+                      "revisa la api", "leer", "estudia"),
+            "debugger": ("error", "fallo", "bug", "excepci", "depura",
+                         "corrige el error"),
+            "frontender": ("css", "html", "interfaz", "ui", "estilo",
+                           "dise\u00f1o", "frontend"),
+            "tester": ("prueba", "test", "verifica"),
+            "documentador": ("documenta", "readme", "claude.md",
+                             "comenta", "docstring"),
+        }
+        textos: List[str] = []
+        objetivo = str(plan.get("objetivo") or "")
+        if objetivo:
+            textos.append(objetivo.lower())
+        for paso in (plan.get("pasos") or []):
+            if isinstance(paso, dict):
+                desc = str(paso.get("descripcion") or "").lower()
+            else:
+                desc = str(paso).lower()
+            if desc:
+                textos.append(desc)
+        especificaciones: List[dict] = []
+        vistos = set()
+        for texto in textos:
+            for rol, palabras in claves.items():
+                if rol in vistos:
+                    continue
+                if any(p in texto for p in palabras):
+                    especificaciones.append({"rol": rol, "consulta": texto})
+                    vistos.add(rol)
+        return especificaciones
+
+    def ejecutar_sub_tareas(self, plan: Dict[str, Any]) -> List[dict]:
+        """Detecta y ejecuta en paralelo las sub-tareas delegables del plan.
+
+        Solo actúa con ``--sub-agents``; en caso contrario devuelve ``[]``
+        y el pipeline se comporta exactamente como antes. Los resultados se
+        publican en el buzón como ``resultado_sub_agente``.
+        """
+        import snapcontext as sc                       # noqa: E402
+        if not self.sub_agents:
+            return []
+        especificaciones = self._detectar_sub_tareas(plan)
+        if not especificaciones:
+            sc.info("Supervisor: no hay sub-tareas delegables a sub-agentes.")
+            return []
+        for espec in especificaciones:
+            espec.setdefault("directorio", self.directorio)
+            espec.setdefault("proveedor", self.proveedor)
+            espec.setdefault("modelo", self.modelo)
+        from sub_agent import ejecutar_sub_agentes_paralelo  # noqa: E402
+        resultados = ejecutar_sub_agentes_paralelo(
+            especificaciones, max_parallel=self.max_parallel,
+            buzon=self.buzon)
+        for r in resultados:
+            self.buzon.publicar("supervisor", "sub_tarea_completada", r)
+        return resultados
 
     # ------------------------------------------------------------------
     # Mostrar plan y confirmación
@@ -364,7 +454,10 @@ class Supervisor:
             return {"ok": False, "error": "cancelado por el usuario",
                     "plan": plan, "reintentos": 0, "resultados": []}
 
-        # 3) Bucle Programador → Tester con realimentación.
+        # 3) v6.13.0: sub-agentes dinámicos (solo con --sub-agents).
+        self.resultados_sub_tareas = self.ejecutar_sub_tareas(plan)
+
+        # 4) Bucle Programador → Tester con realimentación.
         resultados: List[Dict[str, Any]] = []
         archivos = list(self.archivos) or list(plan.get("archivos") or [])
         error_msj = ""
