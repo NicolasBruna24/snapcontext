@@ -4,6 +4,40 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.11.0] - 2026-09-01 - Prompt Caching 🧠⚡
+
+### Added
+- **Prompt Caching** en `_enviar_al_proveedor` (snapcontext.py): mantiene en caché
+  el mensaje del sistema, las herramientas MCP y la memoria del proyecto
+  (`CLAUDE.md`) añadiendo la marca `cache_control: {"type": "ephemeral"}` para los
+  proveedores compatibles (**Anthropic** y **DeepSeek**). Reduce drásticamente
+  coste y latencia en sesiones largas.
+- **Detección de soporte**: nueva clave `soporta_caching` en `PROVEEDORES`
+  (True para `anthropic` y `deepseek`). Gemini, Groq y Ollama se envían tal cual
+  (compatibilidad total garantizada).
+- **Nuevas funciones**:
+  - `_soporta_prompt_caching(proveedor)`: ¿el proveedor soporta `cache_control`?
+  - `_resolver_prompt_caching(explicito)`: resuelve el estado (flag > entorno >
+    config.json > defecto True).
+  - `_aplicar_cache_control(mensajes)`: añade las marcas sin mutar los mensajes.
+  - `_mensaje_caching_inicio(proveedor)`: mensaje de sesión.
+- **Nueva configuración**: `prompt_caching: bool = True` en `~/.snapcontext/config.json`.
+- **Nuevos flags**: `--prompt-caching` / `--no-prompt-caching`.
+- **Nueva variable de entorno**: `SNAPCONTEXT_PROMPT_CACHING=0|1` para desactivar/activar.
+- **Resumen automático (react_agent.py)**: `_comprimir_historial` preserva las
+  marcas `cache_control` en el resumen si el proveedor soporta caching.
+- **Mensajes de sesión**: `🧠 Prompt Caching activado para <proveedor>` (o
+  `no soportado`) al inicio del chat y del modo ReAct.
+- **Tests**: nuevo `tests/test_prompt_caching.py` (más de 15 casos).
+
+### Changed
+- Versión actualizada a `6.11.0` en `snapcontext.py`, `pyproject.toml`, `README.md`
+  y las 22 aserciones de versión de los tests de coherencia.
+
+### Security
+- Las marcas `cache_control` **no modifican el contenido** de los mensajes: solo
+  añaden la instrucción de caché. Ningún dato se almacena en local.
+
 ## [6.10.0] - 2026-08-31 - Navegador y multimodalidad 🌐👁️
 
 ### Added

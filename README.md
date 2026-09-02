@@ -1,6 +1,6 @@
 # SnapContext
 
-![v6.10.0](https://img.shields.io/badge/version-6.10.0-blue.svg)
+![v6.11.0](https://img.shields.io/badge/version-6.11.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -101,6 +101,55 @@ Notas:
   visión; con otros modelos devuelve un error claro en lugar de fallar.
 - Sin `--browser`, Playwright nunca se importa (carga perezosa) y el agente
   no dispone de herramientas de navegador.
+
+
+## 🧠 Prompt Caching (v6.11.0)
+
+SnapContext envía el mensaje del sistema (con las herramientas MCP) y la memoria
+del proyecto (`CLAUDE.md`) en cada interacción. Con **Prompt Caching**, los
+proveedores compatibles mantienen estos bloques **en caché durante la sesión**,
+reduciendo drásticamente el coste y la latencia.
+
+### ¿Qué hace?
+
+- **Anthropic (Claude)** y **DeepSeek** soportan la marca
+  `cache_control: {"type": "ephemeral"}`. SnapContext la añade a:
+  1. El mensaje del sistema (el primero de la lista).
+  2. Los mensajes con definiciones de herramientas MCP.
+  3. El mensaje con la memoria del proyecto (`CLAUDE.md` / `SNAPCONTEXT.md`).
+- **Gemini, Groq y Ollama** no soportan caching: se envían los mensajes tal cual
+  (sin marcas), manteniendo la compatibilidad total.
+- Las marcas **no modifican el contenido** de los mensajes: solo añaden la
+  instrucción de caché.
+
+### Activación (por defecto activado)
+
+```bash
+snapcontext "revisar login" --provider anthropic     # activado por defecto
+snapcontext "revisar login" --no-prompt-caching      # desactivar
+snapcontext --chat --no-prompt-caching               # desactivar en el chat
+```
+
+También se puede controlar con:
+
+```bash
+SNAPCONTEXT_PROMPT_CACHING=0 snapcontext "revisar login"   # desactivar
+SNAPCONTEXT_PROMPT_CACHING=1 snapcontext "revisar login"   # activar
+```
+
+O desde `~/.snapcontext/config.json`:
+
+```json
+{
+  "provider": "anthropic",
+  "prompt_caching": false
+}
+```
+
+> **Nota**: el Prompt Caching solo se aplica cuando el proveedor lo soporta y está
+> activado; para proveedores sin soporte o con caching desactivado el flujo es
+> idéntico al anterior. Al inicio de la sesión verás
+> `🧠 Prompt Caching activado para <proveedor>` (o `no soportado`).
 
 
 ## 📦 Instalación
@@ -1622,6 +1671,7 @@ los proveedores que configures) en `~/.snapcontext/config.json`:
 {
   "provider": "groq",
   "model": "llama-3.3-70b-versatile",
+  "prompt_caching": true,
   "api_keys": {
     "gemini": "AIza...",
     "groq": "gsk_..."

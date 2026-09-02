@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.10.0"
+VERSION = "6.11.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -529,6 +529,8 @@ PROVEEDORES = {
         "requiere_clave": True,
         "base_url": "https://api.deepseek.com",     # API compatible con OpenAI
         "modelo_default": "deepseek-chat",
+        # v6.11.0: DeepSeek soporta marcas cache_control (ephemeral).
+        "soporta_caching": True,
     },
     "groq": {
         "nombre": "Groq",
@@ -545,6 +547,8 @@ PROVEEDORES = {
         "requiere_clave": True,
         "url_base": None,                    # se usa la URL oficial por defecto
         "modelo_default": "claude-3-5-sonnet-20241022",
+        # v6.11.0: Anthropic (Claude) soporta marcas cache_control (ephemeral).
+        "soporta_caching": True,
     },
 }
 
@@ -4569,8 +4573,97 @@ def _razonamiento_dos_pasos(tarea: str, proveedor: Optional[str],
     return raz or (str(respuesta).strip() or None)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# v6.11.0 — PROMPT CACHING
+# Mantiene en caché los mensajes del sistema, las herramientas MCP y la memoria
+# del proyecto (CLAUDE.md) para los proveedores compatibles (Anthropic/DeepSeek)
+# mediante la marca `cache_control: {"type": "ephemeral"}` que entienden sus API.
+# Reduce coste y latencia en sesiones largas. No tiene efecto en Gemini, Groq u
+# Ollama (se envían los mensajes tal cual). Activado por defecto; se desactiva
+# con `--no-prompt-caching`, `SNAPCONTEXT_PROMPT_CACHING=0` o
+# `prompt_caching: false` en ~/.snapcontext/config.json.
+# ─────────────────────────────────────────────────────────────────────────────
+PROMPT_CACHING_DEFECTO = True
+ENV_PROMPT_CACHING = "SNAPCONTEXT_PROMPT_CACHING"
+# Heurística ligera (no afecta al contenido) para detectar si un mensaje lleva
+# definiciones de herramientas MCP o la memoria del proyecto y marcarlo cacheable.
+_MARCADORES_CACHE_HERRAMIENTAS = (
+    "HERRAMIENTAS", "herramienta", "MCP", "editar_archivo", "ejecutar_comando")
+_MARCADORES_CACHE_MEMORIA = ("CLAUDE.md", "SNAPCONTEXT.md")
+
+
+def _soporta_prompt_caching(proveedor: str) -> bool:
+    """¿El proveedor soporta marcas ``cache_control`` (v6.11.0)?"""
+    return bool(PROVEEDORES.get(proveedor, {}).get("soporta_caching", False))
+
+
+def _resolver_prompt_caching(explicito: Optional[bool] = None) -> bool:
+    """Resuelve si el prompt caching está activado (v6.11.0).
+
+    Prioridad: flag ``--prompt-caching`` (``explicito``) > entorno
+    ``SNAPCONTEXT_PROMPT_CACHING`` > ``config.json -> prompt_caching`` >
+    valor por defecto (``PROMPT_CACHING_DEFECTO``, activado). Nunca lanza.
+    """
+    if explicito is not None:
+        return bool(explicito)
+    bruto = os.environ.get(ENV_PROMPT_CACHING, "").strip()
+    if bruto:
+        return bruto.lower() not in ("0", "false", "no", "off")
+    try:
+        cfg = cargar_configuracion()
+        if cfg and "prompt_caching" in cfg:
+            return bool(cfg["prompt_caching"])
+    except Exception:                        # noqa: BLE001 — nunca romper flujo
+        pass
+    return PROMPT_CACHING_DEFECTO
+
+
+def _aplicar_cache_control(mensajes: List[dict]) -> List[dict]:
+    """Devuelve una copia de ``mensajes`` con la marca ``cache_control``.
+
+    Solo debe llamarse para proveedores con ``soporta_caching`` (v6.11.0).
+    NO muta la lista original ni el contenido de los mensajes: añade la marca
+    ``cache_control`` a:
+      - el mensaje del sistema (el primero de la lista);
+      - los mensajes con definiciones de herramientas MCP;
+      - los mensajes con la memoria del proyecto (CLAUDE.md / SNAPCONTEXT.md).
+    """
+    if not mensajes:
+        return list(mensajes)
+    salida: List[dict] = []
+    for i, m in enumerate(mensajes):
+        copia = dict(m)
+        contenido = str(m.get("content", ""))
+        es_sistema = bool(m.get("role") == "system") or i == 0
+        tiene_herramientas = any(
+            p in contenido for p in _MARCADORES_CACHE_HERRAMIENTAS)
+        tiene_memoria = any(
+            p in contenido for p in _MARCADORES_CACHE_MEMORIA)
+        if es_sistema or tiene_herramientas or tiene_memoria:
+            copia["cache_control"] = {"type": "ephemeral"}
+        salida.append(copia)
+    return salida
+
+
+def _mensaje_caching_inicio(proveedor: str) -> Optional[str]:
+    """Mensaje de usuario al inicio de sesión sobre prompt caching (v6.11.0).
+
+    Devuelve None si el proveedor lo soporta pero el caching está desactivado
+    (no se muestra ningún aviso). Nunca lanza.
+    """
+    try:
+        if _soporta_prompt_caching(proveedor):
+            if _resolver_prompt_caching(None):
+                return f"🧠 Prompt Caching activado para {proveedor}"
+            return None
+    except Exception:                        # noqa: BLE001
+        return None
+    return f"🧠 Prompt Caching no soportado para {proveedor}"
+
+
 def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
-                         mensajes: List[dict]) -> str:
+                         mensajes: List[dict],
+                         prompt_caching: Optional[bool] = None) -> str:
     """Envía ``mensajes`` ([{"role": ..., "content": ...}, ...]) al proveedor.
 
     Soporta todos los tipos registrados en PROVEEDORES (gemini, openai-compatible
@@ -4584,6 +4677,14 @@ def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
     cfg = PROVEEDORES[proveedor]
     modelo = modelo or cfg["modelo_default"]
     tipo = cfg["tipo"]
+
+    # v6.11.0: Prompt Caching. Solo aplica a proveedores con `soporta_caching`
+    # (Anthropic, DeepSeek) y cuando está activado. El resto recibe los mensajes
+    # tal cual (sin marcas), manteniendo la compatibilidad total.
+    mensajes_finales = mensajes
+    if (_soporta_prompt_caching(proveedor)
+            and _resolver_prompt_caching(prompt_caching)):
+        mensajes_finales = _aplicar_cache_control(mensajes)
 
     if tipo == "gemini":
         if _importar_genai() is None:
@@ -4610,7 +4711,7 @@ def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
             raise RuntimeError(_mensaje_clave_faltante(proveedor, cfg))
         cliente = anthropic.Anthropic(api_key=api_key)
         respuesta = cliente.messages.create(
-            model=modelo, max_tokens=2048, messages=mensajes,
+            model=modelo, max_tokens=2048, messages=mensajes_finales,
         )
         return "".join(
             bloque.text for bloque in respuesta.content
@@ -4628,13 +4729,14 @@ def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
         base_url=_resolver_url_openai(cfg), timeout=120,
     )
     respuesta = cliente.chat.completions.create(
-        model=modelo, messages=mensajes, temperature=0.4,
+        model=modelo, messages=mensajes_finales, temperature=0.4,
     )
     return respuesta.choices[0].message.content or ""
 
 
 def _ejecutar_chat(proveedor: Optional[str] = None,
-                   modelo: Optional[str] = None) -> int:
+                   modelo: Optional[str] = None,
+                   prompt_caching: Optional[bool] = None) -> int:
     """REPL interactivo (`snapcontext --chat`). Devuelve código de salida.
 
     Mantiene la conversación en memoria (`historial_chat`) y da acceso a los
@@ -4673,6 +4775,10 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
     info(f"Proveedor actual: {proveedor} "
          f"({modelo or PROVEEDORES[proveedor]['modelo_default']}). "
          "Escribe /ayuda para ver los comandos.")
+    # v6.11.0: informa del estado del Prompt Caching al inicio de la sesión.
+    _mensaje_caching = _mensaje_caching_inicio(proveedor)
+    if _mensaje_caching:
+        info(_mensaje_caching)
 
     historial_chat: List[dict] = []       # conversación de esta sesión
     contexto_archivos: List[str] = []     # selección actual (/seleccion)
@@ -5028,6 +5134,7 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             # Se envían solo los últimos 20 turnos para no crecer sin límite.
             respuesta = _enviar_al_proveedor(
                 proveedor, modelo, historial_chat[-20:],
+                prompt_caching=prompt_caching,
             )
         except RuntimeError as exc:
             error(str(exc))
@@ -6194,6 +6301,8 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
         sesion_docker=bool(getattr(args, "sandbox_session", False)),
         web_interactive=bool(getattr(args, "web_interactive", False)),
         browser=bool(getattr(args, "browser", False)),
+        prompt_caching=getattr(args, "prompt_caching",
+                               PROMPT_CACHING_DEFECTO),
     )
     # v6.10.0: activar el modo navegador si se pidió --browser. La sesión
     # (navegador headless persistente) se cierra al terminar la tarea.
@@ -10690,6 +10799,21 @@ def crear_parser() -> argparse.ArgumentParser:
         help="(v6.10.0) Muestra la ventana del navegador (por defecto es "
              "headless, sin interfaz gráfica).",
     )
+    # v6.11.0: Prompt Caching. Activado por defecto para Anthropic/DeepSeek.
+    parser.add_argument(
+        "--prompt-caching", dest="prompt_caching", action="store_true",
+        default=PROMPT_CACHING_DEFECTO,
+        help="(v6.11.0) Activa el Prompt Caching para proveedores compatibles "
+             "(Anthropic, DeepSeek): mantiene en caché el mensaje del sistema, "
+             "las herramientas MCP y CLAUDE.md. Activado por defecto. Se "
+             "desactiva con --no-prompt-caching, SNAPCONTEXT_PROMPT_CACHING=0 "
+             "o 'prompt_caching': false en config.json.",
+    )
+    parser.add_argument(
+        "--no-prompt-caching", dest="prompt_caching", action="store_false",
+        help="(v6.11.0) Desactiva el Prompt Caching (no añade marcas "
+             "cache_control). Sin efecto para proveedores que no lo soportan.",
+    )
     # v6.9.0: benchmark de rendimiento por fases.
     parser.add_argument(
         "--benchmark", action="store_true",
@@ -12223,6 +12347,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _ejecutar_chat(
                 proveedor=getattr(args, "provider", None),
                 modelo=getattr(args, "modelo", None),
+                prompt_caching=getattr(args, "prompt_caching",
+                                       PROMPT_CACHING_DEFECTO),
             )
         # v5.2.0: el motor ReAct es el modo por defecto; --plan queda como
         # legacy para scripts. El flag --react se acepta (redundante).

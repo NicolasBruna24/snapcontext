@@ -80,7 +80,8 @@ class ReactAgent:
                  sesion_docker: bool = False,
                  web_interactive: bool = False,
                  max_historial: Optional[int] = None,
-                 browser: bool = False):
+                 browser: bool = False,
+                 prompt_caching: Optional[bool] = None):
         self.directorio = str(Path(directorio).resolve())
         self.auto = bool(auto)
         # v6.10.0: modo navegador (--browser). Activa las herramientas de
@@ -100,6 +101,9 @@ class ReactAgent:
         self.historial: List[Dict[str, str]] = []
         self.proveedor = proveedor
         self.modelo = modelo
+        # v6.11.0: Prompt Caching. None → se resuelve por entorno/config.json
+        # dentro de _enviar_al_proveedor; True/False lo fuerza explícitamente.
+        self.prompt_caching = prompt_caching
         # v5.5.0: Grafo de conocimiento (opcional; --graph-rag o env).
         self.graph_rag = bool(graph_rag)
         # v6.2.0: mostrar el razonamiento COMPLETO del modelo en cada turno
@@ -196,7 +200,8 @@ class ReactAgent:
     # ------------------------------------------------------------------
     def _llamada_sync(self, mensajes: List[dict]) -> str:
         return str(sc._enviar_al_proveedor(
-            self.proveedor, self.modelo, mensajes))
+            self.proveedor, self.modelo, mensajes,
+            prompt_caching=self.prompt_caching))
 
     async def _llamada_async(self, mensajes: List[dict]) -> str:
         loop = asyncio.get_running_loop()
@@ -642,11 +647,22 @@ class ReactAgent:
             resumen = self._llamar_llm(pedido, timeout=180)
         except Exception:                                # noqa: BLE001
             resumen = (cuerpo[-1].get("content", "") if cuerpo else "")
-        self.historial = [sistema, {
+        nuevo_historial = [sistema, {
             "role": "user",
             "content": f"[RESUMEN DEL TRABAJO PREVIO]\n{resumen}\n\n"
                        "[FIN DEL RESUMEN] Continúa la tarea.",
         }]
+        # v6.11.0: si el proveedor soporta Prompt Caching, se preservan las
+        # marcas cache_control en el resumen para mantener el ahorro de tokens
+        # entre turnos (el sistema ya se marca al enviarse).
+        try:
+            if (sc._soporta_prompt_caching(self.proveedor)
+                    and sc._resolver_prompt_caching(self.prompt_caching)):
+                for _m in nuevo_historial:
+                    _m.setdefault("cache_control", {"type": "ephemeral"})
+        except Exception:                                # noqa: BLE001
+            pass
+        self.historial = nuevo_historial
 
     # ------------------------------------------------------------------
     # Bucle principal ReAct
@@ -664,6 +680,10 @@ class ReactAgent:
             else ""
         sc.info(f"🧠 Modo ReAct activado ({self.proveedor}, máx. "
                 f"{self.max_iteraciones} iteraciones{sandbox_txt}).")
+        # v6.11.0: informa del estado del Prompt Caching al inicio de la sesión.
+        _msg_cache = sc._mensaje_caching_inicio(self.proveedor)
+        if _msg_cache:
+            sc.info(_msg_cache)
         # v6.4.0: si se pidió --sandbox-session, iniciar la sesión Docker
         # persistente (un único contenedor reutilizado para toda la tarea).
         if self.sesion_docker and getattr(sc, "_SANDBOX_ACTIVO", False):
