@@ -1,6 +1,6 @@
 # SnapContext
 
-![v6.14.0](https://img.shields.io/badge/version-6.14.0-blue.svg)
+![v6.16.0](https://img.shields.io/badge/version-6.16.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -65,12 +65,12 @@ SnapContext puede **ver la interfaz de tu aplicación en ejecución** y depurar
 errores visuales de forma autónoma (CSS roto, componentes que no renderizan,
 formularios que fallan, ...).
 
-## 🧠 Prompt Caching (v6.11.0)
+## 🧠 Prompt Caching (v6.16.0)
 
 SnapContext envía el mensaje del sistema (con las herramientas MCP) y la memoria
 del proyecto (`CLAUDE.md`) en cada interacción. Con **Prompt Caching**, los
 proveedores compatibles mantienen estos bloques **en caché durante la sesión**,
-reduciendo drásticamente el coste y la latencia.
+reduciendo drásticamente el coste (hasta ~70% en sesiones largas) y la latencia.
 
 ### ¿Qué hace?
 
@@ -107,6 +107,19 @@ O desde `~/.snapcontext/config.json`:
   "prompt_caching": false
 }
 ```
+
+### Métricas de caché (v6.16.0)
+
+Con `--depurar`, SnapContext muestra estimaciones de tokens cacheados por
+categoría al enviar cada petición:
+
+```bash
+snapcontext "revisar login" --provider anthropic --depurar
+# ℹ Prompt Caching activado (anthropic): sistema (145 tokens), herramientas (230 tokens), CLAUDE.md (890 tokens)
+```
+
+Esto permite ver cuánto se está ahorrando en cada llamada sin necesidad de
+inspeccionar los logs del proveedor.
 
 > **Nota**: el Prompt Caching solo se aplica cuando el proveedor lo soporta y está
 > activado; para proveedores sin soporte o con caching desactivado el flujo es

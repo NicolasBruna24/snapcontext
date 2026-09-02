@@ -4,6 +4,36 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.16.0] - 2026-09-02 - Prompt Caching: métricas de caché en modo --depurar 🧠⚡
+
+### Added
+- **Métricas de Prompt Caching (modo `--depurar`)**: al enviar peticiones a
+  proveedores compatibles (Anthropic, DeepSeek), se muestra una estimación de
+  tokens cacheados por categoría (`sistema`, `herramientas`, `CLAUDE.md` /
+  `SNAPCONTEXT.md`) y el total no cacheado. Ejemplo:
+  `ℹ Prompt Caching activado (anthropic): sistema (145 tokens), herramientas (230 tokens), CLAUDE.md (890 tokens)`.
+- Nueva función `_contar_tokens()`: heurística ligera (1 token ≈ 4 caracteres)
+  para estimar tokens sin dependencias externas.
+- Nueva función `_calcular_metricas_caching()`: categoriza mensajes cacheables y
+  suma tokens estimados. Prioridad: sistema > memoria > herramientas (evita
+  duplicar el recuento cuando un mensaje del sistema también define herramientas).
+- Flag `--prompt-caching` (acción `store_true`, activado por defecto) y
+  `--no-prompt-caching` (acción `store_false`) para controlar el comportamiento
+  desde la CLI.
+- Tests nuevos en `tests/test_prompt_caching.py` (14 casos): detección de
+  proveedores, aplicación de `cache_control`, resolución de estado
+  (flag/entorno/config), integración en `_enviar_al_proveedor`, mensajes de
+  sesión, resumen automático preservando marcas, métricas y no duplicación.
+
+### Changed
+- `_enviar_al_proveedor()`: corregida indentación del bloque de Prompt Caching
+  para mantener la coherencia del flujo.
+- `VERSION` actualizada a `6.16.0` en `snapcontext.py` y `pyproject.toml`.
+- README: sección "🧠 Prompt Caching" actualizada a v6.16.0 con subsección de
+  métricas y ejemplo de uso con `--depurar`.
+- Badge de versión en README actualizado a `v6.16.0`.
+
+
 ## [6.15.0] - 2026-09-01 - Extensión VS Code: icono en Activity Bar y fix del chat 🧩 vscode
 
 ### Fixed (extensión `snapcontext-ai` de VS Code)

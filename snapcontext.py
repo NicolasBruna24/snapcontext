@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.15.2"
+VERSION = "6.16.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -4626,6 +4626,10 @@ def _razonamiento_dos_pasos(tarea: str, proveedor: Optional[str],
 # Ollama (se envían los mensajes tal cual). Activado por defecto; se desactiva
 # con `--no-prompt-caching`, `SNAPCONTEXT_PROMPT_CACHING=0` o
 # `prompt_caching: false` en ~/.snapcontext/config.json.
+#
+# v6.16.0 — Métricas de caché: en modo `--depurar` se emiten logs con la
+# estimación de tokens cacheados por categoría (sistema, herramientas,
+# CLAUDE.md/SNAPCONTEXT.md) y el total no cacheado.
 # ─────────────────────────────────────────────────────────────────────────────
 PROMPT_CACHING_DEFECTO = True
 ENV_PROMPT_CACHING = "SNAPCONTEXT_PROMPT_CACHING"
@@ -4689,6 +4693,64 @@ def _aplicar_cache_control(mensajes: List[dict]) -> List[dict]:
     return salida
 
 
+# v6.16.0 — Métricas de Prompt Caching (modo --depurar)
+def _contar_tokens(texto: str) -> int:
+    """Estimación aproximada de tokens (v6.16.0).
+
+    Usa la heurística estándar 1 token ≈ 4 caracteres. Suficiente para
+    métricas de depuración; no se usa para limitar el contexto del modelo.
+    """
+    return max(len(texto) // 4, 0)
+
+
+def _calcular_metricas_caching(mensajes: List[dict]) -> dict:
+    """Calcula métricas de Prompt Caching (v6.16.0).
+
+    Categoriza los mensajes cacheables (sistema, herramientas, memoria) y
+    suma tokens estimados por categoría. La prioridad de categoría es:
+
+      1. ``sistema``  (rol ``system`` o primer mensaje)
+      2. ``CLAUDE.md`` / ``SNAPCONTEXT.md`` (contiene la memoria)
+      3. ``herramientas`` (contiene definiciones MCP)
+
+    Esto evita duplicar el recuento cuando un mensaje del sistema también
+    define herramientas.
+
+    Devuelve::
+
+        {"categorias": {cat: tokens, ...},
+         "tokens_cacheados": int, "tokens_no_cacheados": int}
+    """
+    categorias: Dict[str, int] = {}
+    tokens_cacheados = 0
+    tokens_no_cacheados = 0
+    for i, m in enumerate(mensajes):
+        contenido = str(m.get("content", ""))
+        tokens = _contar_tokens(contenido)
+        es_sistema = bool(m.get("role") == "system") or i == 0
+        tiene_memoria = any(
+            p in contenido for p in _MARCADORES_CACHE_MEMORIA)
+        if es_sistema:
+            categoria = "sistema"
+        elif tiene_memoria:
+            categoria = ("CLAUDE.md" if "CLAUDE.md" in contenido
+                         else "SNAPCONTEXT.md")
+        elif any(p in contenido for p in _MARCADORES_CACHE_HERRAMIENTAS):
+            categoria = "herramientas"
+        else:
+            categoria = None
+        if categoria:
+            categorias[categoria] = categorias.get(categoria, 0) + tokens
+            tokens_cacheados += tokens
+        else:
+            tokens_no_cacheados += tokens
+    return {
+        "categorias": categorias,
+        "tokens_cacheados": tokens_cacheados,
+        "tokens_no_cacheados": tokens_no_cacheados,
+    }
+
+
 def _mensaje_caching_inicio(proveedor: str) -> Optional[str]:
     """Mensaje de usuario al inicio de sesión sobre prompt caching (v6.11.0).
 
@@ -4729,6 +4791,13 @@ def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
     if (_soporta_prompt_caching(proveedor)
             and _resolver_prompt_caching(prompt_caching)):
         mensajes_finales = _aplicar_cache_control(mensajes)
+        # v6.16.0: métricas de caché en modo --depurar
+        if DEPURAR:
+            _metricas = _calcular_metricas_caching(mensajes)
+            _cats = ", ".join(
+                f"{k} ({v} tokens)"
+                for k, v in _metricas["categorias"].items())
+            depurar(f"ℹ Prompt Caching activado ({proveedor}): {_cats}")
 
     if tipo == "gemini":
         if _importar_genai() is None:
@@ -10866,19 +10935,20 @@ def crear_parser() -> argparse.ArgumentParser:
         help="(v6.10.0) Muestra la ventana del navegador (por defecto es "
              "headless, sin interfaz gráfica).",
     )
-    # v6.11.0: Prompt Caching. Activado por defecto para Anthropic/DeepSeek.
+        # v6.16.0: Prompt Caching (activado por defecto; métricas en --depurar).
     parser.add_argument(
         "--prompt-caching", dest="prompt_caching", action="store_true",
         default=PROMPT_CACHING_DEFECTO,
-        help="(v6.11.0) Activa el Prompt Caching para proveedores compatibles "
+        help="(v6.16.0) Activa el Prompt Caching para proveedores compatibles "
              "(Anthropic, DeepSeek): mantiene en caché el mensaje del sistema, "
-             "las herramientas MCP y CLAUDE.md. Activado por defecto. Se "
+             "las herramientas MCP y CLAUDE.md. Activado por defecto. Con "
+             "--depurar se muestran métricas de tokens cacheados. Se "
              "desactiva con --no-prompt-caching, SNAPCONTEXT_PROMPT_CACHING=0 "
              "o 'prompt_caching': false en config.json.",
     )
     parser.add_argument(
         "--no-prompt-caching", dest="prompt_caching", action="store_false",
-        help="(v6.11.0) Desactiva el Prompt Caching (no añade marcas "
+        help="(v6.16.0) Desactiva el Prompt Caching (no añade marcas "
              "cache_control). Sin efecto para proveedores que no lo soportan.",
     )
     # v6.9.0: benchmark de rendimiento por fases.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests de la v6.12.0: Prompt Caching.
+"""Tests de la v6.16.0: Prompt Caching.
 
 Cubre:
   - Detección de proveedores que soportan caching (Anthropic, DeepSeek).
@@ -10,6 +10,8 @@ Cubre:
   - Integración en `_enviar_al_proveedor` (DeepSeek/Anthropic sí, Groq no).
   - Mensajes de sesión (`🧠 Prompt Caching activado/no soportado`).
   - Resumen automático de ReAct preservando las marcas.
+  - Métricas de tokens cacheados vs no cacheados (v6.16.0, modo --depurar).
+  - No duplicación de categorías (sistema + herramientas cuentan como sistema).
 """
 
 import os
@@ -347,8 +349,58 @@ class TestComprimirHistorialPreservaMarcas(unittest.TestCase):
         self.assertNotIn("cache_control", agente.historial[1])
 
 
-if __name__ == "__main__":
-    unittest.main()
+# 8) No duplicación de categorías en caché
+class TestNoDuplicacionCacheControl(unittest.TestCase):
+    """El sistema y las herramientas no se duplican en caché (v6.16.0)."""
+
+    def test_system_con_herramientas_solo_una_marca(self):
+        """Un mensaje 'system' que también define herramientas recibe una
+        sola marca cache_control (no se duplica)."""
+        contenido = (
+            "Eres un asistente. HERRAMIENTAS MCP: editar_archivo(ruta, "
+            "contenido), ejecutar_comando(cmd)."
+        )
+        msgs = [{"role": "system", "content": contenido}]
+        out = sc._aplicar_cache_control(msgs)
+        self.assertIn("cache_control", out[0])
+        self.assertEqual(out[0]["cache_control"], _EPHEMERAL)
+
+    def test_metricas_no_duplican_sistema_herramientas(self):
+        """_calcular_metricas_caching cuenta el mensaje del sistema una sola
+        vez como 'sistema', no como 'sistema' + 'herramientas'."""
+        contenido = (
+            "Eres un asistente. HERRAMIENTAS MCP: editar_archivo(ruta, "
+            "contenido), ejecutar_comando(cmd)."
+        )
+        msgs = [{"role": "system", "content": contenido},
+                {"role": "user", "content": "hola"}]
+        m = sc._calcular_metricas_caching(msgs)
+        self.assertIn("sistema", m["categorias"])
+        self.assertNotIn("herramientas", m["categorias"])
+        self.assertEqual(m["tokens_cacheados"],
+                         m["categorias"]["sistema"])
+        self.assertGreater(m["tokens_cacheados"], 0)
+        self.assertGreater(m["tokens_no_cacheados"], 0)
+
+
+# 9) Conteo de tokens (_contar_tokens, v6.16.0)
+class TestContarTokens(unittest.TestCase):
+    def test_cadena_vacia_devuelve_cero(self):
+        self.assertEqual(sc._contar_tokens(""), 0)
+
+    def test_aproximacion_1_token_4_chars(self):
+        self.assertEqual(sc._contar_tokens("abcd"), 1)
+
+    def test_aproximacion_2_tokens_8_chars(self):
+        self.assertEqual(sc._contar_tokens("abcdefgh"), 2)
+
+    def test_caracteres_sobrantes_no_suman_token(self):
+        self.assertEqual(sc._contar_tokens("abcde"), 1)
+
+    def test_nunca_negativo(self):
+        self.assertEqual(sc._contar_tokens("a"), 0)
+
+
 
 
 
