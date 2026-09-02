@@ -4,6 +4,27 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.15.0] - 2026-09-01 - Extensión VS Code: icono en Activity Bar y fix del chat 🧩 vscode
+
+### Fixed (extensión `snapcontext-ai` de VS Code)
+- **Chat: `SyntaxError: invalid syntax` al enviar una consulta.** Los
+  procesos se lanzaban con `shell: true` en Windows, por lo que `cmd.exe`
+  interpretaba caracteres especiales de la consulta (paréntesis, `&`,
+  comillas) y el comando llegaba roto a Python. Ahora se usa `shell: false`
+  con el array de argumentos intacto (Node hace el escaping correcto), tanto
+  para `python -m snapcontext ...` como para el script `-c` del servidor
+  del chat.
+- Se usa la ruta completa de `snapcontext.pythonPath` en lugar de
+  `path.basename(...)`, para que funcione con rutas que contienen espacios.
+
+### Added (extensión `snapcontext-ai` de VS Code)
+- **Icono en la Activity Bar**: contenedor `snapcontext` con vista webview
+  `snapcontext.chat` ("Chat") e icono propio `media/snapcontext-icon.svg`
+  (24x24, mono para theming claro/oscuro de VS Code).
+- La vista lateral reutiliza el mismo servidor del chat (`arrancarServidorChat`,
+  ahora lazy y con error claro si no responde en 10 s) sin duplicar procesos.
+
+
 ## [6.14.0] - 2026-09-01 - LSP e indexación global 🔗🔍
 
 ### Added

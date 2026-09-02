@@ -2,10 +2,14 @@
   "name": "snapcontext-ai",
   "displayName": "SnapContext AI",
   "description": "Asistente de IA con contexto automático para desarrollo: chat, planificador y selección inteligente de archivos.",
-  "version": "6.14.0",
+  "version": "6.15.0",
   "publisher": "NicolasBrunaFuentealbaIsaias",
   "license": "MIT",
   "icon":"snapcontext-icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NicolasBruna24/snapcontext"
+  },
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -62,6 +66,25 @@
       "commandPalette": [
         { "command": "snapcontext.anadirAlContexto", "when": "false" },
         { "command": "snapcontext.limpiarSeleccion", "when": "snapcontext.tieneSeleccion" }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "snapcontext",
+          "title": "SnapContext",
+          "icon": "media/snapcontext-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "snapcontext": [
+        {
+          "id": "snapcontext.chat",
+          "name": "Chat",
+          "type": "webview",
+          "icon": "media/snapcontext-icon.svg"
+        }
       ]
     },
     "configuration": {

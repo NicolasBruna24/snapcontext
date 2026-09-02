@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <!-- SnapContext: icono Activity Bar (v6.15.0) — mono, para theming de VS Code -->
+  <!-- Cámara (snapshot) + rayo (contexto rápido) -->
+  <path fill-rule="evenodd" clip-rule="evenodd"
+        d="M9.4 3h5.2l1.1 2H20a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4.3l1.1-2Z"
+        fill="none" stroke="currentColor" stroke-width="1.6"/>
+  <path d="M12.6 8.5 8.8 13.4h2.6l-.9 4.1 4-5.2h-2.7l.8-3.8Z"
+        fill="currentColor"/>
+</svg>

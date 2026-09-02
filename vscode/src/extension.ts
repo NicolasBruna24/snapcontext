@@ -19,7 +19,7 @@ import * as path from "path";
 import * as net from "net";
 
 /** Versión de la extensión (se muestra en el canal de salida). */
-const VERSION = "3.2.0";
+const VERSION = "6.15.0";
 
 /** Canal de salida compartido ("SnapContext Output"). */
 let salida: vscode.OutputChannel | null = null;
@@ -73,6 +73,14 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(disposable);
   }
 
+  // v6.15.0: vista "SnapContext: Chat" en la Activity Bar. Reutiliza la
+  // misma lógica de abrirChat() pero dentro del panel lateral.
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      "snapcontext.chat",
+      new ChatViewProvider(),
+      { webviewOptions: { retainContextWhenHidden: true } }));
+
   canal().appendLine(`SnapContext v${VERSION} listo.`);
 }
 
@@ -84,10 +92,82 @@ export function deactivate(): void {
 }
 
 // ---------------------------------------------------------------------------
+// v6.15.0: proveedor de la vista lateral "SnapContext: Chat"
+// ---------------------------------------------------------------------------
+/**
+ * Resuelve la vista `snapcontext.chat` de la Activity Bar: arranca el
+ * servidor web de SnapContext (si no está ya activo) y muestra la interfaz
+ * en un iframe dentro del panel lateral.
+ */
+class ChatViewProvider implements vscode.WebviewViewProvider {
+  /** URL del servidor del chat ya arrancado (compartida entre vistas). */
+  private static urlActiva: string | null = null;
+
+  resolveWebviewView(
+    vista: vscode.WebviewView,
+    _contexto: vscode.WebviewViewResolveContext,
+    _token: vscode.CancellationToken,
+  ): void {
+    vista.webview.options = { enableScripts: true };
+    vista.webview.html = htmlWebview(CargandoView.HTML);
+
+    void (async () => {
+      try {
+        if (!ChatViewProvider.urlActiva) {
+          ChatViewProvider.urlActiva = await arrancarServidorChat();
+        }
+        vista.webview.html = htmlWebview(ChatViewProvider.urlActiva);
+      } catch (err) {
+        vista.webview.html = htmlWebview(
+          ErrorView.HTML
+          + (err instanceof Error ? err.message : String(err))
+          + ErrorView.PIE);
+      }
+    })();
+  }
+}
+
+/** Pantalla de carga mientras arranca el servidor del chat. */
+const CargandoView = {
+  HTML: `<p style="font-family:sans-serif;color:#ccc;padding:12px">
+    ⏳ Arrancando el chat de SnapContext…</p>`,
+};
+
+/** Pantalla de error si el servidor no pudo arrancar. */
+const ErrorView = {
+  HTML: `<p style="font-family:sans-serif;color:#f66;padding:12px">
+    ✖ No se pudo iniciar el chat de SnapContext.</p>
+    <pre style="color:#ccc;padding:0 12px;white-space:pre-wrap">`,
+  PIE: `</pre>`,
+};
+
+// ---------------------------------------------------------------------------
 // Comandos
 // ---------------------------------------------------------------------------
 /** SnapContext: Abrir chat — webview con la interfaz web existente. */
 export async function abrirChat(): Promise<void> {
+  const url = await arrancarServidorChat();
+  canal().show(true);
+  canal().appendLine(`💬 Chat web activo en ${url}`);
+
+  const panel: vscode.WebviewPanel = vscode.window.createWebviewPanel(
+    "snapcontextChat",
+    "SnapContext Chat",
+    vscode.ViewColumn.One,
+    { enableScripts: true },
+  );
+  panel.webview.html = htmlWebview(url);
+  panel.onDidDispose(() => {
+    if (procesoChat) { procesoChat.kill(); procesoChat = null; }
+  });
+}
+
+/**
+ * Arranca el servidor web de SnapContext en un puerto libre (lazy: solo al
+ * abrir el chat o la vista lateral). Devuelve `http://localhost:<puerto>`.
+ * Lanza Error si el servidor no respondió antes del timeout.
+ */
+async function arrancarServidorChat(): Promise<string> {
   let puerto = 8765;
   while (!(await libre(puerto))) {
     puerto += 1;
@@ -100,29 +180,23 @@ export async function abrirChat(): Promise<void> {
     + "threading.Thread(target=arrancar_servidor,"
     + `kwargs={'puerto': ${puerto}}, daemon=True).start();`
     + "time.sleep(36000)");
-  procesoChat = spawn(path.basename(pythonPath), ["-c", script], {
+  // v6.15.0: shell:false para que el script `-c` llegue intacto a Python
+  // (con shell:true, cmd.exe rompía las comillas del kwargs del script).
+  procesoChat = spawn(pythonPath, ["-c", script], {
     cwd: ws,
     env: entornoConClave(),
-    shell: process.platform === "win32",
+    shell: false,
   });
   procesoChat.stdout?.on("data", (b: Buffer) => canal().appendLine("[chat] " + b));
   procesoChat.stderr?.on("data", (b: Buffer) => canal().appendLine("[chat] ⚠ " + b));
   procesoChat.on("close", () => { procesoChat = null; });
 
-  await esperarPuerto(puerto, 10000);
-  canal().show(true);
-  canal().appendLine(`💬 Chat web activo en http://localhost:${puerto}`);
-
-  const panel: vscode.WebviewPanel = vscode.window.createWebviewPanel(
-    "snapcontextChat",
-    "SnapContext Chat",
-    vscode.ViewColumn.One,
-    { enableScripts: true },
-  );
-  panel.webview.html = htmlWebview(`http://localhost:${puerto}`);
-  panel.onDidDispose(() => {
-    if (procesoChat) { procesoChat.kill(); procesoChat = null; }
-  });
+  const listo = await esperarPuerto(puerto, 10000);
+  if (!listo) {
+    throw new Error("El servidor del chat no respondió en 10 s "
+      + "(revisa \"snapcontext.pythonPath\" y que snapcontext esté instalado).");
+  }
+  return `http://localhost:${puerto}`;
 }
 
 /** SnapContext: Ejecutar consulta. */
@@ -320,11 +394,16 @@ function ejecutarSnap(args: string[], titulo: string): Promise<number> {
 
     barra().text = "$(sync~spin) SnapContext: trabajando…";
     const inicio = Date.now();
+    // v6.15.0: sin `shell: true`. Con shell, cmd.exe interpreta caracteres
+    // especiales de la consulta (paréntesis, &, comillas…) y provoca
+    // `SyntaxError: invalid syntax` en Python. Con shell:false el array de
+    // argumentos se pasa intacto al proceso (Node hace el escaping correcto).
     const proc: ChildProcessWithoutNullStreams =
-      spawn(path.basename(pythonPath), argv, {
+      spawn(pythonPath, argv, {
         cwd: ws,
         env: entornoConClave(),
-        shell: process.platform === "win32",
+        shell: false,
+        windowsVerbatimArguments: false,
       });
 
     const pintar = (buf: Buffer, esError: boolean = false): void => {
