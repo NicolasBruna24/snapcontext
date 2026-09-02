@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests de la v2.3.0: pasos MCP en el planificador, condiciones dinámicas,
 contexto de resultados ({{resultado}}) y paralelismo con dependencias
@@ -210,7 +210,7 @@ class TestEjecutarToolExecuteCommand(unittest.TestCase):
 
 class TestVersionYFlags(unittest.TestCase):
     def test_version_230(self):
-        self.assertEqual(sc.VERSION, "6.11.0")
+        self.assertEqual(sc.VERSION, "6.12.0")
 
     def test_flag_paralelo(self):
         args = sc.crear_parser().parse_args(["--plan", "t", "--paralelo", "3"])

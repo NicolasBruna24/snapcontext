@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests de permisos y confirmaciones (--confirmar) — v0.13.0."""
 
@@ -182,7 +182,7 @@ class TestFlagsConfirmarCLI(unittest.TestCase):
         self.assertFalse(self._parse(["--chat", "--no-confirmar"]).confirmar)
 
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "6.11.0")
+        self.assertEqual(sc.VERSION, "6.12.0")
 
 
 if __name__ == "__main__":

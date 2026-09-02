@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests de la v0.10.0: Claude (Anthropic), --chat, historial persistente,
 lectura de archivos y ejecución de comandos genéricos."""
@@ -168,7 +168,7 @@ class TestFlagsCLI(unittest.TestCase):
         self.assertTrue(args.vista_previa)
 
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "6.11.0")
+        self.assertEqual(sc.VERSION, "6.12.0")
 
 
 class TestComandosAgenteChat(unittest.TestCase):

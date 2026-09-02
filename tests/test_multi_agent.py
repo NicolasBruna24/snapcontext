@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests del sistema multi-agente (v6.0.0) — multi_agent.py.
 
@@ -421,13 +421,13 @@ class TestVersionPackaging(BaseMulti):
     """Versionado y packaging del módulo."""
 
     def test_version_600(self):
-        self.assertEqual(sc.VERSION, "6.11.0")
+        self.assertEqual(sc.VERSION, "6.12.0")
 
     def test_pyproject_incluye_multi_agent(self):
         with open(ROOT / "pyproject.toml", encoding="utf-8") as fh:
             texto = fh.read()
         self.assertIn("multi_agent", texto)
-        self.assertIn('version = "6.11.0"', texto)
+        self.assertIn('version = "6.12.0"', texto)
 
     def test_funciones_publicas_disponibles(self):
         for clase in ("Supervisor", "Arquitecto", "Programador", "Tester",

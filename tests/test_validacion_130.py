@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests de la v1.3.0: validación de carpeta permisiva y --iniciar-proyecto."""
 
@@ -126,7 +126,7 @@ class TestIniciarProyecto(unittest.TestCase):
 class TestVersion(unittest.TestCase):
     def test_version_130_coherente(self):
         import snapcontext as sc
-        self.assertEqual(sc.VERSION, "6.11.0")
+        self.assertEqual(sc.VERSION, "6.12.0")
 
 
 if __name__ == "__main__":

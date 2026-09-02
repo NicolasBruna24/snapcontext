@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests de las funcionalidades de SnapContext v2.0.0 (Editor propio y optimizaciones)."""
 
@@ -86,7 +86,7 @@ class TestFlagsEditor(unittest.TestCase):
         self.assertIsInstance(orch.agente_editor_propio, AgenteEditorPropio)
 
     def test_version_es_2_0_0(self):
-        self.assertEqual(sc.VERSION, "6.11.0")
+        self.assertEqual(sc.VERSION, "6.12.0")
 
 
 if __name__ == "__main__":

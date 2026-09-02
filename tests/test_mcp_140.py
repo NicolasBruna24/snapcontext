@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests de la v1.4.0: MCP avanzado, planificador condicional y paralelo."""
 
@@ -248,7 +248,7 @@ class TestChatComandosGrafo(unittest.TestCase):
 
 class TestVersion(unittest.TestCase):
     def test_version_140_coherente(self):
-        self.assertEqual(sc.VERSION, "6.11.0")
+        self.assertEqual(sc.VERSION, "6.12.0")
 
 
 if __name__ == "__main__":

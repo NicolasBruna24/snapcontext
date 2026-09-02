@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests de la v6.11.0: Prompt Caching.
+"""Tests de la v6.12.0: Prompt Caching.
 
 Cubre:
   - Detección de proveedores que soportan caching (Anthropic, DeepSeek).

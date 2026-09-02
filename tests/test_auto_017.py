@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests del modo autónomo (--auto) — v0.17.0."""
 
@@ -183,7 +183,7 @@ class TestFlagsAutoCli(unittest.TestCase):
         self.assertTrue(args.plan)
 
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "6.11.0")
+        self.assertEqual(sc.VERSION, "6.12.0")
 
 
 if __name__ == "__main__":

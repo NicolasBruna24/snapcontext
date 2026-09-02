@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.11.0"
+VERSION = "6.12.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -688,19 +688,47 @@ def _pintar(texto: str, codigo: str) -> str:
     return f"{codigo}{texto}{_REINICIO}"
 
 
+_TUI_HUB: object = False  # caché perezosa del hub TUI (False = no probado)
+
+
+def _tui_log(nivel: str, msg: str) -> None:
+    """Reenvía un log a la TUI (v6.12.0) si el modo está activo.
+
+    Nunca lanza ni bloquea: si Textual/tui_hub no está disponible o la cola
+    está llena, el evento simplemente se descarta. Coste ~0 cuando la TUI
+    está inactiva (una comprobación booleana).
+    """
+    global _TUI_HUB
+    if _TUI_HUB is False:
+        try:
+            import tui_hub as _hub
+            _TUI_HUB = _hub
+        except Exception:                        # noqa: BLE001
+            _TUI_HUB = None
+    if _TUI_HUB and getattr(_TUI_HUB, "esta_activo", lambda: False)():
+        try:
+            _TUI_HUB.enviar_log(nivel, str(msg))
+        except Exception:                        # noqa: BLE001 — nunca romper
+            pass
+
+
 def info(msg: str) -> None:
+    _tui_log("info", msg)
     _emitir(sys.stdout, _pintar("\u2139 " + msg, _CYAN))
 
 
 def exito(msg: str) -> None:
+    _tui_log("info", msg)
     _emitir(sys.stdout, _pintar("\u2714 " + msg, _VERDE))
 
 
 def aviso(msg: str) -> None:
+    _tui_log("warning", msg)
     _emitir(sys.stdout, _pintar("\u26a0 " + msg, _AMARILLO))
 
 
 def error(msg: str) -> None:
+    _tui_log("error", msg)
     _emitir(sys.stderr, _pintar("\u2716 " + msg, _ROJO))
 
 
@@ -2498,6 +2526,22 @@ def _mostrar_diff_parche(parche: str, ruta: Optional[str] = None) -> None:
     try:
         import ui as _ui
         anadidas, eliminadas = _contar_cambios_parche(parche)
+        # v6.12.0: envía el diff también a la TUI (pestaña Diffs) si está
+        # activa; nunca lanza ni bloquea.
+        _tui_log("info", f"📄 Diff generado: {ruta or '(parche)'} "
+                         f"(+{anadidas}/-{eliminadas})")
+        try:
+            global _TUI_HUB
+            if _TUI_HUB is False:
+                try:
+                    import tui_hub as _hub_d
+                    _TUI_HUB = _hub_d
+                except Exception:                # noqa: BLE001
+                    _TUI_HUB = None
+            if _TUI_HUB and getattr(_TUI_HUB, "esta_activo", lambda: False)():
+                _TUI_HUB.enviar_diff(ruta or "(parche)", parche)
+        except Exception:                        # noqa: BLE001 — blindaje TUI
+            pass
         _ui.mostrar_diff(ruta or "(parche)", anadidas, eliminadas, parche)
     except Exception as exc:                   # noqa: BLE001 - blindaje UI
         depurar(f"[EditorPropio] No se pudo mostrar el diff: {exc}")
@@ -9883,7 +9927,7 @@ CATEGORIAS_AYUDA = (
       "--asesor", "--asesor-auto", "--asesor-umbral", "--modelo-ligero",
       "--asesor-profundo", "--graph-rag", "--multi-agent",
       "--api", "--api-puerto", "--api-host", "--api-token", "--api-generate-key",
-      "--chat", "--web", "--web-puerto", "--demo",
+      "--chat", "--web", "--web-puerto", "--demo", "--tui",
       "--init", "--init-claude", "--historial", "--historial-limpiar",
       "--diagnostico", "--reparar", "--bienvenida")),
     ("Selección de archivos",
@@ -10995,6 +11039,13 @@ def crear_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--web-puerto", type=int, default=8000,
         help="Puerto para la interfaz web (por defecto: 8000). Requiere --web.",
+    )
+    # v6.12.0: TUI inmersiva con Textual (grupo opcional [tui]).
+    parser.add_argument(
+        "--tui", action="store_true",
+        help="Inicia la TUI inmersiva en la terminal (Textual): pestañas de "
+             "logs, árbol de archivos, control del agente y visor de diffs. "
+             "Requiere: pip install snapcontext[tui].",
     )
     # v6.7.0: expansión MCP — conexión perezosa a base de datos.
     parser.add_argument(
@@ -12145,6 +12196,55 @@ def _mostrar_tabla_benchmark(filas: List[tuple]) -> None:
         for nombre, seg in filas:
             _emitir(sys.stdout, f"  {nombre:<40} {seg:.4f} s")
 
+def _ejecutar_tui(args: argparse.Namespace) -> int:
+    """Modo TUI inmersiva (v6.12.0): ``snapcontext --tui [consulta]``.
+
+    Lanza la aplicación Textual (``tui_app.py``) y ejecuta el flujo de tarea
+    habitual (ReAct por defecto) en un hilo demonio. La comunicación agente →
+    TUI se realiza vía la cola de ``tui_hub`` (nunca bloquea al agente).
+
+    Si Textual no está instalado, muestra un error claro y devuelve 2.
+    """
+    try:
+        import tui_app
+    except Exception as exc:                     # noqa: BLE001
+        error(f"No se pudo cargar la TUI: {exc}")
+        return 2
+    if not getattr(tui_app, "TEXTUAL_DISPONIBLE", False):
+        error("Textual no está instalado. Instala el grupo opcional:\n"
+              "    pip install snapcontext[tui]\n"
+              "    (o directamente: pip install 'textual>=0.50.0')")
+        return 2
+    consulta = str(getattr(args, "consulta", "") or "")
+    print("🖥️  Iniciando la TUI de SnapContext... (Ctrl+Q para salir)")
+    # Import tardío: evita ciclos y mantiene el CLI tradicional intacto.
+    import tui_hub
+    tui_hub.reiniciar()
+    tui_hub.activar()
+
+    def _trabajo_agente() -> None:
+        try:
+            _ejecutar_modo_tarea(args)
+        except Exception as exc:                 # noqa: BLE001 — reportar en TUI
+            try:
+                tui_hub.enviar_log("error", f"Error del agente: {exc}")
+                tui_hub.enviar_fin(False, str(exc))
+            except Exception:                    # noqa: BLE001
+                pass
+
+    hilo = threading.Thread(target=_trabajo_agente, daemon=True,
+                            name="snap-tui-agente")
+    try:
+        codigo = tui_app.ejecutar_tui(consulta=consulta, tarea=hilo,
+                                      version=VERSION)
+        return int(codigo or 0)
+    except Exception as exc:                     # noqa: BLE001
+        error(f"La TUI falló: {exc}")
+        return 1
+    finally:
+        tui_hub.desactivar()
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     # Instala los manejadores de Ctrl+C / SIGTERM (cierre limpio, subprocesos
     # incluidos) antes de hacer nada. Es seguro en Windows y Linux/macOS.
@@ -12284,6 +12384,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         # --web inicia la interfaz web (FastAPI + WebSockets) y bloquea hasta parar.
         if getattr(args, "web", False):
             return iniciar_servidor_web(args)
+        # v6.12.0: --tui inicia la TUI inmersiva (Textual) y bloquea hasta salir.
+        if getattr(args, "tui", False):
+            return _ejecutar_tui(args)
         # --demo ejecuta una demo autónoma (sin API key ni Aider) y termina.
         if getattr(args, "demo", False):
             return _ejecutar_demo()

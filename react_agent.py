@@ -123,6 +123,16 @@ class ReactAgent:
                 self._wi = _wi
             except Exception:                        # noqa: BLE001
                 self._wi = None
+        # v6.12.0: si la TUI está activa (--tui), emite el timeline ReAct por
+        # tui_hub (misma interfaz que web.interactive: enviar_paso_react y
+        # enviar_estado), sin bloquear al agente.
+        if self._wi is None:
+            try:
+                import tui_hub as _hub
+                if _hub.esta_activo():
+                    self._wi = _hub
+            except Exception:                        # noqa: BLE001
+                pass
         self._grafo: Optional[dict] = None
         self._accion_actual = ""    # v6.10.0: última acción solicitada
         # Herramientas disponibles: nombre → callable(argumentos) -> dict.

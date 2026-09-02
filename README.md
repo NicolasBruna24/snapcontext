@@ -1,6 +1,6 @@
 # SnapContext
 
-![v6.11.0](https://img.shields.io/badge/version-6.11.0-blue.svg)
+![v6.12.0](https://img.shields.io/badge/version-6.12.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -150,6 +150,53 @@ O desde `~/.snapcontext/config.json`:
 > activado; para proveedores sin soporte o con caching desactivado el flujo es
 > idéntico al anterior. Al inicio de la sesión verás
 > `🧠 Prompt Caching activado para <proveedor>` (o `no soportado`).
+
+
+## 🖥️ TUI inmersiva (v6.12.0)
+
+SnapContext ahora incluye una **interfaz de terminal interactiva (TUI)** basada
+en [Textual](https://github.com/Textualize/textual), que complementa el CLI
+tradicional y la interfaz web con un centro de control inmersivo.
+
+```bash
+pip install "snapcontext[tui]"        # instalar la dependencia opcional
+snapcontext --tui                     # abrir la TUI (sin consulta)
+snapcontext --tui "revisar login"     # abrir la TUI y lanzar el agente
+```
+
+### ¿Qué incluye?
+
+- **Pestañas**:
+  - 📜 **Logs**: salida en tiempo real del agente, coloreada por nivel
+    (info / warning / error) e integrada con el flujo ReAct
+    (💭 Pensamiento → ⚡ Acción → 👁 Observación).
+  - 🎛️ **Control**: estado del agente (inactivo / pensando / ejecutando /
+    esperando / error), contador de pasos, tiempo total y botones de
+    Pausar / Reanudar / Cancelar.
+  - 🔀 **Diffs**: visor de los cambios propuestos por el editor propio
+    (con `--mostrar-diff`), coloreados (+ verde / - rojo / @@ cabeceras).
+- **Árbol de archivos** colapsable del proyecto actual (`DirectoryTree`).
+- **Atajos**: `Ctrl+Q` salir · `Ctrl+L` limpiar logs · `Ctrl+D` limpiar diffs ·
+  `Ctrl+T` mostrar/ocultar el árbol.
+
+### Arquitectura (modular, sin bloquear al agente)
+
+- El agente (`react_agent.py`, editor propio) envía eventos a una cola
+  (`tui_hub.py`, `put_nowait`); si la TUI está inactiva o la cola llena, el
+  evento se descarta: **coste ~0 para el CLI tradicional**.
+- La app (`tui_app.py`) drena la cola con un temporizador asíncrono
+  (máx. 200 eventos/tick) sin bloquear la UI.
+- El agente corre en un hilo demonio; la TUI es solo presentación.
+
+### Sin Textual instalado
+
+```text
+❌ Textual no está instalado. Instala el grupo opcional:
+    pip install snapcontext[tui]
+```
+
+> **Nota**: el CLI sin `--tui` funciona exactamente igual que antes; la TUI es
+> un modo adicional y Textual es una dependencia opcional (grupo `[tui]`).
 
 
 ## 📦 Instalación

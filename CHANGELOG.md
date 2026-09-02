@@ -4,6 +4,34 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.12.0] - 2026-09-01 - TUI inmersiva con Textual 🖥️🚀
+
+### Added
+- **Modo `--tui`** (snapcontext.py): lanza la TUI inmersiva basada en Textual.
+  El agente ejecuta el flujo habitual (ReAct por defecto) en un hilo demonio
+  mientras la TUI muestra logs, pasos, diffs y estado en tiempo real. Sin
+  Textual instalado muestra un error claro y devuelve código 2.
+- **`tui_app.py`**: aplicación `SnapContextTUI` con pestañas (Logs con
+  RichLog coloreado por nivel, Control con estado/pasos/tiempo y botones
+  Pausar/Reanudar/Cancelar, Diffs con visor coloreado), árbol de archivos
+  (`DirectoryTree`) y atajos `Ctrl+Q`/`Ctrl+L`/`Ctrl+D`/`Ctrl+T`.
+- **`tui_hub.py`**: cola de eventos no bloqueante entre el agente y la TUI
+  (`enviar_log`, `enviar_paso_react`, `enviar_estado`, `enviar_diff`,
+  `enviar_fin`). Sin Textual como dependencia: testeable de forma aislada.
+- **react_agent.py**: si la TUI está activa, el timeline ReAct
+  (Pensamiento→Acción→Observación) se emite por `tui_hub` (misma interfaz
+  que `web.interactive`) sin bloquear al agente.
+- **snapcontext.py**: `info/exito/aviso/error` reenvían los logs a la TUI
+  (coste ~0 cuando está inactiva); `_mostrar_diff_parche` envía los diffs
+  generados por el editor propio a la pestaña Diffs.
+- **pyproject.toml**: grupo opcional `tui = ["textual>=0.50.0"]`.
+- **tests/test_tui.py**: 25 casos (cola de eventos, app Textual con mocks,
+  integración con el CLI y degradación sin Textual).
+
+### Changed
+- README: nueva sección "🖥️ TUI inmersiva (v6.12.0)".
+- Versión `6.12.0` en `snapcontext.py` y `pyproject.toml`.
+
 ## [6.11.0] - 2026-09-01 - Prompt Caching 🧠⚡
 
 ### Added
