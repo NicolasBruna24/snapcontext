@@ -4,6 +4,40 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.19.0] - 2026-09-02 - Git profundo: commits atómicos por paso + revert nativo 📝
+
+### Added
+- **`_generar_mensaje_commit(diff, tarea)`**: genera mensajes de commit en formato
+  Conventional Commits con el proveedor de IA configurado; degrada a
+  `paso: {descripcion}` si no hay proveedor disponible.
+- **`_commit_paso(paso, args)`**: commit atómico tras cada paso exitoso del plan
+  (o acción ReAct que modifica archivos). Inicializa el repo con `git init` si
+  hace falta, no commitea si no hay cambios (idempotente) y registra el hash en
+  la BD. Muestra `📝 Commit automático: {mensaje} ({hash})`.
+- **`_revertir_paso(step_id)` / `snapcontext revert <step>`**: deshace un paso
+  concreto con `git revert --no-commit` + commit `revert: paso N`; sin argumento,
+  revierte el último paso commiteado. Ante conflictos sugiere `git mergetool`.
+  Muestra `↩️ Revertido paso N: {mensaje}`.
+- **Tabla `pasos`** en SQLite (migración idempotente `_db_migrar_pasos`):
+  `id, tarea_id, tipo, descripcion, commit_hash, creado` + índice por `tarea_id`.
+- Flags CLI: `--git-commit` / `--no-git-commit` (activado por defecto),
+  `--git-revert [STEP]` y `--git-mensaje TEXTO`. Comando gateway `revert <step>`.
+- Integración en ReAct: tras `editar_archivo`/`aplicar_parche` exitosas, el hash
+  del commit se añade al historial de la sesión (`[COMMIT] <hash>`) cuando el
+  agente se instancia con `git_commit=True`.
+- Saneado de secretos en mensajes de commit (`_sanear_mensaje_commit`): claves
+  tipo `sk-...`, tokens largos y asignaciones `api_key/secret/password=...` se
+  sustituyen por `[REDACTADO]`.
+- Tests: `tests/test_git_profundo.py` con 26 casos (sanear mensajes, generación
+  con IA mockeada, commit/revert reales en repos temporales, BD aislada, flags,
+  integración ReAct, migración idempotente).
+
+### Changed
+- La ejecución de planes usa `_commit_paso` (antes `_git_commit_paso`), que
+  registra el hash en la BD; un fallo de git avisa pero no bloquea el plan.
+- Versión 6.18.0 → 6.19.0 en `snapcontext.py`, `pyproject.toml`, TUI, plugins
+  VS Code/JetBrains y tests de versión.
+
 ## [6.18.0] - 2026-09-02 - Sub-agentes dinámicos bajo demanda 🤖🧠
 
 ### Added

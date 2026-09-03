@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.18.0"
+VERSION = "6.19.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -5729,6 +5729,202 @@ def _git_commit_paso(descripcion: str, directorio: str = ".") -> bool:
     return False
 
 
+# ----------------------------------------------------------------------
+# v6.19.0 — Git profundo: mensajes de commit con IA, commits atómicos
+# por paso (con hash en la BD) y revert nativo (`snapcontext revert N`).
+# ----------------------------------------------------------------------
+
+_PATRON_SECRETOS = re.compile(
+    r"(sk-[A-Za-z0-9_\-]{8,}"                            # claves OpenAI-like
+    r"|[A-Za-z0-9_\-]{32,}"                              # tokens genéricos largos
+    r"|(?:api[_-]?key|token|secret|password)\s*[:=]\s*\S+)",
+    re.IGNORECASE,
+)
+
+
+def _sanear_mensaje_commit(texto: str) -> str:
+    """Elimina posibles secretos del mensaje de commit (restricción v6.19.0)."""
+    return _PATRON_SECRETOS.sub("[REDACTADO]", texto or "")
+
+
+def _generar_mensaje_commit(diff: str, tarea: str) -> str:
+    """Genera un mensaje de commit (Conventional Commits) con el proveedor.
+
+    Si el proveedor no está disponible o falla, devuelve el mensaje genérico
+    ``"paso: {tarea}"``. Nunca lanza y nunca incluye secretos en el mensaje.
+    """
+    fallback = f"paso: {tarea}".replace('"', "'").strip() or "paso: cambio"
+    try:
+        cfg = cargar_configuracion()
+        proveedor = cfg.get("provider") or "ollama"
+        modelo = cfg.get("model") or None
+        diff_recortado = (diff or "")[:4000]
+        prompt = (
+            "Escribe UNA sola línea de mensaje de commit en formato "
+            "Conventional Commits (ej: 'feat: añadir función de "
+            "autenticación') en español, describiendo este cambio.\n\n"
+            f"Tarea: {tarea}\n\nDiff:\n{diff_recortado}\n\n"
+            "Responde SOLO con la línea del mensaje, sin comillas."
+        )
+        respuesta = _enviar_al_proveedor(proveedor, modelo, [
+            {"role": "user", "content": prompt},
+        ])
+        mensaje = _sanear_mensaje_commit(
+            (respuesta or "").strip().splitlines()[0].strip().strip('"'))
+        return mensaje or fallback
+    except Exception:                                    # noqa: BLE001
+        return fallback
+
+
+def _commit_paso(paso: dict, args: argparse.Namespace,
+                 directorio: str = ".") -> Optional[str]:
+    """Commit atómico de un paso (v6.19.0). Devuelve el hash o ``None``.
+
+    - Inicializa el repo con ``git init`` si el directorio no es repo git.
+    - Si no hay cambios, no commitea y devuelve ``None`` (idempotente).
+    - Usa ``--git-mensaje`` si el usuario lo indicó; si no, genera el mensaje
+      con IA vía :func:`_generar_mensaje_commit`.
+    - Guarda el hash en la tabla ``pasos`` de la BD y muestra
+      ``📝 Commit automático: {mensaje} ({hash})``.
+    Nunca lanza: un fallo de git no debe bloquear el plan.
+    """
+    try:
+        descripcion = str(paso.get("descripcion") or "cambio")
+        if not _es_repo_git(directorio):
+            _ejecutar_comando("git init", directorio, timeout=30)
+        codigo_estado, salida_estado, _ = _ejecutar_comando(
+            "git status --porcelain", directorio, timeout=30)
+        if codigo_estado != 0 or not (salida_estado or "").strip():
+            depurar("[git-profundo] Sin cambios; no se commitea.")
+            return None
+        _ejecutar_comando("git add .", directorio, timeout=60)
+        if getattr(args, "git_mensaje", None):
+            mensaje = str(args.git_mensaje).replace('"', "'")
+        else:
+            mensaje = _generar_mensaje_commit(salida_estado, descripcion)
+        mensaje = _sanear_mensaje_commit(mensaje)
+        codigo, _, stderr = _ejecutar_comando(
+            f'git commit -m "{mensaje}"', directorio, timeout=60)
+        if codigo != 0:
+            aviso(f"El commit del paso falló: {(stderr or '').strip()}")
+            return None
+        _, salida_hash, _ = _ejecutar_comando(
+            "git rev-parse HEAD", directorio, timeout=30)
+        commit_hash = (salida_hash or "").strip() or None
+        _db_registrar_paso(descripcion, commit_hash,
+                           tipo=str(paso.get("accion") or "paso"))
+        _emitir(sys.stdout, _pintar(
+            f"📝 Commit automático: {mensaje} ({commit_hash})", _VERDE))
+        return commit_hash
+    except Exception as exc:                             # noqa: BLE001
+        aviso(f"[git-profundo] No se pudo commitear el paso: {exc}")
+        return None
+
+
+def _db_registrar_paso(descripcion: str, commit_hash: Optional[str],
+                       tipo: str = "paso",
+                       tarea_id: Optional[int] = None) -> Optional[int]:
+    """Inserta una fila en la tabla ``pasos`` y devuelve su id (o ``None``)."""
+    try:
+        _db_ejecutar(
+            "INSERT INTO pasos (tarea_id, tipo, descripcion, commit_hash)"
+            " VALUES (?, ?, ?, ?)",
+            (tarea_id, tipo, descripcion, commit_hash))
+        filas = _db_query("SELECT last_insert_rowid() AS id")
+        return int(filas[0]["id"]) if filas else None
+    except Exception:                                    # noqa: BLE001
+        return None
+
+
+def _db_migrar_pasos() -> None:
+    """Migración v6.19.0: crea la tabla ``pasos`` (commits atómicos) si falta.
+
+    Idempotente: usa ``CREATE TABLE IF NOT EXISTS``, de modo que las bases
+    creadas antes de v6.19.0 se actualizan sin perder datos.
+    """
+    _db_ejecutar(
+        "CREATE TABLE IF NOT EXISTS pasos ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "tarea_id INTEGER, "
+        "tipo TEXT NOT NULL, "
+        "descripcion TEXT, "
+        "commit_hash TEXT, "
+        "creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+    _db_ejecutar(
+        "CREATE INDEX IF NOT EXISTS idx_pasos_tarea ON pasos(tarea_id)")
+
+
+def _revertir_paso(step_id: int) -> bool:
+    """Revierte el commit del paso ``step_id`` (v6.19.0). True si ok.
+
+    Ejecuta ``git revert --no-commit <hash>`` + ``git commit -m
+    "revert: paso {id}"``. Si hay conflictos, sugiere ``git mergetool``.
+    """
+    filas = _db_query(
+        "SELECT * FROM pasos WHERE id = ? ORDER BY id DESC LIMIT 1", (step_id,))
+    if not filas:
+        error(f"No existe el paso {step_id} en la base de datos.")
+        return False
+    paso = filas[0]
+    commit_hash = paso["commit_hash"]
+    mensaje = paso["descripcion"] or ""
+    if not commit_hash:
+        aviso(f"El paso {step_id} no tiene commit asociado.")
+        return False
+    if not _es_repo_git("."):
+        error("El directorio actual no es un repositorio git.")
+        return False
+    codigo, _, stderr = _ejecutar_comando(
+        f"git revert --no-commit {commit_hash}", ".", timeout=120)
+    texto_err = (stderr or "")
+    if codigo != 0:
+        if "conflict" in texto_err.lower():
+            error(f"Conflicto al revertir el paso {step_id}:\n"
+                  f"{texto_err.strip()}\n"
+                  "Resuélvelo con 'git mergetool' y finaliza con "
+                  "'git commit'.")
+        else:
+            error(f"No se pudo revertir el paso {step_id}: "
+                  f"{texto_err.strip()}")
+        return False
+    codigo, _, stderr = _ejecutar_comando(
+        f'git commit -m "revert: paso {step_id}"', ".", timeout=60)
+    if codigo != 0 and "nothing to commit" not in (stderr or "").lower():
+        error(f"No se pudo cerrar el revert del paso {step_id}: "
+              f"{(stderr or '').strip()}")
+        return False
+    _db_registrar_paso(f"revert: paso {step_id}", None, tipo="revert")
+    _emitir(sys.stdout, _pintar(
+        f"↩️ Revertido paso {step_id}: {mensaje}", _AMARILLO))
+    return True
+
+
+def _ejecutar_revert(step: Optional[str] = None) -> int:
+    """Comando ``snapcontext revert <step>`` (v6.19.0).
+
+    ``step`` puede ser un id numérico; si se omite, se revierte el último
+    paso commiteado. Devuelve el código de salida (0 = éxito).
+    """
+    try:
+        if step is None or not str(step).strip():
+            filas = _db_query(
+                "SELECT id FROM pasos WHERE tipo != 'revert' "
+                "AND commit_hash IS NOT NULL ORDER BY id DESC LIMIT 1")
+            if not filas:
+                error("No hay pasos con commit para revertir.")
+                return 1
+            step_id = int(filas[0]["id"])
+        else:
+            step_id = int(str(step).strip())
+    except (TypeError, ValueError):
+        error(f"Paso inválido: {step!r}. Usa 'snapcontext revert <N>'.")
+        return 1
+    filas = _db_query("SELECT id FROM pasos WHERE id = ?", (step_id,))
+    if not filas:
+        error(f"El paso {step_id} no existe en la base de datos.")
+        return 1
+    return 0 if _revertir_paso(step_id) else 1
+
 def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
                         raiz: str) -> tuple:
     """Ejecuta un paso del plan. Devuelve (ok: bool, detalle: str).
@@ -6227,7 +6423,7 @@ def _ejecutar_paso_paralelo(paso: dict, args: argparse.Namespace,
     _emitir(sys.stdout, f"  {marca} {prefijo} terminado ({detalle})")
     if ok and getattr(args, "git_commit", True):
         with _CANDADO_GIT_PLAN:
-            _git_commit_paso(paso["descripcion"], raiz)
+            _commit_paso(paso, args, raiz)
     return {"paso": numero, "descripcion": paso["descripcion"],
             "accion": paso["accion"], "resultado": "éxito" if ok else "fallo",
             "detalle": detalle, "intentos": 1}
@@ -6389,7 +6585,7 @@ def _ejecutar_multi_agent(args: argparse.Namespace) -> int:
     return 1
 
 
-# v6.18.0: gestión de sub-agentes dinámicos desde la CLI (independiente).
+# v6.19.0: gestión de sub-agentes dinámicos desde la CLI (independiente).
 def _ejecutar_listar_sub_agentes() -> int:
     """``snapcontext --sub-agente-listar``: lista los sub-agentes registrados."""
     try:
@@ -6473,6 +6669,9 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
         prompt_caching=getattr(args, "prompt_caching",
                                PROMPT_CACHING_DEFECTO),
         lsp=bool(getattr(args, "lsp", False)),
+        # v6.19.0: commits automáticos por acción (git profundo).
+        git_commit=bool(getattr(args, "git_commit", True)),
+        git_mensaje=getattr(args, "git_mensaje", None),
     )
     # v6.10.0: activar el modo navegador si se pidió --browser. La sesión
     # (navegador headless persistente) se cierra al terminar la tarea.
@@ -6696,7 +6895,7 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
             _registrar_resultado_plan(numero, ok, detalle)
             estado_seq[indice] = "éxito" if ok else "fallo"
             if ok and getattr(args, "git_commit", True):
-                _git_commit_paso(paso["descripcion"], raiz)
+                _commit_paso(paso, args, raiz)
 
             if auto:
                 # Autónomo: cada paso se registra una única vez (último intento).
@@ -6894,6 +7093,7 @@ def _db_init() -> str:
         _db_migrar_curador()
         _db_migrar_reglas()
         _db_migrar_tareas()
+        _db_migrar_pasos()
     return str(ruta)
 
 
@@ -10946,13 +11146,13 @@ def crear_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sub-agente-nuevo", dest="sub_agente_nuevo", nargs=2,
         metavar=("NOMBRE", "DESCRIPCION"), default=None,
-        help="v6.18.0: registra un sub-agente din\u00e1mico nuevo "
+        help="v6.19.0: registra un sub-agente din\u00e1mico nuevo "
              "(<nombre> + <descripcion>) para usarlo bajo demanda, como plugin.",
     )
     parser.add_argument(
         "--sub-agente-listar", dest="sub_agente_listar", action="store_true",
         default=False,
-        help="v6.18.0: lista los sub-agentes din\u00e1micos registrados y sale.",
+        help="v6.19.0: lista los sub-agentes din\u00e1micos registrados y sale.",
     )
     parser.add_argument(
         "--lsp", dest="lsp", action="store_true", default=False,
@@ -11281,6 +11481,18 @@ def crear_parser() -> argparse.ArgumentParser:
         "--git-commit", action=argparse.BooleanOptionalAction, default=True,
         help="En modo --plan, hace 'git add . && git commit' tras cada paso exitoso "
              "(por defecto: activado; desactivar con --no-git-commit).",
+    )
+    # v6.19.0 — Git profundo: revert nativo y mensaje manual de commit.
+    parser.add_argument(
+        "--git-revert", dest="git_revert", nargs="?", const=-1, default=None,
+        type=int, metavar="STEP",
+        help="Revierte el paso indicado (id de la tabla 'pasos') con "
+             "'git revert'. Sin valor, revierte el último paso commiteado.",
+    )
+    parser.add_argument(
+        "--git-mensaje", dest="git_mensaje", default=None, metavar="TEXTO",
+        help="Mensaje manual para los commits automáticos por paso "
+             "(si se omite, se genera con IA en formato Conventional Commits).",
     )
     parser.add_argument(
         "--branch", dest="branch", default=None, metavar="NOMBRE",
@@ -12430,6 +12642,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     # v5.0.0: curador proactivo — `snapcontext curador estado|ejecutar|activar|desactivar`.
     if argv and argv[0].lower() == "curador":
         return _ejecutar_comando_curador(argv[1:])
+    # v6.19.0: git profundo — `snapcontext revert <step>` deshace un paso.
+    if argv and argv[0].lower() == "revert":
+        return _ejecutar_revert(argv[1] if len(argv) > 1 else None)
     args = crear_parser().parse_args(_preparar_argv_aliases(argv))
     try:
         # v6.9.0: benchmark de rendimiento por fases (no necesita API key).
@@ -12544,12 +12759,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         # v6.12.0: --tui inicia la TUI inmersiva (Textual) y bloquea hasta salir.
         if getattr(args, "tui", False):
             return _ejecutar_tui(args)
-        # v6.18.0: gestión de sub-agentes dinámicos (independiente).
+        # v6.19.0: gestión de sub-agentes dinámicos (independiente).
         if getattr(args, "sub_agente_listar", False):
             return _ejecutar_listar_sub_agentes()
         if getattr(args, "sub_agente_nuevo", None):
             _nombre, _desc = args.sub_agente_nuevo
             return _registrar_sub_agente_cli(_nombre, _desc)
+        # v6.19.0: git profundo — revert de un paso (independiente).
+        if getattr(args, "git_revert", None) is not None:
+            _paso = args.git_revert
+            return _ejecutar_revert(
+                None if _paso == -1 else str(_paso))
         # --demo ejecuta una demo autónoma (sin API key ni Aider) y termina.
         if getattr(args, "demo", False):
             return _ejecutar_demo()

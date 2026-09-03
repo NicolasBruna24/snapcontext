@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Sub-agentes dinámicos de SnapContext — v6.18.0.
+"""Sub-agentes dinámicos de SnapContext — v6.19.0.
 
 Permite al Supervisor (``multi_agent.py``) instanciar agentes ReAct
 especializados bajo demanda, cada uno con su propio historial (contexto
 aislado), un rol predefinido con prompt y herramientas restringidas, un
 buzón de mensajes y ejecución en paralelo controlada.
 
-v6.18.0 añade:
+v6.19.0 añade:
   - ``SubAgentRegistry``: registro consultable y extensible de sub-agentes
     (``registrar`` / ``obtener`` / ``listar``) con un registro por defecto
     (scout, debugger, reviewer, documentador).
@@ -98,7 +98,7 @@ ROLES: Dict[str, Dict[str, Any]] = {
     },
 }
 
-# v6.18.0: los prompts de los roles canónicos provienen de sub_agent_prompts.py
+# v6.19.0: los prompts de los roles canónicos provienen de sub_agent_prompts.py
 # (fuente única). frontender/tester conservan su definición local.
 for _rol_prompt, _texto in _PROMPTS.items():
     if _rol_prompt in ROLES:
@@ -118,7 +118,7 @@ def listar_roles() -> List[str]:
 
 
 # ---------------------------------------------------------------------------
-# Registro de sub-agentes (v6.18.0)
+# Registro de sub-agentes (v6.19.0)
 # ---------------------------------------------------------------------------
 class SubAgentRegistry:
     """Registro consultable y extensible de sub-agentes.
@@ -200,7 +200,7 @@ class SubAgente:
                  buzon: Optional[Any] = None, auto: bool = True,
                  browser: bool = False, lsp: bool = False,
                  config: Optional[Dict[str, Any]] = None) -> None:
-        # v6.18.0: roles dinámicos. Si se pasa un ``config`` válido, se usa ese
+        # v6.19.0: roles dinámicos. Si se pasa un ``config`` válido, se usa ese
         # prompt/herramientas/límite aunque el ``rol`` no esté en ROLES.
         if config and isinstance(config, dict):
             self.config_rol = {

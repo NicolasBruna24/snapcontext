@@ -47,6 +47,12 @@ def _max_historial() -> int:
         return MAX_HISTORIAL_DEFAULT
 
 
+def _ns_git(git_mensaje: Optional[str]):
+    """Namespace mínimo para `sc._commit_paso` desde el ReAct (v6.19.0)."""
+    import argparse
+    return argparse.Namespace(git_mensaje=git_mensaje)
+
+
 def estimar_tokens(texto: str) -> int:
     """Estimación ligera de tokens (~4 caracteres por token)."""
     return max(1, len(texto or "") // 4)
@@ -77,6 +83,9 @@ class ReactAgent:
         "invocar_sub_agente",
     )
 
+    # v6.19.0: acciones que modifican archivos → commit automático (git profundo).
+    ACCIONES_CON_COMMIT = ("editar_archivo", "aplicar_parche")
+
     def __init__(self, directorio: str = ".", auto: bool = False,
                  max_iter: int = 15, proveedor: Optional[str] = None,
                  modelo: Optional[str] = None, graph_rag: bool = False,
@@ -87,7 +96,9 @@ class ReactAgent:
                  browser: bool = False,
                  prompt_caching: Optional[bool] = None,
                  lsp: bool = False,
-                 sub_agents: bool = True):
+                 sub_agents: bool = True,
+                 git_commit: bool = False,
+                 git_mensaje: Optional[str] = None):
         self.directorio = str(Path(directorio).resolve())
         self.auto = bool(auto)
         # v6.10.0: modo navegador (--browser). Activa las herramientas de
@@ -96,6 +107,9 @@ class ReactAgent:
         # v6.14.0: herramientas LSP (--lsp). Si están inactivas, dan error
         # claro; el cliente se lanza perezosamente en la primera consulta.
         self.lsp = bool(lsp)
+        # v6.19.0: commits automáticos por acción que modifica archivos.
+        self.git_commit = bool(git_commit)
+        self.git_mensaje = git_mensaje
         if self.browser:
             try:
                 import mcp_tools_browser as btool
@@ -874,6 +888,24 @@ class ReactAgent:
                 else:
                     observacion = self._observar_resultado(resultado_accion)
                     ok_accion = bool(resultado_accion.get("ok"))
+                # v6.19.0 (git profundo): tras una acción que modifica
+                # archivos, commitea atómicamente y registra el hash en el
+                # historial de la sesión. Nunca bloquea el bucle ReAct.
+                if (ok_accion and self.git_commit
+                        and accion in self.ACCIONES_CON_COMMIT):
+                    try:
+                        _hash = sc._commit_paso(
+                            {"accion": accion,
+                             "descripcion": str(decision.get("pensamiento")
+                                                or accion)},
+                            _ns_git(self.git_mensaje),
+                            self.directorio)
+                        if _hash:
+                            self.historial.append({
+                                "role": "user",
+                                "content": f"[COMMIT] {_hash}"})
+                    except Exception as _exc:            # noqa: BLE001
+                        sc.aviso(f"[ReAct] Commit automático falló: {_exc}")
                 icono = "✅" if ok_accion else "⚠️"
                 sc.info(f"   {icono} Acción: {accion}")
                 sc.exito(observacion.splitlines()[0])
