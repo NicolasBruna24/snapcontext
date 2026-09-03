@@ -12,9 +12,11 @@ from pathlib import Path
 from unittest import mock
 
 import sub_agent
-from sub_agent import (ROLES, ROLES_VALIDOS, SubAgente, listar_roles,
+from sub_agent import (ROLES, ROLES_VALIDOS, SubAgente, SubAgentRegistry,
+                       REGISTRO_SUB_AGENTES, listar_roles,
                        rol_valido, ejecutar_sub_agentes_paralelo,
                        ejecutar_tarea_sub_agente)
+from sub_agent_prompts import PROMPTS, ROLES_DEFECTO
 
 
 def _silencio():
@@ -24,10 +26,10 @@ def _silencio():
 class TestRoles(unittest.TestCase):
     """Roles predefinidos y registro."""
 
-    def test_hay_5_roles(self):
+    def test_hay_6_roles(self):
         self.assertEqual(set(ROLES.keys()),
                          {"scout", "debugger", "frontender", "tester",
-                          "documentador"})
+                          "documentador", "reviewer"})
 
     def test_roles_tienen_prompt_y_herramientas(self):
         for rol, cfg in ROLES.items():
@@ -356,6 +358,205 @@ class TestFlagsCLI(unittest.TestCase):
             ["--multi-agent", "--sub-agents", "--max-parallel", "5", "hola"])
         self.assertTrue(args.sub_agents)
         self.assertEqual(args.max_parallel, 5)
+
+
+class TestFlagsNuevos(unittest.TestCase):
+    """Flags --sub-agente-nuevo / --sub-agente-listar (v6.18.0)."""
+
+    def test_flag_nuevo_parsea_dos_args(self):
+        import snapcontext as sc
+        args = sc.crear_parser().parse_args(
+            ["--sub-agente-nuevo", "miPlugin", "revisa el front"])
+        self.assertEqual(args.sub_agente_nuevo, ["miPlugin", "revisa el front"])
+
+    def test_flag_listar_por_defecto_false(self):
+        import snapcontext as sc
+        args = sc.crear_parser().parse_args(["hola"])
+        self.assertFalse(args.sub_agente_listar)
+
+    def test_flag_listar_true(self):
+        import snapcontext as sc
+        args = sc.crear_parser().parse_args(["--sub-agente-listar"])
+        self.assertTrue(args.sub_agente_listar)
+
+    def test_registrar_sub_agente_cli(self):
+        import snapcontext as sc
+        with mock.patch("sub_agent.REGISTRO_SUB_AGENTES") as reg:
+            reg.registrar.side_effect = lambda n, c: None
+            r = sc._registrar_sub_agente_cli("auditor", "revisa seguridad")
+        self.assertEqual(r, 0)
+        reg.registrar.assert_called_once()
+        _, cfg = reg.registrar.call_args[0]
+        self.assertEqual(cfg["descripcion"], "revisa seguridad")
+        self.assertIn("leer_archivo", cfg["herramientas"])
+
+    def test_listar_sub_agentes_ok(self):
+        import snapcontext as sc
+        with mock.patch("sub_agent.REGISTRO_SUB_AGENTES") as reg:
+            reg.listar.return_value = ["scout", "reviewer"]
+            reg.obtener.side_effect = lambda n: {"descripcion": "d",
+                                                 "herramientas": ["leer"],
+                                                 "max_iter": 8}
+            self.assertEqual(sc._ejecutar_listar_sub_agentes(), 0)
+
+
+class TestSubAgentRegistry(unittest.TestCase):
+    """Registro consultable y extensible (v6.18.0)."""
+
+    def test_registro_por_defecto(self):
+        reg = SubAgentRegistry()
+        self.assertEqual(reg.listar(), ["debugger", "documentador",
+                                        "reviewer", "scout"])
+
+    def test_obtener_devuelve_config(self):
+        reg = SubAgentRegistry()
+        cfg = reg.obtener("scout")
+        self.assertEqual(cfg["rol"], "scout")
+        self.assertTrue(cfg["prompt"])
+        self.assertIn("finalizar", cfg["herramientas"])
+        self.assertIn("max_iter", cfg)
+
+    def test_obtener_desconocido_lanza_keyerror(self):
+        reg = SubAgentRegistry()
+        with self.assertRaises(KeyError):
+            reg.obtener("fantasma")
+
+    def test_registrar_rol_nuevo(self):
+        reg = SubAgentRegistry(predefinidos=False)
+        reg.registrar("auditor", {"descripcion": "revisa seguridad",
+                                  "prompt": "Eres Auditor.",
+                                  "herramientas": ["leer_archivo", "finalizar"],
+                                  "max_iter": 5})
+        self.assertIn("auditor", reg.listar())
+        cfg = reg.obtener("auditor")
+        self.assertEqual(cfg["rol"], "auditor")
+        self.assertEqual(cfg["max_iter"], 5)
+
+    def test_registrar_sobrescribe(self):
+        reg = SubAgentRegistry(predefinidos=False)
+        reg.registrar("auditor", {"prompt": "v1", "herramientas": [],
+                                  "max_iter": 3})
+        reg.registrar("auditor", {"prompt": "v2", "herramientas": [],
+                                  "max_iter": 6})
+        self.assertEqual(reg.obtener("auditor")["prompt"], "v2")
+        self.assertEqual(reg.obtener("auditor")["max_iter"], 6)
+
+    def test_contiene(self):
+        reg = SubAgentRegistry()
+        self.assertIn("reviewer", reg)
+        self.assertNotIn("fantasma", reg)
+
+    def test_subagente_con_config_dinamico(self):
+        # Un rol nuevo (no en ROLES) se instancia si se pasa su configuración.
+        cfg = {"prompt": "Eres Auditor.", "herramientas": ["leer_archivo",
+                                                            "finalizar"],
+               "max_iter": 5}
+        with _silencio():
+            sub = SubAgente("auditor", config=cfg)
+        self.assertEqual(sub.rol, "auditor")
+        self.assertEqual(sub.max_iteraciones, 5)
+        self.assertIn("leer_archivo", sub.herramientas)
+        self.assertNotIn("editar_archivo", sub.herramientas)
+
+
+class TestPrompts(unittest.TestCase):
+    """Módulo sub_agent_prompts.py (v6.18.0)."""
+
+    def test_prompts_por_defecto(self):
+        for rol in ("scout", "debugger", "reviewer", "documentador"):
+            self.assertIn(rol, PROMPTS)
+            self.assertTrue(PROMPTS[rol].strip())
+
+    def test_roles_defecto(self):
+        self.assertEqual(set(ROLES_DEFECTO),
+                         {"scout", "debugger", "reviewer", "documentador"})
+
+    def test_roles_usan_prompts_canonicos(self):
+        for rol in PROMPTS:
+            self.assertIn(rol, ROLES)
+            self.assertEqual(ROLES[rol]["prompt"], PROMPTS[rol])
+
+
+class TestInvocacion(unittest.TestCase):
+    """Invocación bajo demanda desde Supervisor y ReAct (v6.18.0)."""
+
+    def _supervisor(self, **kwargs):
+        from multi_agent import Supervisor
+        with tempfile.TemporaryDirectory() as tmp:
+            kwargs.setdefault("directorio", tmp)
+            return Supervisor(**kwargs)
+
+    def test_supervisor_invoca_sub_agente(self):
+        sup = self._supervisor()
+        fake = mock.MagicMock()
+        fake.ejecutar.return_value = {"ok": True, "resultado": "ok rescate",
+                                      "iteraciones": 1, "abortado": False,
+                                      "rol": "scout", "nombre": "scout"}
+        with _silencio(), mock.patch("sub_agent.SubAgente",
+                                     return_value=fake) as cls:
+            r = sup.invocar_sub_agente("scout", "investiga")
+        self.assertTrue(r["ok"])
+        self.assertIn(fake, sup.sub_agentes)
+        cfg = cls.call_args.kwargs["config"]
+        self.assertEqual(cfg["rol"], "scout")
+
+    def test_supervisor_invoca_desconocido_error(self):
+        sup = self._supervisor()
+        with mock.patch("sub_agent.SubAgente"):
+            with self.assertRaises(KeyError):
+                sup.invocar_sub_agente("fantasma")
+
+    def test_react_tool_registrada_por_defecto(self):
+        import react_agent
+        agente = react_agent.ReactAgent(directorio=".", auto=True)
+        self.assertIn("invocar_sub_agente", agente.herramientas)
+        self.assertIn("invocar_sub_agente",
+                      react_agent.ReactAgent.ACCIONES_VALIDAS)
+
+    def test_react_tool_desactivable(self):
+        import react_agent
+        agente = react_agent.ReactAgent(directorio=".", auto=True,
+                                        sub_agents=False)
+        self.assertNotIn("invocar_sub_agente", agente.herramientas)
+
+    def test_react_tool_ejecuta_sub_agente(self):
+        import react_agent
+        agente = react_agent.ReactAgent(directorio=".", auto=True)
+        fake = mock.MagicMock()
+        fake.ejecutar.return_value = {"ok": True, "resultado": "ok rescate",
+                                      "iteraciones": 2, "abortado": False}
+        with _silencio(), mock.patch("sub_agent.SubAgente",
+                                     return_value=fake):
+            r = agente._tool_invocar_sub_agente(
+                {"nombre": "debugger", "consulta": "analiza el log"})
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["rol"], "debugger")
+        self.assertEqual(r["resultado"], "ok rescate")
+
+    def test_react_tool_sin_nombre_error(self):
+        import react_agent
+        agente = react_agent.ReactAgent(directorio=".", auto=True)
+        r = agente._tool_invocar_sub_agente({"consulta": "x"})
+        self.assertFalse(r["ok"])
+        self.assertIn("nombre", r["error"])
+
+
+class TestVersion618(unittest.TestCase):
+    """La versión se actualiza a 6.18.0 en snapcontext y pyproject."""
+
+    def test_version_snapcontext(self):
+        import snapcontext as sc
+        self.assertEqual(sc.VERSION, "6.18.0")
+
+    def test_version_pyproject(self):
+        import os
+        ruta = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "pyproject.toml")
+        with open(ruta, encoding="utf-8") as fh:
+            self.assertIn('version = "6.18.0"', fh.read())
+        # El módulo de sub-agentes se empaqueta en el .whl.
+        with open(ruta, encoding="utf-8") as fh2:
+            self.assertIn("sub_agent_prompts", fh2.read())
 
 
 if __name__ == "__main__":

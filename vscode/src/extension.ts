@@ -19,7 +19,7 @@ import * as path from "path";
 import * as net from "net";
 
 /** Versión de la extensión (se muestra en el canal de salida). */
-const VERSION = "6.17.0";
+const VERSION = "6.18.0";
 
 /** Canal de salida compartido ("SnapContext Output"). */
 let salida: vscode.OutputChannel | null = null;

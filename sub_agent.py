@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Sub-agentes dinámicos de SnapContext — v6.13.0.
+"""Sub-agentes dinámicos de SnapContext — v6.18.0.
 
 Permite al Supervisor (``multi_agent.py``) instanciar agentes ReAct
 especializados bajo demanda, cada uno con su propio historial (contexto
 aislado), un rol predefinido con prompt y herramientas restringidas, un
 buzón de mensajes y ejecución en paralelo controlada.
+
+v6.18.0 añade:
+  - ``SubAgentRegistry``: registro consultable y extensible de sub-agentes
+    (``registrar`` / ``obtener`` / ``listar``) con un registro por defecto
+    (scout, debugger, reviewer, documentador).
+  - Configuración dinámica: ``SubAgente`` acepta un ``config`` propio, por lo
+    que se pueden definir roles nuevos sin modificar ``ROLES``.
+  - Prompts canónicos en ``sub_agent_prompts.py`` (importados aquí).
 
 Se activa con ``--sub-agents`` junto a ``--multi-agent``. Sin el flag, el
 comportamiento de SnapContext es exactamente el mismo de siempre.
@@ -15,6 +23,8 @@ from __future__ import annotations
 
 import threading
 from typing import Any, Callable, Dict, List, Optional
+
+from sub_agent_prompts import PROMPTS as _PROMPTS
 
 # ---------------------------------------------------------------------------
 # Roles predefinidos
@@ -78,7 +88,21 @@ ROLES: Dict[str, Dict[str, Any]] = {
                          "finalizar"],
         "max_iter": 8,
     },
+    "reviewer": {
+        "emoji": "REVIEWER",
+        "descripcion": "Revisa cambios en PRs, analiza impacto y sugiere mejoras.",
+        "prompt": _PROMPTS["reviewer"],
+        "herramientas": ["leer_archivo", "buscar_codigo", "ejecutar_comando",
+                         "ejecutar_pruebas", "finalizar"],
+        "max_iter": 8,
+    },
 }
+
+# v6.18.0: los prompts de los roles canónicos provienen de sub_agent_prompts.py
+# (fuente única). frontender/tester conservan su definición local.
+for _rol_prompt, _texto in _PROMPTS.items():
+    if _rol_prompt in ROLES:
+        ROLES[_rol_prompt]["prompt"] = _texto
 
 ROLES_VALIDOS = tuple(ROLES.keys())
 
@@ -91,6 +115,73 @@ def rol_valido(rol: str) -> bool:
 def listar_roles() -> List[str]:
     """Lista ordenada de roles disponibles."""
     return sorted(ROLES.keys())
+
+
+# ---------------------------------------------------------------------------
+# Registro de sub-agentes (v6.18.0)
+# ---------------------------------------------------------------------------
+class SubAgentRegistry:
+    """Registro consultable y extensible de sub-agentes.
+
+    Guarda la configuración de cada sub-agente (descripción, prompt, rol
+    subyacente, herramientas permitidas y límite de iteraciones) para poder
+    instanciarlos bajo demanda y listarlos. Admite roles nuevos: ``registrar``
+    no exige que el nombre exista en :data:`ROLES`.
+
+    - :meth:`registrar`: añade o sobrescribe un sub-agente.
+    - :meth:`obtener`: devuelve la configuración (``KeyError`` si no existe).
+    - :meth:`listar`: nombres ordenados de los registrados.
+    """
+
+    # Registro por defecto que exige el brief: scout, debugger, reviewer,
+    # documentador.
+    ROLES_POR_DEFECTO = ("scout", "debugger", "reviewer", "documentador")
+
+    def __init__(self, predefinidos: bool = True) -> None:
+        self._registro: Dict[str, Dict[str, Any]] = {}
+        if predefinidos:
+            for rol in self.ROLES_POR_DEFECTO:
+                cfg = dict(ROLES[rol])
+                cfg["rol"] = rol
+                cfg["nombre"] = rol
+                self._registro[rol] = cfg
+
+    def registrar(self, nombre: str, config: Dict[str, Any]) -> None:
+        """Registra (o sobrescribe) un sub-agente con ``config``."""
+        nombre = str(nombre).strip().lower()
+        cfg = dict(config or {})
+        cfg["nombre"] = nombre
+        cfg["rol"] = str(cfg.get("rol") or nombre).strip().lower()
+        if ROLES.get(cfg["rol"]):
+            base = dict(ROLES[cfg["rol"]])
+            base.update({k: v for k, v in cfg.items() if v is not None})
+            cfg = base
+        cfg.setdefault("prompt", _PROMPTS.get(nombre) or f"Eres {nombre}.")
+        cfg.setdefault("herramientas",
+                       ["leer_archivo", "buscar_codigo", "finalizar"])
+        cfg.setdefault("max_iter", 8)
+        cfg.setdefault("descripcion", "")
+        self._registro[nombre] = cfg
+
+    def obtener(self, nombre: str) -> Dict[str, Any]:
+        """Configuración copiada de un sub-agente; ``KeyError`` si no existe."""
+        clave = str(nombre).strip().lower()
+        if clave not in self._registro:
+            raise KeyError(
+                f"Sub-agente no registrado: '{nombre}'. Disponibles: "
+                f"{', '.join(sorted(self._registro))}")
+        return dict(self._registro[clave])
+
+    def listar(self) -> List[str]:
+        """Nombres ordenados de los sub-agentes registrados."""
+        return sorted(self._registro.keys())
+
+    def __contains__(self, nombre: str) -> bool:
+        return str(nombre).strip().lower() in self._registro
+
+
+# Registro por defecto (compartido por la CLI, el Supervisor y el agente ReAct).
+REGISTRO_SUB_AGENTES = SubAgentRegistry()
 
 
 class SubAgente:
@@ -107,15 +198,32 @@ class SubAgente:
                  modelo: Optional[str] = None,
                  max_iteraciones: Optional[int] = None,
                  buzon: Optional[Any] = None, auto: bool = True,
-                 browser: bool = False, lsp: bool = False) -> None:
-        rol = str(rol).strip().lower()
-        if rol not in ROLES:
-            raise ValueError(
-                f"Rol de sub-agente desconocido: '{rol}'. Válidos: "
-                f"{', '.join(ROLES_VALIDOS)}")
-        self.rol = rol
-        self.nombre = nombre or f"{rol}-{id(self) % 10000:04d}"
-        self.config_rol = ROLES[rol]
+                 browser: bool = False, lsp: bool = False,
+                 config: Optional[Dict[str, Any]] = None) -> None:
+        # v6.18.0: roles dinámicos. Si se pasa un ``config`` válido, se usa ese
+        # prompt/herramientas/límite aunque el ``rol`` no esté en ROLES.
+        if config and isinstance(config, dict):
+            self.config_rol = {
+                "emoji": config.get("emoji") or str(rol).upper(),
+                "descripcion": str(config.get("descripcion") or ""),
+                "prompt": str(config.get("prompt")
+                              or ROLES.get(rol, {}).get("prompt", "")),
+                "herramientas": list(config.get("herramientas")
+                                     or ROLES.get(rol, {}).get("herramientas",
+                                                               ["leer_archivo",
+                                                                "finalizar"])),
+                "max_iter": int(config.get("max_iter")
+                                or ROLES.get(rol, {}).get("max_iter", 8)),
+            }
+        else:
+            rol = str(rol).strip().lower()
+            if rol not in ROLES:
+                raise ValueError(
+                    f"Rol de sub-agente desconocido: '{rol}'. Válidos: "
+                    f"{', '.join(ROLES_VALIDOS)}")
+            self.config_rol = ROLES[rol]
+        self.rol = str(rol).strip().lower()
+        self.nombre = nombre or f"{self.rol}-{id(self) % 10000:04d}"
         self.buzon = buzon
         self.auto = bool(auto)
         self.max_iteraciones = int(max_iteraciones
@@ -179,7 +287,7 @@ class SubAgente:
         ``{ok, resultado, iteraciones, abortado, rol, nombre}``.
         """
         import snapcontext as sc                       # noqa: E402
-        sc.info(f"Sub-agente '{self.rol}' instanciado.")
+        sc.info(f"🧠 Creando sub-agente: {self.nombre}...")
         consulta_final = str(consulta) + self._contexto_mensajes()
         self.agente._construir_prompt_sistema = self._prompt_sistema  # type: ignore[method-assign]
         try:
@@ -199,9 +307,10 @@ class SubAgente:
             except Exception:                          # noqa: BLE001
                 pass
         if resultado.get("ok"):
-            sc.exito(f"Sub-agente '{self.rol}' completó su tarea.")
+            sc.exito(f"✅ Sub-agente {self.nombre} completado: "
+                     f"{resultado.get('resultado')}")
         else:
-            sc.aviso(f"Sub-agente '{self.rol}' terminó sin éxito.")
+            sc.aviso(f"Sub-agente {self.nombre} terminó sin éxito.")
         return resultado
 
 
@@ -288,6 +397,7 @@ def ejecutar_tarea_sub_agente(datos: Dict[str, Any]) -> Dict[str, Any]:
     return sub.ejecutar(str(datos.get("consulta", "")))
 
 
-__all__ = ["ROLES", "ROLES_VALIDOS", "SubAgente", "rol_valido", "listar_roles",
+__all__ = ["ROLES", "ROLES_VALIDOS", "SubAgente", "SubAgentRegistry",
+           "REGISTRO_SUB_AGENTES", "rol_valido", "listar_roles",
            "ejecutar_sub_agentes_paralelo", "encolar_sub_agente",
            "ejecutar_tarea_sub_agente"]

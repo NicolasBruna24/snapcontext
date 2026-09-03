@@ -322,6 +322,9 @@ class Supervisor:
         self.max_parallel = max(1, int(max_parallel))
         self.lsp = bool(lsp)
         self.sub_agentes: List[Any] = []
+        # v6.18.0: registro de sub-agentes (scout, debugger, reviewer, ...).
+        from sub_agent import REGISTRO_SUB_AGENTES as _REG     # noqa: E402
+        self.registro = _REG
 
     # ------------------------------------------------------------------
     # Sub-agentes dinámicos (v6.13.0)
@@ -338,8 +341,36 @@ class Supervisor:
         self.sub_agentes.append(sub)
         if consulta:
             sub.enviar_mensaje(consulta)
-        sc.info(f"Sub-agente '{rol}' instanciado.")
+        sc.info(f"🧠 Creando sub-agente: {sub.nombre}...")
         return sub
+
+    # v6.18.0: invocación bajo demanda desde el Supervisor.
+    def invocar_sub_agente(self, nombre: str, consulta: str = "",
+                           browser: bool = False) -> dict:
+        """Instancia y ejecuta un sub-agente registrado (contexto aislado).
+
+        ``nombre`` es la clave del registro (scout, debugger, reviewer,
+        documentador o uno registrado con ``registrar`` / ``--sub-agente-nuevo``).
+        El sub-agente se ejecuta con su PROPIO historial y su resultado se
+        publica en el ``buzon`` como ``resultado_sub_agente``.
+        """
+        import snapcontext as sc                       # noqa: E402
+        from sub_agent import SubAgente                # noqa: E402
+        if self.registro is None:
+            raise ValueError("El Supervisor no tiene registro de sub-agentes.")
+        cfg = self.registro.obtener(nombre)             # KeyError si no existe
+        sub = SubAgente(cfg.get("rol", nombre), nombre=nombre,
+                        config=cfg, directorio=self.directorio,
+                        proveedor=self.proveedor, modelo=self.modelo,
+                        buzon=self.buzon, auto=self.auto, browser=browser,
+                        lsp=self.lsp)
+        self.sub_agentes.append(sub)
+        if consulta:
+            sub.enviar_mensaje(consulta)
+        resultado = sub.ejecutar(str(consulta))
+        sc.info(f"Supervisor: sub-agente '{nombre}' devolvió "
+                f"{bool(resultado.get('ok'))}.")
+        return resultado
 
     @staticmethod
     def _detectar_sub_tareas(plan: Dict[str, Any]) -> List[dict]:

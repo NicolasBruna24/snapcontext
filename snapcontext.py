@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.17.0"
+VERSION = "6.18.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -6389,6 +6389,59 @@ def _ejecutar_multi_agent(args: argparse.Namespace) -> int:
     return 1
 
 
+# v6.18.0: gestión de sub-agentes dinámicos desde la CLI (independiente).
+def _ejecutar_listar_sub_agentes() -> int:
+    """``snapcontext --sub-agente-listar``: lista los sub-agentes registrados."""
+    try:
+        import sub_agent as sa                              # noqa: E402
+    except Exception as exc:                                 # noqa: BLE001
+        error(f"No se pudo cargar el módulo de sub-agentes: {exc}")
+        return 1
+    nombres = sa.REGISTRO_SUB_AGENTES.listar()
+    info(f"🤖 Sub-agentes dinámicos registrados ({len(nombres)}):")
+    for n in nombres:
+        cfg = sa.REGISTRO_SUB_AGENTES.obtener(n)
+        desc = str(cfg.get("descripcion") or "")
+        herramientas = ", ".join(cfg.get("herramientas") or [])
+        info(f"  - {n}: {desc}")
+        info(f"      herramientas: {herramientas} | "
+             f"max_iter: {cfg.get('max_iter')}")
+    return 0
+
+
+def _registrar_sub_agente_cli(nombre: str, descripcion: str) -> int:
+    """``snapcontext --sub-agente-nuevo <nombre> <descripcion>``.
+
+    Registra un sub-agente dinámico nuevo en el registro por defecto (útil
+    para plugins: rol bajo demanda con herramientas de solo lectura). El
+    nombre queda disponible para ``--sub-agente-listar``, el Supervisor y la
+    herramienta ReAct ``invocar_sub_agente``.
+    """
+    try:
+        import sub_agent as sa                              # noqa: E402
+        from sub_agent_prompts import PROMPTS as _P         # noqa: E402
+    except Exception as exc:                                 # noqa: BLE001
+        error(f"No se pudo cargar el módulo de sub-agentes: {exc}")
+        return 1
+    nombre = str(nombre or "").strip()
+    if not nombre:
+        error("--sub-agente-nuevo necesita un <nombre>.")
+        return 1
+    cfg = {
+        "descripcion": str(descripcion or ""),
+        # Si el nombre coincide con un prompt canónico se usa ese; si no, un
+        # prompt genérico con herramientas de solo lectura (mínimo privilegio).
+        "prompt": _P.get(nombre.lower(),
+                         f"Eres {nombre}, un sub-agente especializado. "
+                         "Lee e investiga y devuelve un resumen conciso."),
+        "herramientas": ["leer_archivo", "buscar_codigo", "finalizar"],
+        "max_iter": 8,
+    }
+    sa.REGISTRO_SUB_AGENTES.registrar(nombre, cfg)
+    exito(f"✅ Sub-agente registrado: {nombre} — {descripcion}")
+    return 0
+
+
 def _ejecutar_react(args: argparse.Namespace) -> int:
     """Ejecuta el motor ReAct (`snapcontext [--react] "tarea"`). 0/1.
 
@@ -10891,6 +10944,17 @@ def crear_parser() -> argparse.ArgumentParser:
              "(por defecto 3). Usar con --sub-agents.",
     )
     parser.add_argument(
+        "--sub-agente-nuevo", dest="sub_agente_nuevo", nargs=2,
+        metavar=("NOMBRE", "DESCRIPCION"), default=None,
+        help="v6.18.0: registra un sub-agente din\u00e1mico nuevo "
+             "(<nombre> + <descripcion>) para usarlo bajo demanda, como plugin.",
+    )
+    parser.add_argument(
+        "--sub-agente-listar", dest="sub_agente_listar", action="store_true",
+        default=False,
+        help="v6.18.0: lista los sub-agentes din\u00e1micos registrados y sale.",
+    )
+    parser.add_argument(
         "--lsp", dest="lsp", action="store_true", default=False,
         help="LSP (v6.14.0): activa herramientas lsp_definicion / "
              "lsp_referencias / lsp_tipo en el agente (pyright, tsserver, "
@@ -12480,6 +12544,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         # v6.12.0: --tui inicia la TUI inmersiva (Textual) y bloquea hasta salir.
         if getattr(args, "tui", False):
             return _ejecutar_tui(args)
+        # v6.18.0: gestión de sub-agentes dinámicos (independiente).
+        if getattr(args, "sub_agente_listar", False):
+            return _ejecutar_listar_sub_agentes()
+        if getattr(args, "sub_agente_nuevo", None):
+            _nombre, _desc = args.sub_agente_nuevo
+            return _registrar_sub_agente_cli(_nombre, _desc)
         # --demo ejecuta una demo autónoma (sin API key ni Aider) y termina.
         if getattr(args, "demo", False):
             return _ejecutar_demo()

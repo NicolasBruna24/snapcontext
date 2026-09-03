@@ -73,6 +73,8 @@ class ReactAgent:
         "browser_type", "browser_get_text", "browser_analizar_imagen",
         # v6.14.0: LSP — resolución de definiciones/referencias/tipos.
         "lsp_definicion", "lsp_referencias", "lsp_tipo",
+        # v6.18.0: invocación de sub-agentes dinámicos bajo demanda.
+        "invocar_sub_agente",
     )
 
     def __init__(self, directorio: str = ".", auto: bool = False,
@@ -84,7 +86,8 @@ class ReactAgent:
                  max_historial: Optional[int] = None,
                  browser: bool = False,
                  prompt_caching: Optional[bool] = None,
-                 lsp: bool = False):
+                 lsp: bool = False,
+                 sub_agents: bool = True):
         self.directorio = str(Path(directorio).resolve())
         self.auto = bool(auto)
         # v6.10.0: modo navegador (--browser). Activa las herramientas de
@@ -164,7 +167,15 @@ class ReactAgent:
             "lsp_definicion": self._tool_lsp_definicion,
             "lsp_referencias": self._tool_lsp_referencias,
             "lsp_tipo": self._tool_lsp_tipo,
+            # v6.18.0: sub-agentes dinámicos. Disponible por defecto; los
+            # sub-agentes la eliminan de su propio conjunto (mínimo privilegio),
+            # así que no se puede anidar indefinidamente.
+            "invocar_sub_agente": self._tool_invocar_sub_agente,
         }
+        # v6.18.0: toggle explícito para que --sub-agents pueda desactivarla.
+        self.sub_agents = bool(sub_agents)
+        if not self.sub_agents:
+            self.herramientas.pop("invocar_sub_agente", None)
         if self.proveedor is None:
             try:
                 config = sc.cargar_configuracion()
@@ -203,6 +214,11 @@ class ReactAgent:
             "- browser_get_text(selector): extrae el texto de un elemento.\n"
             "- browser_analizar_imagen(imagen_base64, pregunta): análisis "
             "visual con un modelo de visión.\n"
+            "- lsp_tipo(archivo, linea, columna): devuelve el tipo de una "
+            "expresión (hover).\n"
+            "- invocar_sub_agente(nombre, consulta): delega una tarea "
+            "especializada en un sub-agente dinámico (scout, debugger, "
+            "reviewer, documentador) con contexto aislado.\n"
             "- finalizar(resumen): termina cuando la tarea está completa.\n\n"
             f"Herramientas válidas: {lista}.\n\n"
             "FORMATO DE SALIDA OBLIGATORIO: UN ÚNICO objeto JSON válido, sin "
@@ -424,6 +440,38 @@ class ReactAgent:
 
     def _tool_lsp_tipo(self, argumentos: dict) -> dict:
         return self._tool_lsp(argumentos, accion="lsp_tipo")
+
+    # v6.18.0: invocación de sub-agentes dinámicos bajo demanda.
+    def _tool_invocar_sub_agente(self, argumentos: dict) -> dict:
+        """Delega una tarea especializada en un sub-agente registrado.
+
+        Acepta ``nombre`` (clave del registro: scout, debugger, reviewer,
+        documentador u otro) y ``consulta``. El sub-agente se ejecuta con su
+        propio historial (contexto aislado) y se devuelve su resultado.
+        """
+        nombre = str(argumentos.get("nombre") or "").strip()
+        if not nombre:
+            return {"ok": False,
+                    "error": "Falta el argumento 'nombre' del sub-agente."}
+        consulta = str(argumentos.get("consulta") or "")
+        try:
+            import sub_agent as sa                                # noqa: E402
+            cfg = sa.REGISTRO_SUB_AGENTES.obtener(nombre)
+            sub = sa.SubAgente(cfg.get("rol", nombre), nombre=nombre,
+                               config=cfg, directorio=self.directorio,
+                               proveedor=self.proveedor,
+                               modelo=self.modelo,
+                               auto=self.auto, lsp=self.lsp)
+            r = sub.ejecutar(consulta)
+            return {
+                "ok": bool(r.get("ok")),
+                "resultado": str(r.get("resultado") or ""),
+                "rol": nombre,
+                "iteraciones": int(r.get("iteraciones") or 0),
+            }
+        except Exception as exc:                                  # noqa: BLE001
+            return {"ok": False,
+                    "error": f"Sub-agente '{nombre}' no disponible: {exc}"}
 
     def _tool_lsp(self, argumentos: dict, accion: str = "") -> dict:
         """v6.14.0: herramientas LSP (definición/referencias/tipo).

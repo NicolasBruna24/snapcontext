@@ -4,6 +4,48 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.18.0] - 2026-09-02 - Sub-agentes dinámicos bajo demanda 🤖🧠
+
+### Added
+- **`sub_agent_prompts.py`** (módulo nuevo): prompts de sistema canónicos de
+  los sub-agentes por defecto (scout, debugger, reviewer, documentador).
+  `sub_agent.py` los importa como fuente única.
+- **`sub_agent.SubAgentRegistry`** (v6.18.0): registro consultable y extensible
+  de sub-agentes (`registrar` / `obtener` / `listar`) con un registro por
+  defecto (**scout, debugger, reviewer, documentador**). Admite roles nuevos:
+  `SubAgente` acepta un `config` propio, por lo que se pueden definir roles sin
+  modificar el código (plugins / `--sub-agente-nuevo`).
+- **Rol `reviewer`** en `sub_agent.ROLES`: revisor de PRs/diffs con herramientas
+  de lectura y ejecución de pruebas (mínimo privilegio).
+- **`Supervisor.invocar_sub_agente(nombre, consulta)`** (multi_agent.py):
+  instancia y ejecuta un sub-agente registrado con contexto aislado y publica
+  su resultado en el `Buzon`.
+- **Herramienta ReAct `invocar_sub_agente(nombre, consulta)`** (react_agent.py):
+  el agente ReAct puede delegar una tarea especializada en un sub-agente. Está
+  disponible por defecto (`sub_agents=True`) y los sub-agentes la filtran de su
+  propio conjunto (no se pueden anidar).
+- **CLI** (`snapcontext.py`): flags `--sub-agente-nuevo <nombre> <descripcion>`
+  (registra un sub-agente como plugin) y `--sub-agente-listar` (lista los
+  registrados y sale).
+- **Mensajes de usuario**: `🧠 Creando sub-agente: {nombre}...` al instanciar y
+  `✅ Sub-agente {nombre} completado: {resultado}` al finalizar.
+- **Tests**: `tests/test_sub_agent.py` ampliado (52 casos) con registro,
+  prompts, invocación desde Supervisor y desde ReAct, flags nuevos y versión.
+- `pyproject.toml`: `sub_agent` y `sub_agent_prompts` añadidos a `py-modules`
+  para que se empaqueten en el `.whl`.
+
+### Changed
+- `VERSION` actualizada a `6.18.0` en `snapcontext.py`, `pyproject.toml`,
+  `tui_app.py`, plugins VS Code y JetBrains.
+- README: sección "🤖 Sub-agentes dinámicos" actualizada a v6.18.0 con el rol
+  `reviewer`, el registro, la invocación ReAct y los flags nuevos.
+- Badge de versión en README actualizado a `v6.18.0`.
+
+### Fixed
+- Compatibilidad: sin `--sub-agents` el pipeline multi-agente y el ReAct son
+  idénticos a los anteriores; los sub-agentes son totalmente opcionales.
+
+
 ## [6.17.0] - 2026-09-02 - TUI inmersiva con Textual 🖥️✨
 
 ### Added

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 # Nombre verificado disponible en PyPI (18/08/2026): pypi.org/pypi/snapcontext → 404.
 # Alternativas si algún día estuviera ocupado: "snapcontext-cli" o "snapcontext-tool".
 name = "snapcontext"
-version = "6.17.0"
+version = "6.18.0"
 description = "SnapContext: Asistente de IA con contexto automático para desarrollo"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -123,13 +123,15 @@ snapcontext = "snapcontext:main"
 # v6.6.0: skill_abstraction (skills dinámicos / reglas abstractas) también.
 # v6.7.0: mcp_tools_db y mcp_tools_api (expansión MCP: BD y APIs).
 # v6.8.0: github_gateway y task_queue (omnicanalidad avanzada).
+# v6.13.0/v6.18.0: sub_agent y sub_agent_prompts (sub-agentes dinámicos).
 py-modules = ["snapcontext", "agentes", "orquestador", "ui", "react_agent",
               "curador_proactivo", "telegram_gateway", "discord_gateway",
               "detector_tests", "sandbox_utils", "graph_rag",
               "parser_universal", "multi_agent", "context_utils",
               "skill_abstraction", "mcp_tools_db", "mcp_tools_api",
               "mcp_tools_browser",
-              "github_gateway", "task_queue"]
+              "github_gateway", "task_queue", "sub_agent",
+              "sub_agent_prompts"]
 packages = ["web"]
 
 [tool.setuptools.package-data]
