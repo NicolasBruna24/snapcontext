@@ -90,7 +90,7 @@ if TEXTUAL_DISPONIBLE:
 
         def __init__(self, consulta: str = "",
                      tarea: Optional[threading.Thread] = None,
-                     version: str = "6.21.0") -> None:
+                     version: str = "6.22.0") -> None:
             super().__init__()
             self.consulta = consulta
             self.tarea_agente = tarea
@@ -299,7 +299,7 @@ def ejecutar_tui(consulta: str = "", tarea: Optional[threading.Thread] = None,
 __all__ = [
     "SnapContextTUI", "ejecutar_tui", "TEXTUAL_DISPONIBLE",
     "COLORES_NIVEL", "COLORES_FASE", "ESTADOS_AGENTE",
-]version: str = "6.21.0"3
+]version: str = "6.22.0"3
 # -*- coding: utf-8 -*-
 """TUI inmersiva de SnapContext (v6.20.0) basada en Textual.
 
@@ -391,7 +391,7 @@ if TEXTUAL_DISPONIBLE:
 
         def __init__(self, consulta: str = "",
                      tarea: Optional[threading.Thread] = None,
-                     version: str = "6.21.0") -> None:
+                     version: str = "6.22.0") -> None:
             super().__init__()
             self.consulta = consulta
             self.tarea_agente = tarea
@@ -600,7 +600,7 @@ def ejecutar_tui(consulta: str = "", tarea: Optional[threading.Thread] = None,
 __all__ = [
     "SnapContextTUI", "ejecutar_tui", "TEXTUAL_DISPONIBLE",
     "COLORES_NIVEL", "COLORES_FASE", "ESTADOS_AGENTE",
-]version: str = "6.21.0"3
+]version: str = "6.22.0"3
 # -*- coding: utf-8 -*-
 """TUI inmersiva de SnapContext (v6.20.0) basada en Textual.
 
@@ -692,7 +692,7 @@ if TEXTUAL_DISPONIBLE:
 
         def __init__(self, consulta: str = "",
                      tarea: Optional[threading.Thread] = None,
-                     version: str = "6.21.0") -> None:
+                     version: str = "6.22.0") -> None:
             super().__init__()
             self.consulta = consulta
             self.tarea_agente = tarea
@@ -901,7 +901,7 @@ def ejecutar_tui(consulta: str = "", tarea: Optional[threading.Thread] = None,
 __all__ = [
     "SnapContextTUI", "ejecutar_tui", "TEXTUAL_DISPONIBLE",
     "COLORES_NIVEL", "COLORES_FASE", "ESTADOS_AGENTE",
-]version: str = "6.21.0"3
+]version: str = "6.22.0"3
 # -*- coding: utf-8 -*-
 """TUI inmersiva de SnapContext (v6.20.0) basada en Textual.
 
@@ -993,7 +993,7 @@ if TEXTUAL_DISPONIBLE:
 
         def __init__(self, consulta: str = "",
                      tarea: Optional[threading.Thread] = None,
-                     version: str = "6.21.0") -> None:
+                     version: str = "6.22.0") -> None:
             super().__init__()
             self.consulta = consulta
             self.tarea_agente = tarea

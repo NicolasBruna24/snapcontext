@@ -1,6 +1,6 @@
 # SnapContext
 
-![v6.20.0](https://img.shields.io/badge/version-6.21.0-blue.svg)
+![v6.20.0](https://img.shields.io/badge/version-6.22.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -1050,7 +1050,7 @@ en la raíz, rama `main`) y añádelo al índice del repo
 A partir de ahí cualquiera podrá hacer `snapcontext plugin install <nombre>`.
 Sin plugins instalados, SnapContext funciona exactamente igual que siempre.
 
-## 📦 Marketplace MCP (v6.21.0)
+## 📦 Marketplace MCP (v6.22.0)
 
 Capa de ecosistema sobre el sistema de plugins: un **repositorio central**
 (`index.json` en [NicolasBruna24/snapcontext-plugins](https://github.com/NicolasBruna24/snapcontext-plugins))
@@ -1078,6 +1078,54 @@ carga de plugins es perezosa e idempotente (no duplica herramientas ya
 registradas) y sin plugins instalados el comportamiento es idéntico al de
 siempre. El índice puede apuntarse a un catálogo privado con la variable de
 entorno `SNAPCONTEXT_MARKETPLACE_INDEX`.
+
+
+## 🔗 Hooks / lifecycle events (v6.22.0)
+
+Sistema de **eventos del ciclo de vida** que permite a los plugins y scripts
+personalizados interceptar y modificar el comportamiento del agente en puntos
+clave de la ejecución, sin tocar el núcleo de SnapContext.
+
+**Eventos disponibles**:
+
+| Evento | Cuándo se dispara | Recibe |
+|---|---|---|
+| `before_tool_use` | Antes de ejecutar una herramienta MCP | nombre, argumentos |
+| `after_tool_use` | Después de ejecutar una herramienta MCP | nombre, args, resultado |
+| `before_plan_step` | Antes de un paso del planificador | paso |
+| `after_plan_step` | Después de un paso del planificador | paso, resultado |
+| `session_start` | Al iniciar una sesión (ReAct/planificador) | consulta, modo |
+| `session_end` | Al finalizar una sesión | resultado, éxito |
+| `before_react_iteration` | Antes de cada iteración ReAct | consulta, estado |
+| `after_react_iteration` | Después de cada iteración ReAct | consulta, estado, resultado |
+
+Los hooks se registran desde plugins (sección `hooks` del `plugin.json`) o
+colocando scripts en `~/.snapcontext/hooks/` con la convención
+`<evento>[__<prioridad>].py` (ej: `before_tool_use.py`, `after_plan_step__10.py`).
+
+```json
+{
+  "name": "mi-plugin",
+  "hooks": {
+    "before_tool_use": "scripts/before_tool.py",
+    "after_plan_step": "scripts/after_plan.py",
+    "session_start": "scripts/session_start.sh"
+  }
+}
+```
+
+Los scripts Python deben exportar `ejecutar(contexto)`; los shell reciben el
+contexto por stdin (JSON) y pueden responder con JSON. Un hook puede devolver
+`{"abort": True, "razon": "..."}` para detener la ejecución.
+
+```bash
+snapcontext --hook-list          # lista hooks registrados y sale
+snapcontext --no-hooks           # desactiva todos los hooks (por defecto: activos)
+```
+
+**Seguridad**: los hooks de shell se ejecutan con confirmación del usuario en
+modo interactivo; los de plugins respetan `permisos.json`. Sin hooks
+registrados, el comportamiento es idéntico al de siempre.
 
 
 ## 🧭 Modos y alias
@@ -2867,7 +2915,7 @@ Notas:
 
 MIT. Open-source y libre de usarlo, estudiarlo y mejorarlo.
 
-![v6.20.0](https://img.shields.io/badge/version-6.21.0-blue.svg)
+![v6.20.0](https://img.shields.io/badge/version-6.22.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)

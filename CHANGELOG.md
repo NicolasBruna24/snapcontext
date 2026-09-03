@@ -4,6 +4,27 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.22.0] - 2026-09-02 - Hooks / lifecycle events 🔗
+
+### Added
+- **`hooks.py`**: nuevo módulo con `HookManager` (registro por evento +
+  prioridad, ejecución en orden, aborto graceful), 8 eventos del ciclo de vida
+  (`before_tool_use`, `after_tool_use`, `before_plan_step`, `after_plan_step`,
+  `session_start`, `session_end`, `before_react_iteration`,
+  `after_react_iteration`), y cargadores desde plugins (`plugin.json` → `hooks`)
+  y desde scripts sueltos en `~/.snapcontext/hooks/` (convención
+  `<evento>[__<prioridad>].py|.sh`).
+- **Integración**: `react_agent.py` (sesión + iteraciones ReAct),
+  `orquestador.py` (sesión del planificador), `snapcontext.py` (dispatcher MCP
+  `before/after_tool_use`, `before/after_plan_step`).
+- Flags `--hooks` (activado por defecto) y `--hook-list` (lista hooks
+  registrados y sale).
+- Mensajes: `🔗 Hook ejecutado: {evento} desde {origen}` (en `--depurar`),
+  `❌ Hook abortó la ejecución: {razon}`.
+- Tests: `tests/test_hooks.py` (19 casos: registro, orden, prioridades,
+  modificación/aborto de contexto, carga desde plugins y archivos, shell,
+  integración, flags).
+
 ## [6.21.0] - 2026-09-02 - Marketplace MCP 📦🔌
 
 ### Added

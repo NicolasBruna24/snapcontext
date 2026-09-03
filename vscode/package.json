@@ -2,7 +2,7 @@
   "name": "snapcontext-ai",
   "displayName": "SnapContext AI",
   "description": "Asistente de IA con contexto automático para desarrollo: chat, planificador y selección inteligente de archivos.",
-  "version": "6.21.0",
+  "version": "6.22.0",
   "publisher": "NicolasBrunaFuentealbaIsaias",
   "license": "MIT",
   "icon":"snapcontext-icon.png",

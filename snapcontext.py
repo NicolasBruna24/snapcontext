@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.21.0"
+VERSION = "6.22.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -5925,6 +5925,45 @@ def _ejecutar_revert(step: Optional[str] = None) -> int:
         return 1
     return 0 if _revertir_paso(step_id) else 1
 
+# v6.22.0: gestor global de hooks (lifecycle events). Import perezoso y
+# tolerante: sin `hooks.py` disponible, los call-sites no rompen el flujo.
+try:
+    import hooks as _hooks                      # type: ignore[import]
+except Exception:                              # pragma: no cover
+    _hooks = None                               # type: ignore[assignment]
+
+
+def _hooks_inicializar() -> None:
+    """Carga perezosa de hooks desde plugins y ~/.snapcontext/hooks/ (v6.22.0).
+
+    Solo se ejecuta una vez por proceso y solo si el sistema está activo
+    (`--no-hooks` lo impide). Sin hooks instalados no tiene coste apreciable.
+    """
+    if _hooks is None:
+        return
+    try:
+        if not _hooks._CARGADO:
+            _hooks.cargar_todos_los_hooks()
+            _hooks._CARGADO = True
+    except Exception as exc:                     # noqa: BLE001
+        depurar(f"[hooks] No se pudieron cargar los hooks: {exc}")
+
+
+def _hooks_ejecutar(evento: str, contexto: Optional[dict] = None) -> tuple:
+    """Wrapper seguro de ``hooks.ejecutar_hook`` (v6.22.0).
+
+    Devuelve ``(abortado, contexto)``; si el módulo no está disponible o el
+    sistema está desactivado continúa sin abortar (compatibilidad total).
+    """
+    if _hooks is None:
+        return False, (contexto if isinstance(contexto, dict) else {})
+    try:
+        return _hooks.ejecutar_hook(evento, contexto)
+    except Exception as exc:                     # noqa: BLE001
+        depurar(f"[hooks] Error ejecutando '{evento}': {exc}")
+        return False, (contexto if isinstance(contexto, dict) else {})
+
+
 def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
                         raiz: str) -> tuple:
     """Ejecuta un paso del plan. Devuelve (ok: bool, detalle: str).
@@ -5933,9 +5972,21 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
       archivos y ``_bucle_test``/AgenteEditor para aplicar la descripción.
     - "ejecutar": lanza ``paso["comando"]`` con ``_ejecutar_comando``.
     - "consultar": pregunta al proveedor y muestra su respuesta.
+
+    v6.22.0: ejecuta los hooks ``before_plan_step`` (puede abortar el paso)
+    y ``after_plan_step`` al finalizar.
     """
     import snapcontext as sc
     from orquestador import Orquestador
+
+    # v6.22.0: hook before_plan_step — puede modificar el paso o abortarlo.
+    _ctx_hook = {"paso": paso, "accion": paso.get("accion"),
+                 "descripcion": paso.get("descripcion")}
+    _abortado, _ctx_hook = _hooks.ejecutar_hook("before_plan_step", _ctx_hook)
+    if _abortado:
+        aviso(f"Paso abortado por hook: {paso.get('descripcion', '')!s:.60}")
+        return (False, "abortado por hook before_plan_step")
+    paso = _ctx_hook.get("paso") or paso
 
     accion = paso["accion"]
     descripcion = paso["descripcion"]
@@ -6129,6 +6180,12 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
         seleccion, descripcion, str(ruta_raiz),
         opciones_aider=getattr(args, "aider_opciones", ""),
     )
+    # v6.22.0: hook `after_plan_step` — observabilidad post-ejecución del paso.
+    try:
+        _hooks.ejecutar_hook("after_plan_step", {
+            "paso": paso, "ok": ok, "detalle": f"Aider sobre {len(seleccion)} archivo(s)"})
+    except Exception:                                # noqa: BLE001 — nunca romper
+        pass
     return (ok, f"Aider sobre {len(seleccion)} archivo(s)")
 
 
@@ -6827,6 +6884,13 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
     # 3) Ejecución (v1.4.0): con --paralelo N (y --auto) se lanzan varios pasos
     # sin dependencias mutuas a la vez; en caso contrario, secuencial.
     _contexto_plan_reiniciar()   # v2.3.0: contexto dinámico por plan
+    # v6.22.0: hook `session_start` — inicio de sesión del planificador.
+    try:
+        _hooks.ejecutar_hook("session_start", {
+            "modo": "planificador", "consulta": consulta,
+            "pasos": len(pasos), "directorio": raiz})
+    except Exception:                                # noqa: BLE001 — nunca romper
+        pass
     # v6.20.0: `--paralelo 0` = nº de núcleos de CPU (ParallelExecutor).
     _paralelo = getattr(args, "paralelo", 1)
     _paralelo = 1 if _paralelo is None else int(_paralelo)
@@ -7002,6 +7066,14 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
         _actualizar_claude_md_automatico(resumen, raiz)
     # v6.4.0: al terminar el plan (éxito, aborto o error) se destruye la sesión
     # Docker persistente para no dejar contenedores huérfanos.
+    # v6.22.0: hook `session_end` — cierre de sesión del planificador.
+    try:
+        _hooks.ejecutar_hook("session_end", {
+            "modo": "planificador", "consulta": consulta,
+            "resultado": "éxito" if todo_ok else ("abortado" if abortar else "fallo"),
+            "exitos": exitos, "total": len(resultados)})
+    except Exception:                                # noqa: BLE001 — nunca romper
+        pass
     _destruir_sesion_si_aplica()
     return 0 if todo_ok or abortar else 1
 
@@ -8723,19 +8795,19 @@ def _ejecutar_comando_plugin(subargv: List[str]) -> int:
             error("Uso: snapcontext plugin install <nombre | usuario/repo "
                   "| url | ruta_local>")
             return 1
-        # v6.21.0: nombres simples se resuelven contra el marketplace.
+        # v6.22.0: nombres simples se resuelven contra el marketplace.
         try:
             import marketplace
             return marketplace.instalar_plugin(resto[0])
         except Exception as exc:                         # noqa: BLE001
             error(f"Error en la instalación: {exc}")
             return 1
-    if accion in ("remove", "uninstall"):                # v6.21.0: uninstall
+    if accion in ("remove", "uninstall"):                # v6.22.0: uninstall
         if not resto:
             error("Uso: snapcontext plugin remove <nombre>")
             return 1
         return _plugin_remove(resto[0])
-    if accion == "search":                               # v6.21.0: marketplace
+    if accion == "search":                               # v6.22.0: marketplace
         if not resto:
             error("Uso: snapcontext plugin search <termino>")
             return 1
@@ -8758,7 +8830,7 @@ def _ejecutar_comando_plugin(subargv: List[str]) -> int:
 
 
 def _plugin_search(termino: str) -> int:
-    """Busca plugins en el marketplace central (v6.21.0)."""
+    """Busca plugins en el marketplace central (v6.22.0)."""
     try:
         import marketplace
     except Exception as exc:                             # noqa: BLE001
@@ -9150,6 +9222,13 @@ def _ejecutar_herramienta_mcp(nombre: str, argumentos: Optional[dict] = None,
     (tipo "herramienta"); denegada devuelve ok=False sin ejecutarla.
     """
     argumentos = argumentos or {}
+    # v6.22.0: hook `before_tool_use` — puede enriquecer argumentos o abortar.
+    _ctx_hook = {"herramienta": nombre, "argumentos": argumentos}
+    _abortado, _ctx_hook = _hooks.ejecutar_hook("before_tool_use", _ctx_hook)
+    if _abortado:
+        return {"ok": False, "herramienta": nombre,
+                "error": "abortado por hook before_tool_use"}
+    argumentos = _ctx_hook.get("argumentos") or argumentos
     herramientas = _cargar_herramientas_mcp()
     cfg = herramientas.get(nombre)
     if cfg is None:
@@ -9316,8 +9395,16 @@ def _ejecutar_herramienta_mcp(nombre: str, argumentos: Optional[dict] = None,
                     cfg["comando"], str(argumentos.get("directorio", ".")))
     except Exception as exc:                    # blindaje del agente
         resultado = {"ok": False, "error": f"excepción: {exc}"}
-    return {"ok": bool(resultado.get("ok")), "herramienta": nombre,
-            "resultado": resultado}
+    _salida = {"ok": bool(resultado.get("ok")), "herramienta": nombre,
+               "resultado": resultado}
+    # v6.22.0: hook `after_tool_use` — observabilidad / auditoría post-llamada.
+    try:
+        _hooks.ejecutar_hook("after_tool_use", {
+            "herramienta": nombre, "argumentos": argumentos,
+            "resultado": _salida})
+    except Exception:                            # noqa: BLE001 — nunca romper
+        pass
+    return _salida
 
 
 def _entero_opcional(valor) -> Optional[int]:
@@ -11579,6 +11666,16 @@ def crear_parser() -> argparse.ArgumentParser:
              "sobrescritura, validación sintáctica y backups) o 'aider' "
              "(requiere Aider instalado).",
     )
+    # v6.22.0: hooks / lifecycle events — activación y listado.
+    parser.add_argument(
+        "--hooks", action=argparse.BooleanOptionalAction, default=True,
+        help="Activa/desactiva el sistema de hooks/lifecycle events (v6.22.0). "
+             "Por defecto: activado; desactivar con --no-hooks.",
+    )
+    parser.add_argument(
+        "--hook-list", dest="hook_list", action="store_true",
+        help="Lista los hooks registrados por evento y sale (v6.22.0).",
+    )
     parser.add_argument(
         "--modelo-ligero", dest="modelo_ligero", action="store_true",
         help="Usa prompts concisos en el editor propio (pensados para "
@@ -12659,6 +12756,30 @@ def _ejecutar_tui(args: argparse.Namespace) -> int:
         tui_hub.desactivar()
 
 
+def _ejecutar_comando_hook(argv: Optional[list] = None) -> int:
+    """Gateway ``snapcontext hook list`` (v6.22.0).
+
+    Por ahora la única subacción es ``list``, que vuelca los hooks registrados
+    (tras cargar plugins y directorio de hooks) en formato legible.
+    """
+    try:
+        import hooks as _hooks
+    except Exception as exc:                             # noqa: BLE001
+        error(f"No se pudo importar el módulo de hooks: {exc}")
+        return 1
+    if not argv or argv[0].lower() == "list":
+        _hooks.cargar_todos_los_hooks()
+        texto = _hooks._listar_hooks_texto()
+        if texto:
+            _emitir(sys.stdout, texto)
+        else:
+            info("No hay hooks registrados.")
+        return 0
+    error(f"Subcomando hook desconocido: {argv[0]!r}. "
+          "Uso: 'snapcontext hook list'.")
+    return 1
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     # Instala los manejadores de Ctrl+C / SIGTERM (cierre limpio, subprocesos
     # incluidos) antes de hacer nada. Es seguro en Windows y Linux/macOS.
@@ -12690,6 +12811,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     # v6.20.0: git profundo — `snapcontext revert <step>` deshace un paso.
     if argv and argv[0].lower() == "revert":
         return _ejecutar_revert(argv[1] if len(argv) > 1 else None)
+    # v6.22.0: hooks — `snapcontext hook list` muestra los hooks registrados.
+    if argv and argv[0].lower() in ("hook", "hooks"):
+        return _ejecutar_comando_hook(argv[1:])
     args = crear_parser().parse_args(_preparar_argv_aliases(argv))
     try:
         # v6.9.0: benchmark de rendimiento por fases (no necesita API key).

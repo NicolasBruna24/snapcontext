@@ -159,6 +159,15 @@ class Orquestador:
         # cuando se construye este orquestador desde ``flujo_principal``.
         import snapcontext as sc
 
+        # v6.22.0: hook `session_start` — inicio de sesión del orquestador.
+        try:
+            import hooks as _hooks
+            _hooks.ejecutar_hook("session_start", {
+                "modo": "orquestador", "consulta": getattr(args, "consulta", None),
+                "directorio": getattr(args, "directorio", None)})
+        except Exception:                                # noqa: BLE001
+            pass
+
         if self.evento_callback is not None:
             # Los logs del pipeline (info/aviso/error/…) se reenvían hacia la web.
             sc.fijar_evento_callback(self._on_evento)
@@ -244,6 +253,14 @@ class Orquestador:
                 sc.aviso(f"[aprendizaje] No se pudo registrar ({exc})")
             return 0 if ok else 1
         finally:
+            # v6.22.0: hook `session_end` — cierre de sesión del orquestador.
+            try:
+                import hooks as _hooks
+                _hooks.ejecutar_hook("session_end", {
+                    "modo": "orquestador", "consulta": getattr(args, "consulta", None),
+                    "resultado": "éxito" if ok else "fallo"})
+            except Exception:                            # noqa: BLE001
+                pass
             # Si este orquestador fue quien registró el callback global, lo limpia.
             if self.evento_callback is not None:
                 sc.fijar_evento_callback(None)

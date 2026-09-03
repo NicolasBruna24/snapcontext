@@ -815,6 +815,16 @@ class ReactAgent:
             else ""
         sc.info(f"🧠 Modo ReAct activado ({self.proveedor}, máx. "
                 f"{self.max_iteraciones} iteraciones{sandbox_txt}).")
+        # v6.22.0: hook `session_start` — inicio de sesión ReAct.
+        try:
+            import hooks as _hooks
+            _hooks.ejecutar_hook("session_start", {
+                "modo": "react", "consulta": consulta,
+                "proveedor": self.proveedor,
+                "max_iteraciones": self.max_iteraciones,
+                "directorio": self.directorio})
+        except Exception:                                # noqa: BLE001
+            pass
         # v6.11.0: informa del estado del Prompt Caching al inicio de la sesión.
         _msg_cache = sc._mensaje_caching_inicio(self.proveedor)
         if _msg_cache:
@@ -829,6 +839,14 @@ class ReactAgent:
         try:
             for iteracion in range(1, self.max_iteraciones + 1):
                 self._resumir_si_hace_falta()
+                # v6.22.0: hook `before_react_iteration` — pre-iteración.
+                try:
+                    import hooks as _hooks
+                    _hooks.ejecutar_hook("before_react_iteration", {
+                        "iteracion": iteracion, "consulta": consulta,
+                        "historial": list(self.historial)})
+                except Exception:                        # noqa: BLE001
+                    pass
                 try:
                     decision = self._pedir_decision(list(self.historial))
                 except Exception as exc:                 # noqa: BLE001
@@ -924,11 +942,26 @@ class ReactAgent:
                 if self._resumir_por_longitud():
                     sc.info(f"[ReAct] Historial resumido tras superar "
                             f"{self.max_historial} iteraciones de contexto.")
+                # v6.22.0: hook `after_react_iteration` — post-iteración.
+                try:
+                    import hooks as _hooks
+                    _hooks.ejecutar_hook("after_react_iteration", {
+                        "iteracion": iteracion, "consulta": consulta,
+                        "accion": accion, "observacion": str(observacion)[:500]})
+                except Exception:                        # noqa: BLE001
+                    pass
             return {"ok": False,
                     "resultado": f"Límite de {self.max_iteraciones} iteraciones "
                                  "alcanzado sin finalizar.",
                     "iteraciones": self.max_iteraciones, "abortado": False}
         finally:
+            # v6.22.0: hook `session_end` — cierre de sesión ReAct.
+            try:
+                import hooks as _hooks
+                _hooks.ejecutar_hook("session_end", {
+                    "modo": "react", "consulta": consulta})
+            except Exception:                            # noqa: BLE001
+                pass
             # v6.4.0: destruir la sesión al terminar (éxito, aborto o excepción).
             if self.sesion_docker:
                 try:
