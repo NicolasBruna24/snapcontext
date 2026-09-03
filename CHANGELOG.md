@@ -4,6 +4,26 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.21.0] - 2026-09-02 - Marketplace MCP 📦🔌
+
+### Added
+- **`marketplace.py`**: capa de ecosistema sobre el sistema de plugins (v4.0.0):
+  `obtener_index()` (índice remoto en GitHub con caché local de 1 h y
+  degradación a caché caducada si no hay red), `buscar_plugins()` (por nombre,
+  descripción, autor o tags), `resolver_plugin()`,
+  `instalar_plugin()` (resuelve nombres contra el índice y delega en el
+  instalador local), `instalar_dependencias()` (`pip install --user`; si falla,
+  deshabilita el plugin por seguridad), `listar_plugins()`,
+  `habilitar_plugin()`/`deshabilitar_plugin()`, `actualizar_plugin()` y
+  `cargar_plugins_instalados()` (idempotente, solo habilitados).
+- **CLI**: `snapcontext plugin search <termino>` (nuevo) y
+  `plugin uninstall` (alias de `remove`); `plugin install <nombre>` ahora
+  resuelve nombres simples contra el marketplace.
+- Mensajes: `📦 Descargando índice de plugins...`,
+  `✅ Plugin {nombre} instalado correctamente.`, `❌ Error instalando...`.
+- Índice central configurable con `SNAPCONTEXT_MARKETPLACE_INDEX`.
+- Tests: `tests/test_marketplace.py` (36 casos).
+
 ## [6.20.0] - 2026-09-02 - Paralelismo real de agentes 🚀
 
 ### Added

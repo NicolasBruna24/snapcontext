@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.20.0"
+VERSION = "6.21.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -8723,12 +8723,23 @@ def _ejecutar_comando_plugin(subargv: List[str]) -> int:
             error("Uso: snapcontext plugin install <nombre | usuario/repo "
                   "| url | ruta_local>")
             return 1
-        return _plugin_instalar(resto[0])
-    if accion == "remove":
+        # v6.21.0: nombres simples se resuelven contra el marketplace.
+        try:
+            import marketplace
+            return marketplace.instalar_plugin(resto[0])
+        except Exception as exc:                         # noqa: BLE001
+            error(f"Error en la instalación: {exc}")
+            return 1
+    if accion in ("remove", "uninstall"):                # v6.21.0: uninstall
         if not resto:
             error("Uso: snapcontext plugin remove <nombre>")
             return 1
         return _plugin_remove(resto[0])
+    if accion == "search":                               # v6.21.0: marketplace
+        if not resto:
+            error("Uso: snapcontext plugin search <termino>")
+            return 1
+        return _plugin_search(resto[0])
     if accion == "create":
         return _plugin_create(resto[0] if resto else None)
     if accion == "update":
@@ -8741,9 +8752,35 @@ def _ejecutar_comando_plugin(subargv: List[str]) -> int:
             error(f"Uso: snapcontext plugin {accion} <nombre>")
             return 1
         return _plugin_cambiar_estado(resto[0], habilitar=accion == "enable")
-    error(f"Acción de plugin desconocida: '{accion}'. Usa list/install/"
+    error(f"Acción de plugin desconocida: '{accion}'. Usa search/list/install/"
           "remove/create/update/enable/disable.")
     return 1
+
+
+def _plugin_search(termino: str) -> int:
+    """Busca plugins en el marketplace central (v6.21.0)."""
+    try:
+        import marketplace
+    except Exception as exc:                             # noqa: BLE001
+        error(f"No se pudo importar marketplace: {exc}")
+        return 1
+    try:
+        resultados = marketplace.buscar_plugins(termino)
+    except Exception as exc:                             # noqa: BLE001
+        error(f"Error buscando en el marketplace: {exc}")
+        return 1
+    if not resultados:
+        aviso(f"Sin resultados para '{termino}'.")
+        return 0
+    info(f"🔎 {len(resultados)} plugin(s) encontrados para '{termino}':")
+    for entrada in resultados:
+        nombre = entrada.get("nombre") or entrada.get("name") or "?"
+        desc = (entrada.get("descripcion") or entrada.get("description")
+                or "").strip()
+        autor = entrada.get("autor") or entrada.get("author") or ""
+        exito(f"  • {nombre}" + (f" — {desc}" if desc else "")
+              + (f" (por {autor})" if autor else ""))
+    return 0
 
 
 # --- Implementaciones de las herramientas (resultados estructurados) -------
