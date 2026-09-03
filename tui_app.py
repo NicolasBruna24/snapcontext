@@ -1,6 +1,6 @@
 ﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""TUI inmersiva de SnapContext (v6.12.0) basada en Textual.
+"""TUI inmersiva de SnapContext (v6.17.0) basada en Textual.
 
 Complementa la interfaz web y el CLI tradicional con una terminal interactiva:
 - Pestañas: Logs, Control, Diffs; árbol de archivos del proyecto.
@@ -90,7 +90,7 @@ if TEXTUAL_DISPONIBLE:
 
         def __init__(self, consulta: str = "",
                      tarea: Optional[threading.Thread] = None,
-                     version: str = "6.12.0") -> None:
+                     version: str = "6.17.0") -> None:
             super().__init__()
             self.consulta = consulta
             self.tarea_agente = tarea
@@ -275,7 +275,7 @@ else:  # pragma: no cover - Textual no instalado: stub para importación segura
 
 # ------------------------------------------------------------- punto entrada --
 def ejecutar_tui(consulta: str = "", tarea: Optional[threading.Thread] = None,
-                 version: str = "6.12.0") -> int:
+                 version: str = "6.17.0") -> int:
     """Lanza la TUI de SnapContext. Devuelve el código de salida.
 
     - Si Textual no está instalado, imprime un error claro y devuelve 2.

@@ -72,17 +72,17 @@ class TestTuiApp(unittest.TestCase):
     """La aplicación Textual: creación, bindings y drenaje de cola."""
 
     def _app(self):
-        return tui_app.SnapContextTUI(consulta="prueba", version="6.16.0")
+        return tui_app.SnapContextTUI(consulta="prueba", version="6.17.0")
 
     def test_importacion_y_creacion(self):
         app = self._app()
         self.assertIsNotNone(app)
         self.assertEqual(app.consulta, "prueba")
-        self.assertEqual(app.version, "6.16.0")
+        self.assertEqual(app.version, "6.17.0")
         self.assertIsNone(app.tarea_agente)
 
     def test_titulo_contiene_version(self):
-        self.assertIn("6.16.0", self._app().title)
+        self.assertIn("6.17.0", self._app().title)
 
     def test_bindings_definidos(self):
         acciones = {b[1] for b in tui_app.SnapContextTUI.BINDINGS}
@@ -164,11 +164,11 @@ class TestIntegracionCLI(unittest.TestCase):
         self.assertFalse(args.tui)
 
     def test_version_actualizada(self):
-        self.assertEqual(sc.VERSION, "6.16.0")
+        self.assertEqual(sc.VERSION, "6.17.0")
         ruta = os.path.join(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))), "pyproject.toml")
         with open(ruta, encoding="utf-8") as fh:
-            self.assertIn('version = "6.16.0"', fh.read())
+            self.assertIn('version = "6.17.0"', fh.read())
 
     def test_grupo_tui_en_pyproject(self):
         ruta = os.path.join(os.path.dirname(os.path.dirname(
@@ -224,6 +224,22 @@ class TestIntegracionCLI(unittest.TestCase):
         finally:
             hub.desactivar()
         sc._tui_log("info", "evento descartado")  # inactivo → no-op
+
+    @unittest.skipUnless(tui_app.TEXTUAL_DISPONIBLE, "Textual no instalado")
+    def test_mensaje_inicio_tui(self):
+        """--tui muestra el mensaje de inicio cuando arranca la TUI."""
+        import contextlib
+        import io
+        args = sc.crear_parser().parse_args(["--tui", "hola"])
+        buf = io.StringIO()
+        try:
+            with mock.patch.object(tui_app, "ejecutar_tui", return_value=0):
+                with contextlib.redirect_stdout(buf):
+                    codigo = sc._ejecutar_tui(args)
+        finally:
+            hub.reiniciar()
+        self.assertEqual(codigo, 0)
+        self.assertIn("Interfaz TUI inmersiva", buf.getvalue())
 
 
 if __name__ == "__main__":

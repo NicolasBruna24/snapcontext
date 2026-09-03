@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 # Nombre verificado disponible en PyPI (18/08/2026): pypi.org/pypi/snapcontext → 404.
 # Alternativas si algún día estuviera ocupado: "snapcontext-cli" o "snapcontext-tool".
 name = "snapcontext"
-version = "6.16.0"
+version = "6.17.0"
 description = "SnapContext: Asistente de IA con contexto automático para desarrollo"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -88,7 +88,7 @@ db = [
 browser = [
     "playwright>=1.40.0",
 ]
-# v6.12.0: TUI inmersiva en la terminal (--tui) basada en Textual.
+# v6.12.0/v6.17.0: TUI inmersiva en la terminal (--tui) basada en Textual.
 tui = [
     "textual>=0.50.0",
 ]

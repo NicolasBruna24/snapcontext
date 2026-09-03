@@ -4,6 +4,36 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.17.0] - 2026-09-02 - TUI inmersiva con Textual 🖥️✨
+
+### Added
+- **TUI inmersiva consolidada (`--tui`)** basada en Textual (`textual>=0.50.0`,
+  grupo opcional `[tui]`). Ofrece pestañas de **Logs** (tiempo real con colores
+  por nivel), **Control** (estado del agente, pasos, tiempo total y botones
+  Pausar / Reanudar / Cancelar) y **Diffs** (+ verde / − rojo), más un **árbol
+  de archivos** colapsable del proyecto (`DirectoryTree`).
+- **Integración con el sistema de eventos**: el agente (ReAct, editor propio)
+  emite eventos a la cola no bloqueante de `tui_hub` (`put_nowait`); si la TUI
+  está inactiva o la cola está llena se descartan, coste ~0 para el CLI normal.
+- **Mensaje de inicio explícito**: `🖥️ Interfaz TUI inmersiva (Textual) — Ctrl+C
+  para salir`.
+- Atajos de teclado: `Ctrl+Q` salir · `Ctrl+L` limpiar logs · `Ctrl+D` limpiar
+  diffs · `Ctrl+T` mostrar/ocultar el árbol.
+
+### Changed
+- `VERSION` actualizada a `6.17.0` en `snapcontext.py`, `pyproject.toml`,
+  `tui_app.py`, plugins VS Code (`package.json`, `extension.ts`) y JetBrains
+  (`build.gradle.kts`, `gradle.properties`).
+- README: sección "🖥️ TUI inmersiva" actualizada a v6.17.0.
+- Badge de versión en README actualizado a `v6.17.0`.
+
+### Fixed
+- El CLI tradicional (sin `--tui`) sigue funcionando exactamente igual: la TUI
+  es un modo adicional y Textual es una dependencia opcional.
+- Degradación elegante: si Textual no está instalado, `--tui` muestra un error
+  claro y devuelve código 2 sin abrir ninguna interfaz.
+
+
 ## [6.16.0] - 2026-09-02 - Prompt Caching: métricas de caché en modo --depurar 🧠⚡
 
 ### Added

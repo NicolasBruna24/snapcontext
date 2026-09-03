@@ -1,6 +1,6 @@
 # SnapContext
 
-![v6.16.0](https://img.shields.io/badge/version-6.16.0-blue.svg)
+![v6.17.0](https://img.shields.io/badge/version-6.17.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -127,11 +127,15 @@ inspeccionar los logs del proveedor.
 > `🧠 Prompt Caching activado para <proveedor>` (o `no soportado`).
 
 
-## 🖥️ TUI inmersiva (v6.12.0)
+## 🖥️ TUI inmersiva (v6.17.0)
 
-SnapContext ahora incluye una **interfaz de terminal interactiva (TUI)** basada
+SnapContext incluye una **interfaz de terminal interactiva (TUI)** basada
 en [Textual](https://github.com/Textualize/textual), que complementa el CLI
 tradicional y la interfaz web con un centro de control inmersivo.
+
+> **v6.17.0**: la TUI se consolida como el modo inmersivo recomendado (`--tui`),
+> con arranque optimizado, mensaje de inicio explícito y compatibilidad total
+> con el flujo ReAct y el editor propio (no rompe el CLI sin `--tui`).
 
 ```bash
 pip install "snapcontext[tui]"        # instalar la dependencia opcional

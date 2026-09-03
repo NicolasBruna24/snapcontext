@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.16.0"
+VERSION = "6.17.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -12309,7 +12309,7 @@ def _ejecutar_tui(args: argparse.Namespace) -> int:
               "    (o directamente: pip install 'textual>=0.50.0')")
         return 2
     consulta = str(getattr(args, "consulta", "") or "")
-    print("🖥️  Iniciando la TUI de SnapContext... (Ctrl+Q para salir)")
+    print("🖥️ Interfaz TUI inmersiva (Textual) — Ctrl+C para salir")
     # Import tardío: evita ciclos y mantiene el CLI tradicional intacto.
     import tui_hub
     tui_hub.reiniciar()
