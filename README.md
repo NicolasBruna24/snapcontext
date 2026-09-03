@@ -1,6 +1,6 @@
 # SnapContext
 
-![v6.19.0](https://img.shields.io/badge/version-6.19.0-blue.svg)
+![v6.20.0](https://img.shields.io/badge/version-6.20.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
@@ -178,7 +178,7 @@ snapcontext --tui "revisar login"     # abrir la TUI y lanzar el agente
 > un modo adicional y Textual es una dependencia opcional (grupo `[tui]`).
 
 
-## 📝 Git profundo (v6.19.0)
+## 📝 Git profundo (v6.20.0)
 
 SnapContext crea **commits atómicos por paso** con mensajes generados por IA
 (Conventional Commits) y permite **revertir** cualquier paso:
@@ -204,7 +204,7 @@ Cada commit se registra en la tabla `pasos` de `~/.snapcontext/memoria.db`
 y registra el resultado; si hay conflictos sugiere `git mergetool`. Los
 mensajes generados se saneían para no filtrar secretos (claves API, tokens).
 
-## 🤖 Sub-agentes dinámicos (v6.19.0)
+## 🤖 Sub-agentes dinámicos (v6.20.0)
 
 El equipo multi-agente puede delegar sub-tareas en **sub-agentes
 especializados** que se instancian bajo demanda, con contexto aislado y
@@ -213,8 +213,8 @@ ejecución en paralelo controlada.
 ```bash
 snapcontext --multi-agent --sub-agents "añade exportación a PDF"
 snapcontext --multi-agent --sub-agents --max-parallel 5 "mejora el rendimiento"
-snapcontext --sub-agente-listar                  # v6.19.0: lista sub-agentes
-snapcontext --sub-agente-nuevo auditor "revisa seguridad"   # v6.19.0: nuevo rol
+snapcontext --sub-agente-listar                  # v6.20.0: lista sub-agentes
+snapcontext --sub-agente-nuevo auditor "revisa seguridad"   # v6.20.0: nuevo rol
 ```
 
 ### Roles predefinidos
@@ -225,10 +225,10 @@ snapcontext --sub-agente-nuevo auditor "revisa seguridad"   # v6.19.0: nuevo rol
 | `debugger` | Analizar errores y logs, diagnosticar causas | `leer_archivo`, `buscar_codigo`, `ejecutar_comando`, `ejecutar_pruebas` |
 | `frontender` | Revisar CSS/HTML/interfaz | `leer_archivo`, `buscar_codigo`, `editar_archivo`, `browser_*` |
 | `tester` | Ejecutar pruebas aisladas e informar | `ejecutar_pruebas`, `ejecutar_comando`, `leer_archivo` |
-| `reviewer` (nuevo v6.19.0) | Revisar PRs, diffs e impacto | `leer_archivo`, `buscar_codigo`, `ejecutar_comando`, `ejecutar_pruebas` |
+| `reviewer` (nuevo v6.20.0) | Revisar PRs, diffs e impacto | `leer_archivo`, `buscar_codigo`, `ejecutar_comando`, `ejecutar_pruebas` |
 | `documentador` | Generar/actualizar README, CLAUDE.md | `leer_archivo`, `buscar_codigo`, `editar_archivo` |
 
-### v6.19.0 — registro e invocación dinámica
+### v6.20.0 — registro e invocación dinámica
 
 - **`sub_agent.SubAgentRegistry`**: registro consultable (`registrar`,
   `obtener`, `listar`) con sub-agentes por defecto (**scout, debugger,

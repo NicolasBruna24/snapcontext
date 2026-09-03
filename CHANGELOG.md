@@ -4,6 +4,28 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.20.0] - 2026-09-02 - Paralelismo real de agentes 🚀
+
+### Added
+- **`parallel_executor.py`**: nuevo módulo con `ParallelExecutor`
+  (`ThreadPoolExecutor`, grafo de dependencias, límite de workers) y
+  `resolver_workers` (`--paralelo 0` → nº de núcleos de CPU, mínimo 2).
+- **Mensajes**: `🚀 Ejecutando N tareas en paralelo (máx. W)...`,
+  `✅ Tarea {nombre} completada` y `❌ Tarea {nombre} falló`.
+- **Idempotencia**: si una tarea falla, sus dependientes (directos y
+  transitivos) se marcan como omitidas y no se ejecutan.
+- **`Supervisor.ejecutar_tareas_paralelo(tareas)`** (multi_agent.py): delega en
+  `ParallelExecutor` según `max_parallel`; degrada con error claro si el módulo
+  no está disponible.
+- Flag `--paralelo N` (por defecto 1 = secuencial; 0 = núcleos de CPU) ya
+  integrado con `_ejecutar_plan_en_paralelo` para pasos sin dependencias.
+- Tests: `tests/test_parallel_executor.py` (29 casos: paralelismo real,
+  dependencias, workers, excepciones, mensajes, Supervisor, CLI y plan).
+
+### Fixed
+- `--paralelo 0` se interpretaba como 1 en el planificador (`or 1` masticaba
+  el cero); ahora se resuelve al nº de núcleos vía `resolver_workers`.
+
 ## [6.19.0] - 2026-09-02 - Git profundo: commits atómicos por paso + revert nativo 📝
 
 ### Added

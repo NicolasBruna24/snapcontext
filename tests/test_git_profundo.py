@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests de Git profundo (v6.19.0): commits atómicos por paso, mensajes
+"""Tests de Git profundo (v6.20.0): commits atómicos por paso, mensajes
 generados con IA, tabla ``pasos`` en la BD y revert nativo."""
 
 import argparse
@@ -274,7 +274,7 @@ class TestIntegracionReAct(unittest.TestCase):
 
 class TestVersionYBD(unittest.TestCase):
     def test_version_6_19_0(self):
-        self.assertEqual(sc.VERSION, "6.19.0")
+        self.assertEqual(sc.VERSION, "6.20.0")
 
     def test_tabla_pasos_existe_tras_inicializar(self):
         sc._db_migrar_pasos()

@@ -30,6 +30,7 @@ import os
 import queue
 import re
 import threading
+import ui
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -440,6 +441,26 @@ class Supervisor:
         for r in resultados:
             self.buzon.publicar("supervisor", "sub_tarea_completada", r)
         return resultados
+
+    # v6.20.0: ejecutor genérico en paralelo (ParallelExecutor).
+    def ejecutar_tareas_paralelo(self, tareas: List[dict]) -> List[dict]:
+        """Ejecuta tareas arbitrarias (con dependencias) en paralelo.
+
+        Cada tarea: ``{"nombre", "funcion", "args", "kwargs",
+        "dependencias"}``. Usa :class:`parallel_executor.ParallelExecutor`
+        con el límite de concurrencia del Supervisor (``self.max_parallel``;
+        ``max_parallel <= 1`` → secuencial, compatibilidad total).
+        Nunca lanza: los fallos van reportados en cada resultado.
+        """
+        try:
+            from parallel_executor import ParallelExecutor  # noqa: E402
+        except Exception as exc:                         # noqa: BLE001
+            ui.mostrar_error(f"No se pudo importar parallel_executor: {exc}")
+            return [{"nombre": str(t.get("nombre") or "tarea"), "ok": False,
+                     "resultado": None, "error": str(exc)}
+                    for t in tareas]
+        return ParallelExecutor(
+            max_workers=self.max_parallel).ejecutar_paralelo(tareas)
 
     # ------------------------------------------------------------------
     # Mostrar plan y confirmación

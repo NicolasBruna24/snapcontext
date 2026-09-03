@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.19.0"
+VERSION = "6.20.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -5730,7 +5730,7 @@ def _git_commit_paso(descripcion: str, directorio: str = ".") -> bool:
 
 
 # ----------------------------------------------------------------------
-# v6.19.0 — Git profundo: mensajes de commit con IA, commits atómicos
+# v6.20.0 — Git profundo: mensajes de commit con IA, commits atómicos
 # por paso (con hash en la BD) y revert nativo (`snapcontext revert N`).
 # ----------------------------------------------------------------------
 
@@ -5743,7 +5743,7 @@ _PATRON_SECRETOS = re.compile(
 
 
 def _sanear_mensaje_commit(texto: str) -> str:
-    """Elimina posibles secretos del mensaje de commit (restricción v6.19.0)."""
+    """Elimina posibles secretos del mensaje de commit (restricción v6.20.0)."""
     return _PATRON_SECRETOS.sub("[REDACTADO]", texto or "")
 
 
@@ -5778,7 +5778,7 @@ def _generar_mensaje_commit(diff: str, tarea: str) -> str:
 
 def _commit_paso(paso: dict, args: argparse.Namespace,
                  directorio: str = ".") -> Optional[str]:
-    """Commit atómico de un paso (v6.19.0). Devuelve el hash o ``None``.
+    """Commit atómico de un paso (v6.20.0). Devuelve el hash o ``None``.
 
     - Inicializa el repo con ``git init`` si el directorio no es repo git.
     - Si no hay cambios, no commitea y devuelve ``None`` (idempotente).
@@ -5837,10 +5837,10 @@ def _db_registrar_paso(descripcion: str, commit_hash: Optional[str],
 
 
 def _db_migrar_pasos() -> None:
-    """Migración v6.19.0: crea la tabla ``pasos`` (commits atómicos) si falta.
+    """Migración v6.20.0: crea la tabla ``pasos`` (commits atómicos) si falta.
 
     Idempotente: usa ``CREATE TABLE IF NOT EXISTS``, de modo que las bases
-    creadas antes de v6.19.0 se actualizan sin perder datos.
+    creadas antes de v6.20.0 se actualizan sin perder datos.
     """
     _db_ejecutar(
         "CREATE TABLE IF NOT EXISTS pasos ("
@@ -5855,7 +5855,7 @@ def _db_migrar_pasos() -> None:
 
 
 def _revertir_paso(step_id: int) -> bool:
-    """Revierte el commit del paso ``step_id`` (v6.19.0). True si ok.
+    """Revierte el commit del paso ``step_id`` (v6.20.0). True si ok.
 
     Ejecuta ``git revert --no-commit <hash>`` + ``git commit -m
     "revert: paso {id}"``. Si hay conflictos, sugiere ``git mergetool``.
@@ -5900,7 +5900,7 @@ def _revertir_paso(step_id: int) -> bool:
 
 
 def _ejecutar_revert(step: Optional[str] = None) -> int:
-    """Comando ``snapcontext revert <step>`` (v6.19.0).
+    """Comando ``snapcontext revert <step>`` (v6.20.0).
 
     ``step`` puede ser un id numérico; si se omite, se revierte el último
     paso commiteado. Devuelve el código de salida (0 = éxito).
@@ -6585,7 +6585,7 @@ def _ejecutar_multi_agent(args: argparse.Namespace) -> int:
     return 1
 
 
-# v6.19.0: gestión de sub-agentes dinámicos desde la CLI (independiente).
+# v6.20.0: gestión de sub-agentes dinámicos desde la CLI (independiente).
 def _ejecutar_listar_sub_agentes() -> int:
     """``snapcontext --sub-agente-listar``: lista los sub-agentes registrados."""
     try:
@@ -6669,7 +6669,7 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
         prompt_caching=getattr(args, "prompt_caching",
                                PROMPT_CACHING_DEFECTO),
         lsp=bool(getattr(args, "lsp", False)),
-        # v6.19.0: commits automáticos por acción (git profundo).
+        # v6.20.0: commits automáticos por acción (git profundo).
         git_commit=bool(getattr(args, "git_commit", True)),
         git_mensaje=getattr(args, "git_mensaje", None),
     )
@@ -6827,8 +6827,16 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
     # 3) Ejecución (v1.4.0): con --paralelo N (y --auto) se lanzan varios pasos
     # sin dependencias mutuas a la vez; en caso contrario, secuencial.
     _contexto_plan_reiniciar()   # v2.3.0: contexto dinámico por plan
-    max_hilos = max(1, int(getattr(args, "paralelo", 1) or 1))
+    # v6.20.0: `--paralelo 0` = nº de núcleos de CPU (ParallelExecutor).
+    _paralelo = getattr(args, "paralelo", 1)
+    _paralelo = 1 if _paralelo is None else int(_paralelo)
+    try:
+        from parallel_executor import resolver_workers  # noqa: E402
+        max_hilos = resolver_workers(_paralelo)
+    except Exception:                                    # noqa: BLE001
+        max_hilos = max(1, _paralelo)
     resultados: List[dict] = []
+    abortar = False
     if auto and max_hilos > 1:
         exito(f"Modo --paralelo: hasta {max_hilos} paso(s) simultáneo(s).")
         resultados = _ejecutar_plan_en_paralelo(pasos, args, raiz, max_hilos)
@@ -11146,13 +11154,13 @@ def crear_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sub-agente-nuevo", dest="sub_agente_nuevo", nargs=2,
         metavar=("NOMBRE", "DESCRIPCION"), default=None,
-        help="v6.19.0: registra un sub-agente din\u00e1mico nuevo "
+        help="v6.20.0: registra un sub-agente din\u00e1mico nuevo "
              "(<nombre> + <descripcion>) para usarlo bajo demanda, como plugin.",
     )
     parser.add_argument(
         "--sub-agente-listar", dest="sub_agente_listar", action="store_true",
         default=False,
-        help="v6.19.0: lista los sub-agentes din\u00e1micos registrados y sale.",
+        help="v6.20.0: lista los sub-agentes din\u00e1micos registrados y sale.",
     )
     parser.add_argument(
         "--lsp", dest="lsp", action="store_true", default=False,
@@ -11482,7 +11490,7 @@ def crear_parser() -> argparse.ArgumentParser:
         help="En modo --plan, hace 'git add . && git commit' tras cada paso exitoso "
              "(por defecto: activado; desactivar con --no-git-commit).",
     )
-    # v6.19.0 — Git profundo: revert nativo y mensaje manual de commit.
+    # v6.20.0 — Git profundo: revert nativo y mensaje manual de commit.
     parser.add_argument(
         "--git-revert", dest="git_revert", nargs="?", const=-1, default=None,
         type=int, metavar="STEP",
@@ -12642,7 +12650,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # v5.0.0: curador proactivo — `snapcontext curador estado|ejecutar|activar|desactivar`.
     if argv and argv[0].lower() == "curador":
         return _ejecutar_comando_curador(argv[1:])
-    # v6.19.0: git profundo — `snapcontext revert <step>` deshace un paso.
+    # v6.20.0: git profundo — `snapcontext revert <step>` deshace un paso.
     if argv and argv[0].lower() == "revert":
         return _ejecutar_revert(argv[1] if len(argv) > 1 else None)
     args = crear_parser().parse_args(_preparar_argv_aliases(argv))
@@ -12759,13 +12767,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         # v6.12.0: --tui inicia la TUI inmersiva (Textual) y bloquea hasta salir.
         if getattr(args, "tui", False):
             return _ejecutar_tui(args)
-        # v6.19.0: gestión de sub-agentes dinámicos (independiente).
+        # v6.20.0: gestión de sub-agentes dinámicos (independiente).
         if getattr(args, "sub_agente_listar", False):
             return _ejecutar_listar_sub_agentes()
         if getattr(args, "sub_agente_nuevo", None):
             _nombre, _desc = args.sub_agente_nuevo
             return _registrar_sub_agente_cli(_nombre, _desc)
-        # v6.19.0: git profundo — revert de un paso (independiente).
+        # v6.20.0: git profundo — revert de un paso (independiente).
         if getattr(args, "git_revert", None) is not None:
             _paso = args.git_revert
             return _ejecutar_revert(
