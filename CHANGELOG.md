@@ -4,6 +4,18 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.28.0] - 2026-09-03 - Agente Fantasma (Daemon Local Interactivo)
+
+### Added
+- **Nuevo modulo `session_manager.py`**: gestion de sesiones persistentes que
+  mantiene agentes vivos entre conexiones.
+  - Clase `Session`: historial, estado, plan, archivos modificados.
+  - Clase `SessionManager`: crear, obtener, eliminar, persistir, cargar sesiones.
+  - Persistencia en SQLite (`~/.snapcontext/sesiones.db`).
+- **Flags CLI**: `--new-session`, `--attach <id>`, `--session-timeout N`,
+  `--list-sessions`.
+- **Tests**: `tests/test_session_manager.py` con 20 casos.
+
 ## [6.27.0] - 2026-09-03 - Mejora de la TUI (edicion de plan + visualizacion del grafo)
 
 ### Added

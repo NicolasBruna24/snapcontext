@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.27.0"
+VERSION = "6.28.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -12044,6 +12044,28 @@ def crear_parser() -> argparse.ArgumentParser:
         default=DAEMON_INTERVALO_HORAS_DEFECTO, metavar="HORAS",
         help="Horas entre pasadas del curador cuando el daemon está activo "
              "(por defecto 168 = 7 días).",
+    )
+    # v6.28.0: Gestor de sesiones persistentes (Agente Fantasma).
+    parser.add_argument(
+        "--new-session", dest="new_session", nargs="?", const=True,
+        default=None, metavar="CONSULTA",
+        help="(v6.28.0) Crea una nueva sesion persistente y devuelve su ID. "
+             "Si se proporciona CONSULTA, la ejecuta en la nueva sesion.",
+    )
+    parser.add_argument(
+        "--attach", dest="attach", default=None, metavar="ID",
+        help="(v6.28.0) Conecta a una sesion existente (por ID).",
+    )
+    parser.add_argument(
+        "--session-timeout", dest="session_timeout", type=int, default=3600,
+        metavar="SEGUNDOS",
+        help="(v6.28.0) Tiempo de inactividad antes de eliminar una sesion "
+             "(por defecto: 3600 = 1 hora).",
+    )
+    parser.add_argument(
+        "--list-sessions", dest="list_sessions", action="store_true",
+        default=False,
+        help="(v6.28.0) Lista las sesiones activas y sale.",
     )
     parser.add_argument(
         "--curador", action="store_true",

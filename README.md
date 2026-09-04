@@ -5781,6 +5781,42 @@ Si prefieres el comportamiento clásico (flags obligatorios, sin magia):
 $env:SNAPCONTEXT_MODO_DEFAULT = "manual"    # export SNAPCONTEXT_MODO_DEFAULT=manual
 ```
 
+## 🧠 Agente Fantasma (Daemon Local) (v6.28.0)
+
+A partir de v6.28.0 SnapContext puede ejecutarse como un **servicio en segundo
+plano** que mantiene sesiones de agente persistentes, accesibles desde
+cualquier interfaz (TUI, Web, Telegram, Discord).
+
+```bash
+# Iniciar una nueva sesion
+snapcontext --new-session "arreglar el login"
+# Sesion creado: a1b2c3d4
+
+# Conectarse a una sesion existente
+snapcontext --attach a1b2c3d4
+
+# Listar sesiones activas
+snapcontext --list-sessions
+
+# Ejecutar el daemon (incluye SessionManager)
+snapcontext --daemon
+```
+
+### Comandos
+
+| Flag | Efecto |
+|---|---|
+| `--new-session [consulta]` | Crea una nueva sesion persistente. |
+| `--attach <id>` | Se conecta a una sesion existente. |
+| `--session-timeout N` | Tiempo de inactividad antes de eliminar (def: 3600s). |
+| `--list-sessions` | Lista sesiones activas. |
+
+### Persistencia
+
+- Las sesiones se guardan en `~/.snapcontext/sesiones.db` (SQLite).
+- Sobreviven a reinicios del daemon.
+- Cada sesion tiene su propio historial, estado y archivos modificados.
+
 ## 🖥️ TUI interactiva (v6.27.0)
 
 A partir de v6.27.0 la TUI de SnapContext se convierte en un **centro de control
