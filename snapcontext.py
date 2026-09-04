@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.24.0"
+VERSION = "6.25.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -6684,6 +6684,9 @@ def _ejecutar_multi_agent(args: argparse.Namespace) -> int:
         sub_agents=bool(getattr(args, "sub_agents", False)),
         max_parallel=int(getattr(args, "max_parallel", 3) or 3),
         lsp=bool(getattr(args, "lsp", False)),
+        qa_tester_activo=bool(getattr(args, "qa_tester", True)),
+        qa_iteraciones_max=int(getattr(args, "qa_iteraciones", 2) or 2),
+        qa_severidad=getattr(args, "qa_severidad", "media") or "media",
     )
     resultado = supervisor.ejecutar()
     if resultado.get("ok"):
@@ -12061,7 +12064,30 @@ def crear_parser() -> argparse.ArgumentParser:
              "CLAUDE.md/SNAPCONTEXT.md (sección '## Reglas aprendidas') y "
              "termina.",
     )
-    # Ayuda agrupada por categorías (-h/--help) â€” v1.7.
+        # v6.25.0: QA Tester adversarial (revision destructiva de codigo).
+    parser.add_argument(
+        "--qa-tester", dest="qa_tester",
+        action=argparse.BooleanOptionalAction, default=True,
+        help="Activa/desactiva el QA Tester adversarial (v6.25.0): revisa "
+             "automaticamente el codigo generado por el Programador buscando "
+             "errores de seguridad, rendimiento, logica y estilo. Activado por "
+             "defecto; desactivar con --no-qa-tester.",
+    )
+    parser.add_argument(
+        "--qa-iteraciones", dest="qa_iteraciones", type=int, default=2,
+        metavar="N",
+        help="Numero maximo de iteraciones Programador <-> QA Tester "
+             "(por defecto: 2).",
+    )
+    parser.add_argument(
+        "--qa-severidad", dest="qa_severidad",
+        choices=["baja", "media", "alta"], default="media",
+        help="Nivel de exigencia del QA Tester: 'baja' (solo errores criticos), "
+             "'media' (errores y advertencias) o 'alta' (revision exhaustiva). "
+             "Por defecto: 'media'.",
+    )
+
+# Ayuda agrupada por categorías (-h/--help) â€” v1.7.
     parser.add_argument(
         "-h", "--help", action=_AyudaAccion,
         help="Muestra esta ayuda agrupada por categorías, con alias y ejemplos.",

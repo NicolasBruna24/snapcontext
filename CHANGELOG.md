@@ -4,6 +4,22 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.25.0] - 2026-09-03 - Sub-Agente QA Tester adversarial 🧪
+
+### Added
+- **Nuevo sub-agente `qa_tester`**: revisor adversarial y destructivo de código
+  que se integra en el flujo del Supervisor después del Programador.
+  - `qa_tester_logic.py`: módulo con `revisar_codigo()`, `generar_pruebas()`,
+    `aplicar_correcciones()` y clase `QA_Tester`.
+  - Prompt adversarial en `sub_agent_prompts.py` con estrategias de revisión
+    (seguridad, rendimiento, lógica, estilo).
+  - Registro automático en `SubAgentRegistry` y `ROLES`.
+- **Integración en Supervisor**: bucle Programador → QA Tester → (si falla)
+  Programador (corrige) → QA Tester ... hasta aprobación o máximo de iteraciones.
+- **Flags CLI**: `--qa-tester`/`--no-qa-tester`, `--qa-iteraciones N`,
+  `--qa-severidad {baja,media,alta}`.
+- **Tests**: `tests/test_qa_tester.py` con 23 casos.
+
 ## [6.24.0] - 2026-09-03 - Autonomía Multi-Modelo (orquestación inteligente) 🧠
 
 ### Added

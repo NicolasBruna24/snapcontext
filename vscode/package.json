@@ -1,11 +1,11 @@
-﻿{
+{
   "name": "snapcontext-ai",
   "displayName": "SnapContext AI",
-  "description": "Asistente de IA con contexto automÃƒÂ¡tico para desarrollo: chat, planificador y selecciÃƒÂ³n inteligente de archivos.",
+  "description": "Asistente de IA con contexto autom\u00c3\u0192\u00c2\u00a1tico para desarrollo: chat, planificador y selecci\u00c3\u0192\u00c2\u00b3n inteligente de archivos.",
   "version": "6.24.0",
   "publisher": "NicolasBrunaFuentealbaIsaias",
   "license": "MIT",
-  "icon":"snapcontext-icon.png",
+  "icon": "snapcontext-icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/NicolasBruna24/snapcontext"
@@ -19,7 +19,13 @@
     "Other"
   ],
   "keywords": [
-    "ai", "gemini", "claude", "ollama", "aider", "agente", "mcp"
+    "ai",
+    "gemini",
+    "claude",
+    "ollama",
+    "aider",
+    "agente",
+    "mcp"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -51,7 +57,7 @@
       },
       {
         "command": "snapcontext.anadirAlContexto",
-        "title": "AÃƒÂ±adir al contexto",
+        "title": "A\u00c3\u0192\u00c2\u00b1adir al contexto",
         "category": "SnapContext"
       }
     ],
@@ -59,13 +65,19 @@
       "explorer/context": [
         {
           "command": "snapcontext.anadirAlContexto",
-          "title": "SnapContext: AÃƒÂ±adir al contexto",
+          "title": "SnapContext: A\u00c3\u0192\u00c2\u00b1adir al contexto",
           "group": "snapcontext"
         }
       ],
       "commandPalette": [
-        { "command": "snapcontext.anadirAlContexto", "when": "false" },
-        { "command": "snapcontext.limpiarSeleccion", "when": "snapcontext.tieneSeleccion" }
+        {
+          "command": "snapcontext.anadirAlContexto",
+          "when": "false"
+        },
+        {
+          "command": "snapcontext.limpiarSeleccion",
+          "when": "snapcontext.tieneSeleccion"
+        }
       ]
     },
     "viewsContainers": {
@@ -93,23 +105,30 @@
         "snapcontext.pythonPath": {
           "type": "string",
           "default": "python",
-          "description": "Ruta al ejecutable de Python donde estÃƒÂ¡ instalado snapcontext."
+          "description": "Ruta al ejecutable de Python donde est\u00c3\u0192\u00c2\u00a1 instalado snapcontext."
         },
         "snapcontext.provider": {
           "type": "string",
-          "enum": [null, "gemini", "anthropic", "ollama", "deepseek", "groq"],
+          "enum": [
+            null,
+            "gemini",
+            "anthropic",
+            "ollama",
+            "deepseek",
+            "groq"
+          ],
           "default": null,
           "description": "Proveedor de IA por defecto (equivalente a --provider)."
         },
         "snapcontext.apiKey": {
           "type": "string",
           "default": "",
-          "description": "Clave API del proveedor (se pasa como variable de entorno GEMINI_API_KEY/ANTHROPIC_API_KEY segÃƒÂºn el proveedor)."
+          "description": "Clave API del proveedor (se pasa como variable de entorno GEMINI_API_KEY/ANTHROPIC_API_KEY seg\u00c3\u0192\u00c2\u00ban el proveedor)."
         },
         "snapcontext.confirmar": {
           "type": "boolean",
           "default": true,
-          "description": "Pedir confirmaciÃƒÂ³n antes de acciones sensibles (--confirmar/--no-confirmar)."
+          "description": "Pedir confirmaci\u00c3\u0192\u00c2\u00b3n antes de acciones sensibles (--confirmar/--no-confirmar)."
         }
       }
     }

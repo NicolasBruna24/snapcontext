@@ -96,6 +96,14 @@ ROLES: Dict[str, Dict[str, Any]] = {
                          "ejecutar_pruebas", "finalizar"],
         "max_iter": 8,
     },
+    "qa_tester": {
+        "emoji": "QA TESTER",
+        "descripcion": "Revisión adversarial de código (seguridad, rendimiento, lógica).",
+        "prompt": _PROMPTS.get("qa_tester", "Eres QA Tester, revisor adversarial."),
+        "herramientas": ["leer_archivo", "buscar_codigo", "ejecutar_comando",
+                         "ejecutar_pruebas", "editar_archivo", "finalizar"],
+        "max_iter": 10,
+    },
 }
 
 # v6.20.0: los prompts de los roles canónicos provienen de sub_agent_prompts.py
@@ -133,9 +141,8 @@ class SubAgentRegistry:
     - :meth:`listar`: nombres ordenados de los registrados.
     """
 
-    # Registro por defecto que exige el brief: scout, debugger, reviewer,
-    # documentador.
-    ROLES_POR_DEFECTO = ("scout", "debugger", "reviewer", "documentador")
+    # Registro por defecto: scout, debugger, reviewer, documentador, qa_tester.
+    ROLES_POR_DEFECTO = ("scout", "debugger", "reviewer", "documentador", "qa_tester")
 
     def __init__(self, predefinidos: bool = True) -> None:
         self._registro: Dict[str, Dict[str, Any]] = {}

@@ -3,139 +3,76 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# Nombre verificado disponible en PyPI (18/08/2026): pypi.org/pypi/snapcontext → 404.
-# Alternativas si algún día estuviera ocupado: "snapcontext-cli" o "snapcontext-tool".
 name = "snapcontext"
-version = "6.24.0"
-description = "SnapContext: Asistente de IA con contexto automático para desarrollo"
+version = "6.25.0"
+description = "SnapContext: asistente de IA con contexto automático para desarrollo."
 readme = "README.md"
-requires-python = ">=3.9"
-# PEP 639: licencia SPDX + fichero de licencia incluido en el paquete.
-license = "MIT"
-license-files = ["LICENSE"]
-# Nota (v3.0.0): la memoria avanzada usa `sqlite3`, incluido en la stdlib de
-# Python; no añade dependencias externas.
+requires-python = ">=3.10"
+license = {text = "MIT"}
 authors = [
-    # TODO: cambia por tu nombre y correo reales antes de publicar.
-    { name = "SnapContext Contributors", email = "tu@email.com" },
+    {name = "Nicolás Bruna", email = "nicolasbruna24@gmail.com"}
 ]
-keywords = [
-    "ai", "aider", "gemini", "ollama", "deepseek", "groq", "claude", "anthropic",
-    "flutter", "supabase", "cli",
-]
+keywords = ["ai", "assistant", "coding", "development", "ollama", "gemini", "claude", "agent"]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
-    "Environment :: Console",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Topic :: Software Development :: Code Generators",
+    "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
     "google-generativeai>=0.8.3",
     "openai>=1.30.0",
     "httpx>=0.27.0",
     "cryptography>=42.0.0",
-    # v4.8.0: capa de presentación profesional de la CLI (banner, tablas,
-    # barras de progreso, diffs y prompts). Degrada a print() plano si falta.
     "rich>=13.0.0",
 ]
 
 [project.optional-dependencies]
-dev = [
-    "aider-chat>=0.67.0",
-    "build>=1.2.0",
-    "twine>=5.0.0",
-]
-# Menú interactivo de selección de proveedor (--provider y --local omitidos).
-interactive = [
-    "questionary>=1.10.0",
-]
-# Claude (Anthropic) como proveedor de IA (--provider anthropic, --chat).
-anthropic = [
-    "anthropic>=0.30.0",
-]
-# Interfaz web (FastAPI + WebSockets) con --web.
 web = [
-    "fastapi>=0.110.0",
-    "uvicorn[standard]>=0.29.0",
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.23.0",
+    "websockets>=12.0",
 ]
-# Búsqueda semántica local con embeddings (--search, pre-filtro del planificador).
-embeddings = [
-    "sentence-transformers>=3.0.0",
-    "torch>=2.0.0",
+browser = [
+    "playwright>=1.40.0",
 ]
-# MCP avanzado (v1.4.0) y editor multi-lenguaje (v5.6.0): análisis sintáctico
-# con tree-sitter. Sin él, cae a `ast` de la stdlib (solo Python).
-mcp_avanzado = [
-    "tree-sitter>=0.20.0",
-    "tree-sitter-languages>=1.10.0",
-    "tree-sitter-language-pack>=0.2.0",
-]
-# v6.7.0: herramientas MCP de bases de datos (--db-url).
-# SQLite funciona sin dependencias (sqlite3 de la stdlib).
 db = [
     "psycopg2-binary>=2.9.0",
     "pymysql>=1.1.0",
 ]
-# v6.10.0: navegador para el agente (--browser). Playwright requiere además
-# `playwright install chromium` tras instalarse.
-browser = [
-    "playwright>=1.40.0",
-]
-# v6.12.0/v6.17.0: TUI inmersiva en la terminal (--tui) basada en Textual.
 tui = [
     "textual>=0.50.0",
 ]
-# v6.14.0: integración con Language Server Protocol (--lsp). El cliente usa
-# JSON-RPC puro sobre stdio (sin dependencias obligatorias); estos paquetes
-# aportan servidores LSP de referencia para Python.
-lsp = [
-    "python-lsp-server>=1.9.0",
-    "pygls>=1.0.0",
+all = [
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.23.0",
+    "websockets>=12.0",
+    "playwright>=1.40.0",
+    "psycopg2-binary>=2.9.0",
+    "pymysql>=1.1.0",
+    "textual>=0.50.0",
 ]
 
-[project.urls]
-# TODO: apunta a tu repositorio real (no bloquea la publicación si lo dejas).
-Homepage = "https://github.com/NicolasBruna24/snapcontext"
-Repository = "https://github.com/NicolasBruna24/snapcontext"
-"Bug Tracker" = "https://github.com/NicolasBruna24/snapcontext/issues"
-
-# Entry point: expone el comando `snapcontext` que llama a main().
 [project.scripts]
 snapcontext = "snapcontext:main"
 
 [tool.setuptools]
-# Módulos de la raíz (CLI + arquitectura de agentes + UI/curador/ReAct).
-# NOTA (v5.2.1): ui/react_agent/curador_proactivo DEBEN estar aquí; si se
-# omiten no se empaquetan en el .whl y snapcontext falla al importarlos.
-# v5.3.0: detector_tests (detección automática de pruebas) también se incluye.
-# v5.4.0: sandbox_utils (detección de comandos peligrosos) también se incluye.
-# v5.5.0: graph_rag (grafo de conocimiento) también se incluye.
-# v5.6.0: parser_universal (editor multi-lenguaje tree-sitter) también se incluye.
-# v6.0.0: multi_agent (sistema multi-agente) también se incluye.
-# v6.1.0: context_utils (manejo de contexto inteligente) también se incluye.
-# v6.6.0: skill_abstraction (skills dinámicos / reglas abstractas) también.
-# v6.7.0: mcp_tools_db y mcp_tools_api (expansión MCP: BD y APIs).
-# v6.8.0: github_gateway y task_queue (omnicanalidad avanzada).
-# v6.13.0/v6.20.0: sub_agent y sub_agent_prompts (sub-agentes dinámicos).
-py-modules = ["snapcontext", "agentes", "orquestador", "ui", "react_agent",
-              "curador_proactivo", "telegram_gateway", "discord_gateway",
-              "detector_tests", "sandbox_utils", "graph_rag",
-              "parser_universal", "multi_agent", "context_utils",
-              "skill_abstraction", "mcp_tools_db", "mcp_tools_api",
-              "mcp_tools_browser",
-              "github_gateway", "task_queue", "sub_agent",
-              "sub_agent_prompts", "parallel_executor", "marketplace",
-              "hooks",`n              "model_router"]
+py-modules = [
+    "snapcontext", "agentes", "orquestador", "ui", "react_agent",
+    "curador_proactivo", "telegram_gateway", "discord_gateway",
+    "detector_tests", "sandbox_utils", "graph_rag", "parser_universal",
+    "multi_agent", "context_utils", "skill_abstraction", "mcp_tools_db",
+    "mcp_tools_api", "mcp_tools_browser", "github_gateway", "task_queue",
+    "sub_agent", "sub_agent_prompts", "parallel_executor", "marketplace",
+    "hooks", "model_router"
+]
 packages = ["web"]
 
 [tool.setuptools.package-data]
-# El estático de la interfaz web debe viajar dentro del paquete instalado.
-"web" = ["static/index.html", "static/interactive.html",
-         "static/interactive.js"]
+web = ["static/*", "static/**/*"]

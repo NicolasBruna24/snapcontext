@@ -308,7 +308,10 @@ class Supervisor:
                  archivos: Optional[List[str]] = None,
                  comando_test: Optional[str] = None,
                  sub_agents: bool = False, max_parallel: int = 3,
-                 lsp: bool = False) -> None:
+                 lsp: bool = False,
+                 qa_tester_activo: bool = True,
+                 qa_iteraciones_max: int = 2,
+                 qa_severidad: str = "media") -> None:
         self.directorio = str(Path(directorio).resolve())
         self.tarea = tarea
         self.auto = bool(auto)
@@ -323,6 +326,10 @@ class Supervisor:
         self.max_parallel = max(1, int(max_parallel))
         self.lsp = bool(lsp)
         self.sub_agentes: List[Any] = []
+        # v6.25.0: QA Tester adversarial.
+        self.qa_tester_activo = bool(qa_tester_activo)
+        self.qa_iteraciones_max = max(1, int(qa_iteraciones_max))
+        self.qa_severidad = qa_severidad
         # v6.18.0: registro de sub-agentes (scout, debugger, reviewer, ...).
         from sub_agent import REGISTRO_SUB_AGENTES as _REG     # noqa: E402
         self.registro = _REG
@@ -372,6 +379,61 @@ class Supervisor:
         sc.info(f"Supervisor: sub-agente '{nombre}' devolvió "
                 f"{bool(resultado.get('ok'))}.")
         return resultado
+
+    def _revisar_con_qa_tester(self, archivos: List[str]) -> Dict[str, Any]:
+        """Invoca al QA Tester para revisar el código generado.
+
+        Returns:
+            dict con ``aprobado``, ``hallazgos``, ``sugerencias``.
+        """
+        import snapcontext as sc
+        if not self.qa_tester_activo:
+            return {"aprobado": True, "hallazgos": [], "sugerencias": []}
+
+        try:
+            from qa_tester_logic import QA_Tester
+        except ImportError:
+            return {"aprobado": True, "hallazgos": [], "sugerencias": []}
+
+        qa = QA_Tester(
+            proveedor=self.proveedor or "gemini",
+            modelo=self.modelo,
+            severidad=self.qa_severidad,
+            max_iteraciones=self.qa_iteraciones_max,
+        )
+
+        todos_hallazgos: List[dict] = []
+        todas_sugerencias: List[str] = []
+        aprobado_global = True
+
+        for archivo in archivos:
+            ruta = Path(self.directorio) / archivo
+            if not ruta.exists():
+                continue
+            try:
+                codigo = ruta.read_text(encoding="utf-8")
+            except Exception:  # noqa: BLE001
+                continue
+
+            sc.info(f"🧪 QA Tester: revisando {archivo}...")
+            resultado = qa.revisar(codigo, archivo=archivo)
+
+            if not resultado.get("aprobado", True):
+                aprobado_global = False
+                hallazgos = resultado.get("hallazgos", [])
+                todos_hallazgos.extend(hallazgos)
+                todas_sugerencias.extend(resultado.get("sugerencias", []))
+                sc.aviso(
+                    f"❌ QA Tester: {len(hallazgos)} hallazgo(s) en {archivo}."
+                )
+            else:
+                sc.exito(f"✅ QA Tester: {archivo} aprobado.")
+
+        return {
+            "aprobado": aprobado_global,
+            "hallazgos": todos_hallazgos,
+            "sugerencias": todas_sugerencias,
+        }
 
     @staticmethod
     def _detectar_sub_tareas(plan: Dict[str, Any]) -> List[dict]:
@@ -545,13 +607,35 @@ class Supervisor:
                                "codigo": r_test.get("codigo")})
             if test_ok:
                 sc.exito("🧪 Tester: pruebas en verde ✅")
+                # v6.25.0: revisión adversarial con QA Tester.
+                r_qa = self._revisar_con_qa_tester(archivos)
+                resultados.append({"fase": "qa_tester", "intento": intento,
+                                   "ok": r_qa.get("aprobado", True),
+                                   "hallazgos": r_qa.get("hallazgos", [])})
+                if r_qa.get("aprobado", True):
+                    return {"ok": True, "plan": plan,
+                            "reintentos": intento, "resultados": resultados,
+                            "archivos": archivos}
+                # QA Tester encontró problemas → realimentar al Programador.
+                sugerencias = r_qa.get("sugerencias", [])
+                if sugerencias:
+                    error_msj = "QA Tester encontró problemas: " + \
+                                "; ".join(str(s) for s in sugerencias[:3])
+                    sc.aviso(f"🧪 QA Tester: problemas encontrados. "
+                             f"Realimentando al Programador...")
+                    continue
                 return {"ok": True, "plan": plan,
                         "reintentos": intento, "resultados": resultados,
-                        "archivos": archivos}
+                        "archivos": archivos,
+                        "qa_hallazgos": r_qa.get("hallazgos", [])}
             if r_test.get("detectado") is False:
                 # No hay pruebas en el proyecto → se da por completado.
                 sc.exito("🧪 Tester: sin pruebas detectadas; se da por "
                          "completado.")
+                # v6.25.0: revisión QA incluso sin pruebas.
+                r_qa = self._revisar_con_qa_tester(archivos)
+                resultados.append({"fase": "qa_tester", "intento": intento,
+                                   "ok": r_qa.get("aprobado", True)})
                 return {"ok": True, "plan": plan,
                         "reintentos": intento, "resultados": resultados,
                         "archivos": archivos, "sin_pruebas": True}

@@ -5781,6 +5781,47 @@ Si prefieres el comportamiento clásico (flags obligatorios, sin magia):
 $env:SNAPCONTEXT_MODO_DEFAULT = "manual"    # export SNAPCONTEXT_MODO_DEFAULT=manual
 ```
 
+## 🧪 QA Tester adversarial (v6.25.0)
+
+A partir de v6.25.0 SnapContext incluye un **QA Tester adversarial** que revisa
+automáticamente el código generado por el Programador, buscando errores de
+seguridad, rendimiento, lógica y estilo.
+
+```bash
+snapcontext "implementa login con JWT" --multi-agent
+# 🧪 QA Tester: revisando auth.py...
+# ❌ QA Tester: 2 hallazgo(s) en auth.py.
+# 🧪 QA Tester: problemas encontrados. Realimentando al Programador...
+# 🧪 QA Tester: auth.py aprobado.
+```
+
+### Cómo funciona
+
+1. **El Programador genera código** usando el editor propio de SnapContext.
+2. **El QA Tester revisa** el código con un prompt adversarial (busca SQL
+   injection, XSS, path traversal, fugas de memoria, off-by-one, etc.).
+3. **Si encuentra problemas**, el Supervisor realimenta al Programador con
+   las sugerencias y repite el ciclo.
+4. **El código se aprueba** cuando el QA Tester no halla problemas o se
+   alcanza el número máximo de iteraciones.
+
+### Configuración
+
+| Flag | Efecto |
+|---|---|
+| `--qa-tester` | Activa el QA Tester (por defecto). |
+| `--no-qa-tester` | Desactiva el QA Tester. |
+| `--qa-iteraciones N` | Máximo de iteraciones Programador ↔ QA Tester (def: 2). |
+| `--qa-severidad {baja,media,alta}` | Exigencia del revisor (def: media). |
+
+### Qué revisa
+
+- **Seguridad**: inyección SQL, XSS, path traversal, command injection,
+  secretos hardcodeados.
+- **Rendimiento**: complejidad algorítmica, fugas de memoria, consultas N+1.
+- **Lógica**: off-by-one, manejo de nulos, condiciones de carrera.
+- **Estilo**: código duplicado, nombres poco descriptivos.
+
 ## 🧠 Autonomía Multi-Modelo (v6.24.0)
 
 A partir de v6.24.0 SnapContext **elige el mejor modelo para cada tarea**,
