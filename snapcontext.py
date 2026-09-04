@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.28.0"
+VERSION = "6.29.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -11734,6 +11734,20 @@ def crear_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-iteraciones", type=int, default=MAX_ITERACIONES_TEST_DEFECTO,
         help="Máximo de iteraciones del bucle de pruebas.",
+    )
+    # v6.29.0: Sistema de autocorreccion (bucle pruebas + correccion).
+    parser.add_argument(
+        "--autocorregir", dest="autocorregir",
+        action=argparse.BooleanOptionalAction, default=True,
+        help="(v6.29.0) Activa el bucle de autocorreccion: ejecuta pruebas, "
+             "analiza errores y aplica correcciones automaticamente hasta "
+             "que pasen o se alcance --max-ciclos. Activado por defecto.",
+    )
+    parser.add_argument(
+        "--max-ciclos", dest="max_ciclos", type=int, default=3,
+        metavar="N",
+        help="(v6.29.0) Numero maximo de iteraciones de autocorreccion "
+             "(por defecto: 3).",
     )
     parser.add_argument(
         "--max-intentos", type=int, default=3,

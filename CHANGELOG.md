@@ -4,6 +4,19 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.29.0] - 2026-09-03 - Sandbox de Autocuración
+
+### Added
+- **Nuevo modulo `autocorrector.py`**: sistema de autocuracion que integra
+  sandbox persistente, bucle de pruebas y correccion automatica.
+  - `ejecutar_bucle_correccion()`: ejecuta pruebas, analiza errores con LLM
+    y aplica correcciones hasta exito o max_iteraciones.
+  - `analizar_error()`: extrae archivo, linea, tipo y sugerencia del error.
+  - `aplicar_correccion()`: aplica cambios usando el editor propio.
+  - Clase `Autocorrector`: interfaz de alto nivel.
+- **Flags CLI**: `--autocorregir`/`--no-autocorregir`, `--max-ciclos N`.
+- **Tests**: `tests/test_autocorrector.py` con 14 casos.
+
 ## [6.28.0] - 2026-09-03 - Agente Fantasma (Daemon Local Interactivo)
 
 ### Added

@@ -5781,6 +5781,40 @@ Si prefieres el comportamiento clásico (flags obligatorios, sin magia):
 $env:SNAPCONTEXT_MODO_DEFAULT = "manual"    # export SNAPCONTEXT_MODO_DEFAULT=manual
 ```
 
+## 🧪 Sandbox de Autocuración (v6.29.0)
+
+A partir de v6.29.0 SnapContext puede **probar, fallar y corregir** su propio
+codigo automaticamente usando el sandbox persistente.
+
+```bash
+snapcontext "arreglar el login" --autocorregir
+# 🧪 Ejecutando bucle de autocorreccion (max. 3 ciclos)...
+# ❌ Pruebas fallidas. Analizando errores...
+# 💡 Correccion propuesta: cambiar return None por return user
+# ✅ Pruebas superadas en 2 ciclos.
+```
+
+### Cómo funciona
+
+1. **Ejecuta las pruebas** dentro del sandbox persistente (mantiene dependencias).
+2. **Si fallan**, analiza el error con el LLM para identificar causa raiz.
+3. **Propone y aplica correcciones** usando el editor propio.
+4. **Repite** hasta que las pruebas pasen o se alcance `--max-ciclos`.
+
+### Configuración
+
+| Flag | Efecto |
+|---|---|
+| `--autocorregir` | Activa el bucle de autocorreccion (por defecto). |
+| `--no-autocorregir` | Desactiva la autocorreccion. |
+| `--max-ciclos N` | Maximo de iteraciones (def: 3). |
+
+### Integracion con sandbox
+
+- Si `--sandbox-session` esta activo, el bucle usa el mismo contenedor.
+- Las dependencias instaladas se mantienen entre iteraciones.
+- Las correcciones se aplican dentro del sandbox (seguro).
+
 ## 🧠 Agente Fantasma (Daemon Local) (v6.28.0)
 
 A partir de v6.28.0 SnapContext puede ejecutarse como un **servicio en segundo
