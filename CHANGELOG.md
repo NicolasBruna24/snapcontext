@@ -4,6 +4,21 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.26.0] - 2026-09-03 - Memoria a largo plazo (GraphRAG + historial) 🧠
+
+### Added
+- **Nuevo modulo `memory_store.py`**: memoria a largo plazo que guarda decisiones
+  pasadas en SQLite (`historial_decisiones`) y las reutiliza para enriquecer
+  el contexto del agente.
+  - `guardar_decision()`: almacena tarea, archivos, razonamiento, resultado.
+  - `buscar_decisiones()`: busca por similitud de palabras clave.
+  - `obtener_contexto_memoria()`: devuelve resumen textual de decisiones previas.
+  - `listar_decisiones()` / `limpiar_historial()`: gestion del historial.
+- **Flags CLI**: `--memoria`/`--no-memoria`, `--memoria-limite N`,
+  `--memoria-ver`.
+- **Tabla SQLite `historial_decisiones`** con indices para busqueda rapida.
+- **Tests**: `tests/test_memory_store.py` con 19 casos.
+
 ## [6.25.0] - 2026-09-03 - Sub-Agente QA Tester adversarial 🧪
 
 ### Added

@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.25.0"
+VERSION = "6.26.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -12064,7 +12064,27 @@ def crear_parser() -> argparse.ArgumentParser:
              "CLAUDE.md/SNAPCONTEXT.md (sección '## Reglas aprendidas') y "
              "termina.",
     )
-        # v6.25.0: QA Tester adversarial (revision destructiva de codigo).
+            # v6.26.0: Memoria a largo plazo (historial de decisiones en SQLite).
+    parser.add_argument(
+        "--memoria", dest="memoria",
+        action=argparse.BooleanOptionalAction, default=True,
+        help="Activa/desactiva la memoria a largo plazo (v6.26.0): guarda "
+             "decisiones pasadas en SQLite y las reutiliza para enriquecer "
+             "el contexto. Activado por defecto; desactivar con --no-memoria.",
+    )
+    parser.add_argument(
+        "--memoria-limite", dest="memoria_limite", type=int, default=100,
+        metavar="N",
+        help="Numero maximo de decisiones a guardar en el historial "
+             "(por defecto: 100).",
+    )
+    parser.add_argument(
+        "--memoria-ver", dest="memoria_ver", action="store_true",
+        default=False,
+        help="Muestra las ultimas decisiones guardadas y sale (v6.26.0).",
+    )
+
+# v6.25.0: QA Tester adversarial (revision destructiva de codigo).
     parser.add_argument(
         "--qa-tester", dest="qa_tester",
         action=argparse.BooleanOptionalAction, default=True,

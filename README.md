@@ -5781,6 +5781,42 @@ Si prefieres el comportamiento clásico (flags obligatorios, sin magia):
 $env:SNAPCONTEXT_MODO_DEFAULT = "manual"    # export SNAPCONTEXT_MODO_DEFAULT=manual
 ```
 
+## 🧠 Memoria a largo plazo (v6.26.0)
+
+A partir de v6.26.0 SnapContext **recuerda decisiones pasadas** entre sesiones
+usando una base de datos SQLite local (`~/.snapcontext/memoria.db`).
+
+```bash
+snapcontext "arreglar el login"
+# 🧠 Memoria a largo plazo activada (3 decisiones guardadas).
+# 📖 Decisiones previas similares:
+#   1) [exito] arreglar login: usar JWT para autenticacion...
+#   2) [exito] optimizar consultas: agregar indices...
+```
+
+### Cómo funciona
+
+1. **Al finalizar una tarea**, la decision se guarda automaticamente
+   (tarea, archivos modificados, razonamiento, resultado).
+2. **Al iniciar una nueva tarea**, se consulta el historial y se muestran
+   decisiones previas similares.
+3. **El historial se integra con GraphRAG** para enriquecer el contexto.
+
+### Configuración
+
+| Flag | Efecto |
+|---|---|
+| `--memoria` | Activa la memoria (por defecto). |
+| `--no-memoria` | Desactiva la memoria. |
+| `--memoria-limite N` | Maximo de decisiones a guardar (def: 100). |
+| `--memoria-ver` | Muestra las ultimas decisiones y sale. |
+
+### Privacidad
+
+- Los datos se guardan **localmente** en `~/.snapcontext/memoria.db`.
+- No se envia nada a servidores externos.
+- Puedes limpiar el historial con `--memoria-limite 0` o eliminando el archivo.
+
 ## 🧪 QA Tester adversarial (v6.25.0)
 
 A partir de v6.25.0 SnapContext incluye un **QA Tester adversarial** que revisa
