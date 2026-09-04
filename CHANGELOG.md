@@ -4,6 +4,28 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.24.0] - 2026-09-03 - Autonomía Multi-Modelo (orquestación inteligente) 🧠
+
+### Added
+- **Nuevo módulo `model_router.py`**: orquestación inteligente de modelos que
+  clasifica cada tarea por complejidad/tipo y asigna el modelo más adecuado.
+  - `clasificar_tarea(consulta, contexto)`: heurísticas rápidas (sin llamadas a
+    la IA) que devuelven una categoría entre `indexacion`, `busqueda_semantica`,
+    `planificacion_simple`, `edicion_critica`, `razonamiento_complejo`, `chat_general`.
+  - `seleccionar_modelo(categoria, config)`: elige `(proveedor, modelo)` según la
+    sección `model_routing` de `config.json`. Sin configuración → `(None, None)`
+    (usa el modelo por defecto actual, compatibilidad total).
+  - `enrutar_tarea(consulta, contexto, config)`: combina ambas y devuelve un dict
+    con `provider`, `model`, `categoria`, `enrutado`.
+- **Flag `--model-routing` / `--no-model-routing`**: activado por defecto, permite
+  desactivar el enrutamiento y usar el modelo único configurado.
+- **Integración en `_enviar_al_proveedor`**: consulta al router antes de enviar
+  peticiones cuando el enrutamiento está activo. Flags explícitos `--model` /
+  `--provider` tienen prioridad absoluta.
+- **Mensaje de enrutamiento**: muestra `🧠 Modelo enrutado: {categoria} → {provider}/{model}`.
+- **Tests**: `tests/test_model_router.py` con 22 casos (clasificación, selección,
+  default, integración con snapcontext).
+
 ## [6.23.0] - 2026-09-03 - Modo inteligente por defecto (experiencia sin flags) 🧠
 
 ### Added

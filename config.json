@@ -1,0 +1,10 @@
+{
+  "model_routing": {
+    "indexacion": {"provider": "ollama", "model": "qwen3.5:9b"},
+    "busqueda_semantica": {"provider": "ollama", "model": "qwen3.5:9b"},
+    "planificacion_simple": {"provider": "deepseek", "model": "deepseek-v3"},
+    "edicion_critica": {"provider": "gemini", "model": "gemini-2.5-pro"},
+    "razonamiento_complejo": {"provider": "anthropic", "model": "claude-3.7-sonnet"},
+    "chat_general": {"provider": "ollama", "model": "qwen3.5:9b"}
+  }
+}

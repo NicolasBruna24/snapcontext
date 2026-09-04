@@ -5781,6 +5781,68 @@ Si prefieres el comportamiento clásico (flags obligatorios, sin magia):
 $env:SNAPCONTEXT_MODO_DEFAULT = "manual"    # export SNAPCONTEXT_MODO_DEFAULT=manual
 ```
 
+## 🧠 Autonomía Multi-Modelo (v6.24.0)
+
+A partir de v6.24.0 SnapContext **elige el mejor modelo para cada tarea**,
+optimizando costes (modelos locales/económicos para tareas simples) y calidad
+(modelos premium para tareas críticas).
+
+```bash
+snapcontext "arregla el botón de pago"
+# 🧠 Modelo enrutado: edicion_critica → gemini/gemini-2.5-pro
+```
+
+### Cómo funciona
+
+1. **Clasifica la tarea** por complejidad/tipo usando heurísticas rápidas
+   (sin llamadas a la IA):
+   - `indexacion` — generar/actualizar índices, embeddings.
+   - `busqueda_semantica` — búsqueda semántica / selección de archivos.
+   - `planificacion_simple` — descomponer tareas en pasos.
+   - `edicion_critica` — editar archivos (cambios en el código).
+   - `razonamiento_complejo` — análisis largo, arquitectura, debugging difícil.
+   - `chat_general` — conversación / consultas genéricas.
+2. **Selecciona el modelo** más adecuado según tu configuración en `config.json`
+   (sección `model_routing`).
+3. **Muestra el enrutamiento** al inicio de cada tarea.
+
+### Configuración
+
+Edita `config.json` en la raíz del proyecto:
+
+```json
+{
+  "model_routing": {
+    "indexacion": {"provider": "ollama", "model": "qwen3.5:9b"},
+    "busqueda_semantica": {"provider": "ollama", "model": "qwen3.5:9b"},
+    "planificacion_simple": {"provider": "deepseek", "model": "deepseek-v3"},
+    "edicion_critica": {"provider": "gemini", "model": "gemini-2.5-pro"},
+    "razonamiento_complejo": {"provider": "anthropic", "model": "claude-3.7-sonnet"},
+    "chat_general": {"provider": "ollama", "model": "qwen3.5:9b"}
+  }
+}
+```
+
+Si no configuras nada, SnapContext usa el modelo por defecto (comportamiento
+idéntico al anterior — compatibilidad total).
+
+### Flags
+
+| Flag | Efecto |
+|---|---|
+| `--model-routing` | Activa el enrutamiento (por defecto). |
+| `--no-model-routing` | Desactiva el enrutamiento, usa el modelo único. |
+| `--model <nombre>` | Prioridad absoluta, ignora el enrutamiento. |
+| `--provider <proveedor>` | Prioridad absoluta, ignora el enrutamiento. |
+
+### Extensión
+
+Para añadir una nueva categoría:
+
+1. Agrega la constante en `model_router.py` (`CATEGORIAS`).
+2. Añade las palabras clave en las tuplas `_KW_*`.
+3. Agrega la entrada en `config.json` (`model_routing.<categoria>`).
+
 ## Licencia
 ## Licencia
 
