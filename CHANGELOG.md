@@ -4,6 +4,20 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.27.0] - 2026-09-03 - Mejora de la TUI (edicion de plan + visualizacion del grafo)
+
+### Added
+- **Nuevo modulo `tui_interactiva.py`**: extiende la TUI con dos nuevas pestanas:
+  - **Planificador**: lista interactiva de pasos editable (reordenar, eliminar,
+    insertar, editar) con teclas rapidas (↑/↓, d, i, e).
+  - **Grafo**: visualizacion del grafo de dependencias (GraphRAG) con
+    expansion/colapso de nodos.
+- **Funciones de formato**: `esquema_pasos_a_texto`, `texto_a_esquema_pasos`,
+  `grafo_a_texto`, `validar_paso`.
+- **Flags CLI**: `--tui-plan-editor`/`--no-tui-plan-editor`,
+  `--tui-grafo`/`--no-tui-grafo`.
+- **Tests**: `tests/test_tui_interactiva.py` con 19 casos.
+
 ## [6.26.0] - 2026-09-03 - Memoria a largo plazo (GraphRAG + historial) 🧠
 
 ### Added

@@ -5781,6 +5781,43 @@ Si prefieres el comportamiento clásico (flags obligatorios, sin magia):
 $env:SNAPCONTEXT_MODO_DEFAULT = "manual"    # export SNAPCONTEXT_MODO_DEFAULT=manual
 ```
 
+## 🖥️ TUI interactiva (v6.27.0)
+
+A partir de v6.27.0 la TUI de SnapContext se convierte en un **centro de control
+interactivo** con dos nuevas pestañas:
+
+```bash
+snapcontext "arreglar el login" --tui
+# Pestañas: Logs | Control | Diffs | Planificador | Grafo
+```
+
+### Pestaña "Planificador"
+
+Edita el plan del agente antes de ejecutarlo:
+
+| Tecla | Acción |
+|---|---|
+| `↑` / `↓` | Mover selección |
+| `d` | Eliminar paso seleccionado |
+| `i` | Insertar paso nuevo |
+| `e` | Editar descripción del paso |
+
+### Pestaña "Grafo"
+
+Visualiza el grafo de dependencias (GraphRAG) del proyecto:
+- Expande/colapsa nodos (archivos, funciones, clases)
+- Muestra conexiones entre archivos
+- Actualización en tiempo real tras ediciones
+
+### Configuración
+
+| Flag | Efecto |
+|---|---|
+| `--tui-plan-editor` | Activa edición de plan (por defecto con `--tui`). |
+| `--no-tui-plan-editor` | Desactiva edición de plan. |
+| `--tui-grafo` | Muestra grafo en TUI (por defecto con `--tui`). |
+| `--no-tui-grafo` | Desactiva visualización del grafo. |
+
 ## 🧠 Memoria a largo plazo (v6.26.0)
 
 A partir de v6.26.0 SnapContext **recuerda decisiones pasadas** entre sesiones

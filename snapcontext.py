@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.26.0"
+VERSION = "6.27.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -11793,6 +11793,21 @@ def crear_parser() -> argparse.ArgumentParser:
         help="Inicia la TUI inmersiva en la terminal (Textual): pestañas de "
              "logs, árbol de archivos, control del agente y visor de diffs. "
              "Requiere: pip install snapcontext[tui].",
+    )
+    # v6.27.0: TUI interactiva (edicion de plan + visualizacion del grafo).
+    parser.add_argument(
+        "--tui-plan-editor", dest="tui_plan_editor",
+        action=argparse.BooleanOptionalAction, default=True,
+        help="(v6.27.0) Permite editar el plan del agente en la TUI "
+             "(reordenar, eliminar, insertar pasos). Requiere --tui. "
+             "Activado por defecto; desactivar con --no-tui-plan-editor.",
+    )
+    parser.add_argument(
+        "--tui-grafo", dest="tui_grafo",
+        action=argparse.BooleanOptionalAction, default=True,
+        help="(v6.27.0) Muestra el grafo de dependencias (GraphRAG) en "
+             "una pestana de la TUI. Requiere --tui. Activado por defecto; "
+             "desactivar con --no-tui-grafo.",
     )
     # v6.7.0: expansión MCP â€” conexión perezosa a base de datos.
     parser.add_argument(
