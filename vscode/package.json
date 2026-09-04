@@ -1,8 +1,8 @@
-{
+﻿{
   "name": "snapcontext-ai",
   "displayName": "SnapContext AI",
-  "description": "Asistente de IA con contexto automÃ¡tico para desarrollo: chat, planificador y selecciÃ³n inteligente de archivos.",
-  "version": "6.23.0",
+  "description": "Asistente de IA con contexto automÃƒÂ¡tico para desarrollo: chat, planificador y selecciÃƒÂ³n inteligente de archivos.",
+  "version": "6.24.0",
   "publisher": "NicolasBrunaFuentealbaIsaias",
   "license": "MIT",
   "icon":"snapcontext-icon.png",
@@ -51,7 +51,7 @@
       },
       {
         "command": "snapcontext.anadirAlContexto",
-        "title": "AÃ±adir al contexto",
+        "title": "AÃƒÂ±adir al contexto",
         "category": "SnapContext"
       }
     ],
@@ -59,7 +59,7 @@
       "explorer/context": [
         {
           "command": "snapcontext.anadirAlContexto",
-          "title": "SnapContext: AÃ±adir al contexto",
+          "title": "SnapContext: AÃƒÂ±adir al contexto",
           "group": "snapcontext"
         }
       ],
@@ -93,7 +93,7 @@
         "snapcontext.pythonPath": {
           "type": "string",
           "default": "python",
-          "description": "Ruta al ejecutable de Python donde estÃ¡ instalado snapcontext."
+          "description": "Ruta al ejecutable de Python donde estÃƒÂ¡ instalado snapcontext."
         },
         "snapcontext.provider": {
           "type": "string",
@@ -104,12 +104,12 @@
         "snapcontext.apiKey": {
           "type": "string",
           "default": "",
-          "description": "Clave API del proveedor (se pasa como variable de entorno GEMINI_API_KEY/ANTHROPIC_API_KEY segÃºn el proveedor)."
+          "description": "Clave API del proveedor (se pasa como variable de entorno GEMINI_API_KEY/ANTHROPIC_API_KEY segÃƒÂºn el proveedor)."
         },
         "snapcontext.confirmar": {
           "type": "boolean",
           "default": true,
-          "description": "Pedir confirmaciÃ³n antes de acciones sensibles (--confirmar/--no-confirmar)."
+          "description": "Pedir confirmaciÃƒÂ³n antes de acciones sensibles (--confirmar/--no-confirmar)."
         }
       }
     }

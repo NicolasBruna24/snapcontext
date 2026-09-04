@@ -538,7 +538,8 @@ class AgenteEditorPropio:
                 conciso, error_msj=error_msj, truncado=truncado)
             try:
                 respuesta = sc._enviar_al_proveedor(
-                    proveedor, modelo, [{"role": "user", "content": prompt}])
+                    proveedor, modelo, [{"role": "user", "content": prompt}],
+                    categoria="edicion_critica")
             except RuntimeError as exc:
                 if truncado and _es_error_contexto(exc):
                     # El modelo real puede tener más contexto que la estimación.
@@ -551,7 +552,8 @@ class AgenteEditorPropio:
                         conciso, error_msj=error_msj, truncado=False)
                     respuesta = sc._enviar_al_proveedor(
                         proveedor, modelo,
-                        [{"role": "user", "content": prompt_completo}])
+                        [{"role": "user", "content": prompt_completo}],
+                        categoria="edicion_critica")
                 else:
                     sc.error(f"[EditorPropio] El proveedor falló en modo "
                              f"parche: {exc}")
@@ -714,7 +716,8 @@ class AgenteEditorPropio:
                 conciso, error_msj=error_msj, truncado=truncado)
             try:
                 respuesta = sc._enviar_al_proveedor(
-                    proveedor, modelo, [{"role": "user", "content": prompt}])
+                    proveedor, modelo, [{"role": "user", "content": prompt}],
+                    categoria="edicion_critica")
             except RuntimeError as exc:
                 if truncado and _es_error_contexto(exc):
                     # El modelo real puede tener más contexto que la estimación.
@@ -727,7 +730,8 @@ class AgenteEditorPropio:
                         lenguaje, conciso, error_msj=error_msj, truncado=False)
                     respuesta = sc._enviar_al_proveedor(
                         proveedor, modelo,
-                        [{"role": "user", "content": prompt_completo}])
+                        [{"role": "user", "content": prompt_completo}],
+                        categoria="edicion_critica")
                 else:
                     sc.error(f"[EditorPropio] El proveedor falló en modo "
                              f"sobrescribir: {exc}")

@@ -124,6 +124,10 @@ class ReactAgent:
         self.historial: List[Dict[str, str]] = []
         self.proveedor = proveedor
         self.modelo = modelo
+        # v6.24.0: categoría para el enrutamiento de modelos (model_router).
+        # Se calcula al inicio de ejecutar(consulta) y se pasa a
+        # _enviar_al_proveedor en cada llamada al LLM.
+        self._categoria_routing: Optional[str] = None
         # v6.11.0: Prompt Caching. None → se resuelve por entorno/config.json
         # dentro de _enviar_al_proveedor; True/False lo fuerza explícitamente.
         self.prompt_caching = prompt_caching
@@ -251,7 +255,8 @@ class ReactAgent:
     def _llamada_sync(self, mensajes: List[dict]) -> str:
         return str(sc._enviar_al_proveedor(
             self.proveedor, self.modelo, mensajes,
-            prompt_caching=self.prompt_caching))
+            prompt_caching=self.prompt_caching,
+            categoria=self._categoria_routing))
 
     async def _llamada_async(self, mensajes: List[dict]) -> str:
         loop = asyncio.get_running_loop()
@@ -807,6 +812,14 @@ class ReactAgent:
 
         Devuelve ``{"ok", "resultado", "iteraciones", "abortado"}``.
         """
+        # v6.24.0: clasifica la tarea una sola vez para el enrutamiento de
+        # modelos (sin llamadas a IA; fallo elegante si el módulo falta).
+        try:
+            import model_router as _mr                  # noqa: E402
+            self._categoria_routing = _mr.clasificar_tarea(
+                consulta, {"accion": "react"})
+        except Exception:                                # noqa: BLE001
+            self._categoria_routing = None
         self.historial = [
             {"role": "system", "content": self._construir_prompt_sistema()},
             {"role": "user", "content": f"TAREA: {consulta}"},

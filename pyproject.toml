@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 # Nombre verificado disponible en PyPI (18/08/2026): pypi.org/pypi/snapcontext → 404.
 # Alternativas si algún día estuviera ocupado: "snapcontext-cli" o "snapcontext-tool".
 name = "snapcontext"
-version = "6.23.0"
+version = "6.24.0"
 description = "SnapContext: Asistente de IA con contexto automático para desarrollo"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -132,7 +132,7 @@ py-modules = ["snapcontext", "agentes", "orquestador", "ui", "react_agent",
               "mcp_tools_browser",
               "github_gateway", "task_queue", "sub_agent",
               "sub_agent_prompts", "parallel_executor", "marketplace",
-              "hooks"]
+              "hooks",`n              "model_router"]
 packages = ["web"]
 
 [tool.setuptools.package-data]

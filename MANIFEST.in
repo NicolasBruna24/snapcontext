@@ -18,3 +18,4 @@ recursive-exclude vscode *
 recursive-exclude jetbrains *
 recursive-exclude scripts *
 recursive-exclude web/app.py *
+include model_router.py
