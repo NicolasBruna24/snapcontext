@@ -4,6 +4,30 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.23.0] - 2026-09-03 - Modo inteligente por defecto (experiencia sin flags) 🧠
+
+### Added
+- **`_detectar_modo_operacion(consulta, args)`**: detecta automáticamente la
+  complejidad de la tarea y selecciona el modo (`chat`, `plan`, `react`,
+  `react_paralelo`) a partir de la consulta. Respeta los flags explícitos
+  (`--plan`, `--react`, `--auto`): si el usuario los usó, no se sobrescriben.
+- **`_configurar_comportamiento_por_defecto(args)`**: aplica valores por
+  defecto inteligentes — `--local` automático si no hay API key,
+  `--mostrar-razonamiento` activado por defecto, `--auto` cuando el modo es
+  `plan`, `--paralelo 3` cuando el modo es `react_paralelo`.
+- **`_mostrar_plan_resumido(plan)`**: resumen del plan en 3-5 líneas
+  (`📋 Plan: ...`) antes de ejecutar, en lugar de la lista completa.
+- **Variable de entorno `SNAPCONTEXT_MODO_DEFAULT`** (`inteligente` | `manual`,
+  por defecto `inteligente`). Con `manual`, el comportamiento es idéntico al
+  anterior: se requieren flags explícitos.
+- Mensaje de arranque: `🧠 Modo inteligente activado (detectado: {modo})`.
+- Tests nuevos: `tests/test_modo_inteligente.py` (detección de modo, defaults,
+  compatibilidad con flags, variable de entorno).
+
+### Changed
+- Versión `6.23.0` en `snapcontext.py` y `pyproject.toml`.
+
+## [6.22.0] - 2026-09-02 - Hooks / lifecycle events 🔗
 ## [6.22.0] - 2026-09-02 - Hooks / lifecycle events 🔗
 
 ### Added

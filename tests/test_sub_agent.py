@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 import sub_agent
+import snapcontext as sc
 from sub_agent import (ROLES, ROLES_VALIDOS, SubAgente, SubAgentRegistry,
                        REGISTRO_SUB_AGENTES, listar_roles,
                        rol_valido, ejecutar_sub_agentes_paralelo,
@@ -546,14 +547,14 @@ class TestVersion618(unittest.TestCase):
 
     def test_version_snapcontext(self):
         import snapcontext as sc
-        self.assertEqual(sc.VERSION, "6.20.0")
+        self.assertEqual(sc.VERSION, "6.23.0")
 
     def test_version_pyproject(self):
         import os
         ruta = os.path.join(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))), "pyproject.toml")
         with open(ruta, encoding="utf-8") as fh:
-            self.assertIn('version = "6.20.0"', fh.read())
+            self.assertIn('version = "%s"' % sc.VERSION, fh.read())
         # El módulo de sub-agentes se empaqueta en el .whl.
         with open(ruta, encoding="utf-8") as fh2:
             self.assertIn("sub_agent_prompts", fh2.read())

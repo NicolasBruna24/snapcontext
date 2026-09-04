@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.22.0"
+VERSION = "6.23.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -6755,6 +6755,205 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
     return 0 if resultado.get("ok") else 1
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# v6.23.0 — MODO INTELIGENTE POR DEFECTO (sin flags)
+# ---------------------------------------------------------------------------
+# Capa de "entrada": detecta la complejidad de la tarea y aplica defaults.
+# NO toca la lógica del editor, planificador ni agente ReAct (solo flags).
+# ---------------------------------------------------------------------------
+
+# Flags que indican que el usuario ya eligió un pipeline concreto. Ante
+# cualquiera de ellos se respeta su elección (compatibilidad total) y NO se
+# activa la detección automática ni se sobrescriben defaults.
+_FLAGS_MODO_EXPLICITO: Tuple[str, ...] = (
+    "plan", "react", "auto",
+    "multi_agent", "sub_agents",
+    "test_loop", "server_loop", "manual_loop",
+    "vista_previa", "experto",
+    "asesor", "asesor_auto", "asesor_profundo",
+    "iniciar_proyecto",
+)
+
+# Raíces verbales para la detección heurística de intención (cubren la
+# conjugación: "arreglar/arregla/arreglo", "añadir/añade", ...).
+_PALABRAS_EDITAR: Tuple[str, ...] = (
+    "arregl", "corrig", "correg", "refactoriz",
+    "añad", "anad", "cambi", "elimin",
+)
+_PALABRAS_LEER: Tuple[str, ...] = (
+    "analiz", "revis", "leer", "audit", "explor",
+)
+_PALABRAS_MULTIPASO: Tuple[str, ...] = (
+    "luego", "después", "despues", "entonces",
+    "primero", "finalmente", "pasos", "posteriormente",
+)
+def _detectar_modo_operacion(consulta: Optional[str],
+                             args: argparse.Namespace) -> dict:
+    """Detecta la complejidad de la tarea y elige el modo (v6.23.0).
+
+    Devuelve un dict ``{"modo", "razon", "flags_extra"}``:
+
+      - ``modo``        → ``"chat"`` | ``"plan"`` | ``"react"`` |
+                          ``"react_paralelo"`` | ``None``.
+      - ``razon``       → explicación legible de la decisión (mensaje ``💭``).
+      - ``flags_extra`` → flags sugeridos (p. ej. ``{"paralelo": 3}``).
+
+    Prioridades (compatibilidad):
+      * Si el usuario ya usó flags de pipeline explícitos
+        (``--plan``/``--react``/``--auto``/...) devuelve ``modo=None`` y no se
+        sobrescribe nada.
+      * Consulta que pide editar (arreglar/corregir/... → plan).
+      * Consulta que pide analizar/revisar/leer → react (herramientas lectura).
+      * Consulta larga (>50 palabras) o multi-paso → react_paralelo.
+      * Consulta corta (<20 palabras) sin edición → chat (ReAct simple).
+    """
+    if consulta is None:
+        consulta = ""
+    consulta = str(consulta).strip()
+    for flag in _FLAGS_MODO_EXPLICITO:
+        if bool(getattr(args, flag, False)):
+            return {"modo": None,
+                    "razon": ("Se detectaron flags explícitos; se respeta la "
+                              "elección del usuario."),
+                    "flags_extra": {}}
+    if not consulta:
+        return {"modo": None,
+                "razon": "Sin consulta; no se aplica detección.",
+                "flags_extra": {}}
+    baja = consulta.lower()
+    num_palabras = len(consulta.split())
+
+    # 1) Edición de archivos → planificador.
+    if any(p in baja for p in _PALABRAS_EDITAR):
+        return {"modo": "plan",
+                "razon": "La consulta pide modificar/editar el código.",
+                "flags_extra": {"plan": True, "auto": True}}
+
+    # 2) Lectura / análisis → ReAct con herramientas de lectura.
+    if any(p in baja for p in _PALABRAS_LEER):
+        return {"modo": "react",
+                "razon": "La consulta pide analizar/revisar (modo lectura).",
+                "flags_extra": {}}
+
+    # 3) Larga (>50 palabras) o con varios pasos → paralelismo.
+    if num_palabras > 50 or any(p in baja for p in _PALABRAS_MULTIPASO):
+        return {"modo": "react_paralelo",
+                "razon": ("Tarea extensa o con varios pasos; se usará "
+                          "paralelismo (--paralelo 3)."),
+                "flags_extra": {"paralelo": 3}}
+
+    # 4) Corta (<20 palabras) y sin edición → chat simple (ReAct).
+    if num_palabras < 20:
+        return {"modo": "chat",
+                "razon": "Consulta corta; conversación/ReAct simple.",
+                "flags_extra": {}}
+
+    return {"modo": "react",
+            "razon": "Consulta de complejidad media; ReAct estándar.",
+            "flags_extra": {}}
+def _configurar_comportamiento_por_defecto(
+        args: argparse.Namespace) -> argparse.Namespace:
+    """Aplica defaults inteligentes sobre ``args`` (v6.23.0).
+
+    - ``--local``                 si no hay API key configurada.
+    - ``--mostrar-razonamiento``  por defecto (para usuarios nuevos).
+    - ``--auto`` (+``--plan``)    si el modo detectado es ``"plan"``.
+    - ``--paralelo 3``            si el modo detectado es ``"react_paralelo"``.
+
+    Respeta los flags explícitos: si ``_detectar_modo_operacion`` devuelve
+    ``modo=None`` devuelve ``args`` intacto (compatibilidad total).
+    """
+    det = _detectar_modo_operacion(getattr(args, "consulta", None), args)
+    modo = det.get("modo")
+    if not modo:
+        return args
+    extra = det.get("flags_extra") or {}
+    hay_api = hay_api_key_configurada()
+
+    # 1) --local si no hay clave de API.
+    if not hay_api and not bool(getattr(args, "local", False)):
+        args.local = True
+        extra["local"] = True
+
+    # 2) --mostrar-razonamiento por defecto (salvo que el usuario lo active).
+    if not bool(getattr(args, "mostrar_razonamiento", False)):
+        args.mostrar_razonamiento = True
+        extra["mostrar_razonamiento"] = True
+
+    # 3) modo plan → enrutar al planificador y ejecutar sin confirmar por paso.
+    if modo == "plan":
+        if not bool(getattr(args, "plan", False)):
+            args.plan = True
+            extra.setdefault("plan", True)
+        if not bool(getattr(args, "auto", False)):
+            args.auto = True
+            extra.setdefault("auto", True)
+
+    # 4) modo react_paralelo → --paralelo 3.
+    if modo == "react_paralelo":
+        actual = getattr(args, "paralelo", None)
+        if actual is None or int(actual) <= 1:
+            args.paralelo = 3
+            extra.setdefault("paralelo", 3)
+
+    # Marcadores internos (consumidos por la capa de presentación y por el
+    # planificador para mostrar el resumen condensado sin cambiar su lógica).
+    args._modo_inteligente = True
+    args._modo_detectado = modo
+    args._modo_razon = det.get("razon", "")
+    args._flags_extra = extra
+    return args
+
+
+def _mostrar_plan_resumido(plan: Optional[list]) -> str:
+    """Devuelve un resumen legible del plan en 3-5 líneas (v6.23.0).
+
+    En lugar de listar el plan completo, genera una frase compacta
+    ``"Voy a: 1) leer el login, 2) corregir el error, ..."``; si hay más de 5
+    pasos añade ``"y N más"``. Devuelve ``""`` si el plan está vacío.
+    """
+    if not plan:
+        return ""
+    pasos = list(plan)[:5]
+    trozos: List[str] = []
+    for i, paso in enumerate(pasos, start=1):
+        if isinstance(paso, dict):
+            desc = paso.get("descripcion") or paso.get("comando") or ""
+            desc = str(desc).strip()
+        else:
+            desc = str(paso).strip()
+        trozos.append(f"{i}) {desc}".strip())
+    resumen = ", ".join(t for t in trozos if t)
+    resto = len(list(plan)) - len(pasos)
+    if resto > 0:
+        resumen += f" y {resto} más"
+    return f"Voy a: {resumen}"
+
+
+def _aplicar_modo_inteligente(args: argparse.Namespace) -> argparse.Namespace:
+    """v6.23.0: punto de entrada del modo inteligente (capa de "entrada").
+
+    Solo actúa cuando ``SNAPCONTEXT_MODO_DEFAULT`` ≠ ``manual`` y el usuario
+    no eligió un pipeline explícito (flag de ``_FLAGS_MODO_EXPLICITO``).
+    Aplica los defaults inteligentes y muestra los mensajes descriptivos.
+    """
+    modo_env = (os.environ.get("SNAPCONTEXT_MODO_DEFAULT", "inteligente")
+                or "inteligente").strip().lower()
+    if modo_env == "manual":
+        return args
+    # Flags de pipeline explícitos → compatibilidad total (sin cambios).
+    for flag in _FLAGS_MODO_EXPLICITO:
+        if bool(getattr(args, flag, False)):
+            return args
+    if not getattr(args, "consulta", None):
+        return args
+    args = _configurar_comportamiento_por_defecto(args)
+    if getattr(args, "_modo_inteligente", False):
+        info(f"🧠 Modo inteligente activado (detectado: "
+             f"{args._modo_detectado}). Escribe /ayuda para ver comandos.")
+        if getattr(args, "_modo_razon", ""):
+            info(f"💭 {args._modo_razon}")
+    return args
 def _ejecutar_modo_tarea(args: argparse.Namespace) -> int:
     """Resuelve el modo de ejecución de la tarea (v5.2.0).
 
@@ -6868,6 +7067,10 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
               f"sin confirmaciones, con hasta {MAX_REINTENTOS_AUTO} "
               f"reintentos por paso. Permisos guardados en permisos.json "
               f"siguen aplicándose.")
+        # v6.23.0: en modo inteligente se muestra un resumen condensado del
+        # plan (📋) en lugar de la lista completa, antes de ejecutarlo.
+        if getattr(args, "_modo_inteligente", False):
+            info(f"📋 Plan: {_mostrar_plan_resumido(pasos)}")
     else:
         # 2) Mostrar el plan y pedir confirmación.
         exito(f"Plan generado ({len(pasos)} paso(s)):")
@@ -13007,6 +13210,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             )
         # v5.2.0: el motor ReAct es el modo por defecto; --plan queda como
         # legacy para scripts. El flag --react se acepta (redundante).
+        # v6.23.0: modo inteligente por defecto — detecta la complejidad y
+        # aplica defaults (--local/--mostrar-razonamiento/--auto/--paralelo)
+        # solo si el usuario no eligió flags explícitos.
+        args = _aplicar_modo_inteligente(args)
         return _ejecutar_modo_tarea(args)
     except KeyboardInterrupt:
         error("Interrumpido por el usuario.")

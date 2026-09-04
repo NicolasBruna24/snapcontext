@@ -5748,6 +5748,40 @@ Notas:
   transportarse; el contenido aceptado en el diff viewer solo se escribe en el
   archivo objetivo.
 
+## 🧠 Modo inteligente (v6.23.0)
+
+A partir de v6.23.0 **ya no necesitas flags**: escribe tu tarea y SnapContext
+decide solo qué hacer.
+
+```bash
+snapcontext "arregla el botón de pago"
+```
+
+Qué hace el modo inteligente:
+
+1. **Detecta la complejidad** de la consulta y elige el modo de operación
+   (`chat`, `plan`, `react`, `react_paralelo`) automáticamente.
+2. **Detecta el tipo de tarea**: palabras como "arreglar", "corregir",
+   "refactorizar" activan el planificador; "analizar", "revisar", "leer"
+   activan ReAct con herramientas de lectura.
+3. **Usa `--local` automáticamente** si no hay API key configurada.
+4. **Muestra el razonamiento** del agente (`💭 ...`) por defecto.
+5. **Reduce confirmaciones**: pregunta una sola vez al principio de la tarea
+   (`📋 Plan: voy a 1) leer... 2) corregir... 3) probar. ¿Continuar? (s/n)`)
+   en lugar de en cada paso.
+6. **Es 100% opcional**: los flags explícitos (`--plan`, `--react`, `--auto`,
+   `--paralelo`, etc.) tienen prioridad máxima y el comportamiento es
+   idéntico al de siempre. Los comandos peligrosos (`rm -rf`, ...) siguen
+   pidiendo confirmación explícita.
+
+Si prefieres el comportamiento clásico (flags obligatorios, sin magia):
+
+```bash
+# PowerShell / Bash
+$env:SNAPCONTEXT_MODO_DEFAULT = "manual"    # export SNAPCONTEXT_MODO_DEFAULT=manual
+```
+
+## Licencia
 ## Licencia
 
 MIT. Open-source y libre de usarlo, estudiarlo y mejorarlo.
