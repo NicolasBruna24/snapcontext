@@ -15,7 +15,7 @@ plugins {
 }
 
 group = "com.snapcontext"
-version = "6.28.0"
+version = "6.30.0"
 
 repositories {
     mavenCentral()

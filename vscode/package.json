@@ -1,8 +1,8 @@
 {
   "name": "snapcontext-ai",
   "displayName": "SnapContext AI",
-  "description": "Asistente de IA con contexto autom\u00c3\u0192\u00c2\u00a1tico para desarrollo: chat, planificador y selecci\u00c3\u0192\u00c2\u00b3n inteligente de archivos.",
-  "version": "6.28.0",
+  "description": "Asistente de IA con contexto automÃƒÂ¡tico para desarrollo: chat, planificador y selecciÃƒÂ³n inteligente de archivos.",
+  "version": "6.30.0",
   "publisher": "NicolasBrunaFuentealbaIsaias",
   "license": "MIT",
   "icon": "snapcontext-icon.png",
@@ -57,7 +57,7 @@
       },
       {
         "command": "snapcontext.anadirAlContexto",
-        "title": "A\u00c3\u0192\u00c2\u00b1adir al contexto",
+        "title": "AÃƒÂ±adir al contexto",
         "category": "SnapContext"
       }
     ],
@@ -65,7 +65,7 @@
       "explorer/context": [
         {
           "command": "snapcontext.anadirAlContexto",
-          "title": "SnapContext: A\u00c3\u0192\u00c2\u00b1adir al contexto",
+          "title": "SnapContext: AÃƒÂ±adir al contexto",
           "group": "snapcontext"
         }
       ],
@@ -105,7 +105,7 @@
         "snapcontext.pythonPath": {
           "type": "string",
           "default": "python",
-          "description": "Ruta al ejecutable de Python donde est\u00c3\u0192\u00c2\u00a1 instalado snapcontext."
+          "description": "Ruta al ejecutable de Python donde estÃƒÂ¡ instalado snapcontext."
         },
         "snapcontext.provider": {
           "type": "string",
@@ -123,12 +123,12 @@
         "snapcontext.apiKey": {
           "type": "string",
           "default": "",
-          "description": "Clave API del proveedor (se pasa como variable de entorno GEMINI_API_KEY/ANTHROPIC_API_KEY seg\u00c3\u0192\u00c2\u00ban el proveedor)."
+          "description": "Clave API del proveedor (se pasa como variable de entorno GEMINI_API_KEY/ANTHROPIC_API_KEY segÃƒÂºn el proveedor)."
         },
         "snapcontext.confirmar": {
           "type": "boolean",
           "default": true,
-          "description": "Pedir confirmaci\u00c3\u0192\u00c2\u00b3n antes de acciones sensibles (--confirmar/--no-confirmar)."
+          "description": "Pedir confirmaciÃƒÂ³n antes de acciones sensibles (--confirmar/--no-confirmar)."
         }
       }
     }
@@ -142,6 +142,6 @@
   "devDependencies": {
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.80.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.9.3"
   }
 }
