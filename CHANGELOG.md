@@ -4,6 +4,67 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.31.0] - 2026-09-04 - 🧠 Prompt Caching por Capas 📊
+
+### Added
+- **Nuevo módulo `prompt_cache.py`**: Prompt Caching por Capas — el prompt se
+  estructura en tres capas inmutables para maximizar el prefijo idéntico entre
+  peticiones y activar la caché de la API (Anthropic, DeepSeek) con la máxima
+  eficiencia:
+  - **Capa Estática**: system prompt + definiciones de herramientas MCP.
+  - **Capa Semi-Estática**: mapa de dependencias (GraphRAG), memoria del
+    repositorio (CLAUDE.md / SNAPCONTEXT.md), reglas.
+  - **Capa Volátil**: mensajes recientes (usuario/asistente), resultados de
+    herramientas, diffs de git, estado del sandbox.
+  - `ensamblar_prompt_estructurado(sistema, contexto_estatico,
+    contexto_semi_estatico, mensajes_recientes, config)`: orden estricto
+    (estática → semi-estática → volátil) con `cache_control:
+    {"type": "ephemeral"}` en las capas inmutables; nunca muta las entradas.
+  - `es_capa_estatica` / `es_capa_semi_estatica` / `es_capa_volatil`:
+    detección por marcadores de roles/contenido (rápida, sin IA); prioridad
+    estática > semi-estática > volátil (un mensaje solo pertenece a una capa).
+  - `clasificar_mensajes(mensajes, config)`: reparte una lista plana en las 3
+    capas preservando el orden relativo.
+  - `metricas_capas(mensajes, config)`: tokens estimados por capa (1 token ≈ 4
+    caracteres) para `--depurar`.
+- **Integración en `_enviar_al_proveedor_unico`** (snapcontext.py): con las
+  capas activas se usa `ensamblar_prompt_estructurado` en lugar del marcado
+  plano; con `--no-prompt-caching-capas` se usa el caching básico de v6.16.0
+  (`_aplicar_cache_control`, sin cambios). Degradación graceful al caching
+  básico si el módulo falta o falla.
+- **Nuevas configuraciones** en `config.json`: sección `prompt_caching` con
+  `activo` y `capas` (`estatica`, `semi_estatica`, `volatil`) — el usuario
+  puede ajustar qué partes son estáticas/semi-estáticas/volátiles.
+  `_resolver_prompt_caching` ahora tolera `prompt_caching` como bool (v6.16.0)
+  o como sección dict.
+- **Nuevos flags CLI**: `--prompt-caching-capas` /
+  `--no-prompt-caching-capas` (por defecto: activado si `--prompt-caching` lo
+  está; configurable con `prompt_caching.capas_activo` o la variable de
+  entorno `SNAPCONTEXT_PROMPT_CACHING_CAPAS`).
+- **Mensajes de usuario**: `🧠 Prompt Caching por Capas activado (estática +
+  semi-estática + volátil).` al inicio de la sesión (línea adicional tras el
+  mensaje básico de v6.16.0, que no cambia) y
+  `📊 Capa estática: X tokens, semi-estática: Y tokens, volátil: Z tokens.`
+  en modo `--depurar`.
+- **Tests**: nuevo `tests/test_prompt_cache.py` (más de 20 casos): ensamblado
+  en orden estricto, asignación de `cache_control` por capa, detección de
+  capas (incluida configuración personalizada), métricas, integración en
+  `_enviar_al_proveedor` (capas vs básico), flags CLI y compatibilidad con
+  v6.16.0.
+
+### Changed
+- **Compatibilidad**: sin `--prompt-caching-capas` (o con
+  `--no-prompt-caching-capas`) el comportamiento es idéntico al caching básico
+  de v6.16.0; para proveedores sin soporte (Gemini, Groq, Ollama) el flujo no
+  cambia. La detección de capas no añade latencia significativa (solo `in`
+  sobre el contenido) y las capas estáticas/semi-estáticas son inmutables
+  durante la sesión.
+- README: nueva sección "🧠 Prompt Caching por Capas (v6.31.0)" con
+  configuración, flags y ejemplos.
+- Versión `6.31.0` en `snapcontext.py` y `pyproject.toml`; `prompt_cache`
+  añadido a `py-modules`; aserciones de versión de los tests de coherencia
+  actualizadas a `6.31.0`.
+
 ## [6.30.0] - 2026-09-04 - 🌐 Enrutamiento híbrido Local-Nube 🧠
 
 ### Added

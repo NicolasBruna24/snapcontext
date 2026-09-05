@@ -19,5 +19,14 @@
       "num_archivos": 3
     },
     "fallback_automatico": true
+  },
+
+  "prompt_caching": {
+    "activo": true,
+    "capas": {
+      "estatica": ["system", "tools"],
+      "semi_estatica": ["claude_md", "graph_rag", "reglas"],
+      "volatil": ["user_messages", "tool_results", "diffs"]
+    }
   }
 }

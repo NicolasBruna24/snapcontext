@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.30.0"
+VERSION = "6.31.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -4792,10 +4792,89 @@ def _resolver_prompt_caching(explicito: Optional[bool] = None) -> bool:
     try:
         cfg = cargar_configuracion()
         if cfg and "prompt_caching" in cfg:
-            return bool(cfg["prompt_caching"])
+            valor = cfg["prompt_caching"]
+            # v6.31.0: bool (v6.16.0) o seccion dict {"activo": ...}.
+            if isinstance(valor, dict):
+                return bool(valor.get("activo", True))
+            return bool(valor)
     except Exception:                        # noqa: BLE001 â€” nunca romper flujo
         pass
     return PROMPT_CACHING_DEFECTO
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v6.31.0 — PROMPT CACHING POR CAPAS (estática + semi-estática + volátil)
+#
+# Con el caching básico (v6.16.0) las marcas se colocan sobre mensajes sueltos;
+# con las capas, el prompt se estructura en orden estricto (estática →
+# semi-estática → volátil) vía :mod:`prompt_cache` para maximizar el prefijo
+# idéntico entre peticiones. Estado global ``_PROMPT_CACHING_CAPAS``: None →
+# se resuelve por flag > entorno > config.json > defecto (activado).
+# ─────────────────────────────────────────────────────────────────────────────
+ENV_PROMPT_CACHING_CAPAS = "SNAPCONTEXT_PROMPT_CACHING_CAPAS"
+_PROMPT_CACHING_CAPAS: Optional[bool] = None   # --prompt-caching-capas
+
+
+def _configurar_prompt_caching_capas(activo: Optional[bool]) -> None:
+    """Fija el estado global del Prompt Caching por Capas (v6.31.0).
+
+    ``None`` significa "sin override": se resuelve dinámicamente por
+    ``_resolver_prompt_caching_capas`` (entorno/config/defecto activado).
+    """
+    global _PROMPT_CACHING_CAPAS
+    _PROMPT_CACHING_CAPAS = None if activo is None else bool(activo)
+
+
+def _resolver_prompt_caching_capas(explicito: Optional[bool] = None) -> bool:
+    """Resuelve si el caching por Capas está activado (v6.31.0).
+
+    Prioridad: flag ``--prompt-caching-capas`` (``explicito``) > entorno
+    ``SNAPCONTEXT_PROMPT_CACHING_CAPAS`` > ``config.json``
+    (``prompt_caching.capas_activo``; defecto activado). Nunca lanza.
+    """
+    if explicito is not None:
+        return bool(explicito)
+    bruto = os.environ.get(ENV_PROMPT_CACHING_CAPAS, "").strip()
+    if bruto:
+        return bruto.lower() not in ("0", "false", "no", "off")
+    try:
+        cfg = cargar_configuracion()
+        if cfg:
+            seccion = cfg.get("prompt_caching")
+            if isinstance(seccion, dict):
+                return bool(seccion.get("capas_activo", True))
+            if "prompt_caching_capas" in cfg:
+                return bool(cfg["prompt_caching_capas"])
+    except Exception:                        # noqa: BLE001 — nunca romper flujo
+        pass
+    return True
+
+
+def _capas_caching_activo(explicito: Optional[bool] = None) -> bool:
+    """¿Está activo el caching por Capas? (estado global > resolución)."""
+    if _PROMPT_CACHING_CAPAS is not None:
+        return _PROMPT_CACHING_CAPAS
+    return _resolver_prompt_caching_capas(explicito)
+
+
+def _estructura_mensajes_por_capas(
+        mensajes: List[dict],
+        config: Optional[dict] = None) -> List[dict]:
+    """Estructura ``mensajes`` en capas inmutables (v6.31.0).
+
+    Clasifica la lista plana (estática/semi-estática/volátil) y la ensambla en
+    orden estricto con marcas ``cache_control`` en las capas inmutables, vía
+    :mod:`prompt_cache`. Si el módulo falta o falla, degrada al caching básico
+    de v6.16.0 (``_aplicar_cache_control``) sin romper el flujo.
+    """
+    try:
+        import prompt_cache as _pc              # noqa: E402
+        _capas = _pc.clasificar_mensajes(mensajes, config)
+        return _pc.ensamblar_prompt_estructurado(
+            None, _capas["estatica"], _capas["semi_estatica"],
+            _capas["volatil"], config)
+    except Exception:                        # noqa: BLE001 — degradación graceful
+        return _aplicar_cache_control(mensajes)
 
 
 def _aplicar_cache_control(mensajes: List[dict]) -> List[dict]:
@@ -4897,6 +4976,25 @@ def _mensaje_caching_inicio(proveedor: str) -> Optional[str]:
     except Exception:                        # noqa: BLE001
         return None
     return f"🧠 Prompt Caching no soportado para {proveedor}"
+
+
+def _mensaje_capas_caching_inicio(proveedor: str) -> Optional[str]:
+    """Mensaje de usuario sobre Prompt Caching por Capas (v6.31.0).
+
+    Devuelve el texto solo si el proveedor soporta caching, el caching básico
+    está activado y las Capas también; ``None`` en caso contrario (no se
+    muestra nada). Nunca lanza. Se muestra COMO LÍNEA ADICIONAL tras el
+    mensaje básico de v6.16.0 (que no cambia, compatibilidad total).
+    """
+    try:
+        if (_soporta_prompt_caching(proveedor)
+                and _resolver_prompt_caching(None)
+                and _capas_caching_activo()):
+            return ("🧠 Prompt Caching por Capas activado "
+                    "(estática + semi-estática + volátil).")
+    except Exception:                        # noqa: BLE001
+        return None
+    return None
 
 
 def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
@@ -5021,7 +5119,14 @@ def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
     mensajes_finales = mensajes
     if (_soporta_prompt_caching(proveedor)
             and _resolver_prompt_caching(prompt_caching)):
-        mensajes_finales = _aplicar_cache_control(mensajes)
+        # v6.31.0: Prompt Caching por Capas (orden estricto estatica ->
+        # semi-estatica -> volatil). Con --no-prompt-caching-capas se usa
+        # el caching basico de v6.16.0 (marcas sin reestructurar).
+        _por_capas = _capas_caching_activo()
+        if _por_capas:
+            mensajes_finales = _estructura_mensajes_por_capas(mensajes)
+        else:
+            mensajes_finales = _aplicar_cache_control(mensajes)
         # v6.16.0: métricas de caché en modo --depurar
         if DEPURAR:
             _metricas = _calcular_metricas_caching(mensajes)
@@ -5029,7 +5134,18 @@ def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
                 f"{k} ({v} tokens)"
                 for k, v in _metricas["categorias"].items())
             depurar(f"â„¹ Prompt Caching activado ({proveedor}): {_cats}")
-
+            if _por_capas:
+                # v6.31.0: metricas por capa (estatica/semi/volatil).
+                try:
+                    import prompt_cache as _pc          # noqa: E402
+                    _tokens_capa = _pc.metricas_capas(mensajes_finales)
+                    depurar(
+                        "📊 Capa estática: "
+                        f"{_tokens_capa['estatica']} tokens, semi-estática: "
+                        f"{_tokens_capa['semi_estatica']} tokens, volátil: "
+                        f"{_tokens_capa['volatil']} tokens.")
+                except Exception:            # noqa: BLE001
+                    pass
     if tipo == "gemini":
         if _importar_genai() is None:
             raise RuntimeError(MENSAJE_GENAI_FALTANTE)
@@ -5123,6 +5239,10 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
     _mensaje_caching = _mensaje_caching_inicio(proveedor)
     if _mensaje_caching:
         info(_mensaje_caching)
+    # v6.31.0: informa del Prompt Caching por Capas al inicio de la sesión.
+    _mensaje_capas = _mensaje_capas_caching_inicio(proveedor)
+    if _mensaje_capas:
+        info(_mensaje_capas)
 
     historial_chat: List[dict] = []       # conversación de esta sesión
     contexto_archivos: List[str] = []     # selección actual (/seleccion)
@@ -11784,6 +11904,19 @@ def crear_parser() -> argparse.ArgumentParser:
         help="(v6.16.0) Desactiva el Prompt Caching (no añade marcas "
              "cache_control). Sin efecto para proveedores que no lo soportan.",
     )
+    # v6.31.0: Prompt Caching por Capas (activado por defecto si el caching
+    # básico está activo; --no-prompt-caching-capas usa el caching de v6.16.0).
+    parser.add_argument(
+        "--prompt-caching-capas", dest="prompt_caching_capas",
+        action=argparse.BooleanOptionalAction, default=None,
+        help="(v6.31.0) Activa/desactiva la estructuración del Prompt Caching "
+             "por Capas inmutables: estática (system + herramientas MCP), "
+             "semi-estática (GraphRAG, CLAUDE.md, reglas) y volátil (mensajes "
+             "recientes, tool_results, diffs). Maximiza el prefijo idéntico "
+             "entre peticiones. Por defecto: activado si --prompt-caching lo "
+             "está (o 'prompt_caching.capas_activo' de config.json); con "
+             "--no-prompt-caching-capas se usa el caching básico de v6.16.0.",
+    )
     # v6.9.0: benchmark de rendimiento por fases.
     parser.add_argument(
         "--benchmark", action="store_true",
@@ -13421,6 +13554,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             prioridad_local=getattr(args, "model_prioridad_local", None),
             prioridad_nube=getattr(args, "model_prioridad_nube", None),
         )
+        # v6.31.0: Prompt Caching por Capas (None → entorno/config/defecto).
+        _configurar_prompt_caching_capas(
+            getattr(args, "prompt_caching_capas", None))
         # v4.8.0: sincroniza el modo no interactivo de la capa UI (--auto).
         _ui_configurar_auto(bool(getattr(args, "auto", False)))
 # v4.8.0: sincroniza el modo no interactivo de la capa UI (--auto).

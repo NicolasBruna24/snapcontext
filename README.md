@@ -6118,6 +6118,74 @@ snapcontext "rediseña la arquitectura de autenticación" \
 Los flags `--model` / `--provider` explícitos siguen teniendo prioridad
 máxima: con ellos no se enruta ni se aplica fallback.
 
+## 🧠 Prompt Caching por Capas (v6.31.0)
+
+A partir de v6.31.0 el Prompt Caching (v6.16.0) se **estructura en tres capas
+inmutables** para maximizar el prefijo idéntico entre peticiones y activar la
+caché de la API (Anthropic, DeepSeek) con la máxima eficiencia:
+
+1. **Capa Estática** — system prompt + definiciones de herramientas MCP.
+2. **Capa Semi-Estática** — mapa de dependencias (GraphRAG), memoria del
+   repositorio (CLAUDE.md / SNAPCONTEXT.md), reglas.
+3. **Capa Volátil** — mensajes recientes (usuario/asistente), resultados de
+   herramientas, diffs de git, estado del sandbox.
+
+Las capas estática y semi-estática son inmutables durante la sesión y reciben
+`cache_control: {"type": "ephemeral"}`; la volátil se envía sin marcas (cambia
+en cada turno). Al inicio de la sesión verás, tras el mensaje de siempre:
+`🧠 Prompt Caching por Capas activado (estática + semi-estática + volátil).`
+
+### Cómo funciona
+
+- `prompt_cache.ensamblar_prompt_estructurado(sistema, contexto_estatico,
+  contexto_semi_estatico, mensajes_recientes, config)` ensambla el prompt en
+  orden estricto (estática → semi-estática → volátil) con las marcas.
+- `es_capa_estatica` / `es_capa_semi_estatica` / `es_capa_volatil` clasifican
+  cada mensaje por marcadores (rápido, sin IA).
+- Con `--depurar` se muestra: `📊 Capa estática: X tokens, semi-estática: Y
+  tokens, volátil: Z tokens.`
+
+### Configuración (`~/.snapcontext/config.json`)
+
+```json
+{
+  "prompt_caching": {
+    "activo": true,
+    "capas": {
+      "estatica": ["system", "tools"],
+      "semi_estatica": ["claude_md", "graph_rag", "reglas"],
+      "volatil": ["user_messages", "tool_results", "diffs"]
+    }
+  }
+}
+```
+
+El usuario puede ajustar qué partes son estáticas/semi-estáticas/volátiles
+(p. ej. mover `"tools"` a `semi_estatica`). `"activo": false` desactiva el
+caching completo (compatible con el `prompt_caching: false` de v6.16.0).
+
+### Flags
+
+| Flag | Efecto |
+|---|---|
+| `--prompt-caching-capas` | Activa la estructuración por capas (por defecto si `--prompt-caching` está activo). |
+| `--no-prompt-caching-capas` | Desactiva las capas: usa el caching básico de v6.16.0 (marcas sin reestructurar). |
+
+```bash
+# Capas activadas (por defecto) con métricas por capa.
+snapcontext "arregla el login" --prompt-caching --depurar
+
+# Caching básico de v6.16.0 (sin reestructurar el prompt).
+snapcontext "arregla el login" --prompt-caching --no-prompt-caching-capas
+
+# Sin caching alguno (idéntico a v6.16.0 con --no-prompt-caching).
+snapcontext "arregla el login" --no-prompt-caching
+```
+
+> **Compatibilidad**: sin `--prompt-caching-capas` (o con
+> `--no-prompt-caching-capas`) el comportamiento es idéntico al de v6.16.0.
+> Para proveedores sin soporte (Gemini, Groq, Ollama) el flujo no cambia.
+
 ## Licencia
 ## Licencia
 

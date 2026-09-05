@@ -685,7 +685,7 @@ class TestVersion630(unittest.TestCase):
 
     def test_version_6_30_0(self):
         import snapcontext as sc
-        self.assertEqual(sc.VERSION, "6.30.0")
+        self.assertEqual(sc.VERSION, "6.31.0")
 
 
 if __name__ == "__main__":
