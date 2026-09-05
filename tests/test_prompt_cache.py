@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests de la v6.32.0: Prompt Caching por Capas.
+"""Tests de la v6.33.0: Prompt Caching por Capas.
 
 Cubre:
   - Detección de capas (estática / semi-estática / volátil) por marcadores.
@@ -308,7 +308,7 @@ class TestResolverPromptCachingCapas(unittest.TestCase):
         self.assertTrue(sc._capas_caching_activo())
 
     def test_tolerancia_dict_en_resolver_basico(self):
-        """prompt_caching como dict (v6.32.0): 'activo' manda; bool intacto."""
+        """prompt_caching como dict (v6.33.0): 'activo' manda; bool intacto."""
         with mock.patch.object(sc, "cargar_configuracion",
                                return_value={"prompt_caching": {
                                    "activo": False, "capas": {}}}):

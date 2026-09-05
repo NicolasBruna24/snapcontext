@@ -50,6 +50,52 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
   añadido a `py-modules`; aserciones de versión de los tests de coherencia
   actualizadas a `6.32.0`.
 
+## [6.33.0] - 2026-09-04 - 🔗 Integración Agresiva Graph RAG + LSP
+
+### Added
+- **Nuevo módulo `graph_lsp_integrator.py`**: Integra Graph RAG y LSP para
+  obtener contexto preciso por símbolos (v6.33.0):
+  - `GraphLSPIntegrator(grafo, config, proveedor_lsp)`: clase principal con
+    caché de llamadas LSP y expansión por dependencias del grafo.
+  - `obtener_contexto_preciso(archivo, linea, tipo, max_simbolos)`: obtiene
+    símbolos precisos usando LSP + Graph RAG; prioriza por frecuencia de
+    llamadas.
+  - `inyectar_contexto_preciso(contexto_actual, simbolos)`: inyecta símbolos
+    extraídos en el prompt (reemplaza archivos completos).
+  - `configuracion_graph_lsp(config)`: fusiona valores por defecto con
+    ``config["graph_lsp"]``.
+- **Integración en `snapcontext.py`**:
+  - `_graph_lsp_activo(args)`: resuelve el estado (flag > entorno
+    `SNAPCONTEXT_GRAPH_RAG_LSP=1`; requiere `--graph-rag` y `--lsp`).
+  - `_configurar_graph_lsp(args)`: devuelve configuración efectiva.
+  - `obtener_simbolos_lsp(archivo, linea, tipo, grafo, config)`: helper
+    público que delega en `graph_lsp_integrator` (nunca lanza).
+- **Integración en `orquestador.py`**: con `--graph-rag-lsp` activo, el
+  planificador usa `obtener_contexto_preciso` para inyectar símbolos precisos
+  en el prompt del LLM.
+- **Integración en `react_agent.py`**: nueva herramienta `obtener_simbolo`
+  que devuelve definición y referencias de un símbolo específico vía LSP.
+- **Nuevas configuraciones** en `config.json`: sección `graph_lsp` con
+  `activo`, `profundidad` (2 por defecto) y `simbolos_max` (10 por defecto).
+- **Nuevos flags CLI**: `--graph-rag-lsp` (requiere `--graph-rag` y `--lsp`),
+  `--lsp-profundidad N` y `--lsp-simbolos-max N`.
+- **Mensajes de usuario**: `🔗 Usando Graph RAG + LSP para contexto preciso
+  (profundidad {N}, máx. {M} símbolos).` y `📖 Inyectando símbolo: {nombre}
+  ({archivo}:{linea})` en modo `--depurar`.
+- **Tests**: nuevo `tests/test_graph_lsp_integrator.py` (más de 20 casos):
+  configuración, caché, expansión con grafo, inyección de contexto, flags CLI
+  e integración con snapcontext.
+
+### Changed
+- **Compatibilidad**: sin `--graph-rag-lsp` el comportamiento es idéntico al
+  actual (se usan archivos completos). Las llamadas al LSP son perezosas y con
+  caché.
+- README: nueva sección "🔗 Graph RAG + LSP (v6.33.0)" con configuración, flags
+  y ejemplos.
+- Versión `6.33.0` en `snapcontext.py` y `pyproject.toml`;
+  `graph_lsp_integrator` añadido a `py-modules`; aserciones de versión de
+  los tests de coherencia actualizadas a `6.33.0`.
+
 ## [6.31.0] - 2026-09-04 - 🧠 Prompt Caching por Capas 📊
 
 ### Added

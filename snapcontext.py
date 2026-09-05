@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.32.0"
+VERSION = "6.33.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -7096,6 +7096,75 @@ def _graph_rag_activo(args: argparse.Namespace) -> bool:
     except Exception:                            # noqa: BLE001
         return False
 
+    return False
+
+
+def _graph_lsp_activo(args: argparse.Namespace) -> bool:
+    """v6.33.0: True si la integracion Graph RAG + LSP esta activada.
+
+    Requiere que ``--graph-rag`` Y ``--lsp`` esten activos ademas del flag
+    ``--graph-rag-lsp``. Prioridad: flag > env ``SNAPCONTEXT_GRAPH_RAG_LSP=1``.
+    """
+    if not _graph_rag_activo(args):
+        return False
+    if not getattr(args, "lsp", False):
+        return False
+    if getattr(args, "graph_rag_lsp", False):
+        return True
+    return os.environ.get("SNAPCONTEXT_GRAPH_RAG_LSP", "").strip() == "1"
+
+
+# Alias para compatibilidad con tests que usan el nombre antiguo.
+_graph_rag_lsp_activo = _graph_lsp_activo
+
+
+def _configurar_graph_lsp(args: argparse.Namespace) -> Dict[str, Any]:
+    """v6.33.0: Devuelve la configuracion efectiva de Graph RAG + LSP."""
+    return {
+        "activo": _graph_lsp_activo(args),
+        "profundidad": getattr(args, "lsp_profundidad", None) or 2,
+        "simbolos_max": getattr(args, "lsp_simbolos_max", None) or 10,
+    }
+
+
+def _obtener_contexto_graph_lsp(
+        archivo: str,
+        linea: Optional[int] = None,
+        grafo: Optional[Dict] = None,
+        config: Optional[Dict] = None) -> List[Dict[str, Any]]:
+    """v6.33.0: Obtiene simbolos precisos via Graph RAG + LSP.
+
+    Funcion de conveniencia que delega en ``graph_lsp_integrator``.
+    Nunca lanza; devuelve ``[]`` si el modulo no esta disponible.
+    """
+    try:
+        import graph_lsp_integrator as gli
+        return gli.obtener_contexto_preciso(
+            archivo, linea, "funcion", grafo,
+            config=config, proveedor_lsp=None)
+    except Exception:
+        return []
+
+
+def obtener_simbolos_lsp(
+        archivo: str,
+        linea: Optional[int] = None,
+        tipo: str = "funcion",
+        grafo: Optional[Dict] = None,
+        config: Optional[Dict] = None) -> List[Dict[str, Any]]:
+    """v6.33.0: Obtiene símbolos LSP de un archivo (público).
+
+    Función de conveniencia que delega en ``graph_lsp_integrator``.
+    Nunca lanza; devuelve ``[]`` si el módulo no está disponible.
+    """
+    try:
+        import graph_lsp_integrator as gli
+        return gli.obtener_contexto_preciso(
+            archivo, linea, tipo, grafo,
+            config=config, proveedor_lsp=None)
+    except Exception:
+        return []
+
 
 def _multi_agent_activo(flag: Optional[bool] = None) -> bool:
     """v6.0.0: True si el modo multi-agente está activado.
@@ -11094,7 +11163,8 @@ CATEGORIAS_AYUDA = (
       "--max-context-tokens", "--editor-fallback", "--mostrar-razonamiento",
       "--mostrar-diff",
       "--asesor", "--asesor-auto", "--asesor-umbral", "--modelo-ligero",
-      "--asesor-profundo", "--graph-rag", "--multi-agent",
+      "--asesor-profundo", "--graph-rag", "--graph-rag-lsp",
+      "--lsp-profundidad", "--lsp-simbolos-max", "--multi-agent",
       "--api", "--api-puerto", "--api-host", "--api-token", "--api-generate-key",
       "--chat", "--web", "--web-puerto", "--demo", "--tui",
       "--init", "--init-claude", "--historial", "--historial-limpiar",
@@ -12009,6 +12079,23 @@ def crear_parser() -> argparse.ArgumentParser:
         help="Grafo de conocimiento (v5.5.0): combina AST + embeddings y "
              "amplía el contexto con archivos relacionados (imports, "
              "llamadas, herencia). Env: SNAPCONTEXT_GRAPH_RAG=1.",
+    )
+    parser.add_argument(
+        "--graph-rag-lsp", dest="graph_rag_lsp", action="store_true",
+        default=False,
+        help="Integración Graph RAG + LSP (v6.33.0): inyecta símbolos precisos "
+             "(definiciones, referencias) en lugar de archivos completos. "
+             "Requiere --graph-rag y --lsp. Env: SNAPCONTEXT_GRAPH_RAG_LSP=1.",
+    )
+    parser.add_argument(
+        "--lsp-profundidad", dest="lsp_profundidad", type=int, default=None,
+        help="Profundidad de expansión en Graph RAG para LSP (v6.33). "
+             "Por defecto: 2.",
+    )
+    parser.add_argument(
+        "--lsp-simbolos-max", dest="lsp_simbolos_max", type=int, default=None,
+        help="Número máximo de símbolos a inyectar vía LSP (v6.33). "
+             "Por defecto: 10.",
     )
     parser.add_argument(
         "--iniciar-proyecto", "--no-validar", dest="iniciar_proyecto",

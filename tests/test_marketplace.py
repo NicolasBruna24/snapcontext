@@ -292,7 +292,7 @@ class TestComandosCLI(unittest.TestCase):
 
 class TestVersion(unittest.TestCase):
     def test_version_6_21_0(self):
-        self.assertEqual(sc.VERSION, "6.32.0")
+        self.assertEqual(sc.VERSION, "6.33.0")
 
 
 if __name__ == "__main__":

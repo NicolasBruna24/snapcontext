@@ -6237,6 +6237,60 @@ snapcontext "arregla el login" --prune-umbral 5
 > críticos (código de retorno, archivo afectado, error) para no perder
 > información esencial para el agente.
 
+## 🔗 Graph RAG + LSP (v6.33.0)
+
+El Graph RAG (v5.5.0) mapea dependencias entre archivos; el cliente LSP
+(v6.14.0) resuelve definiciones/referencias exactas. La **integración agresiva**
+los une para inyectar solo los símbolos relevantes en el prompt (no archivos
+completos), reduciendo drásticamente el consumo de tokens.
+
+```bash
+# Activar Graph RAG + LSP (requiere --graph-rag y --lsp).
+snapcontext "arregla el login" --graph-rag --lsp --graph-rag-lsp
+
+# Profundidad de expansión personalizada.
+snapcontext "arregla el login" --graph-rag --lsp --graph-rag-lsp --lsp-profundidad 3
+
+# Máximo de símbolos a inyectar.
+snapcontext "arregla el login" --graph-rag --lsp --graph-rag-lsp --lsp-simbolos-max 20
+```
+
+### Configuración (`config.json`)
+
+```json
+{
+  "graph_lsp": {
+    "activo": false,
+    "profundidad": 2,
+    "simbolos_max": 10
+  }
+}
+```
+
+| Parámetro | Descripción |
+|---|---|
+| `activo` | Activa/desactiva la integración (por defecto: `false`). |
+| `profundidad` | Profundidad de expansión en el grafo (por defecto: `2`). |
+| `simbolos_max` | Máx. símbolos a inyectar (por defecto: `10`). |
+
+### Flags CLI
+
+| Flag | Efecto |
+|---|---|
+| `--graph-rag-lsp` | Activa la integración Graph RAG + LSP (requiere `--graph-rag` y `--lsp`). |
+| `--lsp-profundidad N` | Profundidad de expansión en el grafo (por defecto: 2). |
+| `--lsp-simbolos-max N` | Número máximo de símbolos a inyectar (por defecto: 10). |
+
+### Cómo funciona
+
+1. **LSP** obtiene símbolos exactos (definiciones, referencias, tipos) del archivo.
+2. **Graph RAG** prioriza qué símbolos son más relevantes (por dependencias/llamadas).
+3. Se inyectan solo los símbolos relevantes en el prompt del planificador y ReAct.
+4. Las llamadas al LSP son perezosas y con caché para minimizar la latencia.
+
+> **Compatibilidad**: sin `--graph-rag-lsp` el comportamiento es idéntico al actual
+> (se usan archivos completos). Solo inyecta símbolos de archivos dentro del proyecto.
+
 ## Licencia
 ## Licencia
 

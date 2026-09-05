@@ -561,8 +561,88 @@ def lsp_disponible(lenguaje: str) -> bool:
     return _comando_servidor(lenguaje) is not None
 
 
+def soporta_lsp(lenguaje: str) -> bool:
+    """True si el lenguaje está soportado por algún servidor LSP (v6.33.0).
+
+    Alias semántico de ``lsp_disponible``; incluye tanto la detección por
+    extensión como la disponibilidad del servidor en el PATH.
+    """
+    if lenguaje in COMANDOS_SERVIDOR:
+        return _comando_servidor(lenguaje) is not None
+    return False
+
+
+def obtener_simbolos(archivo: str, linea: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Obtiene los símbolos de un archivo usando LSP (v6.33.0).
+
+    Si ``linea`` se especifica, devuelve la definición y referencias del
+    símbolo en esa línea. Si no, devuelve todos los símbolos del archivo
+    (document symbols) si el servidor lo soporta.
+
+    Devuelve una lista de dicts: ``[{"nombre", "linea", "archivo", "tipo",
+    "contenido"}]``. Nunca lanza; devuelve ``[]`` si LSP no está disponible.
+    """
+    lenguaje = _detectar_lenguaje_por_extension(archivo)
+    if not lenguaje or not lsp_disponible(lenguaje):
+        return []
+    cliente = obtener_cliente_lsp(str(Path(archivo).parent), lenguaje)
+    if cliente is None:
+        return []
+    simbolos: List[Dict[str, Any]] = []
+    try:
+        doc = cliente._preparar_archivo(archivo)
+        if doc is None:
+            return []
+        # Intentar documentSymbol (lista de símbolos del archivo).
+        if linea is None:
+            respuesta = cliente.enviar_peticion(
+                "textDocument/documentSymbol",
+                {"textDocument": {"uri": doc["uri"]}})
+            if isinstance(respuesta, list):
+                for raw in respuesta:
+                    if not isinstance(raw, dict):
+                        continue
+                    rango = raw.get("range") or raw.get("location", {}).get("range", {})
+                    inicio = rango.get("start", {})
+                    simbolos.append({
+                        "nombre": raw.get("name", ""),
+                        "linea": int(inicio.get("line", 0)) + 1,
+                        "columna": int(inicio.get("character", 0)) + 1,
+                        "archivo": archivo,
+                        "tipo": raw.get("kind", "simbolo"),
+                        "contenido": raw.get("detail", ""),
+                    })
+        else:
+            # Definición + referencias en la línea.
+            definicion = cliente.obtener_definicion(archivo, linea, 1)
+            if definicion:
+                simbolos.append({
+                    "nombre": definicion.get("archivo", archivo),
+                    "linea": definicion.get("linea", linea),
+                    "columna": definicion.get("columna", 1),
+                    "archivo": definicion.get("archivo", archivo),
+                    "tipo": "definicion",
+                    "contenido": "",
+                })
+            refs = cliente.obtener_referencias(archivo, linea, 1)
+            if refs and isinstance(refs, dict):
+                for ref in refs.get("referencias", []):
+                    simbolos.append({
+                        "nombre": "",
+                        "linea": ref.get("linea", 0),
+                        "columna": ref.get("columna", 1),
+                        "archivo": ref.get("archivo", archivo),
+                        "tipo": "referencia",
+                        "contenido": "",
+                    })
+    except Exception:  # noqa: BLE001
+        pass
+    return simbolos
+
+
 __all__ = ["MAPEO_EXTENSIONES", "COMANDOS_SERVIDOR", "CacheLSP", "LSPClient",
            "obtener_cliente_lsp", "cerrar_cliente_lsp", "cliente_lsp_activo",
-           "lsp_disponible", "_detectar_lenguaje_por_extension",
+           "lsp_disponible", "soporta_lsp", "obtener_simbolos",
+           "_detectar_lenguaje_por_extension",
            "_comando_servidor", "TIMEOUT_DEFECTO"]
 

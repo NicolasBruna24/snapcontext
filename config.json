@@ -34,5 +34,10 @@
     "umbral_lineas": 10,
     "usar_llm": true,
     "tipos_podables": ["stdout", "stderr", "contenido", "diff", "texto"]
+  },
+  "graph_lsp": {
+    "activo": false,
+    "profundidad": 2,
+    "simbolos_max": 10
   }
 }

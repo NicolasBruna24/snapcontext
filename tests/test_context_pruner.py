@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests de la v6.32.0: Pruning proactivo de contexto.
+"""Tests de la v6.33.0: Pruning proactivo de contexto.
 
 Cubre:
   - Detección de resultados extensos (stdout, stderr, contenido, diff).
