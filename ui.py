@@ -52,6 +52,7 @@ __all__ = [
     "mostrar_estado",
     "mostrar_error",
     "mostrar_razonamiento",
+    "mostrar_plan",
 ]
 
 VERSION_UI = "4.8.0"
@@ -243,6 +244,40 @@ def preguntar_interactivo(opciones: Optional[List[Tuple[str, str]]],
         "Elige", choices=teclas_validas, default=defecto,
         console=_console, show_choices=False, show_default=True)
     return str(eleccion).strip().lower()
+
+
+def mostrar_plan(plan: list, titulo: str = "📋 Plan de ejecución") -> None:
+    """Muestra un plan numerado en un panel estilizado (v6.35.0).
+
+    ``plan`` es una lista de dicts con al menos la clave ``"paso"`` (descripción
+    textual del paso). Opcionalmente puede incluir ``"accion"`` y ``"archivo"``.
+    Compatible con Rich (tabla estilizada) y fallback plano.
+    """
+    if not plan:
+        return
+    if not RICH_DISPONIBLE:
+        _imprimir(f"\n{titulo}:")
+        for i, paso in enumerate(plan, 1):
+            desc = paso.get("paso", paso) if isinstance(paso, dict) else paso
+            extra = ""
+            if isinstance(paso, dict) and paso.get("archivo"):
+                extra = f" [{paso['archivo']}]"
+            _imprimir(f"  {i}. {desc}{extra}")
+        return
+    tabla = Table(show_header=True, header_style="bold magenta",
+                  title=f"[bold]{titulo}[/bold]")
+    tabla.add_column("#", style="bold cyan", justify="right", no_wrap=True)
+    tabla.add_column("Paso", style="white")
+    tabla.add_column("Detalles", style="dim")
+    for i, paso in enumerate(plan, 1):
+        if isinstance(paso, dict):
+            desc = paso.get("paso", str(paso))
+            detalles = paso.get("archivo") or paso.get("accion") or ""
+        else:
+            desc = str(paso)
+            detalles = ""
+        tabla.add_row(str(i), desc, detalles)
+    _console.print(tabla)
 
 
 def mostrar_estado(mensaje: str, emoji: str = "⚙️") -> None:

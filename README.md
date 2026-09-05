@@ -1,5 +1,13 @@
 # SnapContext
 
+## 💖 Support the Development
+
+If **snapcontext** has saved you time, optimized your local workflow, or if you want to support an independent student engineer building the future of local AI agents, please consider sponsoring the project!
+
+[!["Sponsor NicolasBruna24"](https://shields.io)](https://github.com)
+
+Your sponsorship directly funds cloud evaluation tokens, testing on alternative hardware architectures (like Intel XPU), and speeds up the development roadmap. Thank you!
+
 ![v6.20.0](https://img.shields.io/badge/version-6.22.0-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruña24/snapcontext/actions)
@@ -7,6 +15,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Plataformas](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macOS-lightgrey.svg)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
+[![Discord](https://img.shields.io/discord/123456789012345678?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/mbN6DMcP)
 
 **SnapContext** es un asistente de IA con contexto automático para desarrollo:
 detecta el tipo de proyecto, selecciona los archivos relevantes con IA, ejecuta
