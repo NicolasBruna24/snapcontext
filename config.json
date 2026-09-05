@@ -28,5 +28,11 @@
       "semi_estatica": ["claude_md", "graph_rag", "reglas"],
       "volatil": ["user_messages", "tool_results", "diffs"]
     }
+  },
+  "pruning": {
+    "activo": true,
+    "umbral_lineas": 10,
+    "usar_llm": true,
+    "tipos_podables": ["stdout", "stderr", "contenido", "diff", "texto"]
   }
 }

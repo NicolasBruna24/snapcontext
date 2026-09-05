@@ -126,7 +126,7 @@ class TestCliFlagsYVersion(unittest.TestCase):
         self.assertEqual(args.webhook_url, "https://hook.ejemplo.com")
 
     def test_version_6_8_0(self):
-        self.assertEqual(sc.VERSION, "6.31.0")
+        self.assertEqual(sc.VERSION, "6.32.0")
 
 
 if __name__ == "__main__":

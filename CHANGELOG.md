@@ -4,6 +4,52 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.32.0] - 2026-09-04 - ✂️ Edición Quirúrgica de Contexto (Pruning Proactivo)
+
+### Added
+- **Nuevo módulo `context_pruner.py`**: Pruning proactivo de contexto — poda
+  los datos de herramientas (logs, salidas, diffs) después de cada uso,
+  reemplazándolos por un resumen de una línea para reducir drásticamente el
+  consumo de tokens:
+  - `prune_resultado(resultado, tipo_herramienta, umbral_lineas, ...)`: poda un
+    resultado extenso (más de N líneas) reemplazando cada campo podable por un
+    resumen de una línea; añade `_pruned: True` y `_resumen` para trazabilidad;
+    nunca muta el original.
+  - `resumir_linea(texto, max_lineas, usar_llm, proveedor_llm)`: genera un
+    resumen de una línea usando el LLM si está disponible (categoría
+    ``"resumen"``) o una heurística simple (primera línea + " (y N líneas más)").
+  - `es_resultado_extenso(resultado, umbral_lineas, tipos_podables)`: detecta si
+    un resultado supera el umbral en stdout, stderr, contenido, diff o texto.
+  - `obtener_metadatos_clave(resultado, tipo_herramienta)`: extrae información
+    crítica (código de retorno, archivo afectado, error) que se preserva siempre.
+  - `configuracion_pruning(config)`: fusiona valores por defecto con
+    ``config["pruning"]``.
+- **Integración en `_enviar_al_proveedor_unico`** (snapcontext.py): con
+  `--prune-context` activo, los resultados extensos de herramientas se podan
+  después del paso de Prompt Caching (no interfiere con `cache_control`).
+- **Nuevas configuraciones** en `config.json`: sección `pruning` con `activo`,
+  `umbral_lineas` (10 por defecto), `usar_llm` y `tipos_podables`.
+- **Nuevos flags CLI**: `--prune-context` / `--no-prune-context` (activado por
+  defecto) y `--prune-umbral N` (configura el umbral de líneas).
+- **Helpers en snapcontext.py**: `_configurar_pruning`, `_resolver_pruning`,
+  `_pruning_activo`, `_umbral_pruning`, `podar_si_extenso` (wrapper seguro) y
+  `_podar_resultados_extensos` (poda mensajes tool/assistant en el historial).
+- **Mensajes de usuario**: `✂️ Podando contexto (resultados extensos → resumen 1
+  línea)` en modo `--depurar`.
+- **Tests**: nuevo `tests/test_context_pruner.py` (más de 25 casos): detección de
+  resultados extensos, resumen con LLM y heurística, metadatos clave, poda,
+  configuración personalizada, flags CLI e integración con snapcontext.
+
+### Changed
+- **Compatibilidad**: sin `--prune-context` (o con `--no-prune-context`) el
+  comportamiento es idéntico al actual; el pruning es rápido (heurística simple
+  si el LLM no está disponible) y no pierde información crítica para el agente.
+- README: nueva sección "✂️ Edición Quirúrgica de Contexto (v6.32.0)" con
+  configuración, flags y ejemplos.
+- Versión `6.32.0` en `snapcontext.py` y `pyproject.toml`; `context_pruner`
+  añadido a `py-modules`; aserciones de versión de los tests de coherencia
+  actualizadas a `6.32.0`.
+
 ## [6.31.0] - 2026-09-04 - 🧠 Prompt Caching por Capas 📊
 
 ### Added

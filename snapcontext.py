@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.31.0"
+VERSION = "6.32.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -4857,6 +4857,149 @@ def _capas_caching_activo(explicito: Optional[bool] = None) -> bool:
     return _resolver_prompt_caching_capas(explicito)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# v6.32.0 — Pruning proactivo de contexto (edición quirúrgica del historial)
+# Podado de resultados extensos de herramientas (logs, salidas, diffs) con
+# resumen de una línea (LLM si está disponible, si no heurística simple).
+# Estado global _PRUNING_ACTIVO: None → se resuelve por flag > config > defecto.
+# ─────────────────────────────────────────────────────────────────────────────
+ENV_PRUNING = "SNAPCONTEXT_PRUNING"
+_PRUNING_ACTIVO: Optional[bool] = None   # --prune-context
+_PRUNING_UMBRAL: Optional[int] = None    # --prune-umbral
+
+
+def _configurar_pruning(activo: Optional[bool]) -> None:
+    """Fija el estado global del pruning proactivo (v6.32.0).
+
+    ``None`` significa \"sin override\": se resuelve dinámicamente por
+    ``_resolver_pruning`` (config.json > defecto activado).
+    """
+    global _PRUNING_ACTIVO
+    _PRUNING_ACTIVO = None if activo is None else bool(activo)
+
+
+def _configurar_umbral_pruning(umbral: Optional[int]) -> None:
+    """Fija el umbral global de líneas para el pruning (v6.32.0)."""
+    global _PRUNING_UMBRAL
+    if umbral is None:
+        _PRUNING_UMBRAL = None
+        return
+    try:
+        _PRUNING_UMBRAL = max(1, int(umbral))
+    except (TypeError, ValueError):
+        _PRUNING_UMBRAL = None
+
+
+def _resolver_pruning(explicito: Optional[bool] = None) -> bool:
+    """Resuelve si el pruning proactivo está activado (v6.32.0).
+
+    Prioridad: flag ``--prune-context`` (``explicito``) > entorno
+    ``SNAPCONTEXT_PRUNING`` > ``config.json`` (``pruning.activo``;
+    defecto activado). Nunca lanza.
+    """
+    if explicito is not None:
+        return bool(explicito)
+    bruto = os.environ.get(ENV_PRUNING, "").strip()
+    if bruto:
+        return bruto.lower() not in ("0", "false", "no", "off")
+    try:
+        cfg = cargar_configuracion()
+        if cfg:
+            seccion = cfg.get("pruning")
+            if isinstance(seccion, dict):
+                return bool(seccion.get("activo", True))
+            if "pruning_activo" in cfg:
+                return bool(cfg["pruning_activo"])
+    except Exception:
+        pass
+    return True
+
+
+def _pruning_activo(explicito: Optional[bool] = None) -> bool:
+    """¿Está activo el pruning? (estado global > resolución)."""
+    if _PRUNING_ACTIVO is not None:
+        return _PRUNING_ACTIVO
+    return _resolver_pruning(explicito)
+
+
+def _umbral_pruning() -> int:
+    """Devuelve el umbral efectivo de líneas (flag > config > defecto 10)."""
+    if _PRUNING_UMBRAL is not None:
+        return _PRUNING_UMBRAL
+    try:
+        cfg = cargar_configuracion()
+        if cfg:
+            seccion = cfg.get("pruning")
+            if isinstance(seccion, dict):
+                umbral = seccion.get("umbral_lineas")
+                if umbral is not None:
+                    return max(1, int(umbral))
+    except Exception:
+        pass
+    return 10
+
+
+def podar_si_extenso(
+        resultado: dict,
+        tipo_herramienta: str = "",
+        umbral_lineas: Optional[int] = None) -> dict:
+    """Poda un resultado de herramienta si es extenso (v6.32.0).
+
+    Wrapper seguro sobre ``context_pruner.prune_resultado``. Si el módulo
+    falta, el pruning está desactivado o el resultado no es extenso, devuelve
+    el resultado original sin cambios. Nunca lanza.
+    """
+    try:
+        import context_pruner as _cp
+    except Exception:
+        return resultado
+    if not _pruning_activo():
+        return resultado
+    if not isinstance(resultado, dict):
+        return resultado
+    umbral = umbral_lineas if umbral_lineas is not None else _umbral_pruning()
+    try:
+        return _cp.prune_resultado(
+            resultado, tipo_herramienta=tipo_herramienta,
+            umbral_lineas=umbral)
+    except Exception:
+        return resultado
+
+
+def _podar_resultados_extensos(mensajes: List[dict]) -> List[dict]:
+    """Poda los resultados extensos de herramientas en una lista de mensajes.
+
+    Revisa mensajes de rol ``"tool"`` y ``"assistant"`` que contengan resultados
+    extensos (stdout, stderr, contenido, diff) y los reemplaza por un resumen
+    de una línea. Devuelve la lista podada.
+    """
+    try:
+        import context_pruner as _cp
+    except Exception:
+        return mensajes
+    if not _pruning_activo():
+        return mensajes
+    umbral = _umbral_pruning()
+    podados: List[dict] = []
+    for msg in mensajes:
+        if not isinstance(msg, dict):
+            podados.append(msg)
+            continue
+        rol = msg.get("role", "")
+        if rol in ("tool", "assistant"):
+            contenido = msg.get("content", "")
+            if isinstance(contenido, str) and _cp.es_resultado_extenso(
+                    {"contenido": contenido}, umbral_lineas=umbral):
+                resumen = _cp.resumir_linea(contenido)
+                msg_nuevo = dict(msg)
+                msg_nuevo["content"] = resumen if resumen else contenido[:200]
+                msg_nuevo["_pruned"] = True
+                podados.append(msg_nuevo)
+                continue
+        podados.append(msg)
+    return podados
+
+
 def _estructura_mensajes_por_capas(
         mensajes: List[dict],
         config: Optional[dict] = None) -> List[dict]:
@@ -5146,6 +5289,17 @@ def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
                         f"{_tokens_capa['volatil']} tokens.")
                 except Exception:            # noqa: BLE001
                     pass
+    # v6.32.0: Pruning proactivo de contexto — podar resultados extensos de
+    # herramientas (logs, salidas, diffs) con resumen de una línea. Se aplica
+    # después del caching para no interferir con las marcas cache_control.
+    if _pruning_activo():
+        try:
+            _msg_antes = str(mensajes_finales)
+            mensajes_finales = _podar_resultados_extensos(mensajes_finales)
+            if DEPURAR and _msg_antes != str(mensajes_finales):
+                depurar("✂️ Podando contexto (resultados extensos → resumen 1 línea)")
+        except Exception:
+            pass
     if tipo == "gemini":
         if _importar_genai() is None:
             raise RuntimeError(MENSAJE_GENAI_FALTANTE)
@@ -11917,6 +12071,20 @@ def crear_parser() -> argparse.ArgumentParser:
              "está (o 'prompt_caching.capas_activo' de config.json); con "
              "--no-prompt-caching-capas se usa el caching básico de v6.16.0.",
     )
+    # v6.32.0: Pruning proactivo de contexto (edición quirúrgica del historial).
+    parser.add_argument(
+        "--prune-context", dest="prune_context",
+        action=argparse.BooleanOptionalAction, default=None,
+        help="(v6.32.0) Activa/desactiva el pruning proactivo: poda resultados "
+             "extensos de herramientas (logs, salidas, diffs) reemplazándolos "
+             "por un resumen de una línea. Por defecto: activado (o 'pruning.activo' "
+             "de config.json); con --no-prune-context se desactiva.",
+    )
+    parser.add_argument(
+        "--prune-umbral", dest="prune_umbral", type=int, default=None,
+        help="(v6.32.0) Número máximo de líneas antes de podar un resultado "
+             "(por defecto: 10). Un valor menor poda más agresivamente.",
+    )
     # v6.9.0: benchmark de rendimiento por fases.
     parser.add_argument(
         "--benchmark", action="store_true",
@@ -13557,6 +13725,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         # v6.31.0: Prompt Caching por Capas (None → entorno/config/defecto).
         _configurar_prompt_caching_capas(
             getattr(args, "prompt_caching_capas", None))
+        # v6.32.0: Pruning proactivo de contexto (None → config/defecto activado).
+        _configurar_pruning(getattr(args, "prune_context", None))
+        _configurar_umbral_pruning(getattr(args, "prune_umbral", None))
         # v4.8.0: sincroniza el modo no interactivo de la capa UI (--auto).
         _ui_configurar_auto(bool(getattr(args, "auto", False)))
 # v4.8.0: sincroniza el modo no interactivo de la capa UI (--auto).

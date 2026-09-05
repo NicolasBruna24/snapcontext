@@ -6186,6 +6186,57 @@ snapcontext "arregla el login" --no-prompt-caching
 > `--no-prompt-caching-capas`) el comportamiento es idéntico al de v6.16.0.
 > Para proveedores sin soporte (Gemini, Groq, Ollama) el flujo no cambia.
 
+## ✂️ Edición Quirúrgica de Contexto (v6.32.0)
+
+El sistema de resúmenes automáticos (v5.1.0) espera a que el historial sea
+grande antes de resumir. El **pruning proactivo** poda los datos de
+herramientas (logs, salidas, diffs) **después de cada uso**, reemplazándolos
+por un resumen de una línea.
+
+```bash
+# Activado por defecto: poda resultados >10 líneas.
+snapcontext "arregla el login"
+
+# Desactivar (comportamiento idéntico al actual).
+snapcontext "arregla el login" --no-prune-context
+
+# Umbral personal (poda más agresiva).
+snapcontext "arregla el login" --prune-umbral 5
+```
+
+### Configuración (`config.json`)
+
+```json
+{
+  "pruning": {
+    "activo": true,
+    "umbral_lineas": 10,
+    "usar_llm": true,
+    "tipos_podables": ["stdout", "stderr", "contenido", "diff", "texto"]
+  }
+}
+```
+
+| Parámetro | Descripción |
+|---|---|
+| `activo` | Activa/desactiva el pruning (por defecto: `true`). |
+| `umbral_lineas` | Máx. líneas antes de podar (por defecto: `10`). |
+| `usar_llm` | Usa el LLM para resumir (si no, heurística). |
+| `tipos_podables` | Campos podables: stdout, stderr, contenido, diff, texto. |
+
+### Flags CLI
+
+| Flag | Efecto |
+|---|---|
+| `--prune-context` | Activa el pruning proactivo (por defecto). |
+| `--no-prune-context` | Desactiva el pruning: comportamiento actual. |
+| `--prune-umbral N` | Número máximo de líneas antes de podar (por defecto: 10). |
+
+> **Compatibilidad**: sin `--prune-context` (o con `--no-prune-context`)
+> el comportamiento es idéntico al actual. El resumen conserva metadatos
+> críticos (código de retorno, archivo afectado, error) para no perder
+> información esencial para el agente.
+
 ## Licencia
 ## Licencia
 

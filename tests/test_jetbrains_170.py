@@ -17,7 +17,7 @@ import snapcontext as sc  # noqa: E402
 
 class TestVersion(unittest.TestCase):
     def test_version_170_coherente(self):
-        self.assertEqual(sc.VERSION, "6.31.0")
+        self.assertEqual(sc.VERSION, "6.32.0")
 
 
 class TestEstructuraJetBrains(unittest.TestCase):

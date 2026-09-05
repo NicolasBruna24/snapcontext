@@ -274,7 +274,7 @@ class TestIntegracionReAct(unittest.TestCase):
 
 class TestVersionYBD(unittest.TestCase):
     def test_version_6_19_0(self):
-        self.assertEqual(sc.VERSION, "6.31.0")
+        self.assertEqual(sc.VERSION, "6.32.0")
 
     def test_tabla_pasos_existe_tras_inicializar(self):
         sc._db_migrar_pasos()

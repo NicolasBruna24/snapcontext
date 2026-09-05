@@ -547,7 +547,7 @@ class TestVersion618(unittest.TestCase):
 
     def test_version_snapcontext(self):
         import snapcontext as sc
-        self.assertEqual(sc.VERSION, "6.31.0")
+        self.assertEqual(sc.VERSION, "6.32.0")
 
     def test_version_pyproject(self):
         import os
