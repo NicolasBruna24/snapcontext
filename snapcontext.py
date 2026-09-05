@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.29.0"
+VERSION = "6.30.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -4144,6 +4144,52 @@ _MODEL_ROUTING_ACTIVO = True     # flag --model-routing (por defecto activado)
 _MODELO_EXPLICITO = False        # --model/--provider explícitos â†’ sin enrutado
 
 
+# v6.30.0: enrutamiento híbrido Local-Nube (fallback entre modelos).
+_MODEL_FALLBACK_ACTIVO = True              # --model-fallback (por defecto: sí)
+_UMBRAL_COMPLEJIDAD_CLI: Optional[int] = None      # --complejidad-umbral N
+_PRIORIDAD_LOCAL_CLI: Optional[List[str]] = None   # --model-prioridad-local
+_PRIORIDAD_NUBE_CLI: Optional[List[str]] = None    # --model-prioridad-nube
+
+# Marcas de error de AUTENTICACIÓN (v6.30.0): NO disparan el fallback porque
+# reintentar con otro modelo no arregla una clave ausente o inválida; se
+# exige acción del usuario (exportar la variable de entorno correcta).
+_MARCAS_ERROR_AUTH: Tuple[str, ...] = (
+    "api key", "apikey", "api_key", "clave", "variable de entorno",
+    "unauthorized", "authentication", "forbidden", "permission denied",
+    "invalid_api_key", "401", "403",
+)
+
+
+def _configurar_model_fallback(activo: bool) -> None:
+    """Fija el estado global del fallback entre modelos (v6.30.0).
+
+    - ``True`` (defecto): ante fallo de API/timeout se prueba el siguiente
+      modelo de la cadena de prioridad local↔nube (:mod:`model_router`).
+    - ``False`` (``--no-model-fallback``): se usa solo el modelo configurado
+      (comportamiento idéntico a v6.24.0).
+    """
+    global _MODEL_FALLBACK_ACTIVO
+    _MODEL_FALLBACK_ACTIVO = bool(activo)
+
+
+def _configurar_hibrido_cli(umbral: Optional[int] = None,
+                            prioridad_local: Optional[List[str]] = None,
+                            prioridad_nube: Optional[List[str]] = None) -> None:
+    """Fija los overrides CLI del enrutamiento híbrido (v6.30.0).
+
+    - ``umbral``         : ``--complejidad-umbral N`` (longitud_consulta).
+    - ``prioridad_local``: ``--model-prioridad-local prov/model ...``.
+    - ``prioridad_nube`` : ``--model-prioridad-nube prov/model ...``.
+
+    Los flags CLI tienen prioridad sobre ``config.json``; ``None`` significa
+    "sin override" (se usa la configuración persistida).
+    """
+    global _UMBRAL_COMPLEJIDAD_CLI, _PRIORIDAD_LOCAL_CLI, _PRIORIDAD_NUBE_CLI
+    _UMBRAL_COMPLEJIDAD_CLI = int(umbral) if umbral is not None else None
+    _PRIORIDAD_LOCAL_CLI = list(prioridad_local) if prioridad_local else None
+    _PRIORIDAD_NUBE_CLI = list(prioridad_nube) if prioridad_nube else None
+
+
 def _configurar_model_routing(activo: bool, explicito: bool = False) -> None:
     """Fija el estado global del enrutamiento de modelos (v6.24.0).
 
@@ -4167,6 +4213,62 @@ def _cargar_configuracion_routing() -> dict:
     except Exception:                                    # noqa: BLE001
         return {}
     return seccion if isinstance(seccion, dict) else {}
+
+
+def _configuracion_routing_efectiva() -> dict:
+    """Sección ``model_routing`` con los overrides CLI aplicados (v6.30.0).
+
+    Combina la configuración persistida en ``~/.snapcontext/config.json`` con
+    los flags ``--complejidad-umbral`` y ``--model-prioridad-local/nube`` (los
+    flags ganan). Nunca lanza; sin configuración devuelve ``{}``.
+    """
+    try:
+        seccion = dict(_cargar_configuracion_routing())
+    except Exception:                                    # noqa: BLE001
+        seccion = {}
+    if _UMBRAL_COMPLEJIDAD_CLI is not None:
+        previos = seccion.get("umbral_complejidad")
+        umbrales = dict(previos) if isinstance(previos, dict) else {}
+        umbrales["longitud_consulta"] = _UMBRAL_COMPLEJIDAD_CLI
+        seccion["umbral_complejidad"] = umbrales
+    if _PRIORIDAD_LOCAL_CLI:
+        seccion["prioridad_local"] = list(_PRIORIDAD_LOCAL_CLI)
+    if _PRIORIDAD_NUBE_CLI:
+        seccion["prioridad_nube"] = list(_PRIORIDAD_NUBE_CLI)
+    return seccion
+
+
+def _extraer_consulta_mensajes(mensajes: List[dict]) -> str:
+    """Último mensaje del usuario (heurística de complejidad, v6.30.0).
+
+    ``_enviar_al_proveedor`` no recibe la consulta original; para las
+    heurísticas de :mod:`model_router` se usa el último mensaje ``user``
+    (truncado a 100.000 caracteres por rendimiento). Nunca lanza.
+    """
+    try:
+        for mensaje in reversed(mensajes):
+            if isinstance(mensaje, dict) and mensaje.get("role") == "user":
+                return str(mensaje.get("content") or "")[:100000]
+    except Exception:                                    # noqa: BLE001
+        pass
+    return ""
+
+
+def _es_error_autenticacion(exc: BaseException) -> bool:
+    """¿Indica ``exc`` un problema de autenticación/permisos? (v6.30.0).
+
+    Restricción del fallback híbrido: los errores de autenticación (clave
+    ausente/inválida, 401/403) NO se reintentan con otro modelo — el
+    siguiente fallaría igual —; se aborta con el error original.
+    """
+    codigo = getattr(exc, "status_code", None)
+    if codigo in (401, 403):
+        return True
+    try:
+        texto = f"{type(exc).__name__}: {exc}".lower()
+    except Exception:                                    # noqa: BLE001
+        return False
+    return any(marca in texto for marca in _MARCAS_ERROR_AUTH)
 
 
 def _es_comando_peligroso(comando: str) -> bool:
@@ -4801,7 +4903,7 @@ def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
                          mensajes: List[dict],
                          prompt_caching: Optional[bool] = None,
                          categoria: Optional[str] = None) -> str:
-    """Envía ``mensajes`` ([{"role": ..., "content": ...}, ...]) al proveedor.
+    """Envía ``mensajes`` al proveedor, con enrutamiento y fallback (v6.30.0).
 
     Soporta todos los tipos registrados en PROVEEDORES (gemini, openai-compatible
     y anthropic). Devuelve el texto de respuesta o lanza RuntimeError.
@@ -4811,22 +4913,99 @@ def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
     explícitos, se consulta a :mod:`model_router` y la petición se envía al
     modelo configurado para esa categoría. Sin configuración específica en
     ``config.json`` (``model_routing``) no se reenruta nada (compatibilidad).
+
+    v6.30.0 (híbrido Local-Nube): con ``--model-fallback`` activo (por
+    defecto) y prioridades configuradas (``prioridad_local``/``prioridad_nube``
+    de config.json o flags ``--model-prioridad-*``), la complejidad de la
+    tarea se detecta con heurísticas rápidas (sin IA) y la petición recorre
+    la cadena local↔nube: un fallo de API/timeout pasa al siguiente modelo
+    (aviso ``⚠️ Fallo en ...``); los errores de autenticación abortan de
+    inmediato. Si TODOS los modelos fallan se lanza un RuntimeError claro.
+    Sin prioridades configuradas el comportamiento es idéntico a v6.24.0.
     """
+    candidatos: List[Tuple[str, Optional[str]]] = [(proveedor, modelo)]
     if categoria and _MODEL_ROUTING_ACTIVO and not _MODELO_EXPLICITO:
         try:
             import model_router as _mr              # noqa: E402
-            _p2, _m2 = _mr.seleccionar_modelo(
-                categoria,
-                {"model_routing": _cargar_configuracion_routing()})
-            if _p2 and _p2 in PROVEEDORES:
-                _m_efectivo = _m2 or PROVEEDORES[_p2]["modelo_default"]
-                info(f"🧠 Modelo enrutado: {categoria} â†’ {_p2}/{_m_efectivo}")
-                proveedor, modelo = _p2, _m2
-            elif _p2:
-                depurar(f"[model-routing] proveedor desconocido '{_p2}'; "
-                        f"se mantiene {proveedor}.")
-        except Exception as exc:                     # noqa: BLE001 â€” nunca romper
+            _cfg = {"model_routing": _configuracion_routing_efectiva()}
+            _hibrido = False
+            if _MODEL_FALLBACK_ACTIVO:
+                _compleja = _mr.es_tarea_compleja(
+                    _extraer_consulta_mensajes(mensajes),
+                    {"categoria": categoria}, _cfg)
+                _orden = [_par for _par in _mr.obtener_orden_prioridad(
+                    _compleja, _cfg) if _par[0] in PROVEEDORES]
+                if _orden:
+                    _p0, _m0 = _orden[0]
+                    _m0_ef = _m0 or PROVEEDORES[_p0]["modelo_default"]
+                    if _mr.es_proveedor_local(_p0, _cfg):
+                        info(f"🧠 Tarea simple. Usando modelo local: "
+                             f"{_p0}/{_m0_ef}")
+                    else:
+                        info(f"🧠 Tarea compleja detectada. Usando modelo "
+                             f"cloud: {_p0}/{_m0_ef}")
+                    candidatos = _orden
+                    _hibrido = True
+            if not _hibrido:
+                # Sin cadena de prioridades → enrutado por categoría (v6.24.0).
+                _p2, _m2 = _mr.seleccionar_modelo(
+                    categoria,
+                    {"model_routing": _cargar_configuracion_routing()})
+                if _p2 and _p2 in PROVEEDORES:
+                    _m_efectivo = _m2 or PROVEEDORES[_p2]["modelo_default"]
+                    info(f"🧠 Modelo enrutado: {categoria} → {_p2}/{_m_efectivo}")
+                    candidatos = [(_p2, _m2)]
+                elif _p2:
+                    depurar(f"[model-routing] proveedor desconocido '{_p2}'; "
+                            f"se mantiene {proveedor}.")
+        except Exception as exc:                     # noqa: BLE001 — nunca romper
             depurar(f"[model-routing] no se pudo enrutar ({categoria}): {exc}")
+
+    if len(candidatos) <= 1 or not _MODEL_FALLBACK_ACTIVO:
+        _p_unico, _m_unico = candidatos[0]
+        return _enviar_al_proveedor_unico(_p_unico, _m_unico, mensajes,
+                                          prompt_caching)
+
+    # v6.30.0: cadena de fallback entre modelos (local ↔ nube).
+    _intentados: List[str] = []
+    _ultimo_error: Optional[BaseException] = None
+    for _pos, (_p, _m) in enumerate(candidatos):
+        _m_ef = _m or (PROVEEDORES[_p]["modelo_default"]
+                       if _p in PROVEEDORES else None)
+        try:
+            return _enviar_al_proveedor_unico(_p, _m, mensajes, prompt_caching)
+        except Exception as exc:                     # noqa: BLE001
+            if _es_error_autenticacion(exc):
+                raise      # la clave no se arregla cambiando de modelo
+            _intentados.append(f"{_p}/{_m_ef or '?'}")
+            _ultimo_error = exc
+            if _pos + 1 < len(candidatos):
+                _p2, _m2 = candidatos[_pos + 1]
+                _m2_ef = _m2 or (PROVEEDORES[_p2]["modelo_default"]
+                                 if _p2 in PROVEEDORES else None)
+                aviso(f"⚠️ Fallo en {_p}/{_m_ef or '?'}. Reintentando con "
+                      f"{_p2}/{_m2_ef or '?'}.")
+    raise RuntimeError(
+        "Todos los modelos de la cadena de fallback fallaron ("
+        + ", ".join(_intentados) + ")"
+        + (f"; último error: {_ultimo_error}" if _ultimo_error else "")
+        + ". Revisa la configuración (o usa --no-model-fallback para "
+          "usar solo el modelo principal)."
+    )
+
+
+def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
+                               mensajes: List[dict],
+                               prompt_caching: Optional[bool] = None) -> str:
+    """Envía ``mensajes`` ([{"role": ..., "content": ...}, ...]) a UN proveedor.
+
+    Soporta todos los tipos registrados en PROVEEDORES (gemini, openai-compatible
+    y anthropic). Devuelve el texto de respuesta o lanza RuntimeError.
+
+    v6.30.0: núcleo de un solo intento, extraído de ``_enviar_al_proveedor``
+    (que añade el enrutamiento por categoría y la cadena de fallback híbrido
+    Local-Nube). Sin enrutamiento ni reintentos: los errores se propagan.
+    """
     if proveedor not in PROVEEDORES:
         raise RuntimeError(
             f"Proveedor desconocido '{proveedor}'. "
@@ -11972,6 +12151,40 @@ def crear_parser() -> argparse.ArgumentParser:
              "--provider tienen prioridad máxima; desactivar con "
              "--no-model-routing.",
     )
+    # v6.30.0: enrutamiento híbrido Local-Nube (fallback entre modelos).
+    parser.add_argument(
+        "--model-fallback", dest="model_fallback",
+        action=argparse.BooleanOptionalAction, default=None,
+        help="Activa/desactiva el fallback entre modelos del enrutamiento "
+             "híbrido Local-Nube (v6.30.0): las tareas simples usan modelos "
+             "locales (Ollama) y escalan a la nube (Gemini, Claude, DeepSeek) "
+             "cuando la tarea es compleja o el modelo falla (timeout, error "
+             "de API; los errores de autenticación no se reintentan). Por "
+             "defecto: activado (o según 'fallback_automatico' de "
+             "config.json); desactivar con --no-model-fallback.",
+    )
+    parser.add_argument(
+        "--complejidad-umbral", dest="complejidad_umbral", type=int,
+        default=None, metavar="N",
+        help="Longitud mínima (en palabras) de la consulta para considerarla "
+             "compleja y escalar a modelos cloud (v6.30.0; por defecto 100, "
+             "o el 'umbral_complejidad.longitud_consulta' de config.json).",
+    )
+    parser.add_argument(
+        "--model-prioridad-local", dest="model_prioridad_local", nargs="+",
+        metavar="PROVEEDOR/MODELO", default=None,
+        help="Orden de prioridad de modelos locales (v6.30.0), p. ej. "
+             "--model-prioridad-local ollama/qwen3.5:9b ollama/llama3.2. "
+             "Sobrescribe 'prioridad_local' de config.json.",
+    )
+    parser.add_argument(
+        "--model-prioridad-nube", dest="model_prioridad_nube", nargs="+",
+        metavar="PROVEEDOR/MODELO", default=None,
+        help="Orden de prioridad de modelos cloud (v6.30.0), p. ej. "
+             "--model-prioridad-nube gemini/gemini-2.5-pro "
+             "anthropic/claude-3.7-sonnet. Sobrescribe 'prioridad_nube' de "
+             "config.json.",
+    )
     parser.add_argument(
         "--hook-list", dest="hook_list", action="store_true",
         help="Lista los hooks registrados por evento y sale (v6.22.0).",
@@ -13194,6 +13407,20 @@ def main(argv: Optional[List[str]] = None) -> int:
                           or getattr(args, "provider", None))
         _configurar_model_routing(
             bool(getattr(args, "model_routing", True)), explicito=_explicito)
+        # v6.30.0: enrutamiento híbrido Local-Nube (fallback + umbrales CLI).
+        _mf_flag = getattr(args, "model_fallback", None)
+        if _mf_flag is None:
+            try:
+                _mf_flag = bool(_cargar_configuracion_routing().get(
+                    "fallback_automatico", True))
+            except Exception:                            # noqa: BLE001
+                _mf_flag = True
+        _configurar_model_fallback(bool(_mf_flag))
+        _configurar_hibrido_cli(
+            umbral=getattr(args, "complejidad_umbral", None),
+            prioridad_local=getattr(args, "model_prioridad_local", None),
+            prioridad_nube=getattr(args, "model_prioridad_nube", None),
+        )
         # v4.8.0: sincroniza el modo no interactivo de la capa UI (--auto).
         _ui_configurar_auto(bool(getattr(args, "auto", False)))
 # v4.8.0: sincroniza el modo no interactivo de la capa UI (--auto).

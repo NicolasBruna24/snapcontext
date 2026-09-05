@@ -4,6 +4,71 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.30.0] - 2026-09-04 - 🌐 Enrutamiento híbrido Local-Nube 🧠
+
+### Added
+- **Enrutamiento híbrido Local-Nube en `model_router.py`**: los modelos
+  locales (Ollama) atienden las tareas simples y repetitivas y la nube
+  (Gemini, Claude, DeepSeek) solo recibe las complejas — ahorrando costes sin
+  sacrificar calidad.
+  - `es_tarea_compleja(consulta, contexto, config)`: detección de complejidad
+    con heurísticas rápidas (sin llamadas a la IA): longitud de la consulta
+    (>100 palabras por defecto), archivos grandes (>1000 líneas), múltiples
+    archivos a editar (>3) y presencia de comandos complejos (deploy,
+    migraciones, docker, sudo, `&&`…). Umbrales configurables vía
+    `umbral_complejidad`.
+  - `obtener_orden_prioridad(compleja, config)`: cadena de
+    `(proveedor, modelo)` — simple → `prioridad_local` + `prioridad_nube`;
+    compleja → `prioridad_nube` + `prioridad_local` (fallback graceful en
+    ambos sentidos, sin duplicados).
+  - `seleccionar_modelo_con_fallback(categoria, config, compleja)`: primer
+    modelo de la cadena; sin prioridades configuradas delega en
+    `seleccionar_modelo` (compatibilidad total con v6.24.0).
+  - `es_proveedor_local(proveedor, config)`: ¿es un proveedor local?
+    (ampliable con `proveedores_locales` en config.json).
+- **Fallback automático en `_enviar_al_proveedor` (snapcontext.py)**: la
+  función se divide en envoltorio (enrutamiento + cadena) y núcleo de un solo
+  intento `_enviar_al_proveedor_unico`. Ante un error de API/timeout se prueba
+  el siguiente modelo de la cadena con el aviso
+  `⚠️ Fallo en x/y. Reintentando con z/w.`; los errores de autenticación
+  (401/403, clave ausente o inválida) NO se reintentan; si todos los modelos
+  fallan se lanza un RuntimeError claro y se sale con código 1. Mensajes de
+  usuario: `🧠 Tarea simple. Usando modelo local: …` y
+  `🧠 Tarea compleja detectada. Usando modelo cloud: …`.
+- **Nuevas configuraciones** en `config.json` (sección `model_routing`):
+  `prioridad_local`, `prioridad_nube`, `umbral_complejidad`
+  (`longitud_consulta`, `tamano_archivo`, `num_archivos`) y
+  `fallback_automatico`.
+- **Nuevos flags CLI**: `--model-fallback` / `--no-model-fallback` (activado
+  por defecto; configurable con `fallback_automatico`),
+  `--complejidad-umbral N` (por defecto 100),
+  `--model-prioridad-local prov/model …` y
+  `--model-prioridad-nube prov/model …` (sobrescriben config.json).
+- **Helpers de integración** (snapcontext.py): `_configuracion_routing_efectiva()`
+  (config.json + overrides CLI), `_extraer_consulta_mensajes()`,
+  `_es_error_autenticacion()`, `_configurar_model_fallback()` y
+  `_configurar_hibrido_cli()`.
+- **Tests**: `tests/test_model_router.py` ampliado a 88 casos: detección de
+  complejidad (consulta larga, archivos grandes reales, nº de archivos,
+  comandos, umbrales configurables), cadena de prioridad local/nube,
+  selección con fallback, integración de la cadena en `_enviar_al_proveedor`
+  (fallo de API → reintento; auth → aborta; todos fallan → error claro),
+  mensajes de usuario, flags CLI y configuración efectiva.
+
+### Changed
+- `enrutar_tarea()` informa también `compleja` (bool) y usa la selección
+  híbrida cuando hay prioridades configuradas; sin ellas el resultado es el
+  de v6.24.0.
+- **Compatibilidad**: sin `prioridad_local`/`prioridad_nube` (o con
+  `--no-model-fallback`) el comportamiento es idéntico al de v6.24.0; los
+  flags `--model`/`--provider` explícitos siguen teniendo prioridad máxima
+  (sin enrutado ni fallback). La detección de complejidad no hace llamadas
+  a la IA (solo heurísticas y lectura local de archivos).
+- README: nueva sección "🌐 Enrutamiento híbrido Local-Nube (v6.30.0)" con
+  configuración, flags y ejemplos de uso.
+- Versión `6.30.0` en `snapcontext.py` y `pyproject.toml`; aserciones de
+  versión de los tests de coherencia actualizadas a `6.30.0`.
+
 ## [6.29.0] - 2026-09-03 - Sandbox de Autocuración
 
 ### Added

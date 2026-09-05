@@ -5,6 +5,19 @@
     "planificacion_simple": {"provider": "deepseek", "model": "deepseek-v3"},
     "edicion_critica": {"provider": "gemini", "model": "gemini-2.5-pro"},
     "razonamiento_complejo": {"provider": "anthropic", "model": "claude-3.7-sonnet"},
-    "chat_general": {"provider": "ollama", "model": "qwen3.5:9b"}
+    "chat_general": {"provider": "ollama", "model": "qwen3.5:9b"},
+
+    "prioridad_local": ["ollama/qwen3.5:9b", "ollama/llama3.2"],
+    "prioridad_nube": [
+      "gemini/gemini-2.5-pro",
+      "anthropic/claude-3.7-sonnet",
+      "deepseek/deepseek-v3"
+    ],
+    "umbral_complejidad": {
+      "longitud_consulta": 100,
+      "tamano_archivo": 1000,
+      "num_archivos": 3
+    },
+    "fallback_automatico": true
   }
 }

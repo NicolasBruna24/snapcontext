@@ -164,7 +164,7 @@ class TestIntegracionCLI(unittest.TestCase):
         self.assertFalse(args.tui)
 
     def test_version_actualizada(self):
-        self.assertEqual(sc.VERSION, "6.23.0")
+        self.assertEqual(sc.VERSION, "6.30.0")
         ruta = os.path.join(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))), "pyproject.toml")
         with open(ruta, encoding="utf-8") as fh:

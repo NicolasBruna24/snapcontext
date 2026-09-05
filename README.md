@@ -6027,6 +6027,97 @@ Para añadir una nueva categoría:
 2. Añade las palabras clave en las tuplas `_KW_*`.
 3. Agrega la entrada en `config.json` (`model_routing.<categoria>`).
 
+## 🌐 Enrutamiento híbrido Local-Nube (v6.30.0)
+
+A partir de v6.30.0 el router de modelos es **híbrido**: detecta la complejidad
+de cada tarea (sin llamadas a la IA) y usa **modelos locales (Ollama)** para lo
+simple y repetitivo (indexación, búsqueda semántica, análisis de errores
+simples), escalando a **modelos cloud (Gemini, Claude, DeepSeek)** solo cuando
+la tarea es compleja o el modelo local falla. Si un modelo falla (timeout,
+error de API), se reintenta automáticamente con el siguiente de la cadena de
+prioridad; los errores de autenticación (clave ausente/inválida, 401/403) NO
+se reintentan.
+
+### Cómo funciona
+
+1. `es_tarea_compleja(consulta, contexto, config)` — heurísticas rápidas
+   (sin llamadas a la IA): consulta de más de 100 palabras, archivos de más
+   de 1000 líneas, más de 3 archivos a editar o presencia de comandos
+   complejos (deploy, migraciones, docker, sudo, `&&`…). Umbrales
+   configurables con `umbral_complejidad`.
+2. `obtener_orden_prioridad(compleja, config)` — cadena de modelos:
+   - Tarea **simple** → `prioridad_local` + `prioridad_nube` (si Ollama no
+     responde, se escala a la nube).
+   - Tarea **compleja** → `prioridad_nube` + `prioridad_local` (último
+     recurso local si toda la nube falla).
+3. `seleccionar_modelo_con_fallback(categoria, config, compleja)` — primer
+   modelo de la cadena (o el enrutado por categoría de v6.24.0 si no hay
+   prioridades configuradas).
+4. `_enviar_al_proveedor` recorre la cadena ante fallos de API/timeout:
+
+```text
+🧠 Tarea simple. Usando modelo local: ollama/qwen3.5:9b
+🧠 Tarea compleja detectada. Usando modelo cloud: gemini/gemini-2.5-pro
+⚠️ Fallo en ollama/qwen3.5:9b. Reintentando con gemini/gemini-2.5-pro.
+```
+
+   Si TODOS los modelos de la cadena fallan se muestra un error claro y se
+   sale con código 1.
+
+### Configuración (`~/.snapcontext/config.json`)
+
+```json
+{
+  "model_routing": {
+    "prioridad_local": ["ollama/qwen3.5:9b", "ollama/llama3.2"],
+    "prioridad_nube": [
+      "gemini/gemini-2.5-pro",
+      "anthropic/claude-3.7-sonnet",
+      "deepseek/deepseek-v3"
+    ],
+    "umbral_complejidad": {
+      "longitud_consulta": 100,
+      "tamano_archivo": 1000,
+      "num_archivos": 3
+    },
+    "fallback_automatico": true
+  }
+}
+```
+
+> Sin `prioridad_local`/`prioridad_nube` el comportamiento es idéntico al de
+> v6.24.0 (enrutado por categoría): compatibilidad total. Los proveedores
+> considerados "locales" se pueden ampliar con `proveedores_locales`.
+
+### Flags
+
+| Flag | Efecto |
+|---|---|
+| `--model-fallback` | Activa el fallback entre modelos (por defecto: activado, o según `fallback_automatico` de config.json). |
+| `--no-model-fallback` | Desactiva el fallback: usa solo el modelo configurado (comportamiento v6.24.0). |
+| `--complejidad-umbral N` | Palabras mínimas de la consulta para considerarla compleja (por defecto 100). |
+| `--model-prioridad-local p/m …` | Orden de prioridad de modelos locales (sobrescribe config.json). |
+| `--model-prioridad-nube p/m …` | Orden de prioridad de modelos cloud (sobrescribe config.json). |
+
+Ejemplos:
+
+```bash
+# Tarea simple → Ollama; si Ollama no responde → Gemini (fallback).
+snapcontext "indexa el proyecto" --model-fallback
+
+# Solo el modelo configurado, sin reintentos (idéntico a v6.24.0).
+snapcontext "arregla el login" --no-model-fallback
+
+# Umbral propio y prioridades a medida (los flags ganan a config.json).
+snapcontext "rediseña la arquitectura de autenticación" \
+  --complejidad-umbral 40 \
+  --model-prioridad-nube anthropic/claude-3.7-sonnet gemini/gemini-2.5-pro \
+  --model-prioridad-local ollama/qwen3.5:9b
+```
+
+Los flags `--model` / `--provider` explícitos siguen teniendo prioridad
+máxima: con ellos no se enruta ni se aplica fallback.
+
 ## Licencia
 ## Licencia
 
