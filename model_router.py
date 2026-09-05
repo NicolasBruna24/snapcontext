@@ -158,7 +158,7 @@ _UMBRAL_LARGA = 60          # palabras → razonamiento_complejo
 # ═══════════════════════════════════════════════════════════════════════════
 
 # Proveedores considerados "locales" (para los mensajes de usuario).
-PROVEEDORES_LOCALES: Tuple[str, ...] = ("ollama",)
+PROVEEDORES_LOCALES: Tuple[str, ...] = ("ollama", "xpu")
 
 # Umbrales de complejidad por defecto (sobrescribibles en config.json).
 _UMBRAL_DEFECTO: Dict[str, int] = {

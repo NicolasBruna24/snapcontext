@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.33.0"
+VERSION = "6.34.0"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
@@ -549,6 +549,15 @@ PROVEEDORES = {
         "modelo_default": "claude-3-5-sonnet-20241022",
         # v6.11.0: Anthropic (Claude) soporta marcas cache_control (ephemeral).
         "soporta_caching": True,
+    },
+    # v6.34.0: soporte para GPUs Intel XPU (Intel Arc) vía IPEX.
+    "xpu": {
+        "nombre": "Intel XPU",
+        "tipo": "xpu",                       # backend local con IPEX
+        "clave_env": None,
+        "requiere_clave": False,
+        "modelo_default": "Qwen/Qwen3.5-35B-A3B",
+        "soporta_caching": False,
     },
 }
 
@@ -5331,6 +5340,39 @@ def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
             bloque.text for bloque in respuesta.content
             if getattr(bloque, "type", None) == "text"
         )
+
+    # v6.34.0: tipo "xpu" — inferencia local en GPUs Intel Arc vía IPEX.
+    if tipo == "xpu":
+        try:
+            import backend_xpu as _xpu
+        except ImportError as exc:
+            raise RuntimeError(
+                f"Para usar XPU se necesita backend_xpu y sus dependencias: {exc}"
+            ) from exc
+        if not _xpu.xpu_disponible():
+            raise RuntimeError(
+                "Intel XPU no detectado. Revisa la instalación de IPEX y drivers."
+            )
+        _modelo_xpu = modelo or PROVEEDORES["xpu"]["modelo_default"]
+        _cfg_xpu = cargar_configuracion().get("xpu", {})
+        _max_tokens = int(_cfg_xpu.get("max_tokens", 500))
+        _temperature = float(_cfg_xpu.get("temperature", 0.7))
+        # Los flags CLI tienen prioridad sobre la configuración.
+        if getattr(args, "xpu_model", None):
+            _modelo_xpu = args.xpu_model
+        if getattr(args, "xpu_max_tokens", None) is not None:
+            _max_tokens = args.xpu_max_tokens
+        if getattr(args, "xpu_temperature", None) is not None:
+            _temperature = args.xpu_temperature
+        _motor = _xpu.cargar_modelo_xpu(
+            _modelo_xpu,
+            config={"xpu": {"max_tokens": _max_tokens, "temperature": _temperature}},
+        )
+        # Concatenar los mensajes en un solo prompt para el modelo local.
+        _prompt_xpu = "\n".join(
+            f"{m.get('role', 'user')}: {m.get('content', '')}" for m in mensajes_finales
+        )
+        return _motor.generate(_prompt_xpu)
 
     # Tipo "openai": Groq, DeepSeek y Ollama (API compatible).
     if _importar_openai() is None:
@@ -12171,6 +12213,20 @@ def crear_parser() -> argparse.ArgumentParser:
         "--prune-umbral", dest="prune_umbral", type=int, default=None,
         help="(v6.32.0) Número máximo de líneas antes de podar un resultado "
              "(por defecto: 10). Un valor menor poda más agresivamente.",
+    )
+    # v6.34.0: Soporte para Intel XPU (GPU Intel Arc) vía IPEX.
+    parser.add_argument(
+        "--xpu-model", dest="xpu_model", type=str, default=None,
+        help="(v6.34.0) Modelo de Hugging Face para inferencia en Intel XPU "
+             "(por defecto: 'Qwen/Qwen3.5-35B-A3B' o el valor en config.json).",
+    )
+    parser.add_argument(
+        "--xpu-max-tokens", dest="xpu_max_tokens", type=int, default=None,
+        help="(v6.34.0) Número máximo de tokens a generar (por defecto: 500).",
+    )
+    parser.add_argument(
+        "--xpu-temperature", dest="xpu_temperature", type=float, default=None,
+        help="(v6.34.0) Temperatura para la inferencia (por defecto: 0.7).",
     )
     # v6.9.0: benchmark de rendimiento por fases.
     parser.add_argument(
