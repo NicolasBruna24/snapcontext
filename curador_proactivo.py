@@ -220,9 +220,11 @@ def _probar_prompt(skill: dict, nuevo_prompt: str,
         except Exception:                                   # pragma: no cover
             pass
     try:
-        proc = subprocess.run(
-            comando, shell=True, capture_output=True, text=True,
-            timeout=timeout_seg)
+        # seguridad: helper seguro. «python -m unittest ...» y otros
+        # comandos simples se ejecutan con shell=False; los que usan pipes
+        # mantienen shell=True tras validar el riesgo.
+        from sandbox_utils import ejecutar_comando_con_politica
+        proc = ejecutar_comando_con_politica(comando, cwd=raiz, timeout=timeout_seg)
         return proc.returncode == 0
     except Exception:                                       # noqa: BLE001
         return False

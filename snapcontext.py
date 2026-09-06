@@ -62,6 +62,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 # v5.4.0: detección de comandos peligrosos para el sandboxing inteligente.
 from sandbox_utils import es_comando_peligroso
+# seguridad: ejecución segura de comandos (shell=False por defecto).
+from sandbox_utils import ejecutar_comando_con_politica as _ejecutar_con_politica
 
 # v4.8.0: capa de presentación centralizada (Rich). Degradación elegante:
 # ui.py funciona también sin `rich` (print plano), así que la importación
@@ -4054,18 +4056,28 @@ def _ejecutar_comando(comando: str, directorio: str = ".",
             comando = _envolver_sandbox(comando, str(raiz))
             raiz = Path.cwd()  # docker se lanza desde el host; el mount ya es absoluto
     try:
-        proc = subprocess.run(
-            comando,
-            cwd=str(raiz),
-            shell=True,
-            capture_output=capture_output,
-            text=bool(capture_output),
-            errors="replace" if capture_output else None,
-            timeout=timeout,
-        )
+        # seguridad: si el comando va a ejecutarse directo (sin
+        # contenedor, p. ej. con --no-sandbox) y es potencialmente peligroso,
+        # pedir confirmación y abortar en modo --auto/no interactivo.
+        if decision == _SANDBOX_DIRECTO and _es_comando_peligroso(comando):
+            if _ui_es_auto() or not _entrada_interactiva():
+                return (-1, "", "Comando peligroso abortado (modo --auto / no interactivo).")
+            if not _preguntar_si(
+                    f"Comando potencialmente peligroso: {comando}\n"
+                    "¿Ejecutar igualmente? (s/n): "):
+                return (-1, "", "Comando peligroso rechazado por el usuario.")
+        # seguridad: helper seguro. Comandos SIN sintaxis de shell
+        # (pipes/redirecciones/glóbulos) se dividen con shlex.split y se
+        # ejecutan con shell=False; los que la usan mantienen shell=True tras
+        # la validación de peligro (realizada arriba / en el sandbox).
+        proc = _ejecutar_con_politica(
+            comando, cwd=str(raiz), timeout=timeout,
+            capturar_salida=capture_output)
         if not capture_output:
             return (proc.returncode, "", "")
         return (proc.returncode, proc.stdout or "", proc.stderr or "")
+    except RuntimeError as exc:
+        return (-1, "", f"Comando bloqueado por seguridad: {exc}")
     except subprocess.TimeoutExpired:
         return (-1, "", f"El comando tardó demasiado (timeout={timeout}s)")
     except OSError as exc:
@@ -4541,6 +4553,11 @@ def _lanzar_proceso_fondo(comando: str, directorio: str = ".",
             info(f"[sandbox] Ejecutando en contenedor (background): {comando}")
             comando = _envolver_sandbox(comando, str(raiz))
             raiz = Path.cwd()
+    # seguridad: en background no hay confirmación interactiva útil;
+    # si no hay sandbox y el comando es peligroso, se rechaza sin lanzarlo.
+    if not _SANDBOX_ACTIVO and _es_comando_peligroso(comando):
+        return {"ok": False,
+                "error": f"Comando peligroso rechazado (sin sandbox): {comando}"}
     try:
         if capture_output:
             proc = subprocess.Popen(
@@ -10192,22 +10209,33 @@ def _ejecutar_herramienta_mcp(nombre: str, argumentos: Optional[dict] = None,
                 # stdin y responden un JSON {"ok": ..., ...} por stdout.
                 try:
                     import subprocess as _subprocess
-                    proceso = _subprocess.run(
-                        cfg["comando"], shell=True,
-                        input=json.dumps(argumentos, ensure_ascii=False),
-                        capture_output=True, text=True, timeout=120)
-                    lineas = (proceso.stdout or "").strip().splitlines()
-                    analizado = json.loads(lineas[-1]) if lineas else None
-                    if isinstance(analizado, dict):
-                        analizado.setdefault("ok", proceso.returncode == 0)
-                        resultado = analizado
-                    else:
+                    comando_plugin = str(cfg.get("comando") or "")
+                    # seguridad: se valida el peligro antes de ejecutar
+                    # el comando de un plugin definido por el usuario.
+                    if es_comando_peligroso(comando_plugin):
                         resultado = {
-                            "ok": proceso.returncode == 0,
-                            "codigo_retorno": proceso.returncode,
-                            "stdout": (proceso.stdout or "").strip(),
-                            "stderr": (proceso.stderr or "").strip()}
-                except _subprocess.TimeoutExpired:
+                            "ok": False,
+                            "error": "Comando del plugin bloqueado "
+                                     "(detección de peligro)."}
+                    else:
+                        # seguridad: helper seguro. Los plugins reciben
+                        # los argumentos por stdin y responden JSON por stdout.
+                        import sandbox_utils as _su
+                        proceso = _su.ejecutar_comando_con_politica(
+                            comando_plugin, timeout=120,
+                            entrada=json.dumps(argumentos, ensure_ascii=False))
+                        lineas = (proceso.stdout or "").strip().splitlines()
+                        analizado = json.loads(lineas[-1]) if lineas else None
+                        if isinstance(analizado, dict):
+                            analizado.setdefault("ok", proceso.returncode == 0)
+                            resultado = analizado
+                        else:
+                            resultado = {
+                                "ok": proceso.returncode == 0,
+                                "codigo_retorno": proceso.returncode,
+                                "stdout": (proceso.stdout or "").strip(),
+                                "stderr": (proceso.stderr or "").strip()}
+                except subprocess.TimeoutExpired:
                     resultado = {"ok": False,
                                  "error": "el plugin excedió el tiempo límite"}
                 except Exception as exc:    # noqa: BLE001 â€” blindaje agente

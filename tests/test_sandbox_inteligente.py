@@ -203,7 +203,7 @@ class TestEjecutarComandoIntegracion(unittest.TestCase):
     def test_comando_seguro_lanza_subproceso_normal(self):
         with mock.patch.object(sc, "_decidir_ejecucion_sandbox",
                                return_value=sc._SANDBOX_DIRECTO) as d, \
-                mock.patch.object(sc.subprocess, "run") as fake:
+                mock.patch.object(sandbox_utils.subprocess, "run") as fake:
             fake.return_value = mock.Mock(returncode=0, stdout="ok", stderr="")
             codigo, out, _ = sc._ejecutar_comando("echo hola", ".")
         d.assert_called_once()
@@ -213,7 +213,7 @@ class TestEjecutarComandoIntegracion(unittest.TestCase):
         with mock.patch.object(sc, "_docker_disponible", return_value=True), \
                 mock.patch.object(sc, "_envolver_sandbox",
                                   return_value="docker run rm -rf /") as env, \
-                mock.patch.object(sc.subprocess, "run") as fake:
+                mock.patch.object(sandbox_utils.subprocess, "run") as fake:
             fake.return_value = mock.Mock(returncode=0, stdout="", stderr="")
             sc._ejecutar_comando("rm -rf /", ".")
         env.assert_called_once()

@@ -135,7 +135,7 @@ class TestSesionModule(unittest.TestCase):
                                return_value=_completado(0, "hola", "")) as run:
             codigo, out, err = ss.ejecutar_en_sesion("echo hola")
         self.assertEqual((codigo, out, err), (0, "hola", ""))
-        argv = run.call_args[0][0]
+        argv = " ".join(run.call_args[0][0])
         self.assertIn("docker exec snap-session-abc", argv)
         self.assertIn("echo hola", argv)
 
@@ -213,8 +213,8 @@ class TestIntegracionSnapcontext(unittest.TestCase):
                                return_value=_completado(0, "ok", "")) as run:
             codigo, out, _ = sc._ejecutar_comando("pytest -q", str(RAIZ))
         self.assertEqual((codigo, out), (0, "ok"))
-        self.assertIn("docker exec snap-session-tst", run.call_args[0][0])
-        self.assertIn("pytest -q", run.call_args[0][0])
+        self.assertIn("docker exec snap-session-tst", " ".join(run.call_args[0][0]))
+        self.assertIn("pytest -q", " ".join(run.call_args[0][0]))
 
     def test_sesion_se_crea_de_forma_perezosa_y_se_reutiliza(self):
         sc._configurar_sesion_docker(True)
@@ -240,7 +240,7 @@ class TestIntegracionSnapcontext(unittest.TestCase):
              mock.patch.object(subprocess, "run",
                                return_value=_completado(0, "", "")) as run:
             sc._ejecutar_comando("pytest -q", str(RAIZ))
-        cmd = run.call_args[0][0]
+        cmd = " ".join(run.call_args[0][0])
         self.assertIn("docker run", cmd)
         self.assertNotIn("docker exec", cmd)
 

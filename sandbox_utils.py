@@ -23,8 +23,11 @@ Diseñado sin dependencias externas (solo stdlib: ``re``).
 
 from __future__ import annotations
 
+import os
 import re
-from typing import List, Tuple
+import shlex
+import subprocess
+from typing import Callable, List, Optional, Tuple, Union
 
 # Registro extensible de patrones de comandos peligrosos.
 # Cada elemento es ``(regex_compilada, descripcion)``.
@@ -111,3 +114,144 @@ def es_comando_peligroso(comando: str) -> bool:
 def patrones_peligrosos_info() -> List[Tuple[str, str]]:
     """Devuelve las descripciones de los patrones (para logging/auditoría)."""
     return [(p.pattern, d) for p, d in _PATRONES_PELIGROSOS]
+
+
+# ---------------------------------------------------------------------------
+# Ejecución segura de comandos 
+# ---------------------------------------------------------------------------
+# Helpers para reemplazar `subprocess.run(..., shell=True)` por ejecución con
+# lista de argumentos (`shell=False`), eliminando el riesgo de inyección de
+# comandos cuando estos proceden del LLM o de entrada del usuario.
+#
+# Uso recomendado:
+#   from sandbox_utils import ejecutar_comando_con_politica
+#   proc = ejecutar_comando_con_politica("pytest -q", cwd=".", timeout=120)
+#
+# `ejecutar_comando_con_politica` usa automáticamente la vía más segura:
+#   - Comandos SIN sintaxis de shell (pipes/redirecciones/glóbulos) → se
+#     dividen con `shlex.split` y se ejecutan con `shell=False`.
+#   - Comandos CON sintaxis de shell (no expresables por lista) → se mantienen
+#     `shell=True` (imprescindible para `|`, `>`, `&&`, ...) tras validarlos con
+#     `es_comando_peligroso` y, si son peligrosos, requerir confirmación vía el
+#     callable `confirmar` (o rechazarlos si es `None`).
+
+
+def _flags_creacion() -> int:
+    """Flags de subprocess: evita ventanas de consola en Windows."""
+    return (subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+
+
+def ejecutar_comando_seguro(comando: Union[str, List[str], Tuple[str, ...]],
+                            cwd: Optional[str] = None,
+                            timeout: Optional[float] = None,
+                            env: Optional[dict] = None,
+                            capturar_salida: bool = True,
+                            entrada: Optional[str] = None) -> subprocess.CompletedProcess:
+    """Ejecuta ``comando`` (lista de argumentos) con ``shell=False``.
+
+    Acepta únicamente una **secuencia de strings** (lista o tupla). Si se pasa
+    un string único se lanza :class:`ValueError`: llamar con strings obliga a
+    pensar explícitamente en cómo dividir el comando y evita inyecciones.
+
+    Args:
+        comando: Lista/tupla de argumentos (el ejecutable y sus parámetros).
+        cwd: Directorio de trabajo.
+        timeout: Timeout en segundos (lanza ``subprocess.TimeoutExpired``).
+        env: Mapa de entorno a pasar al proceso (``None`` = heredar).
+        capturar_salida: Si ``True`` captura stdout/stderr; si ``False`` deja
+            que fluyan a la consola y devuelve ``text=False``.
+        entrada: Texto que se envía por stdin (``input=``).
+
+    Returns:
+        ``subprocess.CompletedProcess`` (misma forma que ``subprocess.run``).
+
+    Raises:
+        ValueError: si ``comando`` es un string en lugar de una secuencia.
+    """
+    if isinstance(comando, (str, bytes)):
+        raise ValueError(
+            "ejecutar_comando_seguro espera una lista de argumentos, no un "
+            f"string. Comando recibido: {comando!r}. Usa shlex.split(...) o la "
+            "lista construida manualmente."
+        )
+    argv = list(comando)
+    if not argv or not all(isinstance(a, str) and a for a in argv):
+        raise ValueError(
+            "El comando debe ser una lista no vacía de strings. "
+            f"Recibido: {comando!r}"
+        )
+    return subprocess.run(
+        argv,
+        cwd=cwd,
+        shell=False,
+        env=env,
+        capture_output=capturar_salida,
+        input=entrada if capturar_salida else None,
+        text=capturar_salida,
+        errors="replace" if capturar_salida else None,
+        timeout=timeout,
+        creationflags=_flags_creacion(),
+    )
+
+
+# Metacaracteres que requieren un intérprete de shell (no expresables por lista).
+_METACARACTERES_SHELL = re.compile(r"[|&;<>`]|\$\(|\*|\?|~")
+
+
+def tiene_metacaracteres_shell(comando: Optional[str]) -> bool:
+    """Indica si ``comando`` necesita un intérprete de shell.
+
+    Detecta pipes (``|``), redirecciones (``<``/``>``), separadores (``;``,
+    ``&&``, ``||``), sustitución de comandos (``$(...)`` o backticks) y
+    glóbulos (``*``/``?``). Si devuelve ``True`` no se puede ejecutar el
+    comando como lista simple sin cambiar su semántica.
+    """
+    if not comando:
+        return False
+    return bool(_METACARACTERES_SHELL.search(str(comando)))
+
+
+def ejecutar_comando_con_politica(comando: str,
+                                  cwd: Optional[str] = None,
+                                  timeout: Optional[float] = None,
+                                  env: Optional[dict] = None,
+                                  capturar_salida: bool = True,
+                                  entrada: Optional[str] = None,
+                                  confirmar: Optional[Callable[[str], bool]] = None,
+                                  ) -> subprocess.CompletedProcess:
+    """Ejecuta un comando (string) eligiendo la vía más segura posible.
+
+    - Sin sintaxis de shell → ``shlex.split`` + :func:`ejecutar_comando_seguro`
+      (``shell=False``).
+    - Con sintaxis de shell → se mantiene ``shell=True`` (necesario para
+      pipes/redirecciones) tras validar con :func:`es_comando_peligroso`. Si el
+      comando es peligroso se delega en ``confirmar`` (``fn(comando) -> bool``);
+      si el callable es ``None`` o rechaza, se aborta con :class:`RuntimeError`.
+
+    Devuelve siempre un ``subprocess.CompletedProcess``.
+    """
+    texto = str(comando or "")
+    if not texto.strip():
+        raise ValueError("Comando vacío en ejecutar_comando_con_politica.")
+    if not tiene_metacaracteres_shell(texto):
+        argv = shlex.split(texto)
+        return ejecutar_comando_seguro(
+            argv, cwd=cwd, timeout=timeout, env=env,
+            capturar_salida=capturar_salida, entrada=entrada)
+    if es_comando_peligroso(texto):
+        if confirmar is None or not confirmar(texto):
+            raise RuntimeError(
+                "Comando potencialmente peligroso no confirmado; "
+                f"no se ejecuta: {texto!r}")
+    return subprocess.run(
+        texto,
+        cwd=cwd,
+        shell=True,
+        env=env,
+        capture_output=capturar_salida,
+        input=entrada if capturar_salida else None,
+        text=capturar_salida,
+        errors="replace" if capturar_salida else None,
+        timeout=timeout,
+        creationflags=_flags_creacion(),
+    )

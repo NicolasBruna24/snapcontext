@@ -147,7 +147,7 @@ class TestEjecucionEnSandbox(unittest.TestCase):
             codigo, stdout, _ = sc._ejecutar_comando("echo hola", ".")
             self.assertEqual(codigo, 0)
             self.assertIn("hola", stdout)
-            comando_lanzado = fake_run.call_args[0][0]
+            comando_lanzado = " ".join(fake_run.call_args[0][0])
             self.assertIn("docker run --rm", comando_lanzado)
             self.assertIn("echo hola", comando_lanzado)
 
@@ -166,7 +166,7 @@ class TestEjecucionEnSandbox(unittest.TestCase):
             fake_run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
             codigo, _, _ = sc._ejecutar_pruebas_argv(["pytest", "-q"], ".")
             self.assertEqual(codigo, 0)
-            self.assertIn("pytest -q", fake_run.call_args[0][0])
+            self.assertIn("pytest -q", " ".join(fake_run.call_args[0][0]))
 
     def test_mcp_execute_command_en_sandbox(self):
         self._activar()
@@ -175,7 +175,7 @@ class TestEjecucionEnSandbox(unittest.TestCase):
                                               stderr="")
             res = sc._tool_execute_command("echo ok", ".")
             self.assertTrue(res["ok"])
-            self.assertIn("docker run --rm", fake_run.call_args[0][0])
+            self.assertIn("docker run --rm", " ".join(fake_run.call_args[0][0]))
 
     def test_herramientas_lectura_no_usan_docker(self):
         # grep es de solo lectura: no pasa por docker (usa su propia función).
@@ -220,7 +220,7 @@ class TestIntegracionPlanYBucle(unittest.TestCase):
                  "comando": self.comando},
                 _args_base(), self.dir_tmp)
         self.assertTrue(ok)
-        self.assertIn("docker run --rm", fake_run.call_args[0][0])
+        self.assertIn("docker run --rm", " ".join(fake_run.call_args[0][0]))
 
     def test_bucle_test_saltara_check_host_en_sandbox(self):
         # Con sandbox activo NO se exige el binario en el PATH del host.
@@ -241,7 +241,7 @@ class TestIntegracionPlanYBucle(unittest.TestCase):
             fake_run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
             res = AgenteTester().ejecutar_pruebas(["pytest"], ".")
             self.assertEqual(res.returncode, 0)
-            self.assertIn("docker run --rm", fake_run.call_args[0][0])
+            self.assertIn("docker run --rm", " ".join(fake_run.call_args[0][0]))
 
 
 if __name__ == "__main__":

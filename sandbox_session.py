@@ -239,10 +239,14 @@ def ejecutar_en_sesion(comando: str, timeout: int = 120,
     nombre = _SESION_NOMBRE or obtener_sesion()
     if not nombre:
         return (-1, "", "No hay una sesión Docker activa.")
-    cmd = shlex.join(["docker", "exec", nombre, "sh", "-c", comando])
+    # seguridad: se pasa la lista de argumentos con `shell=False`.
+    # `docker exec ... sh -c <comando>` preserva la sintaxis de shell del
+    # comando DENTRO del contenedor, sin re-parsear nada en el host (antes se
+    # usaba `shlex.join(...)` + `shell=True`, una doble capa de escape/inyección).
+    argv = ["docker", "exec", nombre, "sh", "-c", comando]
     try:
         proc = subprocess.run(
-            cmd, shell=True, capture_output=capture_output,
+            argv, shell=False, capture_output=capture_output,
             text=bool(capture_output), errors="replace" if capture_output else None,
             timeout=timeout, creationflags=_flags())
         if not capture_output:

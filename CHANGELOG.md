@@ -20,6 +20,23 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
   `pyproject.toml`. Se ha regenerado el wheel y verificado que todos los
   módulos viajan dentro del artefacto.
 
+### Security
+- **Ejecución segura de comandos**: nuevos helpers en `sandbox_utils.py`
+  (`ejecutar_comando_seguro` y `ejecutar_comando_con_politica`) que eliminan el
+  uso de `subprocess.run(..., shell=True)` cuando es innecesario:
+  - Comandos sin sintaxis de shell (pipes/redirecciones/glóbulos) se ejecutan
+    con `shell=False` y lista de argumentos (`shlex.split`), evitando la
+    inyección de comandos controlados por el LLM o el usuario.
+  - Comandos con pipes/redirecciones mantienen `shell=True` (imprescindible)
+    pero se validan con `es_comando_peligroso` y requieren confirmación.
+  - `sandbox_session.ejecutar_en_sesion` ya no duplica capa de shell
+    (`shlex.join` + `shell=True`): pasa la lista `docker exec ... sh -c ...`.
+  - `autocorrector`, `curador_proactivo` y las herramientas MCP de plugins
+    usan el helper. `_ejecutar_comando` pide confirmación ante comandos
+    peligrosos que se ejecutarían en el host (p. ej. `--no-sandbox`).
+- **Tests**: nuevo `tests/test_sandbox_utils.py` (y actualizados
+  `test_sandbox_430.py`, `test_sandbox_session.py`, `test_sandbox_inteligente.py`)
+
 ## [6.32.0] - 2026-09-04 - ✂️ Edición Quirúrgica de Contexto (Pruning Proactivo)
 
 ### Added

@@ -68,10 +68,12 @@ def _ejecutar_en_sandbox(comando: str, directorio: str,
         return sc._ejecutar_comando(comando, directorio, timeout=timeout)
     except Exception:
         try:
-            resultado = subprocess.run(
-                comando, shell=True, cwd=directorio,
-                capture_output=True, text=True, timeout=timeout
-            )
+            # seguridad: el fallback usa el helper seguro. Comandos
+            # sin pipes/redirecciones se ejecutan con shell=False; los que las
+            # usan mantienen shell=True tras la validación de peligro.
+            from sandbox_utils import ejecutar_comando_con_politica
+            resultado = ejecutar_comando_con_politica(
+                comando, cwd=directorio, timeout=timeout)
             return resultado.returncode, resultado.stdout, resultado.stderr
         except Exception as exc:
             return -1, "", str(exc)
