@@ -197,7 +197,7 @@ def __getattr__(nombre: str):
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.34.0"
+VERSION = "6.34.1"
 
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).

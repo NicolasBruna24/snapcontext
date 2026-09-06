@@ -4,6 +4,22 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.34.1] - 2026-09-05 - 🔧 Fix crítico: módulos faltantes en el wheel
+
+### Fixed
+- **Bug crítico de empaquetado (C1)** : el wheel publicado en PyPI para la
+  v6.34.0 no incluía 9 módulos que el código importa en tiempo de ejecución,
+  lo que provocaba `ModuleNotFoundError` al usar funcionalidades clave:
+  - `sandbox_session.py` → `--sandbox-session` (persistencia de Docker por sesión).
+  - `tui_hub.py` / `tui_app.py` → `--tui` (interfaz TUI con Textual).
+  - `lsp_client.py` → `--lsp` / `--graph-rag-lsp` (Language Server Protocol).
+  - `qa_tester_logic.py` → sub-agente QA de `--multi-agent`.
+  - `session_manager.py`, `memory_store.py`, `tui_interactiva.py`,
+    `autocorrector.py` (código fuente del proyecto).
+- **Solución**: añadidos los 9 módulos a `[tool.setuptools] py-modules` en
+  `pyproject.toml`. Se ha regenerado el wheel y verificado que todos los
+  módulos viajan dentro del artefacto.
+
 ## [6.32.0] - 2026-09-04 - ✂️ Edición Quirúrgica de Contexto (Pruning Proactivo)
 
 ### Added

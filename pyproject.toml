@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "snapcontext"
-version = "6.34.0"
+version = "6.34.1"
 description = "SnapContext: asistente de IA con contexto automático para desarrollo."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -81,7 +81,12 @@ py-modules = [
     "mcp_tools_api", "mcp_tools_browser", "github_gateway", "task_queue",
     "sub_agent", "sub_agent_prompts", "parallel_executor", "marketplace",
     "hooks", "model_router", "prompt_cache", "context_pruner",
-    "graph_lsp_integrator", "backend_xpu"
+    "graph_lsp_integrator", "backend_xpu",
+    # v6.34.1: fix crítico — módulos faltantes que el código importa en
+    # tiempo de ejecución (--sandbox-session, --tui, --lsp, --multi-agent).
+    "sandbox_session", "tui_hub", "tui_app", "lsp_client",
+    "qa_tester_logic", "session_manager", "memory_store",
+    "tui_interactiva", "autocorrector",
 ]
 packages = ["web"]
 
