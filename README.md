@@ -4,7 +4,7 @@
 
 If **snapcontext** has saved you time, optimized your local workflow, or if you want to support an independent student engineer building the future of local AI agents, please consider sponsoring the project!
 
-[!["Sponsor NicolasBruna24"](https://shields.io)](https://github.com)
+[!["Sponsor NicolasBruna24"](https://shields.io)](https://github.com/sponsors/NicolasBruna24)
 
 Your sponsorship directly funds cloud evaluation tokens, testing on alternative hardware architectures (like Intel XPU), and speeds up the development roadmap. Thank you!
 
