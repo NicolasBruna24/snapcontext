@@ -4,6 +4,11 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.34.7] - 2026-09-05 - 🔧 Fix: importación de `List` en `configuracion.py`
+
+### Fixed
+- Añadido `List` a la importación de `typing` en `configuracion.py`.
+
 ## [6.34.6] - 2026-09-05 - 🔧 Fix: error de importación en CI (Fase 4)
 
 ### Fixed

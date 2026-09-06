@@ -12,7 +12,7 @@ import subprocess
 import sys
 import webbrowser
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from presentacion import (  # noqa: E402
     _CYAN,
