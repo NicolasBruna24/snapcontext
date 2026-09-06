@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "snapcontext"
-version = "6.34.2"
+version = "6.34.3"
 description = "SnapContext: asistente de IA con contexto automático para desarrollo."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
-    {name = "Nicolás Bruna", email = "nicolasbruna24@gmail.com"}
+    {name = "NicolÃ¡s Bruna", email = "nicolasbruna24@gmail.com"}
 ]
 keywords = ["ai", "assistant", "coding", "development", "ollama", "gemini", "claude", "agent"]
 classifiers = [
@@ -82,8 +82,8 @@ py-modules = [
     "sub_agent", "sub_agent_prompts", "parallel_executor", "marketplace",
     "hooks", "model_router", "prompt_cache", "context_pruner",
     "graph_lsp_integrator", "backend_xpu",
-    # v6.34.1: fix crítico — módulos faltantes que el código importa en
-    # tiempo de ejecución (--sandbox-session, --tui, --lsp, --multi-agent).
+    # v6.34.1: fix crÃ­tico â€” mÃ³dulos faltantes que el cÃ³digo importa en
+    # tiempo de ejecuciÃ³n (--sandbox-session, --tui, --lsp, --multi-agent).
     "sandbox_session", "tui_hub", "tui_app", "lsp_client",
     "qa_tester_logic", "session_manager", "memory_store",
     "tui_interactiva", "autocorrector",

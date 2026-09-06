@@ -4,6 +4,25 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.34.3] - 2026-09-05 - 🌐 Codificación UTF-8 en todo el código
+
+### Fixed
+- **`UnicodeDecodeError` al importar `snapcontext` en CI/Linux**: el commit de
+  bump de versión (d0b2e63) reescribió `snapcontext.py` en Latin-1/Windows-1252,
+  dejando 2.067 bytes no-UTF-8 (tildes, ñ, emojis) ilegibles para Python en
+  locales UTF-8. Todos los archivos `.py` del repositorio han sido convertidos
+  a UTF-8 sin BOM y verificados (`py_compile` + suite de tests).
+- **Emojis destruidos**: 68 emojis de la UI (🔒 🧠 🗺 📋 💡 🐳 ✂️ ⚠️ etc.) que
+  habían sido convertidos a `??` por conversiones ANSI anteriores fueron
+  restaurados desde el historial de git, y 9 em-dashes (`—`) sueltos en
+  comentarios/docstrings (bytes 0x97) fueron reparados.
+
+### Added
+- **`.gitattributes`**: `*.py text eol=lf encoding=utf-8` — Git normaliza y
+  verifica la codificación de todos los `.py` en futuros commits.
+- **`.editorconfig`**: `charset = utf-8`, `end_of_line = lf` para `*.py`,
+  de forma que todos los editores guarden en UTF-8.
+
 ## [6.34.1] - 2026-09-05 - 🔧 Fix crítico: módulos faltantes en el wheel
 
 ### Fixed

@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SnapContext ‚Äî Asistente de IA para desarrollo con contexto autom·tico.
+SnapContext ‚Äî Asistente de IA para desarrollo con contexto autom√°tico.
 
 Pipeline:
-    1) Detecta autom·ticamente el tipo de proyecto (Flutter, Node, Python, Go, Rust, etc.)
+    1) Detecta autom√°ticamente el tipo de proyecto (Flutter, Node, Python, Go, Rust, etc.)
        y ajusta carpetas/extensiones por defecto.
-    2) Escanea autom·ticamente el repositorio (por defecto seg˙n el tipo de proyecto):
+    2) Escanea autom√°ticamente el repositorio (por defecto seg√∫n el tipo de proyecto):
        buscando archivos relevantes para la consulta del usuario.
-    3) Usa Gemini (Google AI Studio) para seleccionar los archivos m·s
+    3) Usa Gemini (Google AI Studio) para seleccionar los archivos m√°s
        relevantes, sin que el desarrollador tenga que listarlos a mano.
     4) Ejecuta Aider con los archivos seleccionados y la consulta original.
-    5) (Opcional, --test-loop) DespuÈs de Aider ejecuta las pruebas
+    5) (Opcional, --test-loop) Despu√©s de Aider ejecuta las pruebas
        (flutter test) y, si fallan, vuelve a llamar a Aider con el error
        para que las arregle.
 
@@ -19,22 +19,22 @@ Requisitos:
     - Python 3.9+
     - pip install google-generativeai   (proveedor por defecto: Gemini)
     - pip install openai                (DeepSeek, Groq y Ollama)
-    - Variable de entorno seg˙n proveedor (GEMINI_API_KEY, DEEPSEEK_API_KEY,
+    - Variable de entorno seg√∫n proveedor (GEMINI_API_KEY, DEEPSEEK_API_KEY,
       GROQ_API_KEY) y, opcionalmente, OLLAMA_URL para Ollama local
     - Aider instalado: pip install aider-chat
 
 Uso:
-    snapcontext "el botÛn de pago no funciona"
-    snapcontext "el botÛn de pago no funciona" --test-loop
-    snapcontext "arreglar el checkout" --server-loop      # servidor autom·tico
+    snapcontext "el bot√≥n de pago no funciona"
+    snapcontext "el bot√≥n de pago no funciona" --test-loop
+    snapcontext "arreglar el checkout" --server-loop      # servidor autom√°tico
     snapcontext "arreglar login" --manual-loop            # servidor manual
     snapcontext "revisar pago" --experto                  # revisar/editar archivos
-    snapcontext fix "el botÛn de pago no funciona"        # alias: test-loop
-    snapcontext review "revisar cÛdigo"                   # alias: vista-previa + experto
+    snapcontext fix "el bot√≥n de pago no funciona"        # alias: test-loop
+    snapcontext review "revisar c√≥digo"                   # alias: vista-previa + experto
     snapcontext server "iniciar servidor"                 # alias: server-loop
     snapcontext "..." --provider groq --model llama-3.3-70b-versatile
 
-Open-source y pensado para ser f·cil de extender (ver ejecutar_bucle_test).
+Open-source y pensado para ser f√°cil de extender (ver ejecutar_bucle_test).
 """
 
 import argparse
@@ -60,13 +60,13 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-# v5.4.0: detecciÛn de comandos peligrosos para el sandboxing inteligente.
+# v5.4.0: detecci√≥n de comandos peligrosos para el sandboxing inteligente.
 from sandbox_utils import es_comando_peligroso
-# seguridad: ejecuciÛn segura de comandos (shell=False por defecto).
+# seguridad: ejecuci√≥n segura de comandos (shell=False por defecto).
 from sandbox_utils import ejecutar_comando_con_politica as _ejecutar_con_politica
 
-# v4.8.0: capa de presentaciÛn centralizada (Rich). DegradaciÛn elegante:
-# ui.py funciona tambiÈn sin `rich` (print plano), asÌ que la importaciÛn
+# v4.8.0: capa de presentaci√≥n centralizada (Rich). Degradaci√≥n elegante:
+# ui.py funciona tambi√©n sin `rich` (print plano), as√≠ que la importaci√≥n
 # nunca rompe el CLI.
 from ui import (configurar_auto as _ui_configurar_auto,
                 es_auto as _ui_es_auto,
@@ -77,30 +77,30 @@ from urllib.parse import urlparse
 # ‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê
 # v6.9.0 ‚Äî IMPORTS PEREZOSOS (rendimiento de arranque)
 # Los SDK pesados (google-generativeai, openai, anthropic, sentence-transformers
-# y tree-sitter) ya NO se importan al cargar el mÛdulo. Se cargan solo cuando se
-# usan de verdad (vÌa `_importar_*()`) o cuando el usuario los referencia
-# (vÌa `__getattr__` de mÛdulo). AsÌ `--help`, la selecciÛn heurÌstica y el
+# y tree-sitter) ya NO se importan al cargar el m√≥dulo. Se cargan solo cuando se
+# usan de verdad (v√≠a `_importar_*()`) o cuando el usuario los referencia
+# (v√≠a `__getattr__` de m√≥dulo). As√≠ `--help`, la selecci√≥n heur√≠stica y el
 # resto de la CLI arrancan en <0.3s sin pagar el coste de cargar torch/tf.
 #
-# Compatibilidad: se mantienen los nombres de mÛdulo (`genai`, `openai`,
+# Compatibilidad: se mantienen los nombres de m√≥dulo (`genai`, `openai`,
 # `anthropic`, `SentenceTransformer`, `tree_sitter`, `Language`, `_ts_lang`)
-# para que el resto del cÛdigo y los tests sigan funcionando; ahora son
+# para que el resto del c√≥digo y los tests sigan funcionando; ahora son
 # atributos que se resuelven de forma perezosa y respetan los valores que los
-# tests/usuarios asignen explÌcitamente (nunca se sobrescriben).
+# tests/usuarios asignen expl√≠citamente (nunca se sobrescriben).
 # ‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê
 
-_SIN_CARGAR = object()          # centinela: la importaciÛn a˙n no se intentÛ
+_SIN_CARGAR = object()          # centinela: la importaci√≥n a√∫n no se intent√≥
 
 
 def _importar_genai():
     """Carga `google.generativeai` una sola vez (o None si falta)."""
     _actual = globals().get("genai", _SIN_CARGAR)
-    if _actual is not _SIN_CARGAR:          # ya cargado o asignado explÌcitamente
+    if _actual is not _SIN_CARGAR:          # ya cargado o asignado expl√≠citamente
         return _actual
     global genai                            # noqa: PLW0603
     try:
         with warnings.catch_warnings():
-            # Silenciamos SOLO el FutureWarning de puesta al dÌa de la librerÌa.
+            # Silenciamos SOLO el FutureWarning de puesta al d√≠a de la librer√≠a.
             warnings.simplefilter("ignore", FutureWarning)
             import google.generativeai as _genai
         genai = _genai
@@ -110,7 +110,7 @@ def _importar_genai():
 
 
 def _importar_openai():
-    """Carga la librerÌa `openai` (Groq, DeepSeek, Ollama‚Ä¶) una sola vez."""
+    """Carga la librer√≠a `openai` (Groq, DeepSeek, Ollama‚Ä¶) una sola vez."""
     _actual = globals().get("openai", _SIN_CARGAR)
     if _actual is not _SIN_CARGAR:
         return _actual
@@ -175,11 +175,11 @@ def _importar_tree_sitter():
 
 
 def __getattr__(nombre: str):
-    """Carga perezosa por acceso a atributo de mÛdulo (v6.9.0).
+    """Carga perezosa por acceso a atributo de m√≥dulo (v6.9.0).
 
     Permite que `sc.genai`, `sc.openai`, `sc.anthropic`, `sc.SentenceTransformer`
-    o `sc.tree_sitter` disparen la importaciÛn real solo la primera vez que se
-    referencian (y devuelven None si la librerÌa no est· instalada), sin
+    o `sc.tree_sitter` disparen la importaci√≥n real solo la primera vez que se
+    referencian (y devuelven None si la librer√≠a no est√° instalada), sin
     penalizar el arranque del CLI.
     """
     if nombre == "genai":
@@ -193,25 +193,25 @@ def __getattr__(nombre: str):
     if nombre in ("tree_sitter", "Language", "_ts_lang"):
         _importar_tree_sitter()
         return globals().get(nombre)
-    raise AttributeError(f"mÛdulo 'snapcontext' no tiene atributo {nombre!r}")
+    raise AttributeError(f"m√≥dulo 'snapcontext' no tiene atributo {nombre!r}")
 
-# EjecuciÛn en paralelo de pasos del plan (v1.3.0) ‚Äî stdlib, sin deps extra.
+# Ejecuci√≥n en paralelo de pasos del plan (v1.3.0) ‚Äî stdlib, sin deps extra.
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "6.34.2"
+VERSION = "6.34.3"
 
-# v6.9.0: instante de carga del mÛdulo (lo usa `--benchmark` para medir el
+# v6.9.0: instante de carga del m√≥dulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
 _TIEMPO_INICIO_MODULO = time.perf_counter()
 
-# v4.7.0: lÌmite de lÌneas de un archivo para inyectarlo completo en el prompt
-# de ediciÛn. Por encima de este umbral se usa contexto selectivo (resumen AST
+# v4.7.0: l√≠mite de l√≠neas de un archivo para inyectarlo completo en el prompt
+# de edici√≥n. Por encima de este umbral se usa contexto selectivo (resumen AST
 # + bloques relevantes) para no explotar la ventana de contexto del modelo.
 MAX_CONTEXT_LINES = 600
 
-# v6.1.0: lÌmite de TOKENS estimados a enviar al proveedor en una peticiÛn de
-# ediciÛn. Los modelos locales (deepseek-r1:14b, llama3.2‚Ä¶) tienen a menudo
+# v6.1.0: l√≠mite de TOKENS estimados a enviar al proveedor en una petici√≥n de
+# edici√≥n. Los modelos locales (deepseek-r1:14b, llama3.2‚Ä¶) tienen a menudo
 # solo 4096 tokens de contexto; por encima de este umbral se usa
 # context_utils.seleccionar_contexto. Configurable con --max-context-tokens.
 MAX_CONTEXT_TOKENS = 3000
@@ -228,18 +228,18 @@ MODELOS_LIGEROS_OLLAMA = ("llama3.2:1b", "llama3.2", "phi3", "gemma2:2b",
 
 # v3.1.0 ‚Äî Mensaje cuando no hay ni API key ni Ollama disponible.
 MENSAJE_SIN_CLAVE_NI_OLLAMA = (
-    "No se encontrÛ una API key ni Ollama.\n"
+    "No se encontr√≥ una API key ni Ollama.\n"
     "Puedes instalar Ollama desde https://ollama.com o configurar una API\n"
     "key con 'snapcontext --init'.\n"
     "Alternativas:\n"
     "  PowerShell :  $env:GEMINI_API_KEY=\"tu_clave\"\n"
     "  Linux/Mac  :  export GEMINI_API_KEY=tu_clave\n"
-    "  DiagnÛstico:  snapcontext --diagnostico"
+    "  Diagn√≥stico:  snapcontext --diagnostico"
 )
 
 
-# ‚îÄ‚îÄ‚îÄ ConfiguraciÛn por tipo de proyecto ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
-# DetecciÛn autom·tica de carpetas y extensiones seg˙n el tipo de proyecto detectado.
+# ‚îÄ‚îÄ‚îÄ Configuraci√≥n por tipo de proyecto ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+# Detecci√≥n autom√°tica de carpetas y extensiones seg√∫n el tipo de proyecto detectado.
 _CORRECTORES_CARPETAS_PROYECTO = {
     "flutter": {
         "carpetas_defecto": ["lib", "test", "web"],
@@ -281,7 +281,7 @@ _CORRECTORES_EXTENSIONES_PROYECTO = {
     "swift": [".swift"]
 }
 
-# Mapeo de archivos clave para la detecciÛn autom·tica de tipo de proyecto.
+# Mapeo de archivos clave para la detecci√≥n autom√°tica de tipo de proyecto.
 _CORRECTORES_ARCHIVOS_IDENTIFICADORES = {
     "pubspec.yaml": "flutter",
     "package.json": "node",
@@ -306,7 +306,7 @@ _LOGO = r"""
    ‚îÇ    ‚ñà‚ñà‚ñà‚ñà‚ñà‚ñà‚ñà‚ïë‚ñà‚ñà‚ïë ‚ïö‚ñà‚ñà‚ñà‚ñà‚ïë‚ñà‚ñà‚ïë  ‚ñà‚ñà‚ïë‚ñà‚ñà‚ïë     ‚ïö‚ñà‚ñà‚ñà‚ñà‚ñà‚ñà‚ïó‚ïö‚ñà‚ñà‚ñà‚ñà‚ñà‚ñà‚ïó   ‚îÇ
    ‚îÇ    ‚ïö‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïù‚ïö‚ïê‚ïù  ‚ïö‚ïê‚ïê‚ïê‚ïù‚ïö‚ïê‚ïù  ‚ïö‚ïê‚ïù      ‚ïö‚ïê‚ïê‚ïê‚ïê‚ïê‚ïù ‚ïö‚ïê‚ïê‚ïê‚ïê‚ïê‚ïù   ‚îÇ
    ‚îÇ                                                          ‚îÇ
-   ‚îÇ    ¬ª SelecciÛn inteligente de archivos                  ‚îÇ
+   ‚îÇ    ¬ª Selecci√≥n inteligente de archivos                  ‚îÇ
    ‚îÇ    ¬ª Soporte: Gemini ¬∑ Ollama ¬∑ DeepSeek ¬∑ Groq        ‚îÇ
    ‚îÇ    ¬ª __VERSION__                                             ‚îÇ
    ‚îÇ                                                          ‚îÇ
@@ -315,10 +315,10 @@ _LOGO = r"""
 
 
 def _detectar_tipo_proyecto(directorio: str) -> Optional[str]:
-    """Detecta autom·ticamente el tipo de proyecto buscando archivos clave.
+    """Detecta autom√°ticamente el tipo de proyecto buscando archivos clave.
 
     Args:
-        directorio: Ruta del directorio a analizar (raÌz ya resuelta).
+        directorio: Ruta del directorio a analizar (ra√≠z ya resuelta).
 
     Returns:
         El tipo detectado (flutter, node, python, go, rust, ‚Ä¶) o None si no hay.
@@ -329,20 +329,20 @@ def _detectar_tipo_proyecto(directorio: str) -> Optional[str]:
 
     for nombre_archivo, tipo in _CORRECTORES_ARCHIVOS_IDENTIFICADORES.items():
         if (ruta / nombre_archivo).exists():
-            depurar(f"[DetecciÛn] {nombre_archivo} encontrado ‚Üí tipo: {tipo}")
+            depurar(f"[Detecci√≥n] {nombre_archivo} encontrado ‚Üí tipo: {tipo}")
             return tipo
 
-    # Sin archivo identificador, se busca una carpeta tÌpica por tipo.
+    # Sin archivo identificador, se busca una carpeta t√≠pica por tipo.
     for tipo, info in _CORRECTORES_CARPETAS_PROYECTO.items():
         for carpeta in info.get("carpetas_defecto", []):
             if (ruta / carpeta).exists():
-                depurar(f"[DetecciÛn] Carpetilla tÌpica de {tipo}: {carpeta}/")
+                depurar(f"[Detecci√≥n] Carpetilla t√≠pica de {tipo}: {carpeta}/")
                 return tipo
     return None
 
 
-# Archivos y carpetas que indican que un directorio es raÌz de un proyecto.
-# Usado por _es_directorio_proyecto() para la verificaciÛn temprana en main().
+# Archivos y carpetas que indican que un directorio es ra√≠z de un proyecto.
+# Usado por _es_directorio_proyecto() para la verificaci√≥n temprana en main().
 _ARCHIVOS_PROYECTO = (
     "package.json", "go.mod", "pyproject.toml", "requirements.txt",
     "Cargo.toml", "pubspec.yaml", "Gemfile", "mix.exs",
@@ -351,13 +351,13 @@ _CARPETAS_PROYECTO = ("src", "lib", "tests", "app", "scripts")
 
 
 def _es_directorio_proyecto(directorio: str) -> bool:
-    """Indica si ``directorio`` parece ser la raÌz de un proyecto.
+    """Indica si ``directorio`` parece ser la ra√≠z de un proyecto.
 
     Devuelve ``True`` si existe al menos uno de los archivos/carpetas
     reconocidos como indicadores de proyecto (``src/``, ``package.json``,
     ``go.mod``, ``pyproject.toml``, ``Cargo.toml``, etc.).
 
-    Devuelve ``False`` si el directorio est· vacÌo o solo contiene archivos
+    Devuelve ``False`` si el directorio est√° vac√≠o o solo contiene archivos
     sueltos sin estructura reconocible.
     """
     ruta = Path(directorio)
@@ -376,7 +376,7 @@ def _es_directorio_proyecto(directorio: str) -> bool:
         if (ruta / archivo).is_file():
             return True
 
-    # *.csproj (C#): busca cualquier archivo con esa extensiÛn en la raÌz.
+    # *.csproj (C#): busca cualquier archivo con esa extensi√≥n en la ra√≠z.
     if any(f.suffix == ".csproj" for f in entradas if f.is_file()):
         return True
 
@@ -388,13 +388,13 @@ def _es_directorio_proyecto(directorio: str) -> bool:
 
 
 def _advertencia_directorio_proyecto(args: argparse.Namespace) -> Optional[int]:
-    """Advertencia temprana si el directorio no parece una raÌz de proyecto.
+    """Advertencia temprana si el directorio no parece una ra√≠z de proyecto.
 
-    Se muestra despuÈs del banner y antes de cualquier operaciÛn. En modo
+    Se muestra despu√©s del banner y antes de cualquier operaci√≥n. En modo
     interactivo ofrece ``[c]`` continuar, ``[d]`` ejecutar la demo o ``[s]``
-    salir; en ``--auto`` (o sin entrada interactiva) contin˙a (``c``). Devuelve
-    un cÛdigo de salida si debe terminar (``d``/``s``) o ``None`` para seguir
-    con el flujo normal. No se muestra si se usÛ ``--no-validar-proyecto`` o un
+    salir; en ``--auto`` (o sin entrada interactiva) contin√∫a (``c``). Devuelve
+    un c√≥digo de salida si debe terminar (``d``/``s``) o ``None`` para seguir
+    con el flujo normal. No se muestra si se us√≥ ``--no-validar-proyecto`` o un
     flag que no requiera proyecto (``--demo``, ``--init``, ``--chat``‚Ä¶).
     """
     _directorios_proyecto_sin_avisar = frozenset({
@@ -413,10 +413,10 @@ def _advertencia_directorio_proyecto(args: argparse.Namespace) -> Optional[int]:
         return None
     _ui_mostrar_banner(VERSION)
     import ui
-    aviso = ("‚Ñπ SnapContext funciona mejor desde la raÌz de un proyecto.\n"
+    aviso = ("‚Ñπ SnapContext funciona mejor desde la ra√≠z de un proyecto.\n"
              "No se detectaron archivos de proyecto en este directorio.")
-    ui.mostrar_estado(aviso, emoji="??")
-    # En modo --auto (o sin entrada interactiva) se contin˙a sin preguntar.
+    ui.mostrar_estado(aviso, emoji="üß≠")
+    # En modo --auto (o sin entrada interactiva) se contin√∫a sin preguntar.
     if getattr(args, "auto", False):
         return None
     opciones = [
@@ -425,38 +425,38 @@ def _advertencia_directorio_proyecto(args: argparse.Namespace) -> Optional[int]:
         ("s", "Salir"),
     ]
     eleccion = ui.preguntar_interactivo(
-        opciones, "¬øQuÈ quieres hacer?", defecto="c")
+        opciones, "¬øQu√© quieres hacer?", defecto="c")
     if eleccion == "d":
         return _ejecutar_demo()
     if eleccion == "s":
-        info("Hasta luego. Ejecuta snapcontext en la raÌz de tu proyecto.")
+        info("Hasta luego. Ejecuta snapcontext en la ra√≠z de tu proyecto.")
         return 0
     return None
 
 
 def _ajustar_parametros_por_tipo(tipo: Optional[str], args):
-    """Ajusta ``args`` seg˙n el tipo de proyecto detectado.
+    """Ajusta ``args`` seg√∫n el tipo de proyecto detectado.
 
-    Solo modifica ``carpetas`` y ``extensiones`` si NO se pasaron explÌcitamente
+    Solo modifica ``carpetas`` y ``extensiones`` si NO se pasaron expl√≠citamente
     por CLI, y es transparente para el usuario (nada se muestra salvo ``--depurar``).
     """
     if getattr(args, "carpetas", None):
-        depurar("[DetecciÛn] Carpetas explÌcitas ‚Äî no se sobrescriben.")
+        depurar("[Detecci√≥n] Carpetas expl√≠citas ‚Äî no se sobrescriben.")
         return args
 
     if not tipo:
-        depurar("[DetecciÛn] Sin tipo detectado ‚Äî carpetas por defecto actuales.")
+        depurar("[Detecci√≥n] Sin tipo detectado ‚Äî carpetas por defecto actuales.")
         return args
 
     info = _CORRECTORES_CARPETAS_PROYECTO.get(tipo)
     if info and not getattr(args, "carpetas", None):
         args.carpetas = list(info["carpetas_defecto"])
-        depurar(f"[DetecciÛn] Carpetas para {tipo}: {args.carpetas}")
+        depurar(f"[Detecci√≥n] Carpetas para {tipo}: {args.carpetas}")
 
     extensiones = _CORRECTORES_EXTENSIONES_PROYECTO.get(tipo)
     if extensiones and not getattr(args, "extensiones", None):
         args.extensiones = list(extensiones)
-        depurar(f"[DetecciÛn] Extensiones para {tipo}: {args.extensiones}")
+        depurar(f"[Detecci√≥n] Extensiones para {tipo}: {args.extensiones}")
 
     return args
 
@@ -468,18 +468,18 @@ _LOGO_SMALL = f"""
 """
 
 # ---------------------------------------------------------------------------
-# ConfiguraciÛn por defecto (se puede sobrescribir con argumentos CLI o env)
+# Configuraci√≥n por defecto (se puede sobrescribir con argumentos CLI o env)
 # ---------------------------------------------------------------------------
 CARPETAS_DEFECTO = ("lib", "supabase")   # carpetas que se escanean
 CARPETAS_PROYECTO_VALIDAS = ("lib", "src", "supabase", "app", "packages", "backend")
-# Archivos de configuraciÛn que indican un proyecto v·lido aunque estÈn vacÌos
-# (v1.3.0: la validaciÛn ya no exige contenido, solo su presencia).
+# Archivos de configuraci√≥n que indican un proyecto v√°lido aunque est√©n vac√≠os
+# (v1.3.0: la validaci√≥n ya no exige contenido, solo su presencia).
 ARCHIVOS_CONFIG_PROYECTO = frozenset((
     "pubspec.yaml", "package.json", "requirements.txt", "go.mod",
     "cargo.toml", "setup.py", "pyproject.toml",
 ))
-# Extensiones de cÛdigo que, presentes en la raÌz (aunque el archivo estÈ
-# vacÌo), tambiÈn validan la carpeta como proyecto.
+# Extensiones de c√≥digo que, presentes en la ra√≠z (aunque el archivo est√©
+# vac√≠o), tambi√©n validan la carpeta como proyecto.
 EXT_CODIGO_RAIZ = frozenset((
     ".py", ".dart", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".java",
     ".kt", ".swift", ".c", ".cpp", ".h", ".hpp", ".cs", ".rb", ".php",
@@ -494,16 +494,16 @@ CONFIG_PATH = CONFIG_DIR / "config.json"
 ESTADO_PATH = CONFIG_DIR / "estado.json"
 BACKUPS_DIR = CONFIG_DIR / "backups"
 MAX_ARCHIVOS_DEFECTO = 3                           # archivos que recibe Aider
-MAX_CANDIDATOS_DEFECTO = 80                        # candidatos que se envÌan al selector IA
+MAX_CANDIDATOS_DEFECTO = 80                        # candidatos que se env√≠an al selector IA
 MAX_ITERACIONES_TEST_DEFECTO = 3
 COMANDO_TEST_DEFECTO = "flutter test"
-MAX_INTENTOS_VALIDACION = 3                        # reintentos de validaciÛn del editor propio
+MAX_INTENTOS_VALIDACION = 3                        # reintentos de validaci√≥n del editor propio
 
 # ---------------------------------------------------------------------------
-# Proveedores de IA para la selecciÛn de archivos
+# Proveedores de IA para la selecci√≥n de archivos
 # ---------------------------------------------------------------------------
-#  tipo           : "gemini" usa la librerÌa google.generativeai;
-#                   "openai" usa la librerÌa openai (APIs compatibles con OpenAI).
+#  tipo           : "gemini" usa la librer√≠a google.generativeai;
+#                   "openai" usa la librer√≠a openai (APIs compatibles con OpenAI).
 #  requiere_clave : True exige la variable de entorno `clave_env`.
 #  Ollama se conecta a `OLLAMA_URL` (por defecto http://localhost:11434) y no
 #  exige clave (opcional: OLLAMA_API_KEY si tu servidor la pidiera).
@@ -552,7 +552,7 @@ PROVEEDORES = {
         # v6.11.0: Anthropic (Claude) soporta marcas cache_control (ephemeral).
         "soporta_caching": True,
     },
-    # v6.34.0: soporte para GPUs Intel XPU (Intel Arc) vÌa IPEX.
+    # v6.34.0: soporte para GPUs Intel XPU (Intel Arc) v√≠a IPEX.
     "xpu": {
         "nombre": "Intel XPU",
         "tipo": "xpu",                       # backend local con IPEX
@@ -576,7 +576,7 @@ EXT_IGNORADAS = {
     ".7z", ".mp4", ".mp3", ".wav", ".mov", ".pdf", ".class", ".jar",
 }
 
-# Palabras vacÌas (espaÒol/inglÈs) que no aportan informaciÛn al buscar.
+# Palabras vac√≠as (espa√±ol/ingl√©s) que no aportan informaci√≥n al buscar.
 PALABRAS_VACIAS = {
     "a", "al", "ante", "bajo", "con", "contra", "de", "del", "desde", "e",
     "el", "en", "entre", "es", "esa", "ese", "eso", "esta", "este", "esto",
@@ -588,12 +588,12 @@ PALABRAS_VACIAS = {
     "ser", "tu", "sus", "mi", "me", "te", "nos",
 }
 
-MAX_LINEAS_CONTENIDO = 250       # lÌneas por archivo que se punt˙an al escanear
-TAMANO_MAX_ARCHIVO = 512 * 1024  # bytes; archivos m·s grandes no se leen
+MAX_LINEAS_CONTENIDO = 250       # l√≠neas por archivo que se punt√∫an al escanear
+TAMANO_MAX_ARCHIVO = 512 * 1024  # bytes; archivos m√°s grandes no se leen
 MAX_ERROR_SALIDA = 6000          # caracteres de salida de test que se muestran a Aider
 
-# En Windows la consola puede usar cp1252/cp437 y los sÌmbolos unicode rompen
-# los print. AquÌ forzamos UTF-8 con reemplazo seguro y, adem·s, tenemos una
+# En Windows la consola puede usar cp1252/cp437 y los s√≠mbolos unicode rompen
+# los print. Aqu√≠ forzamos UTF-8 con reemplazo seguro y, adem√°s, tenemos una
 # red de seguridad ASCII (ver _texto_seguro / _emitir).
 if os.name == "nt":
     for _flujo in (sys.stdout, sys.stderr):
@@ -617,7 +617,7 @@ _GLIFOS_ASCII = {
 
 
 def _consola_es_utf8() -> bool:
-    """HeurÌstica: todas las salidas est·ndar soportan UTF-8 sin excepciÛn."""
+    """Heur√≠stica: todas las salidas est√°ndar soportan UTF-8 sin excepci√≥n."""
     for _flujo in (sys.stdout, sys.stderr):
         try:
             codificacion = (_flujo.encoding or "").lower().replace("-", "")
@@ -629,7 +629,7 @@ def _consola_es_utf8() -> bool:
 
 
 def _texto_seguro(texto: str) -> str:
-    """Reemplaza sÌmbolos Unicode por alternativas ASCII si la consola no es UTF-8."""
+    """Reemplaza s√≠mbolos Unicode por alternativas ASCII si la consola no es UTF-8."""
     if _consola_es_utf8():
         return texto
     for simbolo, alternativo in _GLIFOS_ASCII.items():
@@ -699,15 +699,15 @@ def _pintar(texto: str, codigo: str) -> str:
     return f"{codigo}{texto}{_REINICIO}"
 
 
-_TUI_HUB: object = False  # cachÈ perezosa del hub TUI (False = no probado)
+_TUI_HUB: object = False  # cach√© perezosa del hub TUI (False = no probado)
 
 
 def _tui_log(nivel: str, msg: str) -> None:
-    """ReenvÌa un log a la TUI (v6.12.0) si el modo est· activo.
+    """Reenv√≠a un log a la TUI (v6.12.0) si el modo est√° activo.
 
-    Nunca lanza ni bloquea: si Textual/tui_hub no est· disponible o la cola
-    est· llena, el evento simplemente se descarta. Coste ~0 cuando la TUI
-    est· inactiva (una comprobaciÛn booleana).
+    Nunca lanza ni bloquea: si Textual/tui_hub no est√° disponible o la cola
+    est√° llena, el evento simplemente se descarta. Coste ~0 cuando la TUI
+    est√° inactiva (una comprobaci√≥n booleana).
     """
     global _TUI_HUB
     if _TUI_HUB is False:
@@ -745,44 +745,44 @@ def error(msg: str) -> None:
 
 def depurar(msg: str) -> None:
     if DEPURAR:
-        _emitir(sys.stdout, _pintar("  [depuraciÛn] " + msg, _GRIS))
+        _emitir(sys.stdout, _pintar("  [depuraci√≥n] " + msg, _GRIS))
 
 
 # ---------------------------------------------------------------------------
 # Mensajes de error reutilizables
 # ---------------------------------------------------------------------------
 MENSAJE_GENAI_FALTANTE = (
-    "No se encontrÛ la librerÌa 'google.generativeai'.\n"
-    "Inst·lala con:  pip install google-generativeai   (o: pip install -e .)"
+    "No se encontr√≥ la librer√≠a 'google.generativeai'.\n"
+    "Inst√°lala con:  pip install google-generativeai   (o: pip install -e .)"
 )
 MENSAJE_API_KEY = (
-    "No se encontrÛ la variable de entorno GEMINI_API_KEY.\n"
-    "Crea una API key en https://aistudio.google.com/apikey y config˙rala:\n"
+    "No se encontr√≥ la variable de entorno GEMINI_API_KEY.\n"
+    "Crea una API key en https://aistudio.google.com/apikey y config√∫rala:\n"
     "  PowerShell:  $env:GEMINI_API_KEY=\"tu_clave\"\n"
     "  Linux/Mac :  export GEMINI_API_KEY=tu_clave"
 )
 MENSAJE_AIDER_FALTANTE = (
-    "No se encontrÛ el comando 'aider' en el PATH.\n"
-    "Inst·lalo con:  pip install aider-chat"
+    "No se encontr√≥ el comando 'aider' en el PATH.\n"
+    "Inst√°lalo con:  pip install aider-chat"
 )
 MENSAJE_OPENAI_FALTANTE = (
-    "Este proveedor usa la librerÌa 'openai' (API compatible con OpenAI).\n"
-    "Inst·lala con:  pip install openai"
+    "Este proveedor usa la librer√≠a 'openai' (API compatible con OpenAI).\n"
+    "Inst√°lala con:  pip install openai"
 )
 MENSAJE_ANTHROPIC_FALTANTE = (
-    "Este proveedor usa la librerÌa 'anthropic' (API oficial de Claude).\n"
-    "Inst·lala con:  pip install snapcontext[anthropic]\n"
+    "Este proveedor usa la librer√≠a 'anthropic' (API oficial de Claude).\n"
+    "Inst√°lala con:  pip install snapcontext[anthropic]\n"
     "  (o directamente: pip install anthropic>=0.30.0)"
 )
-# Memoria persistente (~/.snapcontext/historial.json): ˙ltimas tareas realizadas.
+# Memoria persistente (~/.snapcontext/historial.json): √∫ltimas tareas realizadas.
 HISTORIAL_PATH = CONFIG_DIR / "historial.json"
-MAX_HISTORIAL_ENTRADAS = 200      # se recorta para que el archivo no crezca sin lÌmite
+MAX_HISTORIAL_ENTRADAS = 200      # se recorta para que el archivo no crezca sin l√≠mite
 
 # ---------------------------------------------------------------------------
-# SeÒales y cierre limpio (Ctrl+C / SIGTERM) ‚Äî multiplataforma
+# Se√±ales y cierre limpio (Ctrl+C / SIGTERM) ‚Äî multiplataforma
 # ---------------------------------------------------------------------------
 # Registro de subprocesos activos (servidores Flutter...) para poder cerrarlos
-# desde el manejador de seÒales y no dejar procesos huÈrfanos.
+# desde el manejador de se√±ales y no dejar procesos hu√©rfanos.
 _PROCESOS_ACTIVOS: set = set()
 
 
@@ -800,19 +800,19 @@ def _registrar_manejadores_senales() -> None:
     """Instala manejadores para SIGINT (Ctrl+C) y, en Unix, SIGTERM.
 
     Finalizan de forma limpia: cierran los subprocesos activos y salen con
-    cÛdigo 0 (cierre controlado en lugar de la excepciÛn por defecto). Se
+    c√≥digo 0 (cierre controlado en lugar de la excepci√≥n por defecto). Se
     protege con try/except por si la plataforma no permite registrar alguna
-    seÒal (p. ej. SIGTERM no se entrega en Windows).
+    se√±al (p. ej. SIGTERM no se entrega en Windows).
     """
     def _manejar(signum, frame):  # noqa: ARG001
         _apagar_subprocesos()
-        # v6.4.0: si hay una sesiÛn Docker persistente, destruirla en Ctrl+C /
-        # SIGTERM para no dejar contenedores huÈrfanos.
+        # v6.4.0: si hay una sesi√≥n Docker persistente, destruirla en Ctrl+C /
+        # SIGTERM para no dejar contenedores hu√©rfanos.
         try:
             _destruir_sesion_si_aplica()
         except Exception:                                  # noqa: BLE001
             pass
-        error(f"SeÒal {signum} recibida. SnapContext se est· cerrando...")
+        error(f"Se√±al {signum} recibida. SnapContext se est√° cerrando...")
         raise SystemExit(0)
 
     for senal in (signal.SIGINT, getattr(signal, "SIGTERM", None)):
@@ -827,19 +827,19 @@ def _registrar_manejadores_senales() -> None:
 # Utilidades de texto
 # ---------------------------------------------------------------------------
 def normalizar(texto: str) -> str:
-    """Min˙sculas y sin acentos. 'botÛn' -> 'boton' (clave para buscar en espaÒol)."""
+    """Min√∫sculas y sin acentos. 'bot√≥n' -> 'boton' (clave para buscar en espa√±ol)."""
     texto = unicodedata.normalize("NFD", texto.lower())
     return "".join(c for c in texto if unicodedata.category(c) != "Mn")
 
 
 def tokenizar(consulta: str) -> List[str]:
-    """Convierte la consulta en palabras clave ˙tiles (sin stopwords)."""
+    """Convierte la consulta en palabras clave √∫tiles (sin stopwords)."""
     tokens = re.findall(r"[a-z0-9_]+", normalizar(consulta))
     return [t for t in tokens if len(t) > 1 and t not in PALABRAS_VACIAS]
 
 
 # ---------------------------------------------------------------------------
-# ResoluciÛn del repositorio
+# Resoluci√≥n del repositorio
 # ---------------------------------------------------------------------------
 def encontrar_raiz_git(inicio: Path) -> Optional[Path]:
     """Busca hacia arriba un directorio .git partiendo de `inicio`."""
@@ -855,11 +855,11 @@ def encontrar_raiz_git(inicio: Path) -> Optional[Path]:
 def resolver_raiz(directorio: str) -> Path:
     """Resuelve el directorio objetivo.
 
-    - Si el usuario pasa `--directorio` explÌcito, se usa esa ruta tal cual
-      (solo se comporta como repo git si contiene .git directamente). AsÌ un
+    - Si el usuario pasa `--directorio` expl√≠cito, se usa esa ruta tal cual
+      (solo se comporta como repo git si contiene .git directamente). As√≠ un
       directorio suelto (p. ej. una copia en %TEMP%) no "hereda" repos git
       de carpetas padre (como el home de usuario).
-    - Si no se pasa directorio (por defecto: '.'), se busca la raÌz del repo
+    - Si no se pasa directorio (por defecto: '.'), se busca la ra√≠z del repo
       git hacia arriba, para que el escaneo funcione desde cualquier subcarpeta
       del proyecto.
     """
@@ -874,19 +874,19 @@ def resolver_raiz(directorio: str) -> Path:
 def _es_proyecto_valido(directorio: Union[str, Path]) -> bool:
     """Devuelve True si 'directorio' tiene indicios de ser un proyecto.
 
-    Criterios (v1.3.0, m·s permisivos para proyectos nuevos):
-      - Existe al menos una carpeta tÌpica (lib/, src/, supabase/, app/,
+    Criterios (v1.3.0, m√°s permisivos para proyectos nuevos):
+      - Existe al menos una carpeta t√≠pica (lib/, src/, supabase/, app/,
         packages/, backend/), AUNQUE EST√â VAC√çA.
-      - O existe al menos un archivo de cÛdigo en la raÌz (.py, .dart, .js,
+      - O existe al menos un archivo de c√≥digo en la ra√≠z (.py, .dart, .js,
         .ts, .go, .rs, .java, ...), AUNQUE EST√â VAC√çO.
-      - O existe un archivo de configuraciÛn tÌpico (pubspec.yaml,
+      - O existe un archivo de configuraci√≥n t√≠pico (pubspec.yaml,
         package.json, requirements.txt, go.mod, Cargo.toml, setup.py,
         pyproject.toml), AUNQUE EST√â VAC√çO.
     """
     ruta = Path(directorio)
     if not ruta.is_dir():
         return False
-    # 1) Carpetas tÌpicas (aunque estÈn vacÌas).
+    # 1) Carpetas t√≠picas (aunque est√©n vac√≠as).
     if any((ruta / carpeta).is_dir() for carpeta in CARPETAS_PROYECTO_VALIDAS):
         return True
     try:
@@ -895,10 +895,10 @@ def _es_proyecto_valido(directorio: Union[str, Path]) -> bool:
         return False
     for entrada in entradas:
         nombre = entrada.name.lower()
-        # 2) Archivo de configuraciÛn tÌpico en la raÌz (aunque vacÌo).
+        # 2) Archivo de configuraci√≥n t√≠pico en la ra√≠z (aunque vac√≠o).
         if nombre in ARCHIVOS_CONFIG_PROYECTO:
             return True
-        # 3) Archivo de cÛdigo en la raÌz (aunque vacÌo).
+        # 3) Archivo de c√≥digo en la ra√≠z (aunque vac√≠o).
         if entrada.is_file() and entrada.suffix.lower() in EXT_CODIGO_RAIZ:
             return True
     return False
@@ -907,7 +907,7 @@ def _es_proyecto_valido(directorio: Union[str, Path]) -> bool:
 def _normalizar_relativa(ruta: str) -> str:
     """Normaliza una ruta relativa a POSIX sin '.' ni '..' ni dobles '//'.
 
-    Se usa para que los archivos que pasan a Aider (o que aÒade el usuario)
+    Se usa para que los archivos que pasan a Aider (o que a√±ade el usuario)
     sean siempre rutas limpias relativas al repositorio.
     """
     limpia = ruta.replace("\\", "/").strip()
@@ -934,10 +934,10 @@ def _esta_dentro(raiz: Path, relativa: str) -> bool:
         return False
 
 # ---------------------------------------------------------------------------
-# Escaneo del repositorio (b˙squeda local de candidatos)
+# Escaneo del repositorio (b√∫squeda local de candidatos)
 # ---------------------------------------------------------------------------
 def _pertenece_a_carpetas(ruta: str, carpetas: List[str]) -> bool:
-    """True si la ruta relativa cae dentro de alguna carpeta de interÈs."""
+    """True si la ruta relativa cae dentro de alguna carpeta de inter√©s."""
     for carpeta in carpetas:
         prefijo = carpeta.replace("\\", "/").rstrip("/") + "/"
         if ruta.startswith(prefijo) or ruta == carpeta.rstrip("/"):
@@ -946,7 +946,7 @@ def _pertenece_a_carpetas(ruta: str, carpetas: List[str]) -> bool:
 
 
 def _es_archivo_indexable(ruta: str) -> bool:
-    """Descarta binarios, im·genes, fuentes y archivos en carpetas ignoradas."""
+    """Descarta binarios, im√°genes, fuentes y archivos en carpetas ignoradas."""
     if Path(ruta).suffix.lower() in EXT_IGNORADAS:
         return False
     partes = ruta.split("/")
@@ -959,8 +959,8 @@ def listar_archivos_candidatos(raiz: Path, carpetas: List[str],
 
     Prioridad:
       1. `git ls-files -c -o --exclude-standard`: respeta .gitignore e incluye
-         archivos nuevos a˙n sin commitear.
-      2. Si no hay repo git (o falla), recorre el ·rbol con os.walk.
+         archivos nuevos a√∫n sin commitear.
+      2. Si no hay repo git (o falla), recorre el √°rbol con os.walk.
     """
     coleccion: List[str] = []
     usa_git = (raiz / ".git").exists()
@@ -979,10 +979,10 @@ def listar_archivos_candidatos(raiz: Path, carpetas: List[str],
                     if ruta and not ruta.startswith('"'):
                         coleccion.append(ruta.replace("\\", "/"))
             else:
-                depurar(f"git ls-files devolviÛ {proc.returncode}; se usar· os.walk")
+                depurar(f"git ls-files devolvi√≥ {proc.returncode}; se usar√° os.walk")
                 usa_git = False
         except (OSError, subprocess.SubprocessError):
-            depurar("git no est· disponible; se usar· os.walk")
+            depurar("git no est√° disponible; se usar√° os.walk")
             usa_git = False
 
     if not usa_git or not coleccion:
@@ -1010,7 +1010,7 @@ def listar_archivos_candidatos(raiz: Path, carpetas: List[str],
 
 
 def puntuar_ruta(ruta: str, tokens: List[str]) -> float:
-    """Puntos por coincidencia en la ruta: el nombre del archivo pesa m·s que
+    """Puntos por coincidencia en la ruta: el nombre del archivo pesa m√°s que
     el directorio. Ej.: 'procesar-pago-mp/index.ts' y tokens ['boton','pago']
     reciben puntos por 'pago' en la carpeta."""
     partes = [normalizar(p) for p in ruta.split("/")]
@@ -1022,12 +1022,12 @@ def puntuar_ruta(ruta: str, tokens: List[str]) -> float:
         for parte in partes[:-1]:
             if tk in parte:
                 puntuacion += 1.0
-                break  # un punto por carpeta coincidente, como m·ximo
+                break  # un punto por carpeta coincidente, como m√°ximo
     return puntuacion
 
 
 def puntuar_contenido(archivo: Path, tokens: List[str]) -> float:
-    """Lee las primeras lÌneas del archivo y suma cu·ntas veces aparece cada
+    """Lee las primeras l√≠neas del archivo y suma cu√°ntas veces aparece cada
     token (limitado para darle balanza a los archivos muy verbosos)."""
     try:
         if archivo.stat().st_size > TAMANO_MAX_ARCHIVO:
@@ -1054,13 +1054,13 @@ def escanear_repositorio(consulta: str, directorio: str = ".",
                          carpetas: Optional[List[str]] = None,
                          extensiones: Optional[List[str]] = None,
                          max_candidatos: int = MAX_CANDIDATOS_DEFECTO) -> List[str]:
-    """Escanea el repositorio y devuelve los mejores candidatos (heurÌstica
-    local) para la consulta, ordenados de m·s a menos relevante.
+    """Escanea el repositorio y devuelve los mejores candidatos (heur√≠stica
+    local) para la consulta, ordenados de m√°s a menos relevante.
 
     Fases:
       1. Listar archivos de `carpetas` (con git o walking).
       2. Si hay muchos, pre-filtrar por coincidencia en la ruta.
-      3. Puntuar tambiÈn el contenido de los que quedaron.
+      3. Puntuar tambi√©n el contenido de los que quedaron.
       4. Devolver los `max_candidatos` mejores para que Gemini elija.
     """
     carpetas = list(carpetas) if carpetas else list(CARPETAS_DEFECTO)
@@ -1071,7 +1071,7 @@ def escanear_repositorio(consulta: str, directorio: str = ".",
 
     tokens = tokenizar(consulta)
     if not tokens:
-        # Consulta sin palabras clave ˙tiles: se devuelve una muestra ordenada.
+        # Consulta sin palabras clave √∫tiles: se devuelve una muestra ordenada.
         return archivos[:max_candidatos]
 
     if len(archivos) > 200:
@@ -1093,23 +1093,23 @@ def escanear_repositorio(consulta: str, directorio: str = ".",
     return [p for p, _ in puntuados[:max_candidatos]]
 
 # ---------------------------------------------------------------------------
-# SelecciÛn con Gemini (elige los archivos m·s relevantes entre candidatos)
+# Selecci√≥n con Gemini (elige los archivos m√°s relevantes entre candidatos)
 # ---------------------------------------------------------------------------
 def construir_prompt_seleccion(consulta: str, archivos: List[str],
                                max_archivos: int) -> str:
-    """Prompt que pide a Gemini elegir las `max_archivos` rutas m·s relevantes
+    """Prompt que pide a Gemini elegir las `max_archivos` rutas m√°s relevantes
     respondiendo solo con JSON (facilita el parseo)."""
     lista = "\n".join(f"{i + 1}. {p}" for i, p in enumerate(archivos))
     return (
-        "Eres el mÛdulo de selecciÛn de archivos de SnapContext, una herramienta "
+        "Eres el m√≥dulo de selecci√≥n de archivos de SnapContext, una herramienta "
         "de IA para desarrollo con Flutter y Supabase.\n\n"
-        f"TAREA A RESOLVER (la pidiÛ el desarrollador):\n\"{consulta}\"\n\n"
+        f"TAREA A RESOLVER (la pidi√≥ el desarrollador):\n\"{consulta}\"\n\n"
         f"ARCHIVOS CANDIDATOS (rutas relativas al repositorio):\n{lista}\n\n"
-        f"Devuelve EXCLUSIVAMENTE un ˙nico objeto JSON v·lido, sin markdown y sin "
+        f"Devuelve EXCLUSIVAMENTE un √∫nico objeto JSON v√°lido, sin markdown y sin "
         f"texto adicional, con la clave \"archivos\" cuyo valor es un array con "
         f"EXACTAMENTE {max_archivos} rutas tomadas de la lista anterior, escritas "
         "en el MISMO formato exacto (sin \"./\" y sin modificarlas), ordenadas de "
-        "m·s a menos relevantes para resolver la tarea.\n"
+        "m√°s a menos relevantes para resolver la tarea.\n"
         "Prioriza los archivos que probablemente necesiten MODIFICARSE, no solo "
         "los que aportan contexto.\n"
         'Ejemplo de formato:\n{"archivos": ["lib/features/.../a.dart", '
@@ -1119,7 +1119,7 @@ def construir_prompt_seleccion(consulta: str, archivos: List[str],
 
 def parsear_json(texto) -> Optional[object]:
     """Convierte la respuesta del modelo en Python de forma tolerante: quita
-    cercas de cÛdigo ```json y busca el bloque JSON m·s grande de la respuesta."""
+    cercas de c√≥digo ```json y busca el bloque JSON m√°s grande de la respuesta."""
     if not texto:
         return None
     candidato = texto.strip()
@@ -1140,7 +1140,7 @@ def parsear_json(texto) -> Optional[object]:
 def normalizar_seleccion(datos, disponibles: List[str],
                          max_archivos: int) -> List[str]:
     """Valida y deduplica las rutas devueltas por el modelo: solo se aceptan
-    rutas de la lista de disponibles y respetando el lÌmite."""
+    rutas de la lista de disponibles y respetando el l√≠mite."""
     rutas = []
     if isinstance(datos, dict):
         for clave in ("archivos", "files", "rutas", "seleccion"):
@@ -1169,7 +1169,7 @@ def seleccionar_archivos_con_gemini(consulta: str, archivos: List[str],
     """Usa Gemini para quedarse con los `max_archivos` candidatos relevantes.
 
     Errores controlados con mensajes claros:
-      - librerÌa google.generativeai no instalada  -> MENSAJE_GENAI_FALTANTE
+      - librer√≠a google.generativeai no instalada  -> MENSAJE_GENAI_FALTANTE
       - variable GEMINI_API_KEY sin configurar      -> MENSAJE_API_KEY
       - errores de red/API de Google                -> RuntimeError descriptivo
     """
@@ -1185,7 +1185,7 @@ def seleccionar_archivos_con_gemini(consulta: str, archivos: List[str],
 
     genai.configure(api_key=api_key)
     prompt = construir_prompt_seleccion(consulta, archivos, max_archivos)
-    depurar(f"Prompt de selecciÛn: {len(prompt)} caracteres, {len(archivos)} candidatos")
+    depurar(f"Prompt de selecci√≥n: {len(prompt)} caracteres, {len(archivos)} candidatos")
 
     generador = genai.GenerativeModel(model_name=modelo)
     configuracion = genai.types.GenerationConfig(
@@ -1195,7 +1195,7 @@ def seleccionar_archivos_con_gemini(consulta: str, archivos: List[str],
 
     try:
         respuesta = generador.generate_content(prompt, generation_config=configuracion)
-    except Exception as exc:  # errores de red, cuota agotada, modelo inv·lido...
+    except Exception as exc:  # errores de red, cuota agotada, modelo inv√°lido...
         raise RuntimeError(f"Error al llamar a Gemini: {exc}") from exc
 
     depurar(f"Respuesta de Gemini ({len(respuesta.text)} caracteres): {respuesta.text[:200]}")
@@ -1206,7 +1206,7 @@ def seleccionar_archivos_con_gemini(consulta: str, archivos: List[str],
 def _resolver_url_openai(cfg: dict) -> str:
     """URL base para proveedores de tipo 'openai'.
 
-    DeepSeek/Groq traen su base_url en la configuraciÛn. Ollama se conecta a
+    DeepSeek/Groq traen su base_url en la configuraci√≥n. Ollama se conecta a
     `OLLAMA_URL` (por defecto http://localhost:11434) y se completa con /v1,
     que es su endpoint compatible con la API de OpenAI.
     """
@@ -1223,7 +1223,7 @@ def _mensaje_clave_faltante(proveedor: str, cfg: dict) -> str:
     """Mensaje claro cuando falta la clave de un proveedor OpenAI-compatible."""
     var = cfg["clave_env"]
     return (
-        f"No se encontrÛ la variable de entorno {var} (necesaria para "
+        f"No se encontr√≥ la variable de entorno {var} (necesaria para "
         f"{cfg['nombre']}, proveedor '{proveedor}').\n"
         f"  PowerShell:  $env:{var}=\"tu_clave\"\n"
         f"  Linux/Mac :  export {var}=tu_clave"
@@ -1258,7 +1258,7 @@ def seleccionar_archivos_con_openai(consulta: str, archivos: List[str],
         timeout=120,
     )
     prompt = construir_prompt_seleccion(consulta, archivos, max_archivos)
-    depurar(f"Prompt de selecciÛn: {len(prompt)} caracteres, {len(archivos)} candidatos")
+    depurar(f"Prompt de selecci√≥n: {len(prompt)} caracteres, {len(archivos)} candidatos")
 
     mensajes = [{"role": "user", "content": prompt}]
     try:
@@ -1269,11 +1269,11 @@ def seleccionar_archivos_con_openai(consulta: str, archivos: List[str],
             )
         except Exception:
             # Algunos endpoints (p. ej. ciertas versiones de Ollama) no aceptan
-            # response_format; reintentamos sin Èl (el prompt ya pide JSON).
+            # response_format; reintentamos sin √©l (el prompt ya pide JSON).
             respuesta = cliente.chat.completions.create(
                 model=modelo, messages=mensajes, temperature=0.2,
             )
-    except Exception as exc:  # red, clave inv·lida, modelo inexistente...
+    except Exception as exc:  # red, clave inv√°lida, modelo inexistente...
         raise RuntimeError(f"Error al llamar a {cfg['nombre']}: {exc}") from exc
 
     texto = ""
@@ -1292,7 +1292,7 @@ def seleccionar_archivos_con_anthropic(consulta: str, archivos: List[str],
     """Selecciona archivos con Claude (Anthropic) usando su SDK oficial.
 
     Errores controlados con mensajes claros:
-      - librerÌa `anthropic` no instalada        -> MENSAJE_ANTHROPIC_FALTANTE
+      - librer√≠a `anthropic` no instalada        -> MENSAJE_ANTHROPIC_FALTANTE
       - variable ANTHROPIC_API_KEY sin configurar -> mensaje con la var exacta
       - errores de red/API de Anthropic           -> RuntimeError descriptivo
     """
@@ -1302,7 +1302,7 @@ def seleccionar_archivos_con_anthropic(consulta: str, archivos: List[str],
     api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError(
-            "No se encontrÛ la variable de entorno ANTHROPIC_API_KEY "
+            "No se encontr√≥ la variable de entorno ANTHROPIC_API_KEY "
             "(necesaria para Claude, proveedor 'anthropic').\n"
             "  PowerShell:  $env:ANTHROPIC_API_KEY=\"tu_clave\"\n"
             "  Linux/Mac :  export ANTHROPIC_API_KEY=tu_clave"
@@ -1313,7 +1313,7 @@ def seleccionar_archivos_con_anthropic(consulta: str, archivos: List[str],
 
     cliente = anthropic.Anthropic(api_key=api_key)
     prompt = construir_prompt_seleccion(consulta, archivos, max_archivos)
-    depurar(f"Prompt de selecciÛn: {len(prompt)} caracteres, {len(archivos)} candidatos")
+    depurar(f"Prompt de selecci√≥n: {len(prompt)} caracteres, {len(archivos)} candidatos")
 
     try:
         respuesta = cliente.messages.create(
@@ -1322,7 +1322,7 @@ def seleccionar_archivos_con_anthropic(consulta: str, archivos: List[str],
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
         )
-    except Exception as exc:  # red, clave inv·lida, modelo inexistente...
+    except Exception as exc:  # red, clave inv√°lida, modelo inexistente...
         raise RuntimeError(f"Error al llamar a Claude (Anthropic): {exc}") from exc
 
     texto = ""
@@ -1355,7 +1355,7 @@ def _cargar_estado() -> dict:
 
 
 def _guardar_estado(datos: dict) -> bool:
-    """Escribe el dict de estado en ESTADO_PATH. True si tuvo Èxito."""
+    """Escribe el dict de estado en ESTADO_PATH. True si tuvo √©xito."""
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         ESTADO_PATH.write_text(
@@ -1367,7 +1367,7 @@ def _guardar_estado(datos: dict) -> bool:
 
 
 def _primer_uso_pendiente() -> bool:
-    """True si la bienvenida a˙n no se ha mostrado (estado ausente o True)."""
+    """True si la bienvenida a√∫n no se ha mostrado (estado ausente o True)."""
     estado = _cargar_estado()
     return bool(estado.get("primer_uso", True))
 
@@ -1388,12 +1388,12 @@ def _entrada_interactiva() -> bool:
 
 
 def cargar_configuracion() -> dict:
-    """Lee la configuraciÛn guardada en ~/.snapcontext/config.json.
+    """Lee la configuraci√≥n guardada en ~/.snapcontext/config.json.
 
     El archivo es un JSON con las claves 'provider' y, opcionalmente, 'model'.
-    Si no existe o est· corrupto, se devuelve un dict vacÌo.
+    Si no existe o est√° corrupto, se devuelve un dict vac√≠o.
 
-    CORRECCI√ìN 0.6.0: Manejo explÌcito de FileNotFoundError y json.JSONDecodeError
+    CORRECCI√ìN 0.6.0: Manejo expl√≠cito de FileNotFoundError y json.JSONDecodeError
     para evitar silenciar errores importantes sin aviso.
     """
     try:
@@ -1402,17 +1402,17 @@ def cargar_configuracion() -> dict:
             if isinstance(datos, dict):
                 return datos
         elif not CONFIG_PATH.exists():
-            # Archivo no existe a˙n; devolver vacÌo sin error
+            # Archivo no existe a√∫n; devolver vac√≠o sin error
             return {}
     except FileNotFoundError:
-        aviso(f"Archivo de configuraciÛn no encontrado: {CONFIG_PATH}")
-        pass  # Devolver {} si el directorio/config no existe a˙n
+        aviso(f"Archivo de configuraci√≥n no encontrado: {CONFIG_PATH}")
+        pass  # Devolver {} si el directorio/config no existe a√∫n
     except json.JSONDecodeError as exc:
-        error(f"ConfiguraciÛn corrupta en {CONFIG_PATH}: {exc}")
+        error(f"Configuraci√≥n corrupta en {CONFIG_PATH}: {exc}")
         pass  # No intentar recuperar, devolver {} para evitar estado inconsistente
     except (OSError, ValueError) as exc:
-        aviso(f"Error leyendo configuraciÛn: {type(exc).__name__}: {exc}")
-        pass  # Opcional: continuar sin la configuraciÛn previa
+        aviso(f"Error leyendo configuraci√≥n: {type(exc).__name__}: {exc}")
+        pass  # Opcional: continuar sin la configuraci√≥n previa
     return {}
 
 
@@ -1420,10 +1420,10 @@ def guardar_configuracion(provider: str, model: Optional[str] = None,
                           api_keys: Optional[dict] = None) -> bool:
     """Guarda el proveedor preferido, modelo opcional y claves API.
 
-    Recibe adem·s `api_keys` (dict {proveedor: clave}) que se mezcla con las
+    Recibe adem√°s `api_keys` (dict {proveedor: clave}) que se mezcla con las
     existentes, de modo que guardar solo el proveedor (como hace
     `_determinador_proveedor`) no borre las claves ya configuradas con --init.
-    Devuelve True si se escribiÛ correctamente en ~/.snapcontext/config.json.
+    Devuelve True si se escribi√≥ correctamente en ~/.snapcontext/config.json.
     """
     try:
         existente = cargar_configuracion()
@@ -1478,7 +1478,7 @@ def _generar_clave_api(guardar: bool = True) -> str:
 
 
 def _importar_questionary():
-    """Devuelve el mÛdulo 'questionary' o None si no est· instalado."""
+    """Devuelve el m√≥dulo 'questionary' o None si no est√° instalado."""
     try:
         import questionary
         return questionary
@@ -1487,25 +1487,25 @@ def _importar_questionary():
 
 
 def _listar_modelos_ollama() -> tuple:
-    """Devuelve (modelos, error) consultando los modelos locales vÌa `ollama list`.
+    """Devuelve (modelos, error) consultando los modelos locales v√≠a `ollama list`.
 
     La primera columna de cada fila (la cabecera se ignora) es el nombre del
-    modelo. Si `ollama` no est· o falla, devuelve ([], mensaje de error).
+    modelo. Si `ollama` no est√° o falla, devuelve ([], mensaje de error).
     """
     try:
         proc = subprocess.run(
             ["ollama", "list"], capture_output=True, text=True, timeout=60
         )
     except FileNotFoundError:
-        return [], "No se encontrÛ 'ollama' en el PATH. ¬øEst· instalado?"
+        return [], "No se encontr√≥ 'ollama' en el PATH. ¬øEst√° instalado?"
     except subprocess.TimeoutExpired:
-        return [], "El comando 'ollama list' tardÛ demasiado (60 s)."
+        return [], "El comando 'ollama list' tard√≥ demasiado (60 s)."
     except OSError as exc:
         return [], f"No se pudo ejecutar 'ollama list': {exc}"
 
     if proc.returncode != 0:
         fallo = (proc.stderr or proc.stdout or "").strip()
-        return [], fallo or "El comando 'ollama list' devolviÛ un error."
+        return [], fallo or "El comando 'ollama list' devolvi√≥ un error."
 
     modelos: List[str] = []
     for num_linea, linea in enumerate((proc.stdout or "").splitlines()):
@@ -1518,12 +1518,12 @@ def _listar_modelos_ollama() -> tuple:
 
 
 def seleccionar_proveedor_interactivo() -> tuple:
-    """Men˙ interactivo (questionary) para elegir proveedor y, si es Ollama,
+    """Men√∫ interactivo (questionary) para elegir proveedor y, si es Ollama,
     su modelo local. Devuelve (provider, model).
 
     - Pregunta primero si se quiere elegir el proveedor ahora.
     - Si se elige Ollama, se auto-detectan los modelos con `ollama list`.
-      Sin modelos / sin ollama instalado, se avisa y se ofrece volver al men˙
+      Sin modelos / sin ollama instalado, se avisa y se ofrece volver al men√∫
       de proveedores o usar Gemini por defecto.
     - Sin questionary se avisa y se usa PROVEEDOR_DEFECTO (gemini), model None.
     """
@@ -1531,7 +1531,7 @@ def seleccionar_proveedor_interactivo() -> tuple:
     if questionary is None:
         _emitir(
             sys.stdout,
-            "?? Para usar el modo interactivo, instala: pip install questionary",
+            "üí° Para usar el modo interactivo, instala: pip install questionary",
         )
         return (PROVEEDOR_DEFECTO, None)
 
@@ -1547,16 +1547,16 @@ def seleccionar_proveedor_interactivo() -> tuple:
             questionary.Choice("Groq (API)", value="groq"),
         ]
         proveedor = questionary.select(
-            "?? Selecciona el proveedor de IA:",
+            "ü§ó Selecciona el proveedor de IA:",
             choices=opciones,
         ).ask() or PROVEEDOR_DEFECTO
 
-        # Ollama ‚Üí auto-detecciÛn de modelos locales (Mejora 2).
+        # Ollama ‚Üí auto-detecci√≥n de modelos locales (Mejora 2).
         if proveedor == "ollama":
             modelos, error = _listar_modelos_ollama()
             if modelos:
                 elegido = questionary.select(
-                    "?? Selecciona el modelo de Ollama:",
+                    "ü§ó Selecciona el modelo de Ollama:",
                     choices=list(modelos),
                 ).ask()
                 return ("ollama", elegido or modelos[0])
@@ -1571,7 +1571,7 @@ def seleccionar_proveedor_interactivo() -> tuple:
             ).ask()
             if usar_gemini:
                 return ("gemini", None)
-            # Si responde "no": vuelve al men˙ de proveedores.
+            # Si responde "no": vuelve al men√∫ de proveedores.
             continue
 
         return (proveedor, None)
@@ -1580,7 +1580,7 @@ def seleccionar_proveedor_interactivo() -> tuple:
 def _preguntar_guardar_config() -> bool:
     """Pregunta si guardar el proveedor elegido como predeterminado.
 
-    Solo hace la pregunta si questionary est· instalada; si no, devuelve False
+    Solo hace la pregunta si questionary est√° instalada; si no, devuelve False
     y no se persiste nada (comportamiento elegante sin dependencia extra).
     """
     questionary = _importar_questionary()
@@ -1594,10 +1594,10 @@ def _preguntar_guardar_config() -> bool:
 
 
 def _probar_conexion_proveedor(provider: str, model: Optional[str] = None) -> bool:
-    """Comprueba la conexiÛn con la API del proveedor elegido (usado por --init).
+    """Comprueba la conexi√≥n con la API del proveedor elegido (usado por --init).
 
-    Reutiliza la clave guardada en la configuraciÛn o, como plan B, la variable
-    de entorno correspondiente. Hace una llamada mÌnima y devuelve True si ok.
+    Reutiliza la clave guardada en la configuraci√≥n o, como plan B, la variable
+    de entorno correspondiente. Hace una llamada m√≠nima y devuelve True si ok.
     """
     cfg = PROVEEDORES[provider]
     api_keys = cargar_configuracion().get("api_keys") or {}
@@ -1609,7 +1609,7 @@ def _probar_conexion_proveedor(provider: str, model: Optional[str] = None) -> bo
         clave = (api_keys.get("gemini") or "").strip() \
             or os.environ.get("GEMINI_API_KEY", "").strip()
         if not clave:
-            aviso("No se encontrÛ ninguna clave de Gemini.")
+            aviso("No se encontr√≥ ninguna clave de Gemini.")
             return False
         try:
             genai.configure(api_key=clave)
@@ -1626,7 +1626,7 @@ def _probar_conexion_proveedor(provider: str, model: Optional[str] = None) -> bo
         clave = (api_keys.get("anthropic") or "").strip() \
             or os.environ.get("ANTHROPIC_API_KEY", "").strip()
         if not clave:
-            aviso("No se encontrÛ ninguna clave de Anthropic.")
+            aviso("No se encontr√≥ ninguna clave de Anthropic.")
             return False
         try:
             cliente = anthropic.Anthropic(api_key=clave)
@@ -1659,27 +1659,27 @@ def _probar_conexion_proveedor(provider: str, model: Optional[str] = None) -> bo
 
 
 def asistente_configuracion_inicial() -> int:
-    """Asistente interactivo de configuraciÛn inicial (SNAPCONTEXT --init).
+    """Asistente interactivo de configuraci√≥n inicial (SNAPCONTEXT --init).
 
-    GuÌa en la configuraciÛn de claves API y el proveedor/modelo favorito en
-    ~/.snapcontext/config.json. Devuelve el cÛdigo de salida (0 = Èxito).
+    Gu√≠a en la configuraci√≥n de claves API y el proveedor/modelo favorito en
+    ~/.snapcontext/config.json. Devuelve el c√≥digo de salida (0 = √©xito).
     """
     questionary = _importar_questionary()
     if questionary is None:
         aviso(
             "El asistente requiere questionary. "
-            "Inst·lalo con: pip install questionary"
+            "Inst√°lalo con: pip install questionary"
             "  (o: pip install snapcontext[interactive])"
         )
         return 1
 
     if CONFIG_PATH.exists() and not questionary.confirm(
-        "¬øYa existe una configuraciÛn. ¬øQuieres sobrescribirla?"
+        "¬øYa existe una configuraci√≥n. ¬øQuieres sobrescribirla?"
     ).ask():
-        aviso("ConfiguraciÛn no modificada.")
+        aviso("Configuraci√≥n no modificada.")
         return 0
 
-    exito("ConfiguraciÛn inicial de SnapContext")
+    exito("Configuraci√≥n inicial de SnapContext")
     api_keys: dict = dict(cargar_configuracion().get("api_keys") or {})
 
     clave = questionary.password(
@@ -1707,13 +1707,13 @@ def asistente_configuracion_inicial() -> int:
     proveedor, modelo = seleccionar_proveedor_interactivo()
 
     if not guardar_configuracion(proveedor, modelo, api_keys):
-        error(f"No se pudo escribir la configuraciÛn en {CONFIG_PATH}")
+        error(f"No se pudo escribir la configuraci√≥n en {CONFIG_PATH}")
         return 1
-    exito(f"ConfiguraciÛn guardada en {CONFIG_PATH}")
+    exito(f"Configuraci√≥n guardada en {CONFIG_PATH}")
 
-    if questionary.confirm("¬øQuieres probar la conexiÛn con la API ahora?").ask():
+    if questionary.confirm("¬øQuieres probar la conexi√≥n con la API ahora?").ask():
         if _probar_conexion_proveedor(proveedor, modelo):
-            exito("¬°ConexiÛn con la API verificada correctamente!")
+            exito("¬°Conexi√≥n con la API verificada correctamente!")
         else:
             error("No se pudo conectar con la API. Revisa la clave.")
             return 1
@@ -1725,7 +1725,7 @@ def asistente_configuracion_inicial() -> int:
         estado_ol = _estado_ollama()
         if estado_ol["modelos"]:
             ligero = _elegir_modelo_ligero(estado_ol["modelos"])
-            exito(f"Ollama ya est· listo (modelo m·s ligero: '{ligero}').")
+            exito(f"Ollama ya est√° listo (modelo m√°s ligero: '{ligero}').")
             if questionary.confirm(
                 "¬øUsar Ollama como proveedor por defecto?"
             ).ask():
@@ -1733,8 +1733,8 @@ def asistente_configuracion_inicial() -> int:
                 proveedor, modelo = "ollama", ligero
                 exito(f"Proveedor guardado: ollama / {ligero}.")
         else:
-            aviso("Ollama no est· instalado o no tiene modelos descargados.")
-            info("Desc·rgalo desde https://ollama.com y despuÈs ejecuta:")
+            aviso("Ollama no est√° instalado o no tiene modelos descargados.")
+            info("Desc√°rgalo desde https://ollama.com y despu√©s ejecuta:")
             info("  ollama pull llama3.2")
             try:
                 import webbrowser
@@ -1760,7 +1760,7 @@ def asistente_configuracion_inicial() -> int:
             try:
                 _crear_demo_proyecto(ruta)
                 exito(f"Proyecto de prueba creado en: {ruta}")
-                info("PruÈbalo con:")
+                info("Pru√©balo con:")
                 info(f'  cd "{ruta}" && snapcontext '
                      '"describe este proyecto" --vista-previa --local')
             except OSError as exc:
@@ -1774,14 +1774,14 @@ def asistente_configuracion_inicial() -> int:
 
 
 # ---------------------------------------------------------------------------
-# Modo offline por defecto (v3.1.0): sin API key ‚Üí Ollama autom·ticamente
+# Modo offline por defecto (v3.1.0): sin API key ‚Üí Ollama autom√°ticamente
 # ---------------------------------------------------------------------------
 def hay_api_key_configurada() -> bool:
-    """True si hay alguna clave de API en el entorno o en la configuraciÛn.
+    """True si hay alguna clave de API en el entorno o en la configuraci√≥n.
 
     Comprueba las variables GEMINI_API_KEY / ANTHROPIC_API_KEY /
-    DEEPSEEK_API_KEY / GROQ_API_KEY / OPENAI_API_KEY y, adem·s, las claves
-    guardadas en ~/.snapcontext/config.json (secciÛn 'api_keys').
+    DEEPSEEK_API_KEY / GROQ_API_KEY / OPENAI_API_KEY y, adem√°s, las claves
+    guardadas en ~/.snapcontext/config.json (secci√≥n 'api_keys').
     """
     for env in CLAVES_API_CONOCIDAS:
         if (os.environ.get(env) or "").strip():
@@ -1807,9 +1807,9 @@ def _estado_ollama() -> dict:
 
 
 def _elegir_modelo_ligero(modelos: List[str]) -> Optional[str]:
-    """Elige el modelo m·s ligero disponible seg˙n MODELOS_LIGEROS_OLLAMA.
+    """Elige el modelo m√°s ligero disponible seg√∫n MODELOS_LIGEROS_OLLAMA.
 
-    Devuelve None si la lista est· vacÌa.
+    Devuelve None si la lista est√° vac√≠a.
     """
     if not modelos:
         return None
@@ -1840,25 +1840,25 @@ def _proveedor_offline() -> Optional[dict]:
 
 
 def _determinar_proveedor(args: argparse.Namespace) -> dict:
-    """Resuelve proveedor y modelo con persistencia en la configuraciÛn.
+    """Resuelve proveedor y modelo con persistencia en la configuraci√≥n.
 
     Devuelve un dict con las claves 'provider' y 'model'. Prioridad:
       1) --provider por CLI (y se guarda, salvo --no-persist).
-      2) ConfiguraciÛn guardada en ~/.snapcontext/config.json.
-      3) Env SNAPCONTEXT_PROVIDER (si no hay configuraciÛn guardada).
-      4) Primer uso ‚Üí men˙ interactivo y preguntar si se guarda.
+      2) Configuraci√≥n guardada en ~/.snapcontext/config.json.
+      3) Env SNAPCONTEXT_PROVIDER (si no hay configuraci√≥n guardada).
+      4) Primer uso ‚Üí men√∫ interactivo y preguntar si se guarda.
     """
     persistir = not getattr(args, "no_persist", False)
     proveedor_cli = getattr(args, "provider", None)
     modelo_cli = getattr(args, "modelo", None) or MODELO_DEFECTO
 
-    # 1) Proveedor explÌcito en CLI: m·xima prioridad; adem·s se recuerda.
+    # 1) Proveedor expl√≠cito en CLI: m√°xima prioridad; adem√°s se recuerda.
     if proveedor_cli:
         if persistir:
             guardar_configuracion(proveedor_cli, modelo_cli)
         return {"provider": proveedor_cli, "model": modelo_cli}
 
-    # 2) Preferencia guardada (primer uso ‚Üí todavÌa no existe el archivo).
+    # 2) Preferencia guardada (primer uso ‚Üí todav√≠a no existe el archivo).
     if persistir:
         config = cargar_configuracion()
         if config.get("provider"):
@@ -1871,8 +1871,8 @@ def _determinar_proveedor(args: argparse.Namespace) -> dict:
             guardar_configuracion(proveedor_env, modelo_cli)
             return {"provider": proveedor_env, "model": modelo_cli}
 
-    # 4) Primer uso sin configuraciÛn. v3.1.0: si no hay ninguna API key,
-    #    se intenta Ollama autom·ticamente antes del men˙ interactivo.
+    # 4) Primer uso sin configuraci√≥n. v3.1.0: si no hay ninguna API key,
+    #    se intenta Ollama autom√°ticamente antes del men√∫ interactivo.
     if not hay_api_key_configurada():
         offline = _proveedor_offline()
         if offline:
@@ -1892,11 +1892,11 @@ def seleccionar_archivos(consulta: str, archivos: List[str],
                          modelo: Optional[str] = None,
                          max_archivos: int = MAX_ARCHIVOS_DEFECTO) -> List[str]:
     """Despachador por proveedor. `modelo=None` usa el valor por defecto del
-    proveedor (o el de SNAPCONTEXT_MODELO si est· definida)."""
+    proveedor (o el de SNAPCONTEXT_MODELO si est√° definida)."""
     if proveedor not in PROVEEDORES:
         raise RuntimeError(
             f"Proveedor desconocido '{proveedor}'. "
-            f"V·lidos: {', '.join(sorted(PROVEEDORES))}"
+            f"V√°lidos: {', '.join(sorted(PROVEEDORES))}"
         )
     cfg = PROVEEDORES[proveedor]
     modelo = modelo or cfg["modelo_default"]
@@ -1917,14 +1917,14 @@ def seleccionar_archivos(consulta: str, archivos: List[str],
     raise RuntimeError(f"Tipo de proveedor no implementado: {cfg['tipo']}")
 
 # ---------------------------------------------------------------------------
-# EjecuciÛn de Aider y bucle de pruebas
+# Ejecuci√≥n de Aider y bucle de pruebas
 # ---------------------------------------------------------------------------
 def ejecutar_aider(archivos: List[str], consulta: str, directorio: str,
                    opciones_aider: str = "") -> bool:
-    """Ejecuta Aider en `directorio` con los `archivos` aÒadidos y la consulta
+    """Ejecuta Aider en `directorio` con los `archivos` a√±adidos y la consulta
     como mensaje. `--yes` evita confirmaciones manuales (auto-commit de git).
 
-    El resto de la configuraciÛn de Aider (modelo, API key, etc.) se toma de
+    El resto de la configuraci√≥n de Aider (modelo, API key, etc.) se toma de
     las variables de entorno AIDER_* / .env, igual que en un uso normal.
     """
     if shutil.which("aider") is None:
@@ -1951,9 +1951,9 @@ def ejecutar_aider(archivos: List[str], consulta: str, directorio: str,
     resultado = subprocess.run(cmd, cwd=directorio)
 
     if resultado.returncode == 0:
-        exito("Aider terminÛ correctamente.")
+        exito("Aider termin√≥ correctamente.")
         return True
-    aviso(f"Aider terminÛ con cÛdigo {resultado.returncode}.")
+    aviso(f"Aider termin√≥ con c√≥digo {resultado.returncode}.")
     return False
 
 
@@ -1962,36 +1962,36 @@ def _editor_sobrescribir(archivo: str, contenido: str,
     """Editor propio (Fase 1 ‚Äî Sobrescritura de archivos).
 
     Escribe `contenido` en `archivo` dentro de `directorio`.
-    - Valida que la ruta estÈ dentro del repositorio.
+    - Valida que la ruta est√© dentro del repositorio.
     - Crea copia de seguridad en ~/.snapcontext/backups/ antes de sobrescribir.
     - Crea carpetas intermedias si no existen.
-    - Devuelve True si tuvo Èxito, False en caso de error.
+    - Devuelve True si tuvo √©xito, False en caso de error.
     """
     if not archivo or not str(archivo).strip():
-        error("La ruta del archivo no puede estar vacÌa.")
+        error("La ruta del archivo no puede estar vac√≠a.")
         return False
 
     raw = str(archivo).replace("\\", "/").strip()
     partes_raw = raw.split("/")
     if ".." in partes_raw or raw.startswith("/"):
-        error(f"Acceso denegado: el archivo '{archivo}' contiene referencias a directorios padre o raÌz.")
+        error(f"Acceso denegado: el archivo '{archivo}' contiene referencias a directorios padre o ra√≠z.")
         return False
 
     raiz_res = Path(directorio).resolve()
     limpia = _normalizar_relativa(raw)
     if not limpia:
-        error(f"Ruta no v·lida: {archivo}")
+        error(f"Ruta no v√°lida: {archivo}")
         return False
 
     destino = (raiz_res / limpia).resolve()
     try:
         destino.relative_to(raiz_res)
     except ValueError:
-        error(f"Acceso denegado: el archivo '{archivo}' est· fuera del repositorio.")
+        error(f"Acceso denegado: el archivo '{archivo}' est√° fuera del repositorio.")
         return False
 
     # Si el archivo ya existe, guardar backup (OBLIGATORIO desde v4.6.0).
-    # Sin backup NO se escribe: se aborta la ediciÛn por seguridad.
+    # Sin backup NO se escribe: se aborta la edici√≥n por seguridad.
     if destino.exists() and destino.is_file():
         try:
             BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
@@ -2001,8 +2001,8 @@ def _editor_sobrescribir(archivo: str, contenido: str,
             shutil.copy2(destino, backup_path)
             depurar(f"[EditorPropio] Backup guardado en {backup_path}")
         except Exception as exc:
-            error(f"[EditorPropio] Backup de {limpia} fallÛ ({exc}); "
-                  "ediciÛn cancelada por seguridad.")
+            error(f"[EditorPropio] Backup de {limpia} fall√≥ ({exc}); "
+                  "edici√≥n cancelada por seguridad.")
             return False
 
     try:
@@ -2023,12 +2023,12 @@ def _extraer_bloques_ast(contenido: str,
     """Extrae los bloques de primer nivel (funciones/clases) de ``contenido``.
 
     - Python (o sin ``archivo``): usa el ``ast`` de la stdlib.
-    - Otros lenguajes (con ``archivo``): usa tree-sitter vÌa
+    - Otros lenguajes (con ``archivo``): usa tree-sitter v√≠a
       ``parser_universal.extraer_bloques`` (v5.6.0).
 
     Devuelve una lista de dicts ``{"tipo", "nombre", "inicio", "fin"}`` con
-    lÌneas 1-based inclusivas. Devuelve [] para lenguajes no soportados o
-    sintaxis inv·lida.
+    l√≠neas 1-based inclusivas. Devuelve [] para lenguajes no soportados o
+    sintaxis inv√°lida.
     """
     if archivo and not _es_extension_python(archivo):
         try:
@@ -2061,12 +2061,12 @@ def _extraer_contexto_selectivo(contenido: str, mensaje: str = "",
                                 archivo: Optional[str] = None) -> str:
     """Construye contexto reducido para archivos grandes (> MAX_CONTEXT_LINES).
 
-    Formato devuelto: ``[RESUMEN DEL ARCHIVO (AST)]`` (Python vÌa
-    ``_resumen_ast_python``; otros lenguajes vÌa tree-sitter /
+    Formato devuelto: ``[RESUMEN DEL ARCHIVO (AST)]`` (Python v√≠a
+    ``_resumen_ast_python``; otros lenguajes v√≠a tree-sitter /
     ``parser_universal``, v5.6.0) + ``[C√ìDIGO RELEVANTE A EDITAR]``
     (bloques cuyo nombre aparece en ``mensaje``; si ninguno coincide, los
-    primeros bloques hasta agotar el presupuesto ‚Äî b˙squeda por proximidad),
-    cada uno con ¬±5 lÌneas de contexto adicional, m·s la ``[RESTRICCI√ìN]``
+    primeros bloques hasta agotar el presupuesto ‚Äî b√∫squeda por proximidad),
+    cada uno con ¬±5 l√≠neas de contexto adicional, m√°s la ``[RESTRICCI√ìN]``
     final para que el modelo solo genere el diff del bloque mostrado.
     """
     es_python = (archivo is None) or _es_extension_python(archivo)
@@ -2085,7 +2085,7 @@ def _extraer_contexto_selectivo(contenido: str, mensaje: str = "",
 
     partes = ["[RESUMEN DEL ARCHIVO (AST)]:",
               f"(lenguaje: {resumen.get('lenguaje') or '?'}, "
-              f"motor: {resumen.get('motor') or '?'}, {total} lÌneas)"]
+              f"motor: {resumen.get('motor') or '?'}, {total} l√≠neas)"]
     for clave, titulo in (("imports", "Imports"), ("clases", "Clases"),
                           ("funciones", "Funciones")):
         items = resumen.get(clave) or []
@@ -2099,8 +2099,8 @@ def _extraer_contexto_selectivo(contenido: str, mensaje: str = "",
     tarea = (mensaje or "").lower()
     objetivo = [b for b in bloques if b["nombre"].lower() in tarea]
     if not objetivo:
-        # Proximidad: nadie fue mencionado; se envÌan los primeros bloques
-        # hasta agotar el presupuesto de lÌneas (reservando margen).
+        # Proximidad: nadie fue mencionado; se env√≠an los primeros bloques
+        # hasta agotar el presupuesto de l√≠neas (reservando margen).
         presupuesto = max(MAX_CONTEXT_LINES - 80, 40)
         usadas = 0
         for b in bloques:
@@ -2120,7 +2120,7 @@ def _extraer_contexto_selectivo(contenido: str, mensaje: str = "",
             continue                                  # ya cubierto por otro
         rango_mostrado.append((ini, fin))
         partes.append(f"# ‚îÄ‚îÄ {b['tipo']} {b['nombre']} "
-                      f"(lÌneas {ini}-{fin} de {total}) ‚îÄ‚îÄ")
+                      f"(l√≠neas {ini}-{fin} de {total}) ‚îÄ‚îÄ")
         partes.extend(lineas[ini - 1:fin])
     if not objetivo:
         # √öltimo recurso (p. ej. script sin funciones/clases): cabecera.
@@ -2129,7 +2129,7 @@ def _extraer_contexto_selectivo(contenido: str, mensaje: str = "",
 
     partes.append("")
     partes.append("[RESTRICCI√ìN]: El resto del archivo no se muestra por "
-                  "lÌmites de contexto. Genera el parche/diff solo para el "
+                  "l√≠mites de contexto. Genera el parche/diff solo para el "
                   "bloque mostrado. NO reescribas el archivo completo.")
     return "\n".join(partes)
 
@@ -2138,7 +2138,7 @@ def _splicear_bloque(contenido: str, bloque_viejo: str,
                      bloque_nuevo: str) -> Optional[str]:
     """Reemplaza ``bloque_viejo`` dentro de ``contenido`` por ``bloque_nuevo``.
 
-    Localiza el bloque aunque haya pequeÒas diferencias (difflib sobre lÌneas
+    Localiza el bloque aunque haya peque√±as diferencias (difflib sobre l√≠neas
     sin espacios marginales). Devuelve el contenido resultante o ``None`` si
     no hay un emplazamiento con confianza suficiente (ratio medio ‚â• 0.80).
     """
@@ -2165,7 +2165,7 @@ def _splicear_bloque(contenido: str, bloque_viejo: str,
 
 
 def _comandos_validacion(lenguaje: str, archivo_tmp: str) -> List[List[str]]:
-    """Comandos de validaciÛn sint·ctica para ``lenguaje``.
+    """Comandos de validaci√≥n sint√°ctica para ``lenguaje``.
 
     Devuelve una lista de candidatos (cada uno un argv con ``archivo_tmp`` ya
     resuelto). Cuando un lenguaje admite un validador de reserva (p. ej.
@@ -2203,20 +2203,20 @@ def _validar_sintaxis(archivo: str, contenido: str,
     """Valida la sintaxis de ``contenido`` como si fuese el de ``archivo``.
 
     Escribe el ``contenido`` en un archivo temporal (siempre conserva la
-    extensiÛn del archivo original para que el parser/linter lo reconozca) y
-    ejecuta el comando de validaciÛn correspondiente al lenguaje detectado con
+    extensi√≥n del archivo original para que el parser/linter lo reconozca) y
+    ejecuta el comando de validaci√≥n correspondiente al lenguaje detectado con
     ``_lenguaje_archivo``. Nunca toca el archivo original.
 
     Devuelve ``(exito, mensaje_error)``:
-      - ``(True, "")`` si la validaciÛn pasÛ, o si no hay validador / comando
-        disponible (se omite la validaciÛn).
-      - ``(False, mensaje)`` si el validador rechazÛ el contenido o hubo timeout.
+      - ``(True, "")`` si la validaci√≥n pas√≥, o si no hay validador / comando
+        disponible (se omite la validaci√≥n).
+      - ``(False, mensaje)`` si el validador rechaz√≥ el contenido o hubo timeout.
     """
     lenguaje = _lenguaje_archivo(archivo, contenido) or ""
     if not lenguaje:
         depurar(
             f"[validar-sintaxis] Sin validador para '{archivo}' (lenguaje "
-            f"desconocido); se omite la validaciÛn."
+            f"desconocido); se omite la validaci√≥n."
         )
         return True, ""
 
@@ -2232,7 +2232,7 @@ def _validar_sintaxis(archivo: str, contenido: str,
         if not comandos:
             depurar(
                 f"[validar-sintaxis] Sin validador para '{lenguaje}'; "
-                "se omite la validaciÛn."
+                "se omite la validaci√≥n."
             )
             return True, ""
 
@@ -2251,30 +2251,30 @@ def _validar_sintaxis(archivo: str, contenido: str,
                 )
             except subprocess.TimeoutExpired:
                 error(
-                    f"[validar-sintaxis] El comando '{binario}' excediÛ el "
-                    f"tiempo lÌmite al validar '{archivo}'."
+                    f"[validar-sintaxis] El comando '{binario}' excedi√≥ el "
+                    f"tiempo l√≠mite al validar '{archivo}'."
                 )
                 return False, (
-                    f"el comando '{binario}' excediÛ el tiempo lÌmite de validaciÛn"
+                    f"el comando '{binario}' excedi√≥ el tiempo l√≠mite de validaci√≥n"
                 )
             except (OSError, ValueError):
                 continue          # no se pudo lanzar ‚Üí probar candidato siguiente
 
             if proc.returncode == 0:
                 return True, ""
-            # CÛdigo de salida != 0 ‚áí error sint·ctico (o validador fallo).
+            # C√≥digo de salida != 0 ‚áí error sint√°ctico (o validador fallo).
             salida = (proc.stderr or "").strip()
             if not salida:
                 salida = (proc.stdout or "").strip()
             mensaje = salida or (
-                f"el validador '{binario}' fallÛ (cÛdigo {proc.returncode})"
+                f"el validador '{binario}' fall√≥ (c√≥digo {proc.returncode})"
             )
             return False, mensaje
 
-        # Ning˙n candidato disponible ‚Üí se omite la validaciÛn.
+        # Ning√∫n candidato disponible ‚Üí se omite la validaci√≥n.
         depurar(
-            f"[validar-sintaxis] Ning˙n validador disponible para '{lenguaje}'; "
-            "se omite la validaciÛn."
+            f"[validar-sintaxis] Ning√∫n validador disponible para '{lenguaje}'; "
+            "se omite la validaci√≥n."
         )
         return True, ""
     finally:
@@ -2288,7 +2288,7 @@ def _validar_sintaxis(archivo: str, contenido: str,
 def _generar_parche(original: str, nuevo: str, ruta_archivo: str) -> str:
     """Genera un parche unificado (unified diff) entre `original` y `nuevo`.
 
-    El encabezado cumple con el est·ndar de `patch` y `git apply` (a/ruta b/ruta).
+    El encabezado cumple con el est√°ndar de `patch` y `git apply` (a/ruta b/ruta).
     """
     ruta_posix = str(ruta_archivo).replace("\\", "/").strip()
     if ruta_posix.startswith("./"):
@@ -2311,11 +2311,11 @@ def _aplicar_parche(parche: str, directorio: str = ".") -> bool:
 
     1. Escribe el parche en un archivo temporal.
     2. Intenta aplicar con `git apply --whitespace=nowarn <temp_file>`.
-    3. Si `git` falla o no est· disponible, intenta con `patch -p1 -i <temp_file>`.
-    4. Devuelve True si se aplicÛ limpiamente, False si hubo error o conflicto.
+    3. Si `git` falla o no est√° disponible, intenta con `patch -p1 -i <temp_file>`.
+    4. Devuelve True si se aplic√≥ limpiamente, False si hubo error o conflicto.
     """
     if not parche or not parche.strip():
-        aviso("[EditorPropio] Parche vacÌo; no se aplicaron cambios.")
+        aviso("[EditorPropio] Parche vac√≠o; no se aplicaron cambios.")
         return False
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".diff", encoding="utf-8", delete=False) as f:
@@ -2326,7 +2326,7 @@ def _aplicar_parche(parche: str, directorio: str = ".") -> bool:
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         raiz_res = str(Path(directorio).resolve())
 
-        # Intentar primero con git apply (muy est·ndar en repos de desarrollo)
+        # Intentar primero con git apply (muy est√°ndar en repos de desarrollo)
         if shutil.which("git"):
             cmd_git = ["git", "apply", "--whitespace=nowarn", temp_path]
             res_git = subprocess.run(
@@ -2335,7 +2335,7 @@ def _aplicar_parche(parche: str, directorio: str = ".") -> bool:
             if res_git.returncode == 0:
                 exito("[EditorPropio] Parche unificado aplicado correctamente con git apply.")
                 return True
-            depurar(f"[EditorPropio] git apply fallÛ (cÛdigo {res_git.returncode}): {res_git.stderr}")
+            depurar(f"[EditorPropio] git apply fall√≥ (c√≥digo {res_git.returncode}): {res_git.stderr}")
 
         # Fallback a patch
         if shutil.which("patch"):
@@ -2346,9 +2346,9 @@ def _aplicar_parche(parche: str, directorio: str = ".") -> bool:
             if res_patch.returncode == 0:
                 exito("[EditorPropio] Parche unificado aplicado correctamente con patch.")
                 return True
-            depurar(f"[EditorPropio] patch fallÛ (cÛdigo {res_patch.returncode}): {res_patch.stderr}")
+            depurar(f"[EditorPropio] patch fall√≥ (c√≥digo {res_patch.returncode}): {res_patch.stderr}")
 
-        aviso("[EditorPropio] No se pudo aplicar el parche autom·ticamente (ni git apply ni patch tuvieron Èxito).")
+        aviso("[EditorPropio] No se pudo aplicar el parche autom√°ticamente (ni git apply ni patch tuvieron √©xito).")
         return False
     finally:
         try:
@@ -2358,21 +2358,21 @@ def _aplicar_parche(parche: str, directorio: str = ".") -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Manejo de conflictos y aplicaciÛn incremental (v3.3.0)
+# Manejo de conflictos y aplicaci√≥n incremental (v3.3.0)
 # ---------------------------------------------------------------------------
 
 # v6.3.0 ‚Äî Umbrales de similitud del emparejamiento difuso de parches:
-#   - UMBRAL_DIFUSO_HUNKS: ratio MEDIO mÌnimo de las lÌneas de contexto de un
-#     hunk para aceptar una posiciÛn candidata (b˙squeda global).
-#   - UMBRAL_DIFUSO_LINEA: ratio mÌnimo por lÌnea individual de contexto.
-#   - UMBRAL_DIFUSO_BLOQUE: ratio mÌnimo a nivel de bloque para la
-#     resincronizaciÛn (ventana m·s parecida en todo el archivo).
+#   - UMBRAL_DIFUSO_HUNKS: ratio MEDIO m√≠nimo de las l√≠neas de contexto de un
+#     hunk para aceptar una posici√≥n candidata (b√∫squeda global).
+#   - UMBRAL_DIFUSO_LINEA: ratio m√≠nimo por l√≠nea individual de contexto.
+#   - UMBRAL_DIFUSO_BLOQUE: ratio m√≠nimo a nivel de bloque para la
+#     resincronizaci√≥n (ventana m√°s parecida en todo el archivo).
 UMBRAL_DIFUSO_HUNKS = 0.85
 UMBRAL_DIFUSO_LINEA = 0.90
 UMBRAL_DIFUSO_BLOQUE = 0.80
-# v6.9.0: lÌmite de lÌneas de contexto usadas en el emparejamiento difuso
+# v6.9.0: l√≠mite de l√≠neas de contexto usadas en el emparejamiento difuso
 # (en lugar de recorrer TODO el archivo), para algoritmos O(n¬≤) ‚Üí O(n¬∑20) en
-# archivos grandes. Se conserva el bloque completo para la aplicaciÛn final.
+# archivos grandes. Se conserva el bloque completo para la aplicaci√≥n final.
 MAX_CONTEXTO_DIFUSO_LINEAS = 20
 
 
@@ -2402,14 +2402,14 @@ def _validar_parche_previo(parche: str, directorio: str,
     """Verifica que el archivo coincide con lo usado para generar el parche.
 
     Evita conflictos por cambios concurrentes: si el contenido actual del
-    archivo difiere del que se pasÛ al proveedor, aplicar a ciegas corromperÌa
-    la ediciÛn. Devuelve ``(ok, detalle)``.
+    archivo difiere del que se pas√≥ al proveedor, aplicar a ciegas corromper√≠a
+    la edici√≥n. Devuelve ``(ok, detalle)``.
     """
     if contenido_esperado is None:
-        return True, "sin validaciÛn (no hay contenido de referencia)"
+        return True, "sin validaci√≥n (no hay contenido de referencia)"
     ruta = _ruta_del_parche(parche)
     if not ruta:
-        return True, "parche sin encabezado reconocible; se omite la validaciÛn"
+        return True, "parche sin encabezado reconocible; se omite la validaci√≥n"
     destino = Path(directorio or ".").resolve() / ruta
     if not destino.is_file():
         return False, f"el archivo '{ruta}' ya no existe"
@@ -2418,7 +2418,7 @@ def _validar_parche_previo(parche: str, directorio: str,
     except OSError as exc:
         return False, f"no se pudo leer '{ruta}': {exc}"
     if actual != contenido_esperado:
-        return False, (f"'{ruta}' cambiÛ desde que se generÛ el parche "
+        return False, (f"'{ruta}' cambi√≥ desde que se gener√≥ el parche "
                        "(posible cambio concurrente)")
     return True, "el archivo coincide con la referencia"
 
@@ -2427,7 +2427,7 @@ def _parsear_hunks(parche: str) -> List[tuple]:
     """Divide un diff unificado en hunks ``(linea_inicio_original, cambios)``.
 
     ``cambios`` es una lista de ``(marca, texto)`` con marca ' ', '-' o '+'.
-    Se omiten los hunks sin lÌneas modificadas. Devuelve [] si no hay ninguno.
+    Se omiten los hunks sin l√≠neas modificadas. Devuelve [] si no hay ninguno.
     """
     hunks: List[tuple] = []
     hunk_actual: Optional[List[tuple]] = None
@@ -2457,9 +2457,9 @@ def _parsear_hunks(parche: str) -> List[tuple]:
 def _quitar_comentario(linea: str) -> str:
     """Elimina de forma conservadora un comentario final ``#`` o ``//``.
 
-    Solo se recorta si el marcador est· al inicio de la lÌnea o va precedido
-    de un espacio (asÌ no se rompen URLs tipo ``https://‚Ä¶`` ni cadenas que
-    contengan ``#``). Devuelve la lÌnea sin el comentario y sin espacios
+    Solo se recorta si el marcador est√° al inicio de la l√≠nea o va precedido
+    de un espacio (as√≠ no se rompen URLs tipo ``https://‚Ä¶`` ni cadenas que
+    contengan ``#``). Devuelve la l√≠nea sin el comentario y sin espacios
     finales.
     """
     idx = linea.find("#")
@@ -2474,15 +2474,15 @@ def _quitar_comentario(linea: str) -> str:
 
 
 def _variantes_linea(linea: str) -> Tuple[str, str, str]:
-    """Variantes progresivamente m·s laxas de una lÌnea (v6.3.0).
+    """Variantes progresivamente m√°s laxas de una l√≠nea (v6.3.0).
 
-    1. La lÌnea tal cual (sin salto final).
-    2. Con los espacios colapsados (tolera indentaciÛn/espacios extra).
-    3. Adem·s, sin comentario final ``#``/``//`` (tolera comentarios
-       aÒadidos o eliminados por el usuario o el formateador).
+    1. La l√≠nea tal cual (sin salto final).
+    2. Con los espacios colapsados (tolera indentaci√≥n/espacios extra).
+    3. Adem√°s, sin comentario final ``#``/``//`` (tolera comentarios
+       a√±adidos o eliminados por el usuario o el formateador).
 
     Se usan en el emparejamiento por variantes del editor de parches; la
-    variante 1 reproduce la comparaciÛn exacta histÛrica.
+    variante 1 reproduce la comparaci√≥n exacta hist√≥rica.
     """
     cruda = linea.rstrip("\r\n")
     normalizada = " ".join(cruda.split())
@@ -2490,7 +2490,7 @@ def _variantes_linea(linea: str) -> Tuple[str, str, str]:
 
 
 def _lineas_equivalentes(a: str, b: str) -> bool:
-    """True si dos lÌneas coinciden en alguna de sus variantes (v6.3.0)."""
+    """True si dos l√≠neas coinciden en alguna de sus variantes (v6.3.0)."""
     va, vb = _variantes_linea(a), _variantes_linea(b)
     return va[0] == vb[0] or va[1] == vb[1] or va[2] == vb[2]
 
@@ -2511,7 +2511,7 @@ def _ratio_bloque(a: str, b: str) -> float:
 
 
 def _contar_cambios_parche(parche: str) -> Tuple[int, int]:
-    """Cuenta ``(aÒadidas, eliminadas)`` en un diff unificado (v6.3.0)."""
+    """Cuenta ``(a√±adidas, eliminadas)`` en un diff unificado (v6.3.0)."""
     anadidas = eliminadas = 0
     en_hunk = False
     for linea in (parche or "").splitlines():
@@ -2530,16 +2530,16 @@ def _contar_cambios_parche(parche: str) -> Tuple[int, int]:
 def _mostrar_diff_parche(parche: str, ruta: Optional[str] = None) -> None:
     """Muestra el diff propuesto coloreado (rich.syntax, 'diff') ‚Äî v6.3.0.
 
-    Importa ``ui`` de forma tardÌa (patrÛn de ``_procesar_razonamiento``)
+    Importa ``ui`` de forma tard√≠a (patr√≥n de ``_procesar_razonamiento``)
     para que tests y consumidores puedan sustituir ``ui.mostrar_diff``.
     Nunca lanza: un fallo de UI no debe impedir aplicar el parche.
     """
     try:
         import ui as _ui
         anadidas, eliminadas = _contar_cambios_parche(parche)
-        # v6.12.0: envÌa el diff tambiÈn a la TUI (pestaÒa Diffs) si est·
+        # v6.12.0: env√≠a el diff tambi√©n a la TUI (pesta√±a Diffs) si est√°
         # activa; nunca lanza ni bloquea.
-        _tui_log("info", f"?? Diff generado: {ruta or '(parche)'} "
+        _tui_log("info", f"üóú Diff generado: {ruta or '(parche)'} "
                          f"(+{anadidas}/-{eliminadas})")
         try:
             global _TUI_HUB
@@ -2560,30 +2560,30 @@ def _mostrar_diff_parche(parche: str, ruta: Optional[str] = None) -> None:
 
 def _aplicar_hunks_incremental(parche: str, directorio: str,
                                mostrar_diff: bool = False) -> bool:
-    """ResoluciÛn autom·tica de conflictos: aplica el parche lÌnea a lÌnea.
+    """Resoluci√≥n autom√°tica de conflictos: aplica el parche l√≠nea a l√≠nea.
 
     Estrategia puramente Python (sin git/patch): para cada hunk busca el
-    bloque original con tolerancia a desfases y aplica solo las lÌneas
+    bloque original con tolerancia a desfases y aplica solo las l√≠neas
     modificadas, siempre con copia de seguridad previa.
 
     v6.3.0 ‚Äî emparejamiento difuso por etapas (solo se prueba la etapa
     siguiente cuando la anterior no encuentra sitio, de modo que el caso
     exacto no paga el coste de ``SequenceMatcher``):
-      1. Coincidencia exacta cerca de la posiciÛn declarada.
+      1. Coincidencia exacta cerca de la posici√≥n declarada.
       2. Coincidencia por variantes (espacios colapsados, sin comentarios)
-         cerca de la posiciÛn declarada.
-      3. B˙squeda difusa global: mayor ratio medio de las lÌneas de contexto
+         cerca de la posici√≥n declarada.
+      3. B√∫squeda difusa global: mayor ratio medio de las l√≠neas de contexto
          con ``difflib.SequenceMatcher`` (umbral ``UMBRAL_DIFUSO_HUNKS``).
-      4. ResincronizaciÛn a nivel de bloque: si nada encaja, se busca en TODO
-         el archivo la ventana m·s parecida al bloque original del hunk
+      4. Resincronizaci√≥n a nivel de bloque: si nada encaja, se busca en TODO
+         el archivo la ventana m√°s parecida al bloque original del hunk
          (umbral ``UMBRAL_DIFUSO_BLOQUE``) y se reemplaza conservando las
-         lÌneas de contexto locales del usuario.
+         l√≠neas de contexto locales del usuario.
 
-    Los hunks irresolubles abortan la operaciÛn (todo-o-nada desde v4.6.0)
+    Los hunks irresolubles abortan la operaci√≥n (todo-o-nada desde v4.6.0)
     dejando el archivo intacto. Con ``mostrar_diff`` se muestra el diff
     propuesto antes de declarar el fallo.
 
-    Devuelve True si se aplicÛ alg˙n cambio.
+    Devuelve True si se aplic√≥ alg√∫n cambio.
     """
     ruta = _ruta_del_parche(parche)
     if not ruta:
@@ -2606,7 +2606,7 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
         return False
 
     def _coincide(desde: int, bloque: List[tuple]) -> bool:
-        """True si ``resultado[desde:]`` encaja con las lÌneas no-'+'."""
+        """True si ``resultado[desde:]`` encaja con las l√≠neas no-'+'."""
         idx = desde
         for marca, texto in bloque:
             if marca == "+":
@@ -2620,10 +2620,10 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
         return sum(1 for marca, _ in bloque if marca != "+")
 
     def _coincide_variantes(desde: int, bloque: List[tuple]) -> bool:
-        """True si las lÌneas no-'+' encajan tolerando espacios/comentarios.
+        """True si las l√≠neas no-'+' encajan tolerando espacios/comentarios.
 
         v6.3.0: compara las variantes laxas (espacios colapsados y sin
-        comentario final) lÌnea a lÌnea; TODAS las lÌneas no-'+' deben
+        comentario final) l√≠nea a l√≠nea; TODAS las l√≠neas no-'+' deben
         encajar en el mismo punto para evitar emparejamientos caprichosos.
         """
         idx = desde
@@ -2638,10 +2638,10 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
         return True
 
     def _coincide_difusa(desde: int, bloque: List[tuple]) -> bool:
-        """True si ``resultado[desde:]`` encaja de forma difusa con las lÌneas
+        """True si ``resultado[desde:]`` encaja de forma difusa con las l√≠neas
         no-'+' del bloque (``difflib.SequenceMatcher``, ratio ‚â•
-        ``UMBRAL_DIFUSO_LINEA`` por lÌnea de contexto). Tolera comentarios
-        aÒadidos y espacios."""
+        ``UMBRAL_DIFUSO_LINEA`` por l√≠nea de contexto). Tolera comentarios
+        a√±adidos y espacios."""
         idx = desde
         for marca, texto in bloque:
             if marca == "+":
@@ -2657,14 +2657,14 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
         return True
 
     desplazamiento = 0                     # acumulado por hunks previos
-    hubo_resincronizacion = False          # v6.3.0: alg˙n hunk se recolocÛ
+    hubo_resincronizacion = False          # v6.3.0: alg√∫n hunk se recoloc√≥
     lineas_norm: Optional[List[str]] = None  # perezoso (solo si hace falta)
     for inicio_orig, cambios in hunks:
         base = max(inicio_orig - 1 + desplazamiento, 0)
         n_borrados = _n_borrar(cambios)
 
         posicion = -1
-        # 1) Coincidencia exacta cerca de la posiciÛn declarada.
+        # 1) Coincidencia exacta cerca de la posici√≥n declarada.
         offsets = sorted({0, 1, -1, 2, -2, 3, -3, 5, -5, 10, -10, 20, -20})
         for delta in offsets:
             candidato = base + delta
@@ -2672,7 +2672,7 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
                     _coincide(candidato, cambios):
                 posicion = candidato
                 break
-        # 2) v6.3.0: coincidencia por variantes cerca de la posiciÛn
+        # 2) v6.3.0: coincidencia por variantes cerca de la posici√≥n
         #    declarada (espacios colapsados, sin comentarios finales).
         if posicion < 0:
             for delta in offsets:
@@ -2681,14 +2681,14 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
                         _coincide_variantes(candidato, cambios):
                     posicion = candidato
                     break
-        # 3) B˙squeda difusa real con difflib.SequenceMatcher (v4.6.0).
-        #    Se busca el candidato cuyo conjunto de lÌneas de contexto tiene
+        # 3) B√∫squeda difusa real con difflib.SequenceMatcher (v4.6.0).
+        #    Se busca el candidato cuyo conjunto de l√≠neas de contexto tiene
         #    mayor ratio de similitud medio; se acepta solo por encima de
         #    UMBRAL_DIFUSO_HUNKS (0.85), tolerando comentarios/espacios
         #    cambiados.
         if posicion < 0:
-            # v6.9.0: se limitan las lÌneas de contexto a 20 para reducir el
-            # coste del barrido completo (O(n) candidatos √ó ctx lÌneas).
+            # v6.9.0: se limitan las l√≠neas de contexto a 20 para reducir el
+            # coste del barrido completo (O(n) candidatos √ó ctx l√≠neas).
             contexto_idx = [i for i, (m, _) in enumerate(cambios)
                             if m == " " and _.strip()][:MAX_CONTEXTO_DIFUSO_LINEAS]
             if contexto_idx:
@@ -2714,10 +2714,10 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
                 if mejor_cand >= 0 and mejor_ratio >= UMBRAL_DIFUSO_HUNKS \
                         and _coincide_difusa(mejor_cand, cambios):
                     posicion = mejor_cand
-        # 4) v6.3.0 ‚Äî ResincronizaciÛn a nivel de bloque: si el hunk no encaja
+        # 4) v6.3.0 ‚Äî Resincronizaci√≥n a nivel de bloque: si el hunk no encaja
         #    ni de forma exacta ni difusa, se busca en TODO el archivo la
-        #    ventana del mismo tamaÒo m·s parecida al bloque original
-        #    (contexto + lÌneas eliminadas) y se reemplaza. Como las lÌneas
+        #    ventana del mismo tama√±o m√°s parecida al bloque original
+        #    (contexto + l√≠neas eliminadas) y se reemplaza. Como las l√≠neas
         #    de contexto se conservan del archivo, el reemplazo respeta los
         #    cambios locales del usuario.
         resincronizado = False
@@ -2734,9 +2734,9 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
                 mejor_ratio, mejor_cand = 0.0, -1
                 limite = max(0, len(resultado) - n_bloque + 1)
                 # v6.9.0: fast path con difflib.get_close_matches para buscar
-                # la ventana m·s parecida al bloque (evita el barrido manual
+                # la ventana m√°s parecida al bloque (evita el barrido manual
                 # en el caso habitual; su coste es comparable pero centralizado
-                # en una ˙nica llamada de la librerÌa est·ndar).
+                # en una √∫nica llamada de la librer√≠a est√°ndar).
                 ventanas_norm = [
                     "\n".join(lineas_norm[c:c + n_bloque])
                     for c in range(limite)]
@@ -2749,7 +2749,7 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
                         # get_close_matches garantiza ratio >= UMBRAL_DIFUSO_BLOQUE.
                         mejor_ratio = UMBRAL_DIFUSO_BLOQUE
                 if mejor_cand < 0:
-                    # Respaldo: barrido manual (comportamiento histÛrico).
+                    # Respaldo: barrido manual (comportamiento hist√≥rico).
                     for candidato in range(limite):
                         ratio = _ratio_bloque(
                             texto_bloque,
@@ -2770,9 +2770,9 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
                 or _coincide(posicion, cambios)
                 or _coincide_variantes(posicion, cambios)
                 or _coincide_difusa(posicion, cambios)):
-            # v4.6.0: antes se omitÌa el hunk y se escribÌa una aplicaciÛn
-            # PARCIAL (estado mixto potencialmente inv·lido). Se aborta toda
-            # la operaciÛn dejando el archivo intacto.
+            # v4.6.0: antes se omit√≠a el hunk y se escrib√≠a una aplicaci√≥n
+            # PARCIAL (estado mixto potencialmente inv√°lido). Se aborta toda
+            # la operaci√≥n dejando el archivo intacto.
             # v6.3.0: mensaje claro con el proceso seguido, el umbral usado y
             # una sugerencia accionable; con --mostrar-diff se muestra antes
             # el diff propuesto para revisarlo o editarlo a mano.
@@ -2781,12 +2781,12 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
             error("El parche no pudo aplicarse limpiamente.\n"
                   f"  Buscando coincidencia difusa... (umbral "
                   f"{UMBRAL_DIFUSO_HUNKS})\n"
-                  "  No se encontrÛ una coincidencia suficiente.\n"
+                  "  No se encontr√≥ una coincidencia suficiente.\n"
                   "  Sugerencia: Prueba con '--editor aider' o edita "
                   "manualmente.")
             return False
 
-        # v4.6.0: las lÌneas de contexto (' ') se conservan tal cual est·n en
+        # v4.6.0: las l√≠neas de contexto (' ') se conservan tal cual est√°n en
         # el archivo ‚Äî no se sobrescriben con el texto del parche ‚Äî para no
         # revertir cambios locales del usuario al aplicar de forma difusa.
         nuevo_bloque = []
@@ -2803,11 +2803,11 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
         desplazamiento += len(nuevo_bloque) - n_borrados
 
     if hubo_resincronizacion:
-        exito(f"[EditorPropio] Parche aplicado con resoluciÛn incremental "
-              f"(lÌnea a lÌnea, resincronizando bloques) sobre '{ruta}'.")
+        exito(f"[EditorPropio] Parche aplicado con resoluci√≥n incremental "
+              f"(l√≠nea a l√≠nea, resincronizando bloques) sobre '{ruta}'.")
     else:
-        exito(f"[EditorPropio] Parche aplicado con resoluciÛn incremental "
-              f"(lÌnea a lÌnea) sobre '{ruta}'.")
+        exito(f"[EditorPropio] Parche aplicado con resoluci√≥n incremental "
+              f"(l√≠nea a l√≠nea) sobre '{ruta}'.")
     return _editor_sobrescribir(ruta, "\n".join(resultado) + "\n",
                                 directorio=directorio)
 
@@ -2816,22 +2816,22 @@ def _aplicar_parche_con_resolucion(parche: str, directorio: str = ".",
                                    contenido_esperado: Optional[str] = None,
                                    mostrar_diff: bool = False,
                                    preguntar: Optional[Callable] = None) -> bool:
-    """Aplica un parche con validaciÛn previa y resoluciÛn de conflictos.
+    """Aplica un parche con validaci√≥n previa y resoluci√≥n de conflictos.
 
     Flujo (v3.3.0):
-      1. ValidaciÛn previa: si se pasa ``contenido_esperado`` (el contenido
+      1. Validaci√≥n previa: si se pasa ``contenido_esperado`` (el contenido
          usado para generar el parche), comprueba que el archivo actual
          coincida para evitar conflictos concurrentes.
-      2. Intento est·ndar: ``git apply`` ‚Üí ``patch -p1``.
-      3. ResoluciÛn autom·tica: aplicaciÛn incremental lÌnea a lÌnea.
-      4. Si todo falla, avisa para resoluciÛn manual (ya no sobrescribe a
+      2. Intento est√°ndar: ``git apply`` ‚Üí ``patch -p1``.
+      3. Resoluci√≥n autom√°tica: aplicaci√≥n incremental l√≠nea a l√≠nea.
+      4. Si todo falla, avisa para resoluci√≥n manual (ya no sobrescribe a
          ciegas).
 
     v6.3.0: con ``mostrar_diff`` (flag ``--mostrar-diff``) muestra el diff
     propuesto y pregunta [a]plicar / [c]ancelar / [e]ditar manualmente ANTES
     de tocar nada. En modo ``--auto`` no se bloquea: se muestra el diff y se
-    aplica. Sin el flag, comportamiento histÛrico (aplicar sin preguntar).
-    ``preguntar`` permite inyectar la funciÛn de pregunta en tests; si es
+    aplica. Sin el flag, comportamiento hist√≥rico (aplicar sin preguntar).
+    ``preguntar`` permite inyectar la funci√≥n de pregunta en tests; si es
     ``None`` se usa ``ui.preguntar_interactivo``.
     """
     ruta = _ruta_del_parche(parche)
@@ -2843,7 +2843,7 @@ def _aplicar_parche_con_resolucion(parche: str, directorio: str = ".",
             ("c", "Cancelar (no cambiar nada)"),
             ("e", "Editar manualmente"),
         ]
-        mensaje = f"Diff propuesto para '{ruta or 'archivo'}' ‚Äî ¬øquÈ hacemos?"
+        mensaje = f"Diff propuesto para '{ruta or 'archivo'}' ‚Äî ¬øqu√© hacemos?"
         if preguntar is not None:
             eleccion = preguntar(opciones, mensaje, defecto="a")
         else:
@@ -2851,33 +2851,33 @@ def _aplicar_parche_con_resolucion(parche: str, directorio: str = ".",
                 opciones, mensaje, defecto="a")
         if eleccion == "c":
             info("[EditorPropio] Parche cancelado por el usuario; no se "
-                 "realizÛ ning˙n cambio.")
+                 "realiz√≥ ning√∫n cambio.")
             return False
         if eleccion == "e":
-            aviso("[EditorPropio] EdiciÛn manual solicitada: el parche se "
+            aviso("[EditorPropio] Edici√≥n manual solicitada: el parche se "
                   f"descarta sin tocar '{ruta or 'el archivo'}'. Las copias "
-                  "de seguridad previas est·n en ~/.snapcontext/backups/.")
+                  "de seguridad previas est√°n en ~/.snapcontext/backups/.")
             return False
 
     ok_validacion, detalle = _validar_parche_previo(
         parche, directorio, contenido_esperado)
     if not ok_validacion:
-        aviso(f"[EditorPropio] ValidaciÛn previa fallida: {detalle}. "
-              "Se intentar· la resoluciÛn autom·tica.")
+        aviso(f"[EditorPropio] Validaci√≥n previa fallida: {detalle}. "
+              "Se intentar√° la resoluci√≥n autom√°tica.")
     elif contenido_esperado is not None:
-        depurar(f"[EditorPropio] ValidaciÛn previa OK: {detalle}")
+        depurar(f"[EditorPropio] Validaci√≥n previa OK: {detalle}")
 
     if _aplicar_parche(parche, directorio=directorio):
         return True
-    info("[EditorPropio] Conflicto detectado; probando resoluciÛn "
-         "incremental (lÌnea a lÌnea)...")
+    info("[EditorPropio] Conflicto detectado; probando resoluci√≥n "
+         "incremental (l√≠nea a l√≠nea)...")
     return _aplicar_hunks_incremental(parche, directorio,
                                       mostrar_diff=mostrar_diff)
 
 
 
 # ---------------------------------------------------------------------------
-# Editor propio (Fase 3 ‚Äî EdiciÛn basada en AST)  ‚Äî v2.2.0
+# Editor propio (Fase 3 ‚Äî Edici√≥n basada en AST)  ‚Äî v2.2.0
 # ---------------------------------------------------------------------------
 def _es_extension_python(ruta: str) -> bool:
     """True si ``ruta`` parece un archivo de Python editable con ``ast``."""
@@ -2888,7 +2888,7 @@ def _ast_disponible(ruta: str) -> bool:
     """True si se puede generar un AST para ``ruta`` (Python o tree-sitter).
 
     v5.6.0: para lenguajes no-Python se usa ``parser_universal`` (language
-    pack) como detector principal; el backend cl·sico tree_sitter_languages
+    pack) como detector principal; el backend cl√°sico tree_sitter_languages
     queda como reserva.
     """
     if not ruta or not str(ruta).strip():
@@ -2916,7 +2916,7 @@ def _resumen_ast_python(contenido: str) -> dict:
     try:
         arbol = ast.parse(contenido)
     except SyntaxError as exc:
-        resumen["error"] = f"sintaxis inv·lida: {exc}"
+        resumen["error"] = f"sintaxis inv√°lida: {exc}"
         return resumen
     resumen["ok"] = True
     variables: List[str] = []
@@ -2951,19 +2951,19 @@ def _resumen_ast_python(contenido: str) -> dict:
 
 
 def _resumen_ast(contenido: str, ruta: str) -> dict:
-    """Genera un resumen del AST de ``ruta`` para pas·rselo al proveedor de IA.
+    """Genera un resumen del AST de ``ruta`` para pas√°rselo al proveedor de IA.
 
-    - Python: usa el mÛdulo ``ast`` de la stdlib.
-    - Otros lenguajes: usa ``tree_sitter`` si est· instalado.
+    - Python: usa el m√≥dulo ``ast`` de la stdlib.
+    - Otros lenguajes: usa ``tree_sitter`` si est√° instalado.
 
-    Devuelve un dict con ``ok``, ``motor``, ``lenguaje`` y una proyecciÛn simple
+    Devuelve un dict con ``ok``, ``motor``, ``lenguaje`` y una proyecci√≥n simple
     (funciones/clases/imports/variables/llamadas). Nunca lanza excepciones.
     """
     lenguaje = _lenguaje_archivo(ruta, contenido) or ""
     if _es_extension_python(ruta) or lenguaje == "python":
         return _resumen_ast_python(contenido)
     # v5.6.0: parser_universal (tree-sitter language pack) como motor
-    # principal; el backend cl·sico tree_sitter_languages queda de reserva.
+    # principal; el backend cl√°sico tree_sitter_languages queda de reserva.
     try:
         import parser_universal as pu              # noqa: E402
         resumen_pu = pu.resumen_archivo(ruta, contenido)
@@ -2991,15 +2991,15 @@ def _resumen_ast(contenido: str, ruta: str) -> dict:
                 "llamadas": simbolos.get("llamadas", []),
                 "variables": [], "error": None,
             }
-        except Exception as exc:                     # gram·tica ausente, API distinta‚Ä¶
+        except Exception as exc:                     # gram√°tica ausente, API distinta‚Ä¶
             return {"ok": False, "motor": "tree-sitter", "lenguaje": lenguaje,
-                    "error": f"tree-sitter fallÛ para {lenguaje}: {exc}"}
+                    "error": f"tree-sitter fall√≥ para {lenguaje}: {exc}"}
     return {"ok": False, "motor": None, "lenguaje": lenguaje,
             "error": "sin analizador AST disponible para este lenguaje "
                      "(usa .py o instala tree-sitter)"}
 
 def _formatear_resumen_ast(resumen: dict, ruta: str) -> str:
-    """Devuelve una representaciÛn textual compacta del resumen para el prompt."""
+    """Devuelve una representaci√≥n textual compacta del resumen para el prompt."""
     lineas = [
         f"Lenguaje: {resumen.get('lenguaje') or '?'}  "
         f"(motor: {resumen.get('motor') or 'ninguno'})",
@@ -3017,7 +3017,7 @@ def _formatear_resumen_ast(resumen: dict, ruta: str) -> str:
                 nombre = it.get("nombre") or it.get("atributo") or ""
                 linea_n = it.get("linea")
                 extraa = it.get("argumentos") or it.get("metodos")
-                sufijo = f" (lÌnea {linea_n})" if linea_n else ""
+                sufijo = f" (l√≠nea {linea_n})" if linea_n else ""
                 if extraa:
                     sufijo += f" {extraa}"
                 lineas.append(f"    - {nombre}{sufijo}")
@@ -3048,8 +3048,8 @@ def _limpiar_fenced_codigo(texto: str) -> str:
 def _interpretar_operaciones_ast(respuesta: str) -> Optional[List[dict]]:
     """Interpreta la respuesta del proveedor como operaciones AST.
 
-    Prefiere una lista JSON de operaciones; si no es JSON v·lido, la trata como
-    el cÛdigo completo resultante (envuelto en una operaciÛn ``completo``).
+    Prefiere una lista JSON de operaciones; si no es JSON v√°lido, la trata como
+    el c√≥digo completo resultante (envuelto en una operaci√≥n ``completo``).
     Devuelve ``None`` si no se pudo interpretar nada.
     """
     limpio = _limpiar_fenced_codigo(respuesta or "")
@@ -3068,7 +3068,7 @@ def _interpretar_operaciones_ast(respuesta: str) -> Optional[List[dict]]:
 
 
 def _offset_caracteres(contenido: str, fila: int, col: int) -> Optional[int]:
-    """Convierte (fila 1-based, col 0-based) a Ìndice de caracteres del cÛdigo."""
+    """Convierte (fila 1-based, col 0-based) a √≠ndice de caracteres del c√≥digo."""
     if fila < 1 or col < 0:
         return None
     pos = 0
@@ -3081,7 +3081,7 @@ def _offset_caracteres(contenido: str, fila: int, col: int) -> Optional[int]:
     return None
 
 def _renombrar_identificador(contenido: str, viejo: str, nuevo: str) -> str:
-    """Renombra un identificador (variable, funciÛn, clase, par·metro) en ``contenido``.
+    """Renombra un identificador (variable, funci√≥n, clase, par√°metro) en ``contenido``.
 
     Usa ``tokenize`` para no tocar cadenas ni comentarios y preservar el formateo.
     """
@@ -3107,7 +3107,7 @@ def _renombrar_identificador(contenido: str, viejo: str, nuevo: str) -> str:
 
 
 def _insertar_import(contenido: str, importacion: str) -> str:
-    """Inserta ``importacion`` tras los imports de la cabecera si a˙n no existe."""
+    """Inserta ``importacion`` tras los imports de la cabecera si a√∫n no existe."""
     imp = (importacion or "").strip()
     if not imp:
         return contenido
@@ -3126,14 +3126,14 @@ def _insertar_import(contenido: str, importacion: str) -> str:
 
 
 def _aplicar_operaciones_ast(contenido: str, operaciones: List[dict]) -> Optional[str]:
-    """Aplica una lista de operaciones AST al cÛdigo.
+    """Aplica una lista de operaciones AST al c√≥digo.
 
     Soporta al menos:
       - ``{"tipo": "completo", "codigo": "..."}`` ‚Üí reemplaza todo el archivo.
-      - ``{"tipo": "renombrar", "nombre": "x", "nuevo": "y"}`` ‚Üí renombra sÌmbolo.
-      - ``{"tipo": "insertar_import", "codigo": "import os"}`` ‚Üí aÒade import.
+      - ``{"tipo": "renombrar", "nombre": "x", "nuevo": "y"}`` ‚Üí renombra s√≠mbolo.
+      - ``{"tipo": "insertar_import", "codigo": "import os"}`` ‚Üí a√±ade import.
 
-    Devuelve el cÛdigo resultante o ``None`` si no hubo cambio aplicable.
+    Devuelve el c√≥digo resultante o ``None`` si no hubo cambio aplicable.
     """
     if not operaciones:
         return None
@@ -3160,29 +3160,29 @@ def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
                 conciso: bool = False,
                 max_context_tokens: Optional[int] = None,
                 mostrar_razonamiento: bool = False) -> bool:
-    """Editor propio (Fase 3 ‚Äî EdiciÛn basada en AST).
+    """Editor propio (Fase 3 ‚Äî Edici√≥n basada en AST).
 
     1) Lee el contenido del archivo.
     2) Genera el AST (Python con ``ast``; otros lenguajes con ``tree-sitter``).
     3) Pasa un resumen del AST + la tarea al proveedor de IA.
-    4) El proveedor devuelve un *parche AST* (instrucciones de modificaciÛn del
-       ·rbol) o el cÛdigo nuevo completo.
+    4) El proveedor devuelve un *parche AST* (instrucciones de modificaci√≥n del
+       √°rbol) o el c√≥digo nuevo completo.
     5) Aplica los cambios y guarda el archivo modificado (con copia de seguridad).
 
     Con ``conciso=True`` (v4.1.0) se usa un prompt reducido para modelos
     ligeros (Ollama local o ``--modelo-ligero``).
 
-    Devuelve ``True`` si tuvo Èxito; ``False`` si no se pudo editar (para que el
+    Devuelve ``True`` si tuvo √©xito; ``False`` si no se pudo editar (para que el
     agente haga fallback a parche o sobrescritura).
 
-    v6.1.0: con ``max_context_tokens`` los archivos grandes se envÌan con
+    v6.1.0: con ``max_context_tokens`` los archivos grandes se env√≠an con
     contexto selectivo (:func:`context_utils.seleccionar_contexto`); las
     operaciones AST se aplican igualmente sobre el contenido completo, por lo
-    que en ese caso se descarta la op ``"completo"`` (reescribirÌa el archivo
+    que en ese caso se descarta la op ``"completo"`` (reescribir√≠a el archivo
     entero solo con el fragmento mostrado).
     """
     if not archivo or not str(archivo).strip():
-        error("La ruta del archivo no puede estar vacÌa.")
+        error("La ruta del archivo no puede estar vac√≠a.")
         return False
     ruta_posix = _normalizar_relativa(str(archivo).replace("\\", "/").strip())
     if not ruta_posix:
@@ -3208,8 +3208,8 @@ def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
     lenguaje = resumen.get("lenguaje") or _lenguaje_archivo(ruta_posix,
                                                             contenido) or "?"
     # v6.1.0 ‚Äî Contexto selectivo: si el archivo supera el presupuesto de
-    # tokens se envÌa resumen AST + bloque objetivo + bloques relevantes.
-    # Las operaciones siguen aplic·ndose sobre `contenido` (el archivo entero).
+    # tokens se env√≠a resumen AST + bloque objetivo + bloques relevantes.
+    # Las operaciones siguen aplic√°ndose sobre `contenido` (el archivo entero).
     try:
         import context_utils as _ctx
         _limite = (max_context_tokens if max_context_tokens is not None
@@ -3227,13 +3227,13 @@ def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
                 info(f"‚Ñπ Archivo grande ({_ctx.estimar_tokens(contenido)} "
                      "tokens). Usando contexto selectivo...")
     except Exception as _exc:          # noqa: BLE001 ‚Äî nunca romper el modo AST
-        depurar(f"[EditorAST] contexto selectivo fallÛ: {_exc}")
+        depurar(f"[EditorAST] contexto selectivo fall√≥: {_exc}")
         contenido_envio, truncado = contenido, False
     num_lineas = contenido.count("\n") + 1
     if conciso:
         prompt = (
             f"Tarea: {tarea}\nArchivo: {ruta_posix} ({lenguaje})\n"
-            f"SÌmbolos: {_formatear_resumen_ast(resumen, ruta_posix)}\n\n"
+            f"S√≠mbolos: {_formatear_resumen_ast(resumen, ruta_posix)}\n\n"
             f"```\n{contenido_envio}\n```\n\n"
             f"Responde SOLO una lista JSON de operaciones "
             f'[{{"tipo": "renombrar", "nombre": "x", "nuevo": "y"}}] '
@@ -3241,26 +3241,26 @@ def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
         )
     else:
         prompt = (
-            f"Vas a modificar un archivo comprendiendo su estructura sint·ctica "
-            f"(AST). Objetivo: precisiÛn m·xima y cambios mÌnimos.\n\n"
+            f"Vas a modificar un archivo comprendiendo su estructura sint√°ctica "
+            f"(AST). Objetivo: precisi√≥n m√°xima y cambios m√≠nimos.\n\n"
             f"Tarea: {tarea}\n"
-            f"Archivo: {ruta_posix}  (lenguaje: {lenguaje}, {num_lineas} lÌneas)\n\n"
-            f"Resumen del AST (sÌmbolos disponibles y sus posiciones):\n"
+            f"Archivo: {ruta_posix}  (lenguaje: {lenguaje}, {num_lineas} l√≠neas)\n\n"
+            f"Resumen del AST (s√≠mbolos disponibles y sus posiciones):\n"
             f"{_formatear_resumen_ast(resumen, ruta_posix)}\n\n"
             f"Contenido actual completo:\n```\n{contenido_envio}\n```\n\n"
-            f"Reglas de ediciÛn:\n"
-            f"- Conserva el estilo existente (indentaciÛn, comillas, convenciones).\n"
+            f"Reglas de edici√≥n:\n"
+            f"- Conserva el estilo existente (indentaci√≥n, comillas, convenciones).\n"
             f"- Modifica SOLO lo necesario para la tarea; no reorganices el resto.\n"
-            f"- Usa los sÌmbolos del resumen del AST para anclar tus cambios.\n\n"
-            f"Responde √öNICAMENTE con una lista JSON de operaciones de ediciÛn, por ejemplo:\n"
+            f"- Usa los s√≠mbolos del resumen del AST para anclar tus cambios.\n\n"
+            f"Responde √öNICAMENTE con una lista JSON de operaciones de edici√≥n, por ejemplo:\n"
             f'[{{"tipo": "renombrar", "nombre": "viejo", "nuevo": "nuevo"}}]\n'
-            f'O, si prefieres devolver el cÛdigo completo resultante:\n'
+            f'O, si prefieres devolver el c√≥digo completo resultante:\n'
             f'[{{"tipo": "completo", "codigo": "def fn(): ...\\n..."}}]\n'
             f"Sin explicaciones ni markdown fuera del JSON."
         )
         if truncado:
             prompt += (
-                "\nNOTA: solo se muestra parte del archivo por lÌmites de "
+                "\nNOTA: solo se muestra parte del archivo por l√≠mites de "
                 "contexto. Responde SOLO con operaciones (\"renombrar\" / "
                 "\"insertar_import\"); NO uses \"completo\".")
     try:
@@ -3274,29 +3274,29 @@ def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
         respuesta, activo=mostrar_razonamiento)
     opos = _interpretar_operaciones_ast(respuesta)
     if truncado:
-        # v6.1.0: con contexto selectivo una op "completo" reemplazarÌa TODO
+        # v6.1.0: con contexto selectivo una op "completo" reemplazar√≠a TODO
         # el archivo solo con el fragmento mostrado ‚Üí se descarta y quedan las
         # operaciones seguras (renombrar/insertar_import), que se aplican sobre
         # el contenido completo. Si no queda ninguna, el modo AST falla y la
-        # cadena sigue con parche/sobrescribir (que sÌ manejan el recorte).
+        # cadena sigue con parche/sobrescribir (que s√≠ manejan el recorte).
         opos = [op for op in opos if op.get("tipo") != "completo"]
     if not opos:
-        depurar(f"[EditorAST] El proveedor no devolviÛ operaciones AST para '{ruta_posix}'.")
+        depurar(f"[EditorAST] El proveedor no devolvi√≥ operaciones AST para '{ruta_posix}'.")
         return False
     nuevo_contenido = _aplicar_operaciones_ast(contenido, opos)
     if not nuevo_contenido or nuevo_contenido == contenido:
         aviso(f"[EditorAST] No hubo cambio neto aplicable en '{ruta_posix}'.")
         return False
-    exito(f"[EditorAST] EdiciÛn AST aplicada sobre {ruta_posix} (mÈtodo AST).")
+    exito(f"[EditorAST] Edici√≥n AST aplicada sobre {ruta_posix} (m√©todo AST).")
     return _editor_sobrescribir(ruta_posix, nuevo_contenido, directorio=directorio)
 
 
 def _extraer_error(resultado: "subprocess.CompletedProcess") -> str:
-    """Une stdout+stderr, limpia cÛdigos ANSI y limita el tamaÒo del error
-    que se mostrar· a Aider (evita llenar el contexto)."""
+    """Une stdout+stderr, limpia c√≥digos ANSI y limita el tama√±o del error
+    que se mostrar√° a Aider (evita llenar el contexto)."""
     salida = (resultado.stdout or "") + "\n" + (resultado.stderr or "")
     salida = re.sub(r"\x1b\[[0-9;]*m", "", salida)  # quitar colores ANSI
-    salida = salida.strip() or "(el comando de prueba no devolviÛ salida)"
+    salida = salida.strip() or "(el comando de prueba no devolvi√≥ salida)"
     if len(salida) > MAX_ERROR_SALIDA:
         salida = "\n... (salida recortada) ...\n" + salida[-MAX_ERROR_SALIDA:]
     return salida
@@ -3308,12 +3308,12 @@ def _resolver_comando_test(directorio: str,
     """Resuelve el comando de pruebas del bucle (v5.3.0).
 
     Prioridad:
-      1. ``comando_explicito`` (el usuario pasÛ ``--comando-test``);
-      2. detecciÛn autom·tica con ``detector_tests``;
-      3. ``COMANDO_TEST_DEFECTO`` (compatibilidad hacia atr·s).
+      1. ``comando_explicito`` (el usuario pas√≥ ``--comando-test``);
+      2. detecci√≥n autom√°tica con ``detector_tests``;
+      3. ``COMANDO_TEST_DEFECTO`` (compatibilidad hacia atr√°s).
 
-    AsÌ, si el usuario no configura nada, el agente detecta el lenguaje del
-    proyecto y ejecuta el comando adecuado sin intervenciÛn.
+    As√≠, si el usuario no configura nada, el agente detecta el lenguaje del
+    proyecto y ejecuta el comando adecuado sin intervenci√≥n.
     """
     if comando_explicito:
         return list(comando_explicito)
@@ -3330,36 +3330,36 @@ def _resolver_comando_test(directorio: str,
 def ejecutar_bucle_test(consulta: str, archivos: List[str], directorio: str,
                         opciones_aider: str, comando_test: List[str],
                         max_iteraciones: int = MAX_ITERACIONES_TEST_DEFECTO) -> bool:
-    """Bucle agÈntico b·sico: Aider ‚Üí pruebas ‚Üí si fallan, Aider las arregla.
+    """Bucle ag√©ntico b√°sico: Aider ‚Üí pruebas ‚Üí si fallan, Aider las arregla.
 
-    Este es el punto natural de extensiÛn: aquÌ puedes aÒadir m·s herramientas
-    al bucle (p. ej. linters, analysizer de Flutter, generaciÛn de tests...).
+    Este es el punto natural de extensi√≥n: aqu√≠ puedes a√±adir m√°s herramientas
+    al bucle (p. ej. linters, analysizer de Flutter, generaci√≥n de tests...).
 
-    v5.3.0: si ``comando_test`` viene vacÌo se resuelve autom·ticamente con
-    ``detector_tests`` (detecciÛn del lenguaje del proyecto).
+    v5.3.0: si ``comando_test`` viene vac√≠o se resuelve autom√°ticamente con
+    ``detector_tests`` (detecci√≥n del lenguaje del proyecto).
     """
     comando_test = _resolver_comando_test(directorio, comando_test)
     if not comando_test:
-        raise RuntimeError("El comando de pruebas est· vacÌo (--comando-test).")
-    # v4.3.0: en sandbox el binario vive dentro del contenedor; la comprobaciÛn
+        raise RuntimeError("El comando de pruebas est√° vac√≠o (--comando-test).")
+    # v4.3.0: en sandbox el binario vive dentro del contenedor; la comprobaci√≥n
     # de PATH del host no aplica.
     if not _SANDBOX_ACTIVO and shutil.which(comando_test[0]) is None:
         raise RuntimeError(
-            f"No se encontrÛ el comando de pruebas '{comando_test[0]}'. "
+            f"No se encontr√≥ el comando de pruebas '{comando_test[0]}'. "
             "Ajusta --comando-test."
         )
 
     ultimo_error = ""
     for iteracion in range(1, max_iteraciones + 1):
-        info(f"IteraciÛn {iteracion} de {max_iteraciones} ‚Äî Aider...")
+        info(f"Iteraci√≥n {iteracion} de {max_iteraciones} ‚Äî Aider...")
         if iteracion == 1 or not ultimo_error:
             mensaje = consulta
         else:
-            # Devolvemos el error real de la iteraciÛn anterior para que Aider
-            # repare el cÛdigo sin perder de vista la tarea original.
+            # Devolvemos el error real de la iteraci√≥n anterior para que Aider
+            # repare el c√≥digo sin perder de vista la tarea original.
             mensaje = (
                 f"La tarea original era:\n{consulta}\n\n"
-                f"El comando de prueba fallÛ en la iteraciÛn {iteracion - 1} con:\n"
+                f"El comando de prueba fall√≥ en la iteraci√≥n {iteracion - 1} con:\n"
                 f"```\n{ultimo_error}\n```\n"
                 "Corrige esos errores sin cambiar el alcance de la tarea original."
             )
@@ -3378,22 +3378,22 @@ def ejecutar_bucle_test(consulta: str, archivos: List[str], directorio: str,
                 comando_test, cwd=directorio, capture_output=True, text=True
             )
         if resultado.returncode == 0:
-            exito(f"¬°Pruebas superadas en la iteraciÛn {iteracion}!")
+            exito(f"¬°Pruebas superadas en la iteraci√≥n {iteracion}!")
             return True
         ultimo_error = _extraer_error(resultado)
         aviso(
-            f"Pruebas fallidas (cÛdigo {resultado.returncode}). "
-            "Se envÌa el error a Aider para que lo corrija..."
+            f"Pruebas fallidas (c√≥digo {resultado.returncode}). "
+            "Se env√≠a el error a Aider para que lo corrija..."
         )
 
-    error(f"No se consiguiÛ que las pruebas pasaran tras {max_iteraciones} iteraciones.")
+    error(f"No se consigui√≥ que las pruebas pasaran tras {max_iteraciones} iteraciones.")
     return False
 
 
 # ---------------------------------------------------------------------------
-# Bucle agÈntico con servidor Flutter (--server-loop / --manual-loop)
+# Bucle ag√©ntico con servidor Flutter (--server-loop / --manual-loop)
 # ---------------------------------------------------------------------------
-# Patrones que suelen anunciar que Flutter terminÛ de compilar y sirve.
+# Patrones que suelen anunciar que Flutter termin√≥ de compilar y sirve.
 _PATRONES_SERVIDOR = re.compile(
     r"Running on|Synced|is being served at|served at|available at|VM Service"
 )
@@ -3405,13 +3405,13 @@ def lanzar_servidor(directorio: str = ".",
                     puerto: int = 5000) -> subprocess.Popen:
     """Lanza `flutter run` en segundo plano y devuelve el subproceso.
 
-    Se fusiona stderr en stdout (asÌ es m·s f·cil analizar la salida y, para
+    Se fusiona stderr en stdout (as√≠ es m√°s f√°cil analizar la salida y, para
     dispositivos web, se fija el puerto para que coincida con --url-defecto).
     """
     if shutil.which("flutter") is None:
         raise RuntimeError(
-            "No se encontrÛ 'flutter' en el PATH. Instala Flutter o revisa tu "
-            "configuraciÛn (https://flutter.dev)."
+            "No se encontr√≥ 'flutter' en el PATH. Instala Flutter o revisa tu "
+            "configuraci√≥n (https://flutter.dev)."
         )
     cmd = ["flutter", "run", "-d", dispositivo]
     if dispositivo.startswith("web") or dispositivo in ("chrome", "edge"):
@@ -3427,10 +3427,10 @@ def lanzar_servidor(directorio: str = ".",
         text=True,
         encoding="utf-8",
         errors="replace",
-        bufsize=1,                  # lectura por lÌneas
+        bufsize=1,                  # lectura por l√≠neas
         creationflags=flags,
     )
-    _PROCESOS_ACTIVOS.add(proceso)  # para poder cerrarlo desde la seÒal SIGINT/SIGTERM
+    _PROCESOS_ACTIVOS.add(proceso)  # para poder cerrarlo desde la se√±al SIGINT/SIGTERM
     return proceso
 
 
@@ -3439,7 +3439,7 @@ def _iniciar_lector_salida(proceso: subprocess.Popen) -> List[str]:
 
     Esto permite a `esperar_servidor` revisar la salida sin bloquearse en un
     readline() (truco cross-platform, sin depender de select/fcntl) y deja la
-    salida disponible tambiÈn para `obtener_error`.
+    salida disponible tambi√©n para `obtener_error`.
     """
     buffer: List[str] = []
     finalizado = threading.Event()
@@ -3464,14 +3464,14 @@ def _iniciar_lector_salida(proceso: subprocess.Popen) -> List[str]:
 def esperar_servidor(proceso,
                      url_defecto: str = "http://localhost:5000",
                      timeout: int = 60) -> Optional[str]:
-    """Espera a que el servidor Flutter estÈ listo leyendo su salida en vivo.
+    """Espera a que el servidor Flutter est√© listo leyendo su salida en vivo.
 
-    Busca patrones tÌpicos de arranque ("Running on", "Synced", "served at",
+    Busca patrones t√≠picos de arranque ("Running on", "Synced", "served at",
     "available at", "VM Service") y, si aparece, extrae la URL real.
 
     Devuelve:
-      - URL real o `url_defecto` si el servidor est· en marcha.
-      - None si el proceso muriÛ sin arrancar (la salida queda disponible
+      - URL real o `url_defecto` si el servidor est√° en marcha.
+      - None si el proceso muri√≥ sin arrancar (la salida queda disponible
         para `obtener_error`).
     """
     buffer = getattr(proceso, "snapctx_buffer", None)
@@ -3491,19 +3491,19 @@ def esperar_servidor(proceso,
                     return coincidencia.group(0).rstrip("\"'.,;,)")
                 return url_defecto
         if proceso.poll() is not None:
-            break  # el proceso terminÛ antes de arrancar el servidor
+            break  # el proceso termin√≥ antes de arrancar el servidor
         time.sleep(0.3)
 
-    # Se agotÛ el tiempo sin patrÛn conocido: si sigue vivo, asumimos que sirve.
+    # Se agot√≥ el tiempo sin patr√≥n conocido: si sigue vivo, asumimos que sirve.
     if proceso.poll() is None:
-        aviso("No se detectÛ el patrÛn de arranque esperado; se asume que el "
+        aviso("No se detect√≥ el patr√≥n de arranque esperado; se asume que el "
               "servidor responde en " + url_defecto)
         return url_defecto
     return None
 
 
 def _detener_servidor(proceso) -> None:
-    """Termina el proceso del servidor (terminate ‚Üí kill) sin dejar huÈrfanos."""
+    """Termina el proceso del servidor (terminate ‚Üí kill) sin dejar hu√©rfanos."""
     if proceso is None:
         return
     _PROCESOS_ACTIVOS.discard(proceso)
@@ -3524,16 +3524,16 @@ def obtener_error(proceso, max_caracteres: int = 4000) -> str:
     if buffer:
         lineas = list(buffer)
     try:
-        # Si quedaron lÌneas sin leer las drenamos (el proceso ya est· parado).
+        # Si quedaron l√≠neas sin leer las drenamos (el proceso ya est√° parado).
         if proceso.stdout:
             lineas.extend(proceso.stdout.read().splitlines())
     except (AttributeError, ValueError, OSError):
         pass
 
     texto = re.sub(r"\x1b\[[0-9;]*m", "", "\n".join(lineas))  # quitar ANSI
-    texto = texto.strip() or "(el servidor no devolviÛ salida)"
+    texto = texto.strip() or "(el servidor no devolvi√≥ salida)"
     if len(texto) > max_caracteres:
-        # Nos quedamos con el final: ahÌ suele estar el error real.
+        # Nos quedamos con el final: ah√≠ suele estar el error real.
         texto = "\n... (salida recortada) ...\n" + texto[-max_caracteres:]
     return texto
 
@@ -3548,7 +3548,7 @@ def _recortar(texto: str, longitud: int) -> str:
 def abrir_navegador(url: str) -> bool:
     """Abre la URL en el navegador del sistema (multiplataforma).
 
-    Intenta primero `webbrowser.open` (port·til). Si no lo consigue (devuelve
+    Intenta primero `webbrowser.open` (port√°til). Si no lo consigue (devuelve
     False o lanza), usa el comando nativo del sistema con `subprocess.run`
     (sin shell): `open` en macOS y `xdg-open` en Linux.
     """
@@ -3576,24 +3576,24 @@ def abrir_navegador(url: str) -> bool:
                   + url + " manualmente.")
             return False
 
-    aviso("No se pudo abrir el navegador autom·ticamente. Abre "
+    aviso("No se pudo abrir el navegador autom√°ticamente. Abre "
           + url + " manualmente.")
     return False
 
 
 def _menu_conflicto_parche() -> str:
-    """Men˙ interactivo cuando un parche no se aplica limpiamente (v4.1.0).
+    """Men√∫ interactivo cuando un parche no se aplica limpiamente (v4.1.0).
 
     Opciones: [a]plicar de todas formas ¬∑ [v]er diff ¬∑ [r]eintentar con IA
     ¬∑ [c]ancelar. Devuelve la letra elegida ('a' | 'v' | 'r' | 'c').
     """
     while True:
         try:
-            print("‚ö† El parche no se aplicÛ limpiamente. ¬øQuÈ quieres hacer?")
+            print("‚ö† El parche no se aplic√≥ limpiamente. ¬øQu√© quieres hacer?")
             print("  [a] Aplicar de todas formas (sobrescribir el archivo)")
             print("  [v] Ver el diff manualmente")
             print("  [r] Reintentar con el proveedor de IA")
-            print("  [c] Cancelar y conservar la versiÛn original")
+            print("  [c] Cancelar y conservar la versi√≥n original")
             eleccion = input("(a/v/r/c): ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             return "c"
@@ -3605,7 +3605,7 @@ def _registrar_fallo_editor(archivo: str, tarea: str,
                             estrategias: list, motivo: str) -> None:
     """Registra un fallo del editor propio en ~/.snapcontext/logs/ (v4.1.0).
 
-    Nunca lanza excepciones: es telemetrÌa local opcional para depuraciÛn.
+    Nunca lanza excepciones: es telemetr√≠a local opcional para depuraci√≥n.
     """
     try:
         carpeta = CONFIG_DIR / "logs"
@@ -3621,13 +3621,13 @@ def _registrar_fallo_editor(archivo: str, tarea: str,
 
 
 def _preguntar_si(pregunta: str) -> bool:
-    """Pregunta s/n (acepta si/sÌ) hasta obtener una respuesta v·lida."""
+    """Pregunta s/n (acepta si/s√≠) hasta obtener una respuesta v√°lida."""
     while True:
         try:
             respuesta = input(_pintar(pregunta, _CYAN)).strip().lower()
         except EOFError:  # entrada no interactiva ‚Üí se asume 'n'
             return False
-        if respuesta in ("s", "si", "sÌ"):
+        if respuesta in ("s", "si", "s√≠"):
             return True
         if respuesta in ("n", "no"):
             return False
@@ -3635,8 +3635,8 @@ def _preguntar_si(pregunta: str) -> bool:
 
 
 def _pedir_detalle_error(error_servidor: str) -> str:
-    """Pide al usuario (modo manual) que describa el error para d·rselo a Aider."""
-    aviso("El usuario reportar· el problema y Aider lo corregir·.")
+    """Pide al usuario (modo manual) que describa el error para d√°rselo a Aider."""
+    aviso("El usuario reportar√° el problema y Aider lo corregir√°.")
     try:
         descripcion = input(_pintar("Describe el error (o pega el mensaje): ",
                                     _CYAN)).strip()
@@ -3660,7 +3660,7 @@ def ejecutar_bucle_agente(consulta: str, archivos: List[str],
                           opciones_aider: str = "",
                           dispositivo: str = "web-server",
                           url_defecto: str = "http://localhost:5000") -> bool:
-    """Bucle agÈntico con servidor Flutter (flutter run en segundo plano).
+    """Bucle ag√©ntico con servidor Flutter (flutter run en segundo plano).
 
     --server-loop (modo="auto"):
         Reintenta hasta `max_intentos`. Si el servidor arranca, pregunta si se
@@ -3702,11 +3702,11 @@ def ejecutar_bucle_agente(consulta: str, archivos: List[str],
                     _detener_servidor(proceso_actual)
 
             if url is not None:
-                exito(f"El servidor arrancÛ en {url}.")
+                exito(f"El servidor arranc√≥ en {url}.")
                 if modo == "auto":
-                    # --- modo autom·tico --------------------------------------
+                    # --- modo autom√°tico --------------------------------------
                     if _preguntar_si(
-                        "‚úÖ El servidor arrancÛ correctamente. "
+                        "‚úÖ El servidor arranc√≥ correctamente. "
                         "¬øQuieres probar la app manualmente? (s/n): "
                     ):
                         abrir_navegador(url)
@@ -3717,44 +3717,44 @@ def ejecutar_bucle_agente(consulta: str, archivos: List[str],
                             pass
                     _detener_servidor(proceso_actual)
                     proceso_actual = None
-                    exito("Bucle agÈntico completado (el servidor respondiÛ).")
+                    exito("Bucle ag√©ntico completado (el servidor respondi√≥).")
                     return True
 
                 # --- modo manual: el usuario decide ---------------------------
                 if _preguntar_si("¬øLa app funciona correctamente? (s/n): "):
                     _detener_servidor(proceso_actual)
                     proceso_actual = None
-                    exito("¬°Bucle agÈntico completado!")
+                    exito("¬°Bucle ag√©ntico completado!")
                     return True
                 _detener_servidor(proceso_actual)
                 proceso_actual = None
                 error_ultimo = _pedir_detalle_error(error_ultimo)
                 continue
 
-            # ---- el servidor no arrancÛ --------------------------------------
+            # ---- el servidor no arranc√≥ --------------------------------------
             salida_error = obtener_error(proceso_actual)
             error_ultimo = f"Arregla este error: {salida_error}"
             proceso_actual = None
-            error(f"El servidor no arrancÛ en el intento {intento}.")
+            error(f"El servidor no arranc√≥ en el intento {intento}.")
             _emitir(sys.stdout, _pintar("Salida del servidor:", _GRIS))
             _emitir(sys.stdout, _recortar(salida_error, 500))
 
             if modo == "manual":
                 if _preguntar_si("¬øLa app funciona correctamente? (s/n): "):
-                    exito("¬°Bucle agÈntico completado!")
+                    exito("¬°Bucle ag√©ntico completado!")
                     return True
                 error_ultimo = _pedir_detalle_error(error_ultimo)
                 continue
 
-            # ---- modo autom·tico: decidir reintentar o cambiar a manual -------
+            # ---- modo autom√°tico: decidir reintentar o cambiar a manual -------
             if intento < max_intentos:
                 aviso(
-                    f"Intento {intento}/{max_intentos} fallido. Aider corregir· "
-                    "y se reintentar· autom·ticamente..."
+                    f"Intento {intento}/{max_intentos} fallido. Aider corregir√° "
+                    "y se reintentar√° autom√°ticamente..."
                 )
                 continue
             if _preguntar_si(
-                f"‚ùå El bucle autom·tico fallÛ despuÈs de {max_intentos} intentos. "
+                f"‚ùå El bucle autom√°tico fall√≥ despu√©s de {max_intentos} intentos. "
                 "¬øQuieres cambiar a modo manual? (s/n): "
             ):
                 info("Cambiando a modo manual...")
@@ -3764,15 +3764,15 @@ def ejecutar_bucle_agente(consulta: str, archivos: List[str],
                     directorio=directorio, opciones_aider=opciones_aider,
                     dispositivo=dispositivo, url_defecto=url_defecto,
                 )
-            error("Finalizado: el usuario decidiÛ no continuar en modo manual.")
+            error("Finalizado: el usuario decidi√≥ no continuar en modo manual.")
             return False
     finally:
-        # Garantiza que, aunque haya excepciÛn o Ctrl+C, no queden servidores sueltos.
+        # Garantiza que, aunque haya excepci√≥n o Ctrl+C, no queden servidores sueltos.
         _detener_servidor(proceso_actual)
 
 
 # ---------------------------------------------------------------------------
-# Modo experto (--experto): revisar/editar la selecciÛn antes de Aider
+# Modo experto (--experto): revisar/editar la selecci√≥n antes de Aider
 # ---------------------------------------------------------------------------
 def _normalizar_ruta_manual(raiz: Path, ruta: str) -> Optional[str]:
     """Normaliza una ruta tecleada por el usuario a formato POSIX relativo.
@@ -3798,39 +3798,39 @@ def _normalizar_ruta_manual(raiz: Path, ruta: str) -> Optional[str]:
 def _pedir_archivo_para_agregar(raiz: Path, seleccion: List[str]) -> Optional[str]:
     """Pide una ruta, la valida (existe, dentro del repo, sin duplicados)."""
     try:
-        ruta = input(_pintar("Ruta del archivo a aÒadir (relativa al repo): ",
+        ruta = input(_pintar("Ruta del archivo a a√±adir (relativa al repo): ",
                              _CYAN)).strip()
     except EOFError:
         return None
 
     normalizada = _normalizar_ruta_manual(raiz, ruta)
     if not normalizada:
-        aviso("Ruta no v·lida.")
+        aviso("Ruta no v√°lida.")
         return None
 
-    # ComprobaciÛn de que el archivo existe y NO sale del repo (evita "..").
+    # Comprobaci√≥n de que el archivo existe y NO sale del repo (evita "..").
     candidata = (raiz / normalizada).resolve()
     try:
         candidata.relative_to(raiz.resolve())
     except ValueError:
-        aviso(f"'{normalizada}' est· fuera del repositorio.")
+        aviso(f"'{normalizada}' est√° fuera del repositorio.")
         return None
     if not candidata.is_file():
         aviso(f"No existe el archivo: {normalizada}")
         return None
     if normalizada in seleccion:
-        aviso(f"'{normalizada}' ya est· en la lista.")
+        aviso(f"'{normalizada}' ya est√° en la lista.")
         return None
     return normalizada
 
 
 def _eliminar_por_indice(seleccion: List[str]) -> List[str]:
-    """Pide un Ìndice y elimina ese archivo (valida que estÈ en rango)."""
+    """Pide un √≠ndice y elimina ese archivo (valida que est√© en rango)."""
     try:
         entrada = input(_pintar("√çndice a eliminar: ", _CYAN)).strip()
         indice = int(entrada)
     except (ValueError, EOFError):
-        aviso("√çndice no v·lido.")
+        aviso("√çndice no v√°lido.")
         return seleccion
     if not (1 <= indice <= len(seleccion)):
         aviso(f"√çndice fuera de rango (la lista tiene {len(seleccion)} archivo(s)).")
@@ -3841,20 +3841,20 @@ def _eliminar_por_indice(seleccion: List[str]) -> List[str]:
 
 
 def modo_experto(seleccion: List[str], raiz: Path) -> List[str]:
-    """Modo experto: revisar/aÒadir/eliminar/limpiar archivos de la selecciÛn.
+    """Modo experto: revisar/a√±adir/eliminar/limpiar archivos de la selecci√≥n.
 
-    Opciones del men˙:
+    Opciones del men√∫:
       [a]gregar   ‚Üí pide una ruta (debe existir y estar dentro del repo).
-      [e]liminar  ‚Üí pide un Ìndice (fuera de rango se rechaza).
-      [l]impiar   ‚Üí vacÌa la lista (con confirmaciÛn).
-      [c]ontinuar ‚Üí devuelve la lista final que usar· Aider.
+      [e]liminar  ‚Üí pide un √≠ndice (fuera de rango se rechaza).
+      [l]impiar   ‚Üí vac√≠a la lista (con confirmaci√≥n).
+      [c]ontinuar ‚Üí devuelve la lista final que usar√° Aider.
 
     Devuelve la lista final (rutas POSIX relativas al repositorio).
     """
     while True:
         _emitir(sys.stdout, _pintar("‚îÄ‚îÄ Modo experto ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ", _CYAN))
         if not seleccion:
-            aviso("La lista de archivos est· vacÌa.")
+            aviso("La lista de archivos est√° vac√≠a.")
         for i, archivo in enumerate(seleccion, start=1):
             _emitir(sys.stdout, f"  [{i}] {archivo}")
         _emitir(sys.stdout, _pintar(
@@ -3867,7 +3867,7 @@ def modo_experto(seleccion: List[str], raiz: Path) -> List[str]:
 
         if opcion in ("c", "continuar", ""):
             if not seleccion:
-                aviso("No se puede continuar con la lista vacÌa: aÒade archivos "
+                aviso("No se puede continuar con la lista vac√≠a: a√±ade archivos "
                       "con [a] o sal con Ctrl+C.")
                 continue
             return seleccion
@@ -3876,7 +3876,7 @@ def modo_experto(seleccion: List[str], raiz: Path) -> List[str]:
             ruta = _pedir_archivo_para_agregar(raiz, seleccion)
             if ruta:
                 seleccion.append(ruta)
-                exito(f"AÒadido: {ruta}")
+                exito(f"A√±adido: {ruta}")
             continue
 
         if opcion in ("e", "eliminar", "remove"):
@@ -3889,13 +3889,13 @@ def modo_experto(seleccion: List[str], raiz: Path) -> List[str]:
                 aviso("Lista vaciada.")
             continue
 
-        aviso(f"OpciÛn no v·lida: '{opcion}'. Usa a, e, l o c.")
+        aviso(f"Opci√≥n no v√°lida: '{opcion}'. Usa a, e, l o c.")
 
 # ---------------------------------------------------------------------------
 # Interfaz CLI
 # ---------------------------------------------------------------------------
 class _VersionAction(argparse.Action):
-    """AcciÛn personalizada para --version: muestra el logo grande y sale."""
+    """Acci√≥n personalizada para --version: muestra el logo grande y sale."""
     def __init__(self, option_strings, dest, nargs=0, **kwargs):
         super().__init__(option_strings, dest, nargs=nargs, **kwargs)
 
@@ -3911,7 +3911,7 @@ class _VersionAction(argparse.Action):
 def _cargar_historial() -> List[dict]:
     """Devuelve la lista de tareas guardadas en ~/.snapcontext/historial.json.
 
-    Si el archivo no existe o est· corrupto se devuelve [] (sin lanzar error),
+    Si el archivo no existe o est√° corrupto se devuelve [] (sin lanzar error),
     para que el historial nunca rompa el flujo principal.
     """
     try:
@@ -3925,16 +3925,16 @@ def _cargar_historial() -> List[dict]:
 
 
 def _guardar_historial(entrada: dict) -> bool:
-    """AÒade ``entrada`` al historial persistente y lo recorta si crece mucho.
+    """A√±ade ``entrada`` al historial persistente y lo recorta si crece mucho.
 
-    ``entrada`` tÌpico::
+    ``entrada`` t√≠pico::
 
         {"fecha": "2026-08-21T12:00:00", "consulta": "...",
-         "archivos": ["..."], "resultado": "Èxito"/"fallo",
+         "archivos": ["..."], "resultado": "√©xito"/"fallo",
          "duracion": 12.5}
 
-    Devuelve True si se escribiÛ correctamente. Los errores solo avisan: la
-    memoria es un extra y no debe interrumpir una tarea que sÌ funcionÛ.
+    Devuelve True si se escribi√≥ correctamente. Los errores solo avisan: la
+    memoria es un extra y no debe interrumpir una tarea que s√≠ funcion√≥.
     """
     try:
         historial = _cargar_historial()
@@ -3951,18 +3951,18 @@ def _guardar_historial(entrada: dict) -> bool:
 
 
 def _mostrar_historial(ultimas: int = 20) -> int:
-    """Muestra las ``ultimas`` entradas m·s recientes del historial.
+    """Muestra las ``ultimas`` entradas m√°s recientes del historial.
 
-    Devuelve el n˙mero de entradas mostradas.
+    Devuelve el n√∫mero de entradas mostradas.
     """
     historial = _cargar_historial()
     if not historial:
-        info("Historial vacÌo: a˙n no hay tareas guardadas.")
+        info("Historial vac√≠o: a√∫n no hay tareas guardadas.")
         return 0
     recientes = historial[-ultimas:]
     exito(f"√öltimas {len(recientes)} tarea(s) guardada(s) "
           f"({HISTORIAL_PATH}):")
-    for entrada in reversed(recientes):     # la m·s reciente primero
+    for entrada in reversed(recientes):     # la m√°s reciente primero
         fecha = str(entrada.get("fecha", "?"))
         consulta = str(entrada.get("consulta", "?"))[:70]
         resultado = str(entrada.get("resultado", "?"))
@@ -3978,7 +3978,7 @@ def _mostrar_historial(ultimas: int = 20) -> int:
 
 
 def _limpiar_historial() -> bool:
-    """Borra ~/.snapcontext/historial.json. Devuelve True si se eliminÛ."""
+    """Borra ~/.snapcontext/historial.json. Devuelve True si se elimin√≥."""
     try:
         if HISTORIAL_PATH.exists():
             HISTORIAL_PATH.unlink()
@@ -3992,14 +3992,14 @@ def _limpiar_historial() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Utilidades genÈricas para el agente autÛnomo ‚Äî v0.10.0
+# Utilidades gen√©ricas para el agente aut√≥nomo ‚Äî v0.10.0
 # ---------------------------------------------------------------------------
 def _leer_archivo(ruta: Union[str, Path]) -> Optional[str]:
     """Lee un archivo (ruta relativa o absoluta) y devuelve su contenido.
 
     Devuelve ``None`` si no existe, es un directorio o falla la lectura
     (el error se registra con ``aviso``). Pensado para ser usado por el chat,
-    el orquestador y futuros planificadores autÛnomos.
+    el orquestador y futuros planificadores aut√≥nomos.
     """
     try:
         camino = Path(ruta).expanduser()
@@ -4021,11 +4021,11 @@ def _ejecutar_comando(comando: str, directorio: str = ".",
 
     Devuelve ``(codigo_retorno, stdout, stderr)``. Usa ``shell=True`` en todas
     las plataformas (cmd.exe en Windows, sh en Linux/macOS). Errores comunes
-    (timeout, directorio inv·lido) devuelven ``(-1, "", mensaje_de_error)``
+    (timeout, directorio inv√°lido) devuelven ``(-1, "", mensaje_de_error)``
     sin lanzar excepciones.
 
     Con ``capture_output=False`` la salida se muestra en tiempo real en la
-    consola (no se captura), y ``stdout``/``stderr`` devueltos ser·n vacÌos.
+    consola (no se captura), y ``stdout``/``stderr`` devueltos ser√°n vac√≠os.
     """
     raiz = Path(directorio).expanduser()
     if not raiz.is_dir():
@@ -4036,13 +4036,13 @@ def _ejecutar_comando(comando: str, directorio: str = ".",
     if decision == _SANDBOX_ABORTAR:
         return (-1, "", "Comando peligroso abortado (no hay sandbox Docker disponible).")
     if decision == _SANDBOX_CONTENEDOR:
-        # v6.4.0: con --sandbox-session se reutiliza una sesiÛn Docker en toda
-        # la tarea; si est· solicitada, se ejecuta con `docker exec` del mismo
+        # v6.4.0: con --sandbox-session se reutiliza una sesi√≥n Docker en toda
+        # la tarea; si est√° solicitada, se ejecuta con `docker exec` del mismo
         # contenedor (se crea de forma perezosa en el primer comando).
         if _SESION_DOCKER_SOLICITADA:
             import sandbox_session as ss                           # noqa: E402
             if _asegurar_sesion_docker(str(raiz)):
-                info(f"?? Ejecutando en sesiÛn Docker: {comando}")
+                info(f"üê≥ Ejecutando en sesi√≥n Docker: {comando}")
                 comando = ss.comando_en_sesion(comando)
                 raiz = Path.cwd()  # docker se lanza desde el host
             else:
@@ -4058,18 +4058,18 @@ def _ejecutar_comando(comando: str, directorio: str = ".",
     try:
         # seguridad: si el comando va a ejecutarse directo (sin
         # contenedor, p. ej. con --no-sandbox) y es potencialmente peligroso,
-        # pedir confirmaciÛn y abortar en modo --auto/no interactivo.
+        # pedir confirmaci√≥n y abortar en modo --auto/no interactivo.
         if decision == _SANDBOX_DIRECTO and _es_comando_peligroso(comando):
             if _ui_es_auto() or not _entrada_interactiva():
                 return (-1, "", "Comando peligroso abortado (modo --auto / no interactivo).")
             if not _preguntar_si(
                     f"Comando potencialmente peligroso: {comando}\n"
-                    "øEjecutar igualmente? (s/n): "):
+                    "¬øEjecutar igualmente? (s/n): "):
                 return (-1, "", "Comando peligroso rechazado por el usuario.")
         # seguridad: helper seguro. Comandos SIN sintaxis de shell
-        # (pipes/redirecciones/glÛbulos) se dividen con shlex.split y se
+        # (pipes/redirecciones/gl√≥bulos) se dividen con shlex.split y se
         # ejecutan con shell=False; los que la usan mantienen shell=True tras
-        # la validaciÛn de peligro (realizada arriba / en el sandbox).
+        # la validaci√≥n de peligro (realizada arriba / en el sandbox).
         proc = _ejecutar_con_politica(
             comando, cwd=str(raiz), timeout=timeout,
             capturar_salida=capture_output)
@@ -4079,13 +4079,13 @@ def _ejecutar_comando(comando: str, directorio: str = ".",
     except RuntimeError as exc:
         return (-1, "", f"Comando bloqueado por seguridad: {exc}")
     except subprocess.TimeoutExpired:
-        return (-1, "", f"El comando tardÛ demasiado (timeout={timeout}s)")
+        return (-1, "", f"El comando tard√≥ demasiado (timeout={timeout}s)")
     except OSError as exc:
         return (-1, "", f"Error ejecutando '{comando}': {exc}")
 
 
 # ---------------------------------------------------------------------------
-# ?? Sandboxing con Docker (v4.3.0)
+# üê≥ Sandboxing con Docker (v4.3.0)
 # ---------------------------------------------------------------------------
 # Imagen por defecto del sandbox (ligera, con Python y herramientas comunes).
 # Puede sobrescribirse con --sandbox-imagen o SNAPCONTEXT_SANDBOX_IMAGE.
@@ -4100,19 +4100,19 @@ _SANDBOX_VARS_CLAVE = ("GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
 _SANDBOX_ACTIVO: bool = False
 _SANDBOX_IMAGEN: str = SANDBOX_IMAGEN_DEFECTO
 _SANDBOX_COMANDO_PREP: Optional[str] = None
-# v6.4.0: persistencia Docker por sesiÛn (--sandbox-session). Cuando est·
-# activa, los comandos se ejecutan en un ˙nico contenedor reutilizado en toda
+# v6.4.0: persistencia Docker por sesi√≥n (--sandbox-session). Cuando est√°
+# activa, los comandos se ejecutan en un √∫nico contenedor reutilizado en toda
 # la tarea en lugar de `docker run --rm` por comando. Se solicita en main().
 _SESION_DOCKER_SOLICITADA: bool = False
 
 # ‚îÄ‚îÄ Sandboxing inteligente (v5.4.0) ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
-# PolÌtica por comando (adem·s del sandbox forzado de --sandbox):
+# Pol√≠tica por comando (adem√°s del sandbox forzado de --sandbox):
 #   _NO_SANDBOX   : --no-sandbox o SNAPCONTEXT_SANDBOX=0. Desactiva TODO el
 #                   sandbox (incluidos los comandos peligrosos).
-#   _SANDBOX_SMART: habilita la detecciÛn autom·tica de comandos peligrosos.
+#   _SANDBOX_SMART: habilita la detecci√≥n autom√°tica de comandos peligrosos.
 _NO_SANDBOX: bool = False
 _SANDBOX_SMART: bool = True
-# _SNAPCONTEXT_SANDBOX_ALWAYS queda implÌcito leyendo el entorno al decidir;
+# _SNAPCONTEXT_SANDBOX_ALWAYS queda impl√≠cito leyendo el entorno al decidir;
 # se activa en main() llamando a _activar_sandbox cuando la variable es "1".
 
 
@@ -4123,31 +4123,31 @@ def _deberia_usar_sandbox(comando: Optional[str],
     Orden de prioridad:
 
     1. ``--no-sandbox`` (flag o ``SNAPCONTEXT_SANDBOX=0``) ‚Üí ``False``.
-    2. ``--sandbox`` explÌcito ‚Üí ``True`` (m·xima prioridad activa).
+    2. ``--sandbox`` expl√≠cito ‚Üí ``True`` (m√°xima prioridad activa).
     3. ``SNAPCONTEXT_SANDBOX=1`` ‚Üí ``True`` (siempre activo).
     4. El comando es peligroso (``sandbox_utils.es_comando_peligroso``) ‚Üí ``True``.
     5. Cualquier otro caso ‚Üí ``False``.
 
     Cuando ``args`` se omite (p. ej. dentro de ``_ejecutar_comando``) se usa la
-    polÌtica global fijada en ``main()`` (``_NO_SANDBOX`` / ``_SANDBOX_ACTIVO``).
+    pol√≠tica global fijada en ``main()`` (``_NO_SANDBOX`` / ``_SANDBOX_ACTIVO``).
     """
-    # 1. Opt-out explÌcito: flag --no-sandbox o entorno SNAPCONTEXT_SANDBOX=0.
+    # 1. Opt-out expl√≠cito: flag --no-sandbox o entorno SNAPCONTEXT_SANDBOX=0.
     no_sandbox = _NO_SANDBOX
     if args is not None and getattr(args, "no_sandbox", False):
         no_sandbox = True
     if no_sandbox or os.environ.get("SNAPCONTEXT_SANDBOX") == "0":
         return False
-    # 2. Sandbox forzado justificaciÛn para todo.
+    # 2. Sandbox forzado justificaci√≥n para todo.
     if args is not None and getattr(args, "sandbox", False):
         return True
     # 2b. v4.3.0: sandbox global activo (--sandbox en main()) ‚Üí todo al
-    # contenedor, como siempre (compatibilidad hacia atr·s).
+    # contenedor, como siempre (compatibilidad hacia atr√°s).
     if _SANDBOX_ACTIVO:
         return True
     # 3. Siempre activo por entorno.
     if os.environ.get("SNAPCONTEXT_SANDBOX") == "1":
         return True
-    # 4. Comando peligroso ‚Üí sandbox autom·ticamente.
+    # 4. Comando peligroso ‚Üí sandbox autom√°ticamente.
     if _SANDBOX_SMART and es_comando_peligroso(comando):
         return True
     # 5. Resto (seguro) ‚Üí sin sandbox.
@@ -4155,25 +4155,25 @@ def _deberia_usar_sandbox(comando: Optional[str],
 
 
 def _configurar_no_sandbox(activo: bool) -> None:
-    """Fija la polÌtica global ``--no-sandbox`` (para tests y CLI)."""
+    """Fija la pol√≠tica global ``--no-sandbox`` (para tests y CLI)."""
     global _NO_SANDBOX
     _NO_SANDBOX = bool(activo)
 
 
-# v6.24.0: orquestaciÛn inteligente de modelos (model_router.py).
+# v6.24.0: orquestaci√≥n inteligente de modelos (model_router.py).
 _MODEL_ROUTING_ACTIVO = True     # flag --model-routing (por defecto activado)
-_MODELO_EXPLICITO = False        # --model/--provider explÌcitos ‚Üí sin enrutado
+_MODELO_EXPLICITO = False        # --model/--provider expl√≠citos ‚Üí sin enrutado
 
 
-# v6.30.0: enrutamiento hÌbrido Local-Nube (fallback entre modelos).
-_MODEL_FALLBACK_ACTIVO = True              # --model-fallback (por defecto: sÌ)
+# v6.30.0: enrutamiento h√≠brido Local-Nube (fallback entre modelos).
+_MODEL_FALLBACK_ACTIVO = True              # --model-fallback (por defecto: s√≠)
 _UMBRAL_COMPLEJIDAD_CLI: Optional[int] = None      # --complejidad-umbral N
 _PRIORIDAD_LOCAL_CLI: Optional[List[str]] = None   # --model-prioridad-local
 _PRIORIDAD_NUBE_CLI: Optional[List[str]] = None    # --model-prioridad-nube
 
-# Marcas de error de AUTENTICACI”N (v6.30.0): NO disparan el fallback porque
-# reintentar con otro modelo no arregla una clave ausente o inv·lida; se
-# exige acciÛn del usuario (exportar la variable de entorno correcta).
+# Marcas de error de AUTENTICACI√ìN (v6.30.0): NO disparan el fallback porque
+# reintentar con otro modelo no arregla una clave ausente o inv√°lida; se
+# exige acci√≥n del usuario (exportar la variable de entorno correcta).
 _MARCAS_ERROR_AUTH: Tuple[str, ...] = (
     "api key", "apikey", "api_key", "clave", "variable de entorno",
     "unauthorized", "authentication", "forbidden", "permission denied",
@@ -4185,9 +4185,9 @@ def _configurar_model_fallback(activo: bool) -> None:
     """Fija el estado global del fallback entre modelos (v6.30.0).
 
     - ``True`` (defecto): ante fallo de API/timeout se prueba el siguiente
-      modelo de la cadena de prioridad local?nube (:mod:`model_router`).
+      modelo de la cadena de prioridad local‚Üînube (:mod:`model_router`).
     - ``False`` (``--no-model-fallback``): se usa solo el modelo configurado
-      (comportamiento idÈntico a v6.24.0).
+      (comportamiento id√©ntico a v6.24.0).
     """
     global _MODEL_FALLBACK_ACTIVO
     _MODEL_FALLBACK_ACTIVO = bool(activo)
@@ -4196,14 +4196,14 @@ def _configurar_model_fallback(activo: bool) -> None:
 def _configurar_hibrido_cli(umbral: Optional[int] = None,
                             prioridad_local: Optional[List[str]] = None,
                             prioridad_nube: Optional[List[str]] = None) -> None:
-    """Fija los overrides CLI del enrutamiento hÌbrido (v6.30.0).
+    """Fija los overrides CLI del enrutamiento h√≠brido (v6.30.0).
 
     - ``umbral``         : ``--complejidad-umbral N`` (longitud_consulta).
     - ``prioridad_local``: ``--model-prioridad-local prov/model ...``.
     - ``prioridad_nube`` : ``--model-prioridad-nube prov/model ...``.
 
     Los flags CLI tienen prioridad sobre ``config.json``; ``None`` significa
-    "sin override" (se usa la configuraciÛn persistida).
+    "sin override" (se usa la configuraci√≥n persistida).
     """
     global _UMBRAL_COMPLEJIDAD_CLI, _PRIORIDAD_LOCAL_CLI, _PRIORIDAD_NUBE_CLI
     _UMBRAL_COMPLEJIDAD_CLI = int(umbral) if umbral is not None else None
@@ -4215,8 +4215,8 @@ def _configurar_model_routing(activo: bool, explicito: bool = False) -> None:
     """Fija el estado global del enrutamiento de modelos (v6.24.0).
 
     - ``activo``   : flag ``--model-routing`` (True) / ``--no-model-routing``.
-    - ``explicito``: True si el usuario pasÛ ``--model`` o ``--provider``;
-      en ese caso el enrutamiento se ignora (prioridad m·xima de los flags).
+    - ``explicito``: True si el usuario pas√≥ ``--model`` o ``--provider``;
+      en ese caso el enrutamiento se ignora (prioridad m√°xima de los flags).
     """
     global _MODEL_ROUTING_ACTIVO, _MODELO_EXPLICITO
     _MODEL_ROUTING_ACTIVO = bool(activo)
@@ -4224,10 +4224,10 @@ def _configurar_model_routing(activo: bool, explicito: bool = False) -> None:
 
 
 def _cargar_configuracion_routing() -> dict:
-    """Lee la secciÛn ``model_routing`` de ``~/.snapcontext/config.json``.
+    """Lee la secci√≥n ``model_routing`` de ``~/.snapcontext/config.json``.
 
-    Devuelve un dict ``{categoria: {"provider": ..., "model": ...}}``; vacÌo
-    (o {} si la secciÛn no existe/corrupta) ‚Üí se usa el modelo por defecto.
+    Devuelve un dict ``{categoria: {"provider": ..., "model": ...}}``; vac√≠o
+    (o {} si la secci√≥n no existe/corrupta) ‚Üí se usa el modelo por defecto.
     """
     try:
         seccion = cargar_configuracion().get("model_routing")
@@ -4237,11 +4237,11 @@ def _cargar_configuracion_routing() -> dict:
 
 
 def _configuracion_routing_efectiva() -> dict:
-    """SecciÛn ``model_routing`` con los overrides CLI aplicados (v6.30.0).
+    """Secci√≥n ``model_routing`` con los overrides CLI aplicados (v6.30.0).
 
-    Combina la configuraciÛn persistida en ``~/.snapcontext/config.json`` con
+    Combina la configuraci√≥n persistida en ``~/.snapcontext/config.json`` con
     los flags ``--complejidad-umbral`` y ``--model-prioridad-local/nube`` (los
-    flags ganan). Nunca lanza; sin configuraciÛn devuelve ``{}``.
+    flags ganan). Nunca lanza; sin configuraci√≥n devuelve ``{}``.
     """
     try:
         seccion = dict(_cargar_configuracion_routing())
@@ -4260,10 +4260,10 @@ def _configuracion_routing_efectiva() -> dict:
 
 
 def _extraer_consulta_mensajes(mensajes: List[dict]) -> str:
-    """⁄ltimo mensaje del usuario (heurÌstica de complejidad, v6.30.0).
+    """√öltimo mensaje del usuario (heur√≠stica de complejidad, v6.30.0).
 
     ``_enviar_al_proveedor`` no recibe la consulta original; para las
-    heurÌsticas de :mod:`model_router` se usa el ˙ltimo mensaje ``user``
+    heur√≠sticas de :mod:`model_router` se usa el √∫ltimo mensaje ``user``
     (truncado a 100.000 caracteres por rendimiento). Nunca lanza.
     """
     try:
@@ -4276,11 +4276,11 @@ def _extraer_consulta_mensajes(mensajes: List[dict]) -> str:
 
 
 def _es_error_autenticacion(exc: BaseException) -> bool:
-    """øIndica ``exc`` un problema de autenticaciÛn/permisos? (v6.30.0).
+    """¬øIndica ``exc`` un problema de autenticaci√≥n/permisos? (v6.30.0).
 
-    RestricciÛn del fallback hÌbrido: los errores de autenticaciÛn (clave
-    ausente/inv·lida, 401/403) NO se reintentan con otro modelo ó el
-    siguiente fallarÌa igual ó; se aborta con el error original.
+    Restricci√≥n del fallback h√≠brido: los errores de autenticaci√≥n (clave
+    ausente/inv√°lida, 401/403) NO se reintentan con otro modelo ‚Äî el
+    siguiente fallar√≠a igual ‚Äî; se aborta con el error original.
     """
     codigo = getattr(exc, "status_code", None)
     if codigo in (401, 403):
@@ -4293,23 +4293,23 @@ def _es_error_autenticacion(exc: BaseException) -> bool:
 
 
 def _es_comando_peligroso(comando: str) -> bool:
-    """Alias de detecciÛn (delegado a :mod:`sandbox_utils`)."""
+    """Alias de detecci√≥n (delegado a :mod:`sandbox_utils`)."""
     return es_comando_peligroso(comando)
 
 
-# CÛdigos de decisiÛn de ejecuciÛn respecto al sandbox.
+# C√≥digos de decisi√≥n de ejecuci√≥n respecto al sandbox.
 _SANDBOX_ABORTAR = -1    # no ejecutar (comando peligroso sin Docker disponible)
 _SANDBOX_DIRECTO = 0     # ejecutar directamente (comando seguro / opt-out)
 _SANDBOX_CONTENEDOR = 1  # ejecutar dentro del contenedor Docker
 
 
 def _decidir_ejecucion_sandbox(comando: str, directorio: str) -> int:
-    """Resuelve cÛmo ejecutar ``comando`` y gestiona el aviso de peligro.
+    """Resuelve c√≥mo ejecutar ``comando`` y gestiona el aviso de peligro.
 
     Devuelve uno de :data:`_SANDBOX_CONTENEDOR`, :data:`_SANDBOX_DIRECTO` o
     :data:`_SANDBOX_ABORTAR`.
 
-    - Si el comando es peligroso y el sandbox Docker **no** est· disponible:
+    - Si el comando es peligroso y el sandbox Docker **no** est√° disponible:
       avisa y (modo interactivo) pregunta si continuar sin sandbox; en modo
       ``--auto`` (o stdin no interactivo) **aborta**.
     - Si es peligroso y hay Docker: avisa con el candado y lo encapsula.
@@ -4326,7 +4326,7 @@ def _decidir_ejecucion_sandbox(comando: str, directorio: str) -> int:
     # Sandbox detectado por peligro (o env=1) ‚Üí comprobar disponibilidad.
     if _docker_disponible():
         if peligroso:
-            info("?? Comando potencialmente peligroso detectado. "
+            info("üóù Comando potencialmente peligroso detectado. "
                  "Ejecutando en sandbox Docker.")
         else:
             depurar("[sandbox] SNAPCONTEXT_SANDBOX=1 ‚Üí Ejecutando en contenedor.")
@@ -4337,21 +4337,21 @@ def _decidir_ejecucion_sandbox(comando: str, directorio: str) -> int:
         aviso("‚ö†Ô∏è Comando peligroso detectado. No se puede usar sandbox "
               "(Docker no instalado).")
         if _ui_es_auto() or not _entrada_interactiva():
-            aviso("  ‚Üí Modo --auto: se aborta la ejecuciÛn del comando.")
+            aviso("  ‚Üí Modo --auto: se aborta la ejecuci√≥n del comando.")
             return _SANDBOX_ABORTAR
         if not _preguntar_si("¬øContinuar sin sandbox? (s/n): "):
-            aviso("  ‚Üí EjecuciÛn rechazada por el usuario.")
+            aviso("  ‚Üí Ejecuci√≥n rechazada por el usuario.")
             return _SANDBOX_ABORTAR
         return _SANDBOX_DIRECTO
 
     # Sandbox solicitado (env=1) pero sin Docker y comando no peligroso:
     # mejor esfuerzo ‚Üí seguir directo (no es destructivo).
-    depurar("[sandbox] Solicitado pero Docker no disponible; se contin˙a directo.")
+    depurar("[sandbox] Solicitado pero Docker no disponible; se contin√∫a directo.")
     return _SANDBOX_DIRECTO
 
 
 def _docker_disponible() -> bool:
-    """Comprueba que Docker est· instalado Y que el daemon est· en ejecuciÛn.
+    """Comprueba que Docker est√° instalado Y que el daemon est√° en ejecuci√≥n.
 
     - ``docker --version`` existe en el PATH.
     - ``docker info`` responde sin error (daemon activo).
@@ -4380,33 +4380,33 @@ def _sandbox_imagen_resuelta(explicita: Optional[str] = None) -> str:
 def _activar_sandbox(imagen: Optional[str] = None,
                      comando_prep: Optional[str] = None,
                      estricto: bool = True) -> bool:
-    """Activa el sandbox global si Docker est· disponible.
+    """Activa el sandbox global si Docker est√° disponible.
 
     Args:
         imagen: imagen Docker (--sandbox-imagen o env por defecto).
-        comando_prep: comando de preparaciÛn previo (--sandbox-comando).
-        estricto: si es ``True`` (``--sandbox`` explÌcito) y Docker no est·
+        comando_prep: comando de preparaci√≥n previo (--sandbox-comando).
+        estricto: si es ``True`` (``--sandbox`` expl√≠cito) y Docker no est√°
             disponible lanza ``RuntimeError``; si es ``False`` solo avisa y
-            contin˙a sin sandbox.
+            contin√∫a sin sandbox.
 
-    Devuelve ``True`` si el sandbox quedÛ activo.
+    Devuelve ``True`` si el sandbox qued√≥ activo.
     """
     global _SANDBOX_ACTIVO, _SANDBOX_IMAGEN, _SANDBOX_COMANDO_PREP
     if not _docker_disponible():
         mensaje = (
-            "--sandbox solicitado pero Docker no est· disponible "
-            "(¬øinstalado? ¬øel daemon est· en ejecuciÛn?). "
+            "--sandbox solicitado pero Docker no est√° disponible "
+            "(¬øinstalado? ¬øel daemon est√° en ejecuci√≥n?). "
             "Instala Docker Desktop o inicia el servicio 'docker'."
         )
         _SANDBOX_ACTIVO = False
         if estricto:
             raise RuntimeError(mensaje)
-        aviso(mensaje + "\n  ‚Üí Se contin˙a SIN sandbox.")
+        aviso(mensaje + "\n  ‚Üí Se contin√∫a SIN sandbox.")
         return False
     _SANDBOX_ACTIVO = True
     _SANDBOX_IMAGEN = _sandbox_imagen_resuelta(imagen)
     _SANDBOX_COMANDO_PREP = (comando_prep or "").strip() or None
-    exito(f"?? Sandbox activo (imagen: {_SANDBOX_IMAGEN}, "
+    exito(f"üê≥ Sandbox activo (imagen: {_SANDBOX_IMAGEN}, "
           f"directorio montado en {SANDBOX_DIR_TRABAJO}).")
     return True
 
@@ -4419,7 +4419,7 @@ def _desactivar_sandbox() -> None:
 
 
 def sandbox_activo() -> bool:
-    """Indica si el sandbox Docker est· activo."""
+    """Indica si el sandbox Docker est√° activo."""
     return _SANDBOX_ACTIVO
 
 
@@ -4431,7 +4431,7 @@ def _envolver_sandbox(comando: str, directorio: str = ".") -> str:
         docker run --rm -v "<dir>:/workspace" -w /workspace \
                    -e GEMINI_API_KEY ... <imagen> sh -c "<comando>"
 
-    Si hay comando de preparaciÛn (--sandbox-comando), se antepone con
+    Si hay comando de preparaci√≥n (--sandbox-comando), se antepone con
     ``&&``. Sin sandbox activo devuelve ``comando`` tal cual.
     """
     if not _SANDBOX_ACTIVO:
@@ -4452,17 +4452,17 @@ def _envolver_sandbox(comando: str, directorio: str = ".") -> str:
         comando = f"{_SANDBOX_COMANDO_PREP} && ({comando})"
     partes.extend(["sh", "-c", comando])
     return shlex.join(partes)
-# --- Persistencia Docker por sesiÛn (v6.4.0) ---------------------------------
+# --- Persistencia Docker por sesi√≥n (v6.4.0) ---------------------------------
 def _configurar_sesion_docker(solicitada: bool) -> None:
-    """Fija el estado global de sesiÛn persistente (para CLI y tests)."""
+    """Fija el estado global de sesi√≥n persistente (para CLI y tests)."""
     global _SESION_DOCKER_SOLICITADA
     _SESION_DOCKER_SOLICITADA = bool(solicitada)
 
 
 def _asegurar_sesion_docker(directorio: str) -> Optional[str]:
-    """Devuelve el contenedor de sesiÛn activo, cre·ndolo si hace falta.
+    """Devuelve el contenedor de sesi√≥n activo, cre√°ndolo si hace falta.
 
-    La sesiÛn se crea de forma perezosa en el primer comando de la tarea
+    La sesi√≥n se crea de forma perezosa en el primer comando de la tarea
     (``--sandbox-session``). Si ya existe en memoria la reutiliza (sin volver
     a lanzar ``docker run``). Devuelve el nombre del contenedor o ``None``.
     """
@@ -4476,10 +4476,10 @@ def _asegurar_sesion_docker(directorio: str) -> Optional[str]:
 
 
 def _destruir_sesion_si_aplica() -> None:
-    """Destruye la sesiÛn Docker si la tarea la solicitÛ (v6.4.0).
+    """Destruye la sesi√≥n Docker si la tarea la solicit√≥ (v6.4.0).
 
     Se llama al finalizar el plan o el bucle ReAct y desde el manejador de
-    seÒales, de modo que no queden contenedores huÈrfanos. Nunca lanza.
+    se√±ales, de modo que no queden contenedores hu√©rfanos. Nunca lanza.
     """
     if not _SESION_DOCKER_SOLICITADA:
         return
@@ -4487,13 +4487,13 @@ def _destruir_sesion_si_aplica() -> None:
         import sandbox_session as ss                               # noqa: E402
         ss.destruir_sesion()
     except Exception as exc:                                       # noqa: BLE001
-        aviso(f"[salida] No se pudo destruir la sesiÛn Docker ({exc}).")
+        aviso(f"[salida] No se pudo destruir la sesi√≥n Docker ({exc}).")
 
 
-def _limpiar_sesiones_huÈrfanas(auto: bool = False) -> int:
+def _limpiar_sesiones_hu√©rfanas(auto: bool = False) -> int:
     """Elimina contenedores ``snap-session-*`` sobrantes (--sandbox-session-clean)."""
     import sandbox_session as ss                                   # noqa: E402
-    return ss.limpiar_huÈrfanos(auto=auto)
+    return ss.limpiar_hu√©rfanos(auto=auto)
 
 
 def _ejecutar_pruebas_argv(comando: List[str], directorio: str) -> tuple:
@@ -4502,7 +4502,7 @@ def _ejecutar_pruebas_argv(comando: List[str], directorio: str) -> tuple:
     Devuelve ``(codigo_retorno, stdout, stderr)`` como :func:`_ejecutar_comando`.
     """
     if not comando:
-        return (-1, "", "El comando de pruebas est· vacÌo.")
+        return (-1, "", "El comando de pruebas est√° vac√≠o.")
     return _ejecutar_comando(" ".join(comando), directorio, timeout=1800)
 
 
@@ -4523,7 +4523,7 @@ def _sandbox_pausado():
 
 
 # --- Procesos en segundo plano para execute_command (v2.3.0) -----------------
-_PROCESOS_FONDO: dict = {}   # pid ‚Üí estado (para ejecuciÛn en background)
+_PROCESOS_FONDO: dict = {}   # pid ‚Üí estado (para ejecuci√≥n en background)
 
 
 def _lanzar_proceso_fondo(comando: str, directorio: str = ".",
@@ -4531,18 +4531,18 @@ def _lanzar_proceso_fondo(comando: str, directorio: str = ".",
     """Lanza ``comando`` en segundo plano (Popen). Devuelve un registro con el PID.
 
     El proceso queda registrado en ``_PROCESOS_FONDO`` para poder consultarlo
-    despuÈs con :func:`_estado_proceso_fondo`. Nunca lanza excepciones.
+    despu√©s con :func:`_estado_proceso_fondo`. Nunca lanza excepciones.
     """
     raiz = Path(directorio).expanduser()
     if not raiz.is_dir():
         return {"ok": False, "error": f"El directorio no existe: {raiz}"}
-    # v4.3.0: los procesos en segundo plano tambiÈn respetan --sandbox.
+    # v4.3.0: los procesos en segundo plano tambi√©n respetan --sandbox.
     if _SANDBOX_ACTIVO:
-        # v6.4.0: con --sandbox-session se lanzan dentro del contenedor de sesiÛn.
+        # v6.4.0: con --sandbox-session se lanzan dentro del contenedor de sesi√≥n.
         if _SESION_DOCKER_SOLICITADA:
             import sandbox_session as ss                           # noqa: E402
             if _asegurar_sesion_docker(str(raiz)):
-                info(f"?? Ejecutando en sesiÛn Docker (background): {comando}")
+                info(f"üê≥ Ejecutando en sesi√≥n Docker (background): {comando}")
                 comando = ss.comando_en_sesion(comando)
                 raiz = Path.cwd()
             else:
@@ -4553,7 +4553,7 @@ def _lanzar_proceso_fondo(comando: str, directorio: str = ".",
             info(f"[sandbox] Ejecutando en contenedor (background): {comando}")
             comando = _envolver_sandbox(comando, str(raiz))
             raiz = Path.cwd()
-    # seguridad: en background no hay confirmaciÛn interactiva ˙til;
+    # seguridad: en background no hay confirmaci√≥n interactiva √∫til;
     # si no hay sandbox y el comando es peligroso, se rechaza sin lanzarlo.
     if not _SANDBOX_ACTIVO and _es_comando_peligroso(comando):
         return {"ok": False,
@@ -4579,8 +4579,8 @@ def _lanzar_proceso_fondo(comando: str, directorio: str = ".",
 def _estado_proceso_fondo(pid: int) -> dict:
     """Consulta el estado de un proceso lanzado en segundo plano.
 
-    Si ya terminÛ, captura su stdout/stderr (si se pidiÛ captura) y lo marca
-    como finalizado. Devuelve un dict con ``estado``, ``pid`` y (si terminÛ)
+    Si ya termin√≥, captura su stdout/stderr (si se pidi√≥ captura) y lo marca
+    como finalizado. Devuelve un dict con ``estado``, ``pid`` y (si termin√≥)
     ``codigo_retorno``, ``stdout`` y ``stderr``.
     """
     registro = _PROCESOS_FONDO.get(pid)
@@ -4594,7 +4594,7 @@ def _estado_proceso_fondo(pid: int) -> dict:
     if proc.poll() is None:
         registro["estado"] = "ejecutando"
         return {"ok": True, "estado": "ejecutando", "pid": pid}
-    # Ya terminÛ: capturar salida si se pidiÛ.
+    # Ya termin√≥: capturar salida si se pidi√≥.
     if proc.stdout is not None:
         try:
             registro["stdout"] = (proc.stdout.read() or "") if proc.stdout else ""
@@ -4617,40 +4617,40 @@ def _estado_proceso_fondo(pid: int) -> dict:
 AYUDA_CHAT = """Comandos disponibles:
   /salir                 ‚Üí salir del chat
   /archivos              ‚Üí mostrar los archivos del contexto actual
-  /context               ‚Üí alias de /archivos (contexto de la conversaciÛn)
-  /limpiar               ‚Üí limpiar el historial de conversaciÛn
+  /context               ‚Üí alias de /archivos (contexto de la conversaci√≥n)
+  /limpiar               ‚Üí limpiar el historial de conversaci√≥n
   /seleccion <consulta>  ‚Üí seleccionar archivos relevantes con el proveedor actual
   /provider <proveedor>  ‚Üí cambiar proveedor (gemini | anthropic | ollama | deepseek | groq)
-  /historial             ‚Üí mostrar las ˙ltimas tareas guardadas
+  /historial             ‚Üí mostrar las √∫ltimas tareas guardadas
   /run <comando>         ‚Üí ejecutar un comando de shell y mostrar su salida
                            (pide permiso salvo con --no-confirmar)
   /read <archivo>        ‚Üí mostrar el contenido de un archivo
-  /explore <tema>        ‚Üí buscar un tema en el cÛdigo (rg/grep/findstr, sin permiso)
+  /explore <tema>        ‚Üí buscar un tema en el c√≥digo (rg/grep/findstr, sin permiso)
   /fix <mensaje>         ‚Üí ejecutar el alias fix (bucle de pruebas)
   /review <mensaje>      ‚Üí ejecutar el alias review (vista previa + experto)
   /server <mensaje>      ‚Üí ejecutar el alias server (bucle con servidor)
   /edit <archivo>        ‚Üí abrir el archivo en el editor (VSCode/nano/notepad;
                            pide permiso salvo con --no-confirmar)
-  /save                  ‚Üí guardar la sesiÛn actual en historial.json
+  /save                  ‚Üí guardar la sesi√≥n actual en historial.json
   /tools                 ‚Üí listar las herramientas MCP disponibles
   /tool <nombre> <args>  ‚Üí ejecutar una herramienta MCP
                            (p. ej.: /tool grep login ¬∑ /tool read_file a.py)
-                           args en JSON tambiÈn v·lidos: /tool read_file {"ruta": "a.py", "linea_inicio": 10}
-  /search <consulta>     ‚Üí b˙squeda sem·ntica de archivos (embeddings; requiere
+                           args en JSON tambi√©n v√°lidos: /tool read_file {"ruta": "a.py", "linea_inicio": 10}
+  /search <consulta>     ‚Üí b√∫squeda sem√°ntica de archivos (embeddings; requiere
                            pip install snapcontext[embeddings])
   /buscar <consulta>     ‚Üí alias de /search (v1.4.0)
   /grafo                 ‚Üí grafo de dependencias del proyecto en texto ASCII
   /dependencias <archivo> ‚Üí imports y dependencias inversas de un archivo
   /claude                ‚Üí mostrar la memoria del proyecto (CLAUDE.md)
   /context               ‚Üí mostrar memoria del proyecto y archivos en contexto
-  /asesor                ‚Üí an·lisis proactivo: sugerencias de mejora del cÛdigo
-  /seguridad             ‚Üí an·lisis de vulnerabilidades ?? del proyecto
-  /rendimiento           ‚Üí an·lisis de rendimiento ‚ö° del proyecto
+  /asesor                ‚Üí an√°lisis proactivo: sugerencias de mejora del c√≥digo
+  /seguridad             ‚Üí an√°lisis de vulnerabilidades üóù del proyecto
+  /rendimiento           ‚Üí an√°lisis de rendimiento ‚ö° del proyecto
   /plugin [p.h args]     ‚Üí lista plugins o ejecuta plugin.herramienta (args JSON)
   /ayuda                 ‚Üí mostrar esta ayuda
-Cualquier otro texto se envÌa como mensaje al proveedor de IA; si parece una
-pregunta de exploraciÛn, SnapContext puede usar herramientas MCP de solo
-lectura autom·ticamente y aÒadir el resultado como contexto.
+Cualquier otro texto se env√≠a como mensaje al proveedor de IA; si parece una
+pregunta de exploraci√≥n, SnapContext puede usar herramientas MCP de solo
+lectura autom√°ticamente y a√±adir el resultado como contexto.
 Los comandos /run, /explore, /fix, /review y /server se ejecutan en un hilo
 separado para no bloquear el chat."""
 
@@ -4664,7 +4664,7 @@ _CLAVES_RAZONAMIENTO = ("reasoning", "reasoning_content", "thinking",
 _RE_THINK = re.compile(r"<think>(.*?)</think>", re.S | re.I)
 _RE_THINK_ABIERTO = re.compile(r"</?think>", re.I)
 
-# Estado de sesiÛn del modo razonamiento (mutable, sin globals).
+# Estado de sesi√≥n del modo razonamiento (mutable, sin globals).
 _RAZONAMIENTO_ESTADO = {"banner": False, "aviso_dos_pasos": False}
 
 
@@ -4708,8 +4708,8 @@ def _extraer_razonamiento(respuesta) -> Optional[str]:
 def _quitar_razonamiento(texto: str) -> str:
     """Elimina los bloques ``<think>‚Ä¶</think>`` de un texto plano.
 
-    Los modelos que los emiten romperÌan el parseo de JSON del planificador
-    y los parches del editor si se dejaran en el texto ˙til. Si el texto no
+    Los modelos que los emiten romper√≠an el parseo de JSON del planificador
+    y los parches del editor si se dejaran en el texto √∫til. Si el texto no
     contiene razonamiento se devuelve **tal cual** (sin ``strip()``), para no
     alterar el whitespace de las respuestas del proveedor (compatibilidad).
     """
@@ -4729,19 +4729,19 @@ def _razonamiento_activo(args=None) -> bool:
     """
     bruto = (os.environ.get("SNAPCONTEXT_MOSTRAR_RAZONAMIENTO")
              or "").strip().lower()
-    if bruto in ("1", "true", "yes", "si", "sÌ", "on"):
+    if bruto in ("1", "true", "yes", "si", "s√≠", "on"):
         return True
     return bool(getattr(args, "mostrar_razonamiento", False))
 
 
 def _procesar_razonamiento(respuesta, activo: bool = False,
                            avisar: bool = True,
-                           titulo: str = "?? Razonamiento del modelo") -> tuple:
+                           titulo: str = "üß† Razonamiento del modelo") -> tuple:
     """Muestra (si ``activo``) el razonamiento y devuelve ``(limpio, raz)``.
 
-    Siempre elimina los bloques ``<think>‚Ä¶</think>`` del texto ˙til. Con
-    ``avisar=False`` no muestra el mensaje de "sin razonamiento explÌcito"
-    (˙til cuando el llamador gestiona el modo de dos pasos).
+    Siempre elimina los bloques ``<think>‚Ä¶</think>`` del texto √∫til. Con
+    ``avisar=False`` no muestra el mensaje de "sin razonamiento expl√≠cito"
+    (√∫til cuando el llamador gestiona el modo de dos pasos).
     """
     raz = _extraer_razonamiento(respuesta)
     limpio = (_quitar_razonamiento(respuesta)
@@ -4751,7 +4751,7 @@ def _procesar_razonamiento(respuesta, activo: bool = False,
             import ui as _ui
             _ui.mostrar_razonamiento(raz, titulo=titulo)
         elif avisar:
-            info("‚Ñπ El modelo no proporcionÛ razonamiento explÌcito.")
+            info("‚Ñπ El modelo no proporcion√≥ razonamiento expl√≠cito.")
     return limpio, raz
 
 
@@ -4759,12 +4759,12 @@ def _razonamiento_dos_pasos(tarea: str, proveedor: Optional[str],
                             modelo: Optional[str] = None) -> Optional[str]:
     """Modo de dos pasos: pide primero SOLO el razonamiento de ``tarea``.
 
-    Se usa cuando el modelo no devuelve razonamiento explÌcito y el usuario
-    activÛ ``--mostrar-razonamiento``. Devuelve el texto del razonamiento o
+    Se usa cuando el modelo no devuelve razonamiento expl√≠cito y el usuario
+    activ√≥ ``--mostrar-razonamiento``. Devuelve el texto del razonamiento o
     ``None`` si la llamada falla (nunca rompe el flujo principal).
     """
     prompt = ("Por favor, genera tu razonamiento paso a paso para la "
-              "siguiente tarea, sin ejecutar ninguna acciÛn.\n\nTarea: "
+              "siguiente tarea, sin ejecutar ninguna acci√≥n.\n\nTarea: "
               + (tarea or "").strip())
     try:
         respuesta = _enviar_al_proveedor(
@@ -4777,21 +4777,21 @@ def _razonamiento_dos_pasos(tarea: str, proveedor: Optional[str],
 
 # ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
 # v6.11.0 ‚Äî PROMPT CACHING
-# Mantiene en cachÈ los mensajes del sistema, las herramientas MCP y la memoria
+# Mantiene en cach√© los mensajes del sistema, las herramientas MCP y la memoria
 # del proyecto (CLAUDE.md) para los proveedores compatibles (Anthropic/DeepSeek)
 # mediante la marca `cache_control: {"type": "ephemeral"}` que entienden sus API.
 # Reduce coste y latencia en sesiones largas. No tiene efecto en Gemini, Groq u
-# Ollama (se envÌan los mensajes tal cual). Activado por defecto; se desactiva
+# Ollama (se env√≠an los mensajes tal cual). Activado por defecto; se desactiva
 # con `--no-prompt-caching`, `SNAPCONTEXT_PROMPT_CACHING=0` o
 # `prompt_caching: false` en ~/.snapcontext/config.json.
 #
-# v6.16.0 ‚Äî MÈtricas de cachÈ: en modo `--depurar` se emiten logs con la
-# estimaciÛn de tokens cacheados por categorÌa (sistema, herramientas,
+# v6.16.0 ‚Äî M√©tricas de cach√©: en modo `--depurar` se emiten logs con la
+# estimaci√≥n de tokens cacheados por categor√≠a (sistema, herramientas,
 # CLAUDE.md/SNAPCONTEXT.md) y el total no cacheado.
 # ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
 PROMPT_CACHING_DEFECTO = True
 ENV_PROMPT_CACHING = "SNAPCONTEXT_PROMPT_CACHING"
-# HeurÌstica ligera (no afecta al contenido) para detectar si un mensaje lleva
+# Heur√≠stica ligera (no afecta al contenido) para detectar si un mensaje lleva
 # definiciones de herramientas MCP o la memoria del proyecto y marcarlo cacheable.
 _MARCADORES_CACHE_HERRAMIENTAS = (
     "HERRAMIENTAS", "herramienta", "MCP", "editar_archivo", "ejecutar_comando")
@@ -4804,7 +4804,7 @@ def _soporta_prompt_caching(proveedor: str) -> bool:
 
 
 def _resolver_prompt_caching(explicito: Optional[bool] = None) -> bool:
-    """Resuelve si el prompt caching est· activado (v6.11.0).
+    """Resuelve si el prompt caching est√° activado (v6.11.0).
 
     Prioridad: flag ``--prompt-caching`` (``explicito``) > entorno
     ``SNAPCONTEXT_PROMPT_CACHING`` > ``config.json -> prompt_caching`` >
@@ -4829,12 +4829,12 @@ def _resolver_prompt_caching(explicito: Optional[bool] = None) -> bool:
 
 
 # -----------------------------------------------------------------------------
-# v6.31.0 ó PROMPT CACHING POR CAPAS (est·tica + semi-est·tica + vol·til)
+# v6.31.0 ‚Äî PROMPT CACHING POR CAPAS (est√°tica + semi-est√°tica + vol√°til)
 #
-# Con el caching b·sico (v6.16.0) las marcas se colocan sobre mensajes sueltos;
-# con las capas, el prompt se estructura en orden estricto (est·tica ?
-# semi-est·tica ? vol·til) vÌa :mod:`prompt_cache` para maximizar el prefijo
-# idÈntico entre peticiones. Estado global ``_PROMPT_CACHING_CAPAS``: None ?
+# Con el caching b√°sico (v6.16.0) las marcas se colocan sobre mensajes sueltos;
+# con las capas, el prompt se estructura en orden estricto (est√°tica ‚Üí
+# semi-est√°tica ‚Üí vol√°til) v√≠a :mod:`prompt_cache` para maximizar el prefijo
+# id√©ntico entre peticiones. Estado global ``_PROMPT_CACHING_CAPAS``: None ‚Üí
 # se resuelve por flag > entorno > config.json > defecto (activado).
 # -----------------------------------------------------------------------------
 ENV_PROMPT_CACHING_CAPAS = "SNAPCONTEXT_PROMPT_CACHING_CAPAS"
@@ -4844,7 +4844,7 @@ _PROMPT_CACHING_CAPAS: Optional[bool] = None   # --prompt-caching-capas
 def _configurar_prompt_caching_capas(activo: Optional[bool]) -> None:
     """Fija el estado global del Prompt Caching por Capas (v6.31.0).
 
-    ``None`` significa "sin override": se resuelve din·micamente por
+    ``None`` significa "sin override": se resuelve din√°micamente por
     ``_resolver_prompt_caching_capas`` (entorno/config/defecto activado).
     """
     global _PROMPT_CACHING_CAPAS
@@ -4852,7 +4852,7 @@ def _configurar_prompt_caching_capas(activo: Optional[bool]) -> None:
 
 
 def _resolver_prompt_caching_capas(explicito: Optional[bool] = None) -> bool:
-    """Resuelve si el caching por Capas est· activado (v6.31.0).
+    """Resuelve si el caching por Capas est√° activado (v6.31.0).
 
     Prioridad: flag ``--prompt-caching-capas`` (``explicito``) > entorno
     ``SNAPCONTEXT_PROMPT_CACHING_CAPAS`` > ``config.json``
@@ -4871,23 +4871,23 @@ def _resolver_prompt_caching_capas(explicito: Optional[bool] = None) -> bool:
                 return bool(seccion.get("capas_activo", True))
             if "prompt_caching_capas" in cfg:
                 return bool(cfg["prompt_caching_capas"])
-    except Exception:                        # noqa: BLE001 ó nunca romper flujo
+    except Exception:                        # noqa: BLE001 ‚Äî nunca romper flujo
         pass
     return True
 
 
 def _capas_caching_activo(explicito: Optional[bool] = None) -> bool:
-    """øEst· activo el caching por Capas? (estado global > resoluciÛn)."""
+    """¬øEst√° activo el caching por Capas? (estado global > resoluci√≥n)."""
     if _PROMPT_CACHING_CAPAS is not None:
         return _PROMPT_CACHING_CAPAS
     return _resolver_prompt_caching_capas(explicito)
 
 
 # -----------------------------------------------------------------------------
-# v6.32.0 ó Pruning proactivo de contexto (ediciÛn quir˙rgica del historial)
+# v6.32.0 ‚Äî Pruning proactivo de contexto (edici√≥n quir√∫rgica del historial)
 # Podado de resultados extensos de herramientas (logs, salidas, diffs) con
-# resumen de una lÌnea (LLM si est· disponible, si no heurÌstica simple).
-# Estado global _PRUNING_ACTIVO: None ? se resuelve por flag > config > defecto.
+# resumen de una l√≠nea (LLM si est√° disponible, si no heur√≠stica simple).
+# Estado global _PRUNING_ACTIVO: None ‚Üí se resuelve por flag > config > defecto.
 # -----------------------------------------------------------------------------
 ENV_PRUNING = "SNAPCONTEXT_PRUNING"
 _PRUNING_ACTIVO: Optional[bool] = None   # --prune-context
@@ -4897,7 +4897,7 @@ _PRUNING_UMBRAL: Optional[int] = None    # --prune-umbral
 def _configurar_pruning(activo: Optional[bool]) -> None:
     """Fija el estado global del pruning proactivo (v6.32.0).
 
-    ``None`` significa \"sin override\": se resuelve din·micamente por
+    ``None`` significa \"sin override\": se resuelve din√°micamente por
     ``_resolver_pruning`` (config.json > defecto activado).
     """
     global _PRUNING_ACTIVO
@@ -4905,7 +4905,7 @@ def _configurar_pruning(activo: Optional[bool]) -> None:
 
 
 def _configurar_umbral_pruning(umbral: Optional[int]) -> None:
-    """Fija el umbral global de lÌneas para el pruning (v6.32.0)."""
+    """Fija el umbral global de l√≠neas para el pruning (v6.32.0)."""
     global _PRUNING_UMBRAL
     if umbral is None:
         _PRUNING_UMBRAL = None
@@ -4917,7 +4917,7 @@ def _configurar_umbral_pruning(umbral: Optional[int]) -> None:
 
 
 def _resolver_pruning(explicito: Optional[bool] = None) -> bool:
-    """Resuelve si el pruning proactivo est· activado (v6.32.0).
+    """Resuelve si el pruning proactivo est√° activado (v6.32.0).
 
     Prioridad: flag ``--prune-context`` (``explicito``) > entorno
     ``SNAPCONTEXT_PRUNING`` > ``config.json`` (``pruning.activo``;
@@ -4942,14 +4942,14 @@ def _resolver_pruning(explicito: Optional[bool] = None) -> bool:
 
 
 def _pruning_activo(explicito: Optional[bool] = None) -> bool:
-    """øEst· activo el pruning? (estado global > resoluciÛn)."""
+    """¬øEst√° activo el pruning? (estado global > resoluci√≥n)."""
     if _PRUNING_ACTIVO is not None:
         return _PRUNING_ACTIVO
     return _resolver_pruning(explicito)
 
 
 def _umbral_pruning() -> int:
-    """Devuelve el umbral efectivo de lÌneas (flag > config > defecto 10)."""
+    """Devuelve el umbral efectivo de l√≠neas (flag > config > defecto 10)."""
     if _PRUNING_UMBRAL is not None:
         return _PRUNING_UMBRAL
     try:
@@ -4971,8 +4971,8 @@ def podar_si_extenso(
         umbral_lineas: Optional[int] = None) -> dict:
     """Poda un resultado de herramienta si es extenso (v6.32.0).
 
-    Wrapper seguro sobre ``context_pruner.prune_resultado``. Si el mÛdulo
-    falta, el pruning est· desactivado o el resultado no es extenso, devuelve
+    Wrapper seguro sobre ``context_pruner.prune_resultado``. Si el m√≥dulo
+    falta, el pruning est√° desactivado o el resultado no es extenso, devuelve
     el resultado original sin cambios. Nunca lanza.
     """
     try:
@@ -4997,7 +4997,7 @@ def _podar_resultados_extensos(mensajes: List[dict]) -> List[dict]:
 
     Revisa mensajes de rol ``"tool"`` y ``"assistant"`` que contengan resultados
     extensos (stdout, stderr, contenido, diff) y los reemplaza por un resumen
-    de una lÌnea. Devuelve la lista podada.
+    de una l√≠nea. Devuelve la lista podada.
     """
     try:
         import context_pruner as _cp
@@ -5031,9 +5031,9 @@ def _estructura_mensajes_por_capas(
         config: Optional[dict] = None) -> List[dict]:
     """Estructura ``mensajes`` en capas inmutables (v6.31.0).
 
-    Clasifica la lista plana (est·tica/semi-est·tica/vol·til) y la ensambla en
-    orden estricto con marcas ``cache_control`` en las capas inmutables, vÌa
-    :mod:`prompt_cache`. Si el mÛdulo falta o falla, degrada al caching b·sico
+    Clasifica la lista plana (est√°tica/semi-est√°tica/vol√°til) y la ensambla en
+    orden estricto con marcas ``cache_control`` en las capas inmutables, v√≠a
+    :mod:`prompt_cache`. Si el m√≥dulo falta o falla, degrada al caching b√°sico
     de v6.16.0 (``_aplicar_cache_control``) sin romper el flujo.
     """
     try:
@@ -5042,7 +5042,7 @@ def _estructura_mensajes_por_capas(
         return _pc.ensamblar_prompt_estructurado(
             None, _capas["estatica"], _capas["semi_estatica"],
             _capas["volatil"], config)
-    except Exception:                        # noqa: BLE001 ó degradaciÛn graceful
+    except Exception:                        # noqa: BLE001 ‚Äî degradaci√≥n graceful
         return _aplicar_cache_control(mensajes)
 
 
@@ -5050,7 +5050,7 @@ def _aplicar_cache_control(mensajes: List[dict]) -> List[dict]:
     """Devuelve una copia de ``mensajes`` con la marca ``cache_control``.
 
     Solo debe llamarse para proveedores con ``soporta_caching`` (v6.11.0).
-    NO muta la lista original ni el contenido de los mensajes: aÒade la marca
+    NO muta la lista original ni el contenido de los mensajes: a√±ade la marca
     ``cache_control`` a:
       - el mensaje del sistema (el primero de la lista);
       - los mensajes con definiciones de herramientas MCP;
@@ -5073,27 +5073,27 @@ def _aplicar_cache_control(mensajes: List[dict]) -> List[dict]:
     return salida
 
 
-# v6.16.0 ‚Äî MÈtricas de Prompt Caching (modo --depurar)
+# v6.16.0 ‚Äî M√©tricas de Prompt Caching (modo --depurar)
 def _contar_tokens(texto: str) -> int:
-    """EstimaciÛn aproximada de tokens (v6.16.0).
+    """Estimaci√≥n aproximada de tokens (v6.16.0).
 
-    Usa la heurÌstica est·ndar 1 token ‚âà 4 caracteres. Suficiente para
-    mÈtricas de depuraciÛn; no se usa para limitar el contexto del modelo.
+    Usa la heur√≠stica est√°ndar 1 token ‚âà 4 caracteres. Suficiente para
+    m√©tricas de depuraci√≥n; no se usa para limitar el contexto del modelo.
     """
     return max(len(texto) // 4, 0)
 
 
 def _calcular_metricas_caching(mensajes: List[dict]) -> dict:
-    """Calcula mÈtricas de Prompt Caching (v6.16.0).
+    """Calcula m√©tricas de Prompt Caching (v6.16.0).
 
     Categoriza los mensajes cacheables (sistema, herramientas, memoria) y
-    suma tokens estimados por categorÌa. La prioridad de categorÌa es:
+    suma tokens estimados por categor√≠a. La prioridad de categor√≠a es:
 
       1. ``sistema``  (rol ``system`` o primer mensaje)
       2. ``CLAUDE.md`` / ``SNAPCONTEXT.md`` (contiene la memoria)
       3. ``herramientas`` (contiene definiciones MCP)
 
-    Esto evita duplicar el recuento cuando un mensaje del sistema tambiÈn
+    Esto evita duplicar el recuento cuando un mensaje del sistema tambi√©n
     define herramientas.
 
     Devuelve::
@@ -5132,35 +5132,35 @@ def _calcular_metricas_caching(mensajes: List[dict]) -> dict:
 
 
 def _mensaje_caching_inicio(proveedor: str) -> Optional[str]:
-    """Mensaje de usuario al inicio de sesiÛn sobre prompt caching (v6.11.0).
+    """Mensaje de usuario al inicio de sesi√≥n sobre prompt caching (v6.11.0).
 
-    Devuelve None si el proveedor lo soporta pero el caching est· desactivado
-    (no se muestra ning˙n aviso). Nunca lanza.
+    Devuelve None si el proveedor lo soporta pero el caching est√° desactivado
+    (no se muestra ning√∫n aviso). Nunca lanza.
     """
     try:
         if _soporta_prompt_caching(proveedor):
             if _resolver_prompt_caching(None):
-                return f"?? Prompt Caching activado para {proveedor}"
+                return f"üß† Prompt Caching activado para {proveedor}"
             return None
     except Exception:                        # noqa: BLE001
         return None
-    return f"?? Prompt Caching no soportado para {proveedor}"
+    return f"üß† Prompt Caching no soportado para {proveedor}"
 
 
 def _mensaje_capas_caching_inicio(proveedor: str) -> Optional[str]:
     """Mensaje de usuario sobre Prompt Caching por Capas (v6.31.0).
 
-    Devuelve el texto solo si el proveedor soporta caching, el caching b·sico
-    est· activado y las Capas tambiÈn; ``None`` en caso contrario (no se
-    muestra nada). Nunca lanza. Se muestra COMO LÕNEA ADICIONAL tras el
-    mensaje b·sico de v6.16.0 (que no cambia, compatibilidad total).
+    Devuelve el texto solo si el proveedor soporta caching, el caching b√°sico
+    est√° activado y las Capas tambi√©n; ``None`` en caso contrario (no se
+    muestra nada). Nunca lanza. Se muestra COMO L√çNEA ADICIONAL tras el
+    mensaje b√°sico de v6.16.0 (que no cambia, compatibilidad total).
     """
     try:
         if (_soporta_prompt_caching(proveedor)
                 and _resolver_prompt_caching(None)
                 and _capas_caching_activo()):
-            return ("?? Prompt Caching por Capas activado "
-                    "(est·tica + semi-est·tica + vol·til).")
+            return ("üß† Prompt Caching por Capas activado "
+                    "(est√°tica + semi-est√°tica + vol√°til).")
     except Exception:                        # noqa: BLE001
         return None
     return None
@@ -5170,25 +5170,25 @@ def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
                          mensajes: List[dict],
                          prompt_caching: Optional[bool] = None,
                          categoria: Optional[str] = None) -> str:
-    """EnvÌa ``mensajes`` al proveedor, con enrutamiento y fallback (v6.30.0).
+    """Env√≠a ``mensajes`` al proveedor, con enrutamiento y fallback (v6.30.0).
 
     Soporta todos los tipos registrados en PROVEEDORES (gemini, openai-compatible
     y anthropic). Devuelve el texto de respuesta o lanza RuntimeError.
 
-    v6.24.0: si ``categoria`` se indica y el enrutamiento de modelos est·
-    activo (``--model-routing``) y el usuario no pasÛ ``--model``/``--provider``
-    explÌcitos, se consulta a :mod:`model_router` y la peticiÛn se envÌa al
-    modelo configurado para esa categorÌa. Sin configuraciÛn especÌfica en
+    v6.24.0: si ``categoria`` se indica y el enrutamiento de modelos est√°
+    activo (``--model-routing``) y el usuario no pas√≥ ``--model``/``--provider``
+    expl√≠citos, se consulta a :mod:`model_router` y la petici√≥n se env√≠a al
+    modelo configurado para esa categor√≠a. Sin configuraci√≥n espec√≠fica en
     ``config.json`` (``model_routing``) no se reenruta nada (compatibilidad).
 
-    v6.30.0 (hÌbrido Local-Nube): con ``--model-fallback`` activo (por
+    v6.30.0 (h√≠brido Local-Nube): con ``--model-fallback`` activo (por
     defecto) y prioridades configuradas (``prioridad_local``/``prioridad_nube``
     de config.json o flags ``--model-prioridad-*``), la complejidad de la
-    tarea se detecta con heurÌsticas r·pidas (sin IA) y la peticiÛn recorre
-    la cadena local?nube: un fallo de API/timeout pasa al siguiente modelo
-    (aviso ``?? Fallo en ...``); los errores de autenticaciÛn abortan de
+    tarea se detecta con heur√≠sticas r√°pidas (sin IA) y la petici√≥n recorre
+    la cadena local‚Üînube: un fallo de API/timeout pasa al siguiente modelo
+    (aviso ``‚ö†Ô∏è Fallo en ...``); los errores de autenticaci√≥n abortan de
     inmediato. Si TODOS los modelos fallan se lanza un RuntimeError claro.
-    Sin prioridades configuradas el comportamiento es idÈntico a v6.24.0.
+    Sin prioridades configuradas el comportamiento es id√©ntico a v6.24.0.
     """
     candidatos: List[Tuple[str, Optional[str]]] = [(proveedor, modelo)]
     if categoria and _MODEL_ROUTING_ACTIVO and not _MODELO_EXPLICITO:
@@ -5206,26 +5206,26 @@ def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
                     _p0, _m0 = _orden[0]
                     _m0_ef = _m0 or PROVEEDORES[_p0]["modelo_default"]
                     if _mr.es_proveedor_local(_p0, _cfg):
-                        info(f"?? Tarea simple. Usando modelo local: "
+                        info(f"üß† Tarea simple. Usando modelo local: "
                              f"{_p0}/{_m0_ef}")
                     else:
-                        info(f"?? Tarea compleja detectada. Usando modelo "
+                        info(f"üß† Tarea compleja detectada. Usando modelo "
                              f"cloud: {_p0}/{_m0_ef}")
                     candidatos = _orden
                     _hibrido = True
             if not _hibrido:
-                # Sin cadena de prioridades ? enrutado por categorÌa (v6.24.0).
+                # Sin cadena de prioridades ‚Üí enrutado por categor√≠a (v6.24.0).
                 _p2, _m2 = _mr.seleccionar_modelo(
                     categoria,
                     {"model_routing": _cargar_configuracion_routing()})
                 if _p2 and _p2 in PROVEEDORES:
                     _m_efectivo = _m2 or PROVEEDORES[_p2]["modelo_default"]
-                    info(f"?? Modelo enrutado: {categoria} ? {_p2}/{_m_efectivo}")
+                    info(f"üß† Modelo enrutado: {categoria} ‚Üí {_p2}/{_m_efectivo}")
                     candidatos = [(_p2, _m2)]
                 elif _p2:
                     depurar(f"[model-routing] proveedor desconocido '{_p2}'; "
                             f"se mantiene {proveedor}.")
-        except Exception as exc:                     # noqa: BLE001 ó nunca romper
+        except Exception as exc:                     # noqa: BLE001 ‚Äî nunca romper
             depurar(f"[model-routing] no se pudo enrutar ({categoria}): {exc}")
 
     if len(candidatos) <= 1 or not _MODEL_FALLBACK_ACTIVO:
@@ -5233,7 +5233,7 @@ def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
         return _enviar_al_proveedor_unico(_p_unico, _m_unico, mensajes,
                                           prompt_caching)
 
-    # v6.30.0: cadena de fallback entre modelos (local ? nube).
+    # v6.30.0: cadena de fallback entre modelos (local ‚Üî nube).
     _intentados: List[str] = []
     _ultimo_error: Optional[BaseException] = None
     for _pos, (_p, _m) in enumerate(candidatos):
@@ -5250,13 +5250,13 @@ def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
                 _p2, _m2 = candidatos[_pos + 1]
                 _m2_ef = _m2 or (PROVEEDORES[_p2]["modelo_default"]
                                  if _p2 in PROVEEDORES else None)
-                aviso(f"?? Fallo en {_p}/{_m_ef or '?'}. Reintentando con "
+                aviso(f"‚ö†Ô∏è Fallo en {_p}/{_m_ef or '?'}. Reintentando con "
                       f"{_p2}/{_m2_ef or '?'}.")
     raise RuntimeError(
         "Todos los modelos de la cadena de fallback fallaron ("
         + ", ".join(_intentados) + ")"
-        + (f"; ˙ltimo error: {_ultimo_error}" if _ultimo_error else "")
-        + ". Revisa la configuraciÛn (o usa --no-model-fallback para "
+        + (f"; √∫ltimo error: {_ultimo_error}" if _ultimo_error else "")
+        + ". Revisa la configuraci√≥n (o usa --no-model-fallback para "
           "usar solo el modelo principal)."
     )
 
@@ -5264,26 +5264,26 @@ def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
 def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
                                mensajes: List[dict],
                                prompt_caching: Optional[bool] = None) -> str:
-    """EnvÌa ``mensajes`` ([{"role": ..., "content": ...}, ...]) a UN proveedor.
+    """Env√≠a ``mensajes`` ([{"role": ..., "content": ...}, ...]) a UN proveedor.
 
     Soporta todos los tipos registrados en PROVEEDORES (gemini, openai-compatible
     y anthropic). Devuelve el texto de respuesta o lanza RuntimeError.
 
-    v6.30.0: n˙cleo de un solo intento, extraÌdo de ``_enviar_al_proveedor``
-    (que aÒade el enrutamiento por categorÌa y la cadena de fallback hÌbrido
+    v6.30.0: n√∫cleo de un solo intento, extra√≠do de ``_enviar_al_proveedor``
+    (que a√±ade el enrutamiento por categor√≠a y la cadena de fallback h√≠brido
     Local-Nube). Sin enrutamiento ni reintentos: los errores se propagan.
     """
     if proveedor not in PROVEEDORES:
         raise RuntimeError(
             f"Proveedor desconocido '{proveedor}'. "
-            f"V·lidos: {', '.join(sorted(PROVEEDORES))}"
+            f"V√°lidos: {', '.join(sorted(PROVEEDORES))}"
         )
     cfg = PROVEEDORES[proveedor]
     modelo = modelo or cfg["modelo_default"]
     tipo = cfg["tipo"]
 
     # v6.11.0: Prompt Caching. Solo aplica a proveedores con `soporta_caching`
-    # (Anthropic, DeepSeek) y cuando est· activado. El resto recibe los mensajes
+    # (Anthropic, DeepSeek) y cuando est√° activado. El resto recibe los mensajes
     # tal cual (sin marcas), manteniendo la compatibilidad total.
     mensajes_finales = mensajes
     if (_soporta_prompt_caching(proveedor)
@@ -5296,7 +5296,7 @@ def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
             mensajes_finales = _estructura_mensajes_por_capas(mensajes)
         else:
             mensajes_finales = _aplicar_cache_control(mensajes)
-        # v6.16.0: mÈtricas de cachÈ en modo --depurar
+        # v6.16.0: m√©tricas de cach√© en modo --depurar
         if DEPURAR:
             _metricas = _calcular_metricas_caching(mensajes)
             _cats = ", ".join(
@@ -5309,21 +5309,21 @@ def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
                     import prompt_cache as _pc          # noqa: E402
                     _tokens_capa = _pc.metricas_capas(mensajes_finales)
                     depurar(
-                        "?? Capa est·tica: "
-                        f"{_tokens_capa['estatica']} tokens, semi-est·tica: "
-                        f"{_tokens_capa['semi_estatica']} tokens, vol·til: "
+                        "üìä Capa est√°tica: "
+                        f"{_tokens_capa['estatica']} tokens, semi-est√°tica: "
+                        f"{_tokens_capa['semi_estatica']} tokens, vol√°til: "
                         f"{_tokens_capa['volatil']} tokens.")
                 except Exception:            # noqa: BLE001
                     pass
-    # v6.32.0: Pruning proactivo de contexto ó podar resultados extensos de
-    # herramientas (logs, salidas, diffs) con resumen de una lÌnea. Se aplica
-    # despuÈs del caching para no interferir con las marcas cache_control.
+    # v6.32.0: Pruning proactivo de contexto ‚Äî podar resultados extensos de
+    # herramientas (logs, salidas, diffs) con resumen de una l√≠nea. Se aplica
+    # despu√©s del caching para no interferir con las marcas cache_control.
     if _pruning_activo():
         try:
             _msg_antes = str(mensajes_finales)
             mensajes_finales = _podar_resultados_extensos(mensajes_finales)
             if DEPURAR and _msg_antes != str(mensajes_finales):
-                depurar("?? Podando contexto (resultados extensos ? resumen 1 lÌnea)")
+                depurar("‚úÇÔ∏è Podando contexto (resultados extensos ‚Üí resumen 1 l√≠nea)")
         except Exception:
             pass
     if tipo == "gemini":
@@ -5358,7 +5358,7 @@ def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
             if getattr(bloque, "type", None) == "text"
         )
 
-    # v6.34.0: tipo "xpu" ó inferencia local en GPUs Intel Arc vÌa IPEX.
+    # v6.34.0: tipo "xpu" ‚Äî inferencia local en GPUs Intel Arc v√≠a IPEX.
     if tipo == "xpu":
         try:
             import backend_xpu as _xpu
@@ -5368,13 +5368,13 @@ def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
             ) from exc
         if not _xpu.xpu_disponible():
             raise RuntimeError(
-                "Intel XPU no detectado. Revisa la instalaciÛn de IPEX y drivers."
+                "Intel XPU no detectado. Revisa la instalaci√≥n de IPEX y drivers."
             )
         _modelo_xpu = modelo or PROVEEDORES["xpu"]["modelo_default"]
         _cfg_xpu = cargar_configuracion().get("xpu", {})
         _max_tokens = int(_cfg_xpu.get("max_tokens", 500))
         _temperature = float(_cfg_xpu.get("temperature", 0.7))
-        # Los flags CLI tienen prioridad sobre la configuraciÛn.
+        # Los flags CLI tienen prioridad sobre la configuraci√≥n.
         if getattr(args, "xpu_model", None):
             _modelo_xpu = args.xpu_model
         if getattr(args, "xpu_max_tokens", None) is not None:
@@ -5410,29 +5410,29 @@ def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
 def _ejecutar_chat(proveedor: Optional[str] = None,
                    modelo: Optional[str] = None,
                    prompt_caching: Optional[bool] = None) -> int:
-    """REPL interactivo (`snapcontext --chat`). Devuelve cÛdigo de salida.
+    """REPL interactivo (`snapcontext --chat`). Devuelve c√≥digo de salida.
 
-    Mantiene la conversaciÛn en memoria (`historial_chat`) y da acceso a los
+    Mantiene la conversaci√≥n en memoria (`historial_chat`) y da acceso a los
     comandos /salir, /archivos, /limpiar, /seleccion, /provider, /historial y
-    /ayuda. Cualquier otro texto se envÌa al proveedor actual.
+    /ayuda. Cualquier otro texto se env√≠a al proveedor actual.
     """
     preferencias = cargar_configuracion()
-    # v5.4.1: resoluciÛn con prioridad clara.
+    # v5.4.1: resoluci√≥n con prioridad clara.
     #   1) Flags CLI (--provider / --model) ‚Äî el flag --model ya incorpora
     #      SNAPCONTEXT_MODELO como valor por defecto (MODELO_DEFECTO).
     #   2) Variables de entorno SNAPCONTEXT_PROVIDER / SNAPCONTEXT_MODELO.
-    #   3) ConfiguraciÛn guardada en ~/.snapcontext/config.json.
+    #   3) Configuraci√≥n guardada en ~/.snapcontext/config.json.
     #   4) Fallback final (con aviso).
     # Antes se ignoraba tanto el modelo guardado en config.json como los
-    # flags, por lo que Ollama caÌa siempre a 'llama3.2' (404 si el usuario
-    # tenÌa otro modelo descargado, p. ej. qwen3.5:9b).
+    # flags, por lo que Ollama ca√≠a siempre a 'llama3.2' (404 si el usuario
+    # ten√≠a otro modelo descargado, p. ej. qwen3.5:9b).
     proveedor_flag = proveedor or os.environ.get("SNAPCONTEXT_PROVIDER") or None
     modelo_flag = modelo or os.environ.get("SNAPCONTEXT_MODELO") or None
     proveedor = (proveedor_flag
                  or preferencias.get("provider")
                  or PROVEEDOR_DEFECTO)
-    # El modelo guardado en config.json solo aplica si el proveedor tambiÈn
-    # viene de la configuraciÛn (evita mezclar modelos entre proveedores).
+    # El modelo guardado en config.json solo aplica si el proveedor tambi√©n
+    # viene de la configuraci√≥n (evita mezclar modelos entre proveedores).
     modelo = (modelo_flag
               or (None if proveedor_flag else preferencias.get("model"))
               or None)
@@ -5440,7 +5440,7 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
         aviso("No hay proveedor configurado (flags, entorno ni config.json); "
               f"usando el fallback '{PROVEEDOR_DEFECTO}' "
               f"({PROVEEDORES[PROVEEDOR_DEFECTO]['modelo_default']}). "
-              "Config˙ralo con 'snapcontext --init'.")
+              "Config√∫ralo con 'snapcontext --init'.")
 
     _emitir(sys.stdout, _pintar(
         f"üí¨ SnapContext Chat (v{VERSION}) ‚Äî Escribe tu tarea, "
@@ -5448,17 +5448,17 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
     info(f"Proveedor actual: {proveedor} "
          f"({modelo or PROVEEDORES[proveedor]['modelo_default']}). "
          "Escribe /ayuda para ver los comandos.")
-    # v6.11.0: informa del estado del Prompt Caching al inicio de la sesiÛn.
+    # v6.11.0: informa del estado del Prompt Caching al inicio de la sesi√≥n.
     _mensaje_caching = _mensaje_caching_inicio(proveedor)
     if _mensaje_caching:
         info(_mensaje_caching)
-    # v6.31.0: informa del Prompt Caching por Capas al inicio de la sesiÛn.
+    # v6.31.0: informa del Prompt Caching por Capas al inicio de la sesi√≥n.
     _mensaje_capas = _mensaje_capas_caching_inicio(proveedor)
     if _mensaje_capas:
         info(_mensaje_capas)
 
-    historial_chat: List[dict] = []       # conversaciÛn de esta sesiÛn
-    contexto_archivos: List[str] = []     # selecciÛn actual (/seleccion)
+    historial_chat: List[dict] = []       # conversaci√≥n de esta sesi√≥n
+    contexto_archivos: List[str] = []     # selecci√≥n actual (/seleccion)
     hilos: List[threading.Thread] = []    # comandos de agente en 2¬∫ plano
 
     def _esperar_hilos(limite: float = 120.0) -> None:
@@ -5492,14 +5492,14 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
 
         # ---- asesor proactivo (v3.5.0) ------------------------------------
         if linea in ("/asesor", "/sugerir"):
-            info("?? Analizando el proyecto...")
+            info("üß† Analizando el proyecto...")
             sugerencias_chat = _asesor_analizar(".")
             _asesor_mostrar(sugerencias_chat)
             continue
 
         # ---- seguridad / rendimiento (v4.2.0) ------------------------------
         if linea == "/seguridad":
-            info("?? Analizando vulnerabilidades del proyecto...")
+            info("üóù Analizando vulnerabilidades del proyecto...")
             _asesor_mostrar(_analizar_seguridad("."))
             continue
         if linea == "/rendimiento":
@@ -5546,7 +5546,7 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
 
         if linea == "/limpiar":
             historial_chat = []
-            exito("Historial de conversaciÛn limpiado.")
+            exito("Historial de conversaci√≥n limpiado.")
             continue
 
         if linea == "/archivos" or linea == "/context":
@@ -5567,7 +5567,7 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
         if linea == "/claude":
             if not MEMORIA_PROYECTO:
                 aviso("No hay CLAUDE.md ni SNAPCONTEXT.md en este proyecto. "
-                      "CrÈalos con: snapcontext --init-claude")
+                      "Cr√©alos con: snapcontext --init-claude")
             else:
                 exito(f"‚îÄ‚îÄ {_buscar_claude_md().name} ‚îÄ‚îÄ")
                 _emitir(sys.stdout, MEMORIA_PROYECTO)
@@ -5581,7 +5581,7 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             _cmd_chat_save(historial_chat)
             continue
 
-        # ---- b˙squeda sem·ntica (v1.1.0; alias /buscar desde v1.4.0) -------
+        # ---- b√∫squeda sem√°ntica (v1.1.0; alias /buscar desde v1.4.0) -------
         if linea.startswith("/search ") or linea.startswith("/buscar"):
             prefijo_busqueda = ("/search" if linea.startswith("/search")
                                 else "/buscar")
@@ -5596,9 +5596,9 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
                 error(str(exc))
                 continue
             if not resultados:
-                aviso("Sin resultados sem·nticos.")
+                aviso("Sin resultados sem√°nticos.")
                 continue
-            exito(f"Resultados sem·nticos para '{consulta_busqueda}':")
+            exito(f"Resultados sem√°nticos para '{consulta_busqueda}':")
             for resultado in resultados[:10]:
                 _emitir(sys.stdout, _pintar(
                     f"   ‚Ä¢ {resultado['archivo']}:{resultado['linea_inicio']} "
@@ -5611,7 +5611,7 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             nodos_chat = grafo_chat.get("nodos", [])
             enlaces_chat = grafo_chat.get("enlaces", [])
             if not nodos_chat:
-                aviso("Sin archivos de cÛdigo detectados para construir el grafo.")
+                aviso("Sin archivos de c√≥digo detectados para construir el grafo.")
                 continue
             exito(f"Grafo de dependencias ({len(nodos_chat)} nodo(s), "
                   f"{len(enlaces_chat)} enlace(s)):")
@@ -5664,7 +5664,7 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             exito(f"Herramientas MCP disponibles ({len(herramientas)}):")
             for nombre in sorted(herramientas):
                 cfg = herramientas[nombre]
-                permiso = "?? requiere permiso" if cfg.get("requiere_permiso") \
+                permiso = "üóù requiere permiso" if cfg.get("requiere_permiso") \
                     else "lectura"
                 _emitir(sys.stdout,
                         f"   ‚Ä¢ {nombre} ‚Äî {cfg['descripcion']} [{permiso}]")
@@ -5703,7 +5703,7 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
                         argumentos = {"comando": bruto}
                     else:
                         argumentos = {"comando": bruto}
-            info(f"?? Ejecutando herramienta MCP '{nombre}'...")
+            info(f"üó∫ Ejecutando herramienta MCP '{nombre}'...")
             llamada = _ejecutar_herramienta_mcp(nombre, argumentos,
                                                 confirmar=CONFIRMAR_ACCIONES)
             texto = _formatear_resultado_mcp(llamada)
@@ -5712,8 +5712,8 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             if llamada["ok"]:
                 exito("Herramienta completada.")
             else:
-                error("La herramienta devolviÛ un error.")
-            # El resultado queda en el contexto de la conversaciÛn.
+                error("La herramienta devolvi√≥ un error.")
+            # El resultado queda en el contexto de la conversaci√≥n.
             historial_chat.append({
                 "role": "user",
                 "content": f"[herramienta {nombre}] "
@@ -5753,7 +5753,7 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             partes = linea.split(maxsplit=1)
             nuevo = partes[1].strip().lower() if len(partes) > 1 else ""
             if nuevo not in PROVEEDORES:
-                aviso(f"Proveedores v·lidos: {', '.join(sorted(PROVEEDORES))}")
+                aviso(f"Proveedores v√°lidos: {', '.join(sorted(PROVEEDORES))}")
                 continue
             proveedor = nuevo
             modelo = None                       # vuelve al modelo por defecto
@@ -5777,11 +5777,11 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
                     proveedor=proveedor, modelo=modelo,
                 )
                 if contexto_archivos:
-                    exito(f"SelecciÛn ({len(contexto_archivos)}):")
+                    exito(f"Selecci√≥n ({len(contexto_archivos)}):")
                     for archivo in contexto_archivos:
                         _emitir(sys.stdout, "   ‚Ä¢ " + archivo)
                 else:
-                    aviso("El proveedor no devolviÛ archivos.")
+                    aviso("El proveedor no devolvi√≥ archivos.")
             except RuntimeError as exc:
                 error(str(exc))
             continue
@@ -5789,15 +5789,15 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
         # ---- mensaje normal ‚Üí proveedor de IA ----------------------------
         historial_chat.append({"role": "user", "content": linea})
         try:
-            # MCP autom·tico (v0.14.0): si el mensaje parece una pregunta de
-            # exploraciÛn, se recopila contexto con herramientas de solo
-            # lectura y se aÒade al turno del usuario.
+            # MCP autom√°tico (v0.14.0): si el mensaje parece una pregunta de
+            # exploraci√≥n, se recopila contexto con herramientas de solo
+            # lectura y se a√±ade al turno del usuario.
             contexto_mcp = _contexto_automatico_mcp(linea)
         except Exception as exc:                # nunca romper el chat
-            depurar(f"[mcp] contexto autom·tico fallÛ: {exc}")
+            depurar(f"[mcp] contexto autom√°tico fall√≥: {exc}")
             contexto_mcp = ""
         if contexto_mcp:
-            info("?? Contexto MCP aÒadido a la consulta "
+            info("üó∫ Contexto MCP a√±adido a la consulta "
                  "(herramientas de solo lectura).")
             historial_chat[-1]["content"] += (
                 "\n\n[Contexto obtenido con herramientas MCP]\n"
@@ -5808,7 +5808,7 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
                 "[Memoria del proyecto]\n" + MEMORIA_PROYECTO[:2000]
                 + "\n\n" + historial_chat[-1]["content"])
         try:
-            # Se envÌan solo los ˙ltimos 20 turnos para no crecer sin lÌmite.
+            # Se env√≠an solo los √∫ltimos 20 turnos para no crecer sin l√≠mite.
             respuesta = _enviar_al_proveedor(
                 proveedor, modelo, historial_chat[-20:],
                 prompt_caching=prompt_caching,
@@ -5824,7 +5824,7 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
         _raz_activo = _razonamiento_activo()
         if _raz_activo and not _RAZONAMIENTO_ESTADO.get("banner"):
             _RAZONAMIENTO_ESTADO["banner"] = True
-            info("?? Mostrando razonamiento del modelo "
+            info("üß† Mostrando razonamiento del modelo "
                  "(--mostrar-razonamiento)")
         respuesta_limpia, raz = _procesar_razonamiento(respuesta,
                                                        activo=False)
@@ -5833,18 +5833,18 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             _ui.mostrar_razonamiento(raz)
         elif _raz_activo:
             # Modo de dos pasos (v6.2.0): el modelo no etiqueta su
-            # razonamiento ‚Üí se pide explÌcitamente antes de la respuesta.
+            # razonamiento ‚Üí se pide expl√≠citamente antes de la respuesta.
             if not _RAZONAMIENTO_ESTADO.get("aviso_dos_pasos"):
                 _RAZONAMIENTO_ESTADO["aviso_dos_pasos"] = True
-                aviso("‚ö† El modelo no devuelve razonamiento explÌcito: se "
-                      "usar· el modo de dos pasos (duplica las llamadas y "
+                aviso("‚ö† El modelo no devuelve razonamiento expl√≠cito: se "
+                      "usar√° el modo de dos pasos (duplica las llamadas y "
                       "puede ralentizar modelos lentos).")
             raz2 = _razonamiento_dos_pasos(linea, proveedor, modelo)
             if raz2:
                 import ui as _ui
                 _ui.mostrar_razonamiento(raz2)
             else:
-                info("‚Ñπ El modelo no proporcionÛ razonamiento explÌcito.")
+                info("‚Ñπ El modelo no proporcion√≥ razonamiento expl√≠cito.")
         historial_chat.append({"role": "assistant",
                                "content": respuesta_limpia})
         _emitir(sys.stdout, _pintar(respuesta_limpia, _VERDE))
@@ -5880,7 +5880,7 @@ def _cmd_chat_run(comando: str, directorio: str = ".",
     if codigo == 0:
         exito("Comando terminado correctamente.")
     else:
-        error(f"Comando terminado con cÛdigo {codigo}.")
+        error(f"Comando terminado con c√≥digo {codigo}.")
 
 
 def _cmd_chat_read(archivo: str) -> None:
@@ -5893,12 +5893,12 @@ def _cmd_chat_read(archivo: str) -> None:
         error(f"No se pudo leer '{archivo}'.")
         return
     lineas = contenido.splitlines()
-    exito(f"‚îÄ‚îÄ {archivo} ({len(lineas)} lÌnea(s)) " + "‚îÄ" * 20)
-    # Se muestran como m·ximo 400 lÌneas para no saturar la consola.
+    exito(f"‚îÄ‚îÄ {archivo} ({len(lineas)} l√≠nea(s)) " + "‚îÄ" * 20)
+    # Se muestran como m√°ximo 400 l√≠neas para no saturar la consola.
     for linea in lineas[:400]:
         _emitir(sys.stdout, "  " + linea)
     if len(lineas) > 400:
-        aviso(f"(salida recortada: {len(lineas) - 400} lÌnea(s) m·s)")
+        aviso(f"(salida recortada: {len(lineas) - 400} l√≠nea(s) m√°s)")
 
 
 def _herramienta_busqueda() -> Optional[str]:
@@ -5910,24 +5910,24 @@ def _herramienta_busqueda() -> Optional[str]:
 
 
 def _cmd_chat_explore(tema: str, directorio: str = ".") -> None:
-    """`/explore <tema>`: busca ``tema`` en el cÛdigo del repositorio.
+    """`/explore <tema>`: busca ``tema`` en el c√≥digo del repositorio.
 
-    Usa ripgrep si est· instalado; si no, `grep` en Linux/macOS o `findstr`
-    en Windows. Recursivo e insensible a may˙sculas.
+    Usa ripgrep si est√° instalado; si no, `grep` en Linux/macOS o `findstr`
+    en Windows. Recursivo e insensible a may√∫sculas.
     """
     if not tema:
         aviso("Uso: /explore <tema>")
         return
     herramienta = _herramienta_busqueda()
     if herramienta is None:
-        error("No se encontrÛ ning˙n buscador (rg, grep ni findstr) en el PATH.")
+        error("No se encontr√≥ ning√∫n buscador (rg, grep ni findstr) en el PATH.")
         return
     info(f"Explorando '{tema}' con {herramienta}...")
     if herramienta == "rg":
         comando = f'rg -n -i --max-count 5 "{tema}"'
     elif herramienta == "grep":
         comando = f'grep -rn -i -m 5 "{tema}" .'
-    else:  # findstr (Windows): /s recursivo, /i sin may˙sculas
+    else:  # findstr (Windows): /s recursivo, /i sin may√∫sculas
         comando = f'findstr /s /n /i "{tema}" *.py *.dart *.js *.ts *.go *.rs'
     codigo, stdout, stderr = _ejecutar_comando(comando, directorio, timeout=60)
     salida = (stdout or "").strip()
@@ -5941,17 +5941,17 @@ def _cmd_chat_explore(tema: str, directorio: str = ".") -> None:
     elif codigo == 0:
         aviso("Sin coincidencias.")
     else:
-        error(f"La b˙squeda fallÛ (cÛdigo {codigo}): "
+        error(f"La b√∫squeda fall√≥ (c√≥digo {codigo}): "
               f"{stderr.strip() or 'sin detalle'}")
 
 
 def _cmd_chat_alias(alias: str, mensaje: str) -> int:
     """Ejecuta los alias fix/review/server desde el chat.
 
-    Reutiliza exactamente la lÛgica existente: convierte el alias con
+    Reutiliza exactamente la l√≥gica existente: convierte el alias con
     ``_preparar_argv_aliases``, parsea los argumentos con ``crear_parser`` y
-    llama a ``flujo_principal`` (que adem·s registra la tarea en el historial).
-    Devuelve el cÛdigo de salida del pipeline.
+    llama a ``flujo_principal`` (que adem√°s registra la tarea en el historial).
+    Devuelve el c√≥digo de salida del pipeline.
     """
     if not mensaje:
         aviso(f"Uso: /{alias} <mensaje>")
@@ -5989,13 +5989,13 @@ def _cmd_chat_edit(archivo: str, confirmar: Optional[bool] = None) -> None:
             except OSError as exc:
                 error(f"No se pudo abrir el editor: {exc}")
             return
-    error("No se encontrÛ ning˙n editor (code/nano/notepad/$EDITOR).")
+    error("No se encontr√≥ ning√∫n editor (code/nano/notepad/$EDITOR).")
 
 
 def _cmd_chat_save(historial_chat: List[dict]) -> None:
-    """`/save`: guarda un resumen de la sesiÛn actual en historial.json."""
+    """`/save`: guarda un resumen de la sesi√≥n actual en historial.json."""
     if not historial_chat:
-        aviso("No hay conversaciÛn que guardar.")
+        aviso("No hay conversaci√≥n que guardar.")
         return
     turnos_usuario = [m["content"] for m in historial_chat
                       if m.get("role") == "user"]
@@ -6003,13 +6003,13 @@ def _cmd_chat_save(historial_chat: List[dict]) -> None:
         "fecha": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "consulta": " | ".join(t[:120] for t in turnos_usuario),
         "archivos": [],
-        "resultado": "Èxito",
+        "resultado": "√©xito",
         "duracion": round(len(turnos_usuario), 2),   # n¬∫ de turnos del usuario
         "tipo": "sesion-chat",
         "mensajes": len(historial_chat),
     }
     if _guardar_historial(entrada):
-        exito(f"SesiÛn guardada en {HISTORIAL_PATH} "
+        exito(f"Sesi√≥n guardada en {HISTORIAL_PATH} "
               f"({entrada['mensajes']} mensajes).")
 
 
@@ -6017,12 +6017,12 @@ def _cmd_chat_save(historial_chat: List[dict]) -> None:
 # Planificador de tareas (--plan) ‚Äî v0.12.0
 # ---------------------------------------------------------------------------
 PROMPT_PLAN = (
-    "Eres un planificador de tareas de desarrollo. DescompÛn la siguiente "
-    "tarea en pasos CONCRETOS y AT√ìMICOS (m·ximo 8).\n\n"
+    "Eres un planificador de tareas de desarrollo. Descomp√≥n la siguiente "
+    "tarea en pasos CONCRETOS y AT√ìMICOS (m√°ximo 8).\n\n"
     "TAREA: {consulta}\n\n"
     "Devuelve SOLO un objeto JSON con esta forma exacta (sin explicaciones):\n"
     '{{"pasos": [{{\n'
-    '  "descripcion": "quÈ hace este paso",\n'
+    '  "descripcion": "qu√© hace este paso",\n'
     '  "accion": "editar" | "ejecutar" | "consultar" | "mcp" | "asesor",\n'
     '  "archivos": ["ruta/relativa.py"],   // solo para accion "editar"\n'
     '  "comando": "comando shell",         // solo para accion "ejecutar"\n'
@@ -6032,7 +6032,7 @@ PROMPT_PLAN = (
     '  "variable": "mi_resultado",        // opcional (mcp): nombre del resultado\n'
     "}}]}}\n\n"
     "Significado de las acciones:\n"
-    ' - "editar": modificar cÛdigo (Aider). Indica los archivos implicados.\n'
+    ' - "editar": modificar c√≥digo (Aider). Indica los archivos implicados.\n'
     ' - "ejecutar": lanzar un comando (tests, build, migraciones...).\n'
     ' - "consultar": aclarar una duda sobre el proyecto sin cambiar nada.\n'
     ' - "mcp": ejecutar una herramienta MCP (campos "herramienta" y "args") y\n'
@@ -6048,10 +6048,10 @@ ACCIONES_VALIDAS = {"editar", "ejecutar", "consultar", "mcp", "asesor",
 
 
 def _normalizar_pasos(datos) -> List[dict]:
-    """Normaliza la respuesta del proveedor a una lista de pasos v·lidos.
+    """Normaliza la respuesta del proveedor a una lista de pasos v√°lidos.
 
-    Acepta ``{"pasos": [...]}``, una lista directa o un ˙nico paso suelto.
-    Descarta pasos mal formados (sin descripciÛn o con acciÛn desconocida).
+    Acepta ``{"pasos": [...]}``, una lista directa o un √∫nico paso suelto.
+    Descarta pasos mal formados (sin descripci√≥n o con acci√≥n desconocida).
     """
     if isinstance(datos, dict):
         datos = datos.get("pasos", [])
@@ -6075,7 +6075,7 @@ def _normalizar_pasos(datos) -> List[dict]:
             "accion": accion,
             "archivos": [str(a) for a in archivos if str(a).strip()],
             "comando": str(crudo.get("comando") or "").strip(),
-            # v1.3.0: dependencias entre pasos y ejecuciÛn condicional.
+            # v1.3.0: dependencias entre pasos y ejecuci√≥n condicional.
             "dependencias": _normalizar_dependencias(crudo.get("dependencias")),
             "condicion": str(crudo.get("condicion") or "").strip(),
             # v2.3.0: pasos de tipo "mcp".
@@ -6089,11 +6089,11 @@ def _normalizar_pasos(datos) -> List[dict]:
 
 
 def _normalizar_dependencias(valor) -> List[int]:
-    """Convierte el campo ``dependencias`` de un paso en una lista de Ìndices.
+    """Convierte el campo ``dependencias`` de un paso en una lista de √≠ndices.
 
-    Acepta lista de enteros/strings numÈricos o un ˙nico valor. Se descartan
-    los Ìndices no v·lidos (negativos o fuera de rango se validan en la
-    ejecuciÛn, aquÌ solo se normaliza el tipo).
+    Acepta lista de enteros/strings num√©ricos o un √∫nico valor. Se descartan
+    los √≠ndices no v√°lidos (negativos o fuera de rango se validan en la
+    ejecuci√≥n, aqu√≠ solo se normaliza el tipo).
     """
     if valor is None or valor == "":
         return []
@@ -6115,8 +6115,8 @@ def _generar_plan(consulta: str, proveedor: Optional[str] = None,
                   modelo: Optional[str] = None) -> List[dict]:
     """Pide al proveedor de IA un plan en JSON para la ``consulta``.
 
-    Devuelve la lista de pasos normalizada (vacÌa si el proveedor no devolviÛ
-    nada utilizable). Lanza RuntimeError ante fallos de configuraciÛn/API.
+    Devuelve la lista de pasos normalizada (vac√≠a si el proveedor no devolvi√≥
+    nada utilizable). Lanza RuntimeError ante fallos de configuraci√≥n/API.
     """
     preferencias = cargar_configuracion()
     proveedor = proveedor or preferencias.get("provider") or PROVEEDOR_DEFECTO
@@ -6126,7 +6126,7 @@ def _generar_plan(consulta: str, proveedor: Optional[str] = None,
     info(f"Generando plan con {cfg['nombre']} ({modelo})...")
 
     # MCP (v0.14.0): explora el proyecto con herramientas de solo lectura para
-    # generar pasos m·s precisos (best-effort: nunca rompe la planificaciÛn).
+    # generar pasos m√°s precisos (best-effort: nunca rompe la planificaci√≥n).
     try:
         contexto_proyecto: List[str] = []
         estado = _ejecutar_herramienta_mcp("git_status", {},
@@ -6145,9 +6145,9 @@ def _generar_plan(consulta: str, proveedor: Optional[str] = None,
         if contexto_proyecto:
             prompt += "\n\nCONTEXTO DEL PROYECTO (obtenido con herramientas " \
                       "MCP):\n" + "\n".join(contexto_proyecto)
-            info("?? Contexto MCP del proyecto aÒadido al planificador.")
+            info("üó∫ Contexto MCP del proyecto a√±adido al planificador.")
     except Exception as exc:
-        depurar(f"[mcp] contexto de planificaciÛn fallÛ: {exc}")
+        depurar(f"[mcp] contexto de planificaci√≥n fall√≥: {exc}")
 
     # Memoria de proyecto (v0.15.0): CLAUDE.md como contexto persistente.
     if MEMORIA_PROYECTO:
@@ -6158,14 +6158,14 @@ def _generar_plan(consulta: str, proveedor: Optional[str] = None,
             memoria_ctx = _ctxm.seleccionar_contexto(
                 MEMORIA_PROYECTO, "markdown", max_tokens=750)
         except Exception as _exc:       # noqa: BLE001 ‚Äî best-effort
-            depurar(f"[plan] contexto selectivo de CLAUDE.md fallÛ: {_exc}")
+            depurar(f"[plan] contexto selectivo de CLAUDE.md fall√≥: {_exc}")
             memoria_ctx = MEMORIA_PROYECTO[:3000]
         prompt += ("\n\nMEMORIA DEL PROYECTO (CLAUDE.md, respeta sus "
                    "convenciones al proponer pasos):\n" + memoria_ctx)
-        info("?? Memoria del proyecto (CLAUDE.md) incluida en la planificaciÛn.")
+        info("üóú Memoria del proyecto (CLAUDE.md) incluida en la planificaci√≥n.")
 
-    # Skills din·micos (v6.6.0): reglas abstractas aprendidas de planes
-    # exitosos enriquecen el prompt (m·x. 3, priorizadas por confianza).
+    # Skills din√°micos (v6.6.0): reglas abstractas aprendidas de planes
+    # exitosos enriquecen el prompt (m√°x. 3, priorizadas por confianza).
     prompt = _enriquecer_prompt_con_reglas(prompt, consulta)
 
 
@@ -6229,7 +6229,7 @@ def _generar_plan(consulta: str, proveedor: Optional[str] = None,
             raise RuntimeError(
                 f"Error al generar el plan con {cfg['nombre']}: {exc}") from exc
 
-    # v6.2.0: muestra el razonamiento (chain-of-thought) si est· activado y
+    # v6.2.0: muestra el razonamiento (chain-of-thought) si est√° activado y
     # limpia los bloques <think> antes de parsear el JSON del plan.
     texto, _raz_plan = _procesar_razonamiento(texto,
                                               activo=_razonamiento_activo())
@@ -6237,9 +6237,9 @@ def _generar_plan(consulta: str, proveedor: Optional[str] = None,
     return _normalizar_pasos(parsear_json(texto))
 
 
-# --- Git explÌcito para el planificador ------------------------------------
+# --- Git expl√≠cito para el planificador ------------------------------------
 def _es_repo_git(directorio: str) -> bool:
-    """True si ``directorio`` est· dentro de un repositorio git."""
+    """True si ``directorio`` est√° dentro de un repositorio git."""
     codigo, _, _ = _ejecutar_comando("git rev-parse --is-inside-work-tree",
                                      directorio, timeout=15)
     return codigo == 0
@@ -6263,7 +6263,7 @@ def _git_crear_rama(nombre: str, directorio: str = ".") -> bool:
     codigo2, _, _ = _ejecutar_comando(
         f'git checkout "{nombre.strip()}"', directorio, timeout=30)
     if codigo2 == 0:
-        aviso(f"La rama '{nombre.strip()}' ya existÌa; se ha cambiado a ella.")
+        aviso(f"La rama '{nombre.strip()}' ya exist√≠a; se ha cambiado a ella.")
         return True
     error(f"No se pudo crear/cambiar a la rama '{nombre.strip()}': "
           f"{stderr.strip()}")
@@ -6273,7 +6273,7 @@ def _git_crear_rama(nombre: str, directorio: str = ".") -> bool:
 def _git_commit_paso(descripcion: str, directorio: str = ".") -> bool:
     """`git add .` + `git commit -m "paso: <descripcion>"`. True si ok.
 
-    Si no hay cambios que commitear se considera Èxito silencioso.
+    Si no hay cambios que commitear se considera √©xito silencioso.
     """
     if not _es_repo_git(directorio):
         depurar("[plan] No es repo git; se omite el commit del paso.")
@@ -6289,32 +6289,32 @@ def _git_commit_paso(descripcion: str, directorio: str = ".") -> bool:
     if "nothing to commit" in texto or "no changes added" in texto:
         depurar("[plan] Sin cambios que commitear en este paso.")
         return True
-    aviso(f"El commit del paso fallÛ: {(stderr or '').strip()}")
+    aviso(f"El commit del paso fall√≥: {(stderr or '').strip()}")
     return False
 
 
 # ----------------------------------------------------------------------
-# v6.20.0 ‚Äî Git profundo: mensajes de commit con IA, commits atÛmicos
+# v6.20.0 ‚Äî Git profundo: mensajes de commit con IA, commits at√≥micos
 # por paso (con hash en la BD) y revert nativo (`snapcontext revert N`).
 # ----------------------------------------------------------------------
 
 _PATRON_SECRETOS = re.compile(
     r"(sk-[A-Za-z0-9_\-]{8,}"                            # claves OpenAI-like
-    r"|[A-Za-z0-9_\-]{32,}"                              # tokens genÈricos largos
+    r"|[A-Za-z0-9_\-]{32,}"                              # tokens gen√©ricos largos
     r"|(?:api[_-]?key|token|secret|password)\s*[:=]\s*\S+)",
     re.IGNORECASE,
 )
 
 
 def _sanear_mensaje_commit(texto: str) -> str:
-    """Elimina posibles secretos del mensaje de commit (restricciÛn v6.20.0)."""
+    """Elimina posibles secretos del mensaje de commit (restricci√≥n v6.20.0)."""
     return _PATRON_SECRETOS.sub("[REDACTADO]", texto or "")
 
 
 def _generar_mensaje_commit(diff: str, tarea: str) -> str:
     """Genera un mensaje de commit (Conventional Commits) con el proveedor.
 
-    Si el proveedor no est· disponible o falla, devuelve el mensaje genÈrico
+    Si el proveedor no est√° disponible o falla, devuelve el mensaje gen√©rico
     ``"paso: {tarea}"``. Nunca lanza y nunca incluye secretos en el mensaje.
     """
     fallback = f"paso: {tarea}".replace('"', "'").strip() or "paso: cambio"
@@ -6324,11 +6324,11 @@ def _generar_mensaje_commit(diff: str, tarea: str) -> str:
         modelo = cfg.get("model") or None
         diff_recortado = (diff or "")[:4000]
         prompt = (
-            "Escribe UNA sola lÌnea de mensaje de commit en formato "
-            "Conventional Commits (ej: 'feat: aÒadir funciÛn de "
-            "autenticaciÛn') en espaÒol, describiendo este cambio.\n\n"
+            "Escribe UNA sola l√≠nea de mensaje de commit en formato "
+            "Conventional Commits (ej: 'feat: a√±adir funci√≥n de "
+            "autenticaci√≥n') en espa√±ol, describiendo este cambio.\n\n"
             f"Tarea: {tarea}\n\nDiff:\n{diff_recortado}\n\n"
-            "Responde SOLO con la lÌnea del mensaje, sin comillas."
+            "Responde SOLO con la l√≠nea del mensaje, sin comillas."
         )
         respuesta = _enviar_al_proveedor(proveedor, modelo, [
             {"role": "user", "content": prompt},
@@ -6342,14 +6342,14 @@ def _generar_mensaje_commit(diff: str, tarea: str) -> str:
 
 def _commit_paso(paso: dict, args: argparse.Namespace,
                  directorio: str = ".") -> Optional[str]:
-    """Commit atÛmico de un paso (v6.20.0). Devuelve el hash o ``None``.
+    """Commit at√≥mico de un paso (v6.20.0). Devuelve el hash o ``None``.
 
     - Inicializa el repo con ``git init`` si el directorio no es repo git.
     - Si no hay cambios, no commitea y devuelve ``None`` (idempotente).
-    - Usa ``--git-mensaje`` si el usuario lo indicÛ; si no, genera el mensaje
-      con IA vÌa :func:`_generar_mensaje_commit`.
+    - Usa ``--git-mensaje`` si el usuario lo indic√≥; si no, genera el mensaje
+      con IA v√≠a :func:`_generar_mensaje_commit`.
     - Guarda el hash en la tabla ``pasos`` de la BD y muestra
-      ``?? Commit autom·tico: {mensaje} ({hash})``.
+      ``üóú Commit autom√°tico: {mensaje} ({hash})``.
     Nunca lanza: un fallo de git no debe bloquear el plan.
     """
     try:
@@ -6370,7 +6370,7 @@ def _commit_paso(paso: dict, args: argparse.Namespace,
         codigo, _, stderr = _ejecutar_comando(
             f'git commit -m "{mensaje}"', directorio, timeout=60)
         if codigo != 0:
-            aviso(f"El commit del paso fallÛ: {(stderr or '').strip()}")
+            aviso(f"El commit del paso fall√≥: {(stderr or '').strip()}")
             return None
         _, salida_hash, _ = _ejecutar_comando(
             "git rev-parse HEAD", directorio, timeout=30)
@@ -6378,7 +6378,7 @@ def _commit_paso(paso: dict, args: argparse.Namespace,
         _db_registrar_paso(descripcion, commit_hash,
                            tipo=str(paso.get("accion") or "paso"))
         _emitir(sys.stdout, _pintar(
-            f"?? Commit autom·tico: {mensaje} ({commit_hash})", _VERDE))
+            f"üóú Commit autom√°tico: {mensaje} ({commit_hash})", _VERDE))
         return commit_hash
     except Exception as exc:                             # noqa: BLE001
         aviso(f"[git-profundo] No se pudo commitear el paso: {exc}")
@@ -6401,7 +6401,7 @@ def _db_registrar_paso(descripcion: str, commit_hash: Optional[str],
 
 
 def _db_migrar_pasos() -> None:
-    """MigraciÛn v6.20.0: crea la tabla ``pasos`` (commits atÛmicos) si falta.
+    """Migraci√≥n v6.20.0: crea la tabla ``pasos`` (commits at√≥micos) si falta.
 
     Idempotente: usa ``CREATE TABLE IF NOT EXISTS``, de modo que las bases
     creadas antes de v6.20.0 se actualizan sin perder datos.
@@ -6445,7 +6445,7 @@ def _revertir_paso(step_id: int) -> bool:
         if "conflict" in texto_err.lower():
             error(f"Conflicto al revertir el paso {step_id}:\n"
                   f"{texto_err.strip()}\n"
-                  "ResuÈlvelo con 'git mergetool' y finaliza con "
+                  "Resu√©lvelo con 'git mergetool' y finaliza con "
                   "'git commit'.")
         else:
             error(f"No se pudo revertir el paso {step_id}: "
@@ -6466,8 +6466,8 @@ def _revertir_paso(step_id: int) -> bool:
 def _ejecutar_revert(step: Optional[str] = None) -> int:
     """Comando ``snapcontext revert <step>`` (v6.20.0).
 
-    ``step`` puede ser un id numÈrico; si se omite, se revierte el ˙ltimo
-    paso commiteado. Devuelve el cÛdigo de salida (0 = Èxito).
+    ``step`` puede ser un id num√©rico; si se omite, se revierte el √∫ltimo
+    paso commiteado. Devuelve el c√≥digo de salida (0 = √©xito).
     """
     try:
         if step is None or not str(step).strip():
@@ -6481,7 +6481,7 @@ def _ejecutar_revert(step: Optional[str] = None) -> int:
         else:
             step_id = int(str(step).strip())
     except (TypeError, ValueError):
-        error(f"Paso inv·lido: {step!r}. Usa 'snapcontext revert <N>'.")
+        error(f"Paso inv√°lido: {step!r}. Usa 'snapcontext revert <N>'.")
         return 1
     filas = _db_query("SELECT id FROM pasos WHERE id = ?", (step_id,))
     if not filas:
@@ -6500,7 +6500,7 @@ except Exception:                              # pragma: no cover
 def _hooks_inicializar() -> None:
     """Carga perezosa de hooks desde plugins y ~/.snapcontext/hooks/ (v6.22.0).
 
-    Solo se ejecuta una vez por proceso y solo si el sistema est· activo
+    Solo se ejecuta una vez por proceso y solo si el sistema est√° activo
     (`--no-hooks` lo impide). Sin hooks instalados no tiene coste apreciable.
     """
     if _hooks is None:
@@ -6516,8 +6516,8 @@ def _hooks_inicializar() -> None:
 def _hooks_ejecutar(evento: str, contexto: Optional[dict] = None) -> tuple:
     """Wrapper seguro de ``hooks.ejecutar_hook`` (v6.22.0).
 
-    Devuelve ``(abortado, contexto)``; si el mÛdulo no est· disponible o el
-    sistema est· desactivado contin˙a sin abortar (compatibilidad total).
+    Devuelve ``(abortado, contexto)``; si el m√≥dulo no est√° disponible o el
+    sistema est√° desactivado contin√∫a sin abortar (compatibilidad total).
     """
     if _hooks is None:
         return False, (contexto if isinstance(contexto, dict) else {})
@@ -6533,7 +6533,7 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
     """Ejecuta un paso del plan. Devuelve (ok: bool, detalle: str).
 
     - "editar": usa el orquestador actual ‚Äî ``_planificar`` para elegir los
-      archivos y ``_bucle_test``/AgenteEditor para aplicar la descripciÛn.
+      archivos y ``_bucle_test``/AgenteEditor para aplicar la descripci√≥n.
     - "ejecutar": lanza ``paso["comando"]`` con ``_ejecutar_comando``.
     - "consultar": pregunta al proveedor y muestra su respuesta.
 
@@ -6554,8 +6554,8 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
 
     accion = paso["accion"]
     descripcion = paso["descripcion"]
-    # v2.3.0: sustituciÛn de marcadores {{variable}} / {{resultado}} en los
-    # campos del paso usando el contexto din·mico del plan.
+    # v2.3.0: sustituci√≥n de marcadores {{variable}} / {{resultado}} en los
+    # campos del paso usando el contexto din√°mico del plan.
     descripcion = _resolver_marcadores(descripcion)
     for _clave in ("comando", "herramienta", "contenido"):
         _valor = paso.get(_clave)
@@ -6566,8 +6566,8 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
     if isinstance(paso.get("args"), dict) and paso["args"]:
         paso["args"] = _resolver_marcadores_args(paso["args"])
 
-    # ConfirmaciÛn de permisos (v0.13.0) antes de cualquier acciÛn.
-    # En modo autÛnomo (--auto, v0.17.0) no se pregunta: solo se respetan las
+    # Confirmaci√≥n de permisos (v0.13.0) antes de cualquier acci√≥n.
+    # En modo aut√≥nomo (--auto, v0.17.0) no se pregunta: solo se respetan las
     # preferencias ya guardadas en permisos.json (nunca ‚Üí denegado).
     if accion == "ejecutar":
         detalles_paso = paso.get("comando") or None
@@ -6596,7 +6596,7 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
             _emitir(sys.stdout, _pintar(stdout.rstrip(), _VERDE))
         if stderr.strip():
             _emitir(sys.stdout, _pintar(stderr.rstrip(), _AMARILLO))
-        return (codigo == 0, f"cÛdigo {codigo}")
+        return (codigo == 0, f"c√≥digo {codigo}")
 
     # accion == "mcp" (v2.3.0): ejecuta una herramienta MCP y deja su
     # resultado en el contexto del plan para los pasos siguientes.
@@ -6619,7 +6619,7 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
             _contexto_plan_variable(str(paso.get("variable") or herramienta),
                                     res)
             return (True, herramienta + ": ok")
-        error("[mcp] fallÛ: " + muestra)
+        error("[mcp] fall√≥: " + muestra)
         return (False, herramienta + ": "
                 + str(res.get("error", "fallo")))
 
@@ -6632,7 +6632,7 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
                 [{"role": "user",
                   "content": f"Tarea general: {getattr(args, 'consulta', '')}\n"
                              f"Paso a aclarar: {descripcion}\n"
-                             "Responde de forma breve y ˙til."}],
+                             "Responde de forma breve y √∫til."}],
             )
             respuesta, _raz = _procesar_razonamiento(
                 respuesta, activo=_razonamiento_activo(args))
@@ -6642,7 +6642,7 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
             error(str(exc))
             return (False, str(exc))
 
-    # accion == "seguridad" / "rendimiento" (v4.2.0): an·lisis enfocado;
+    # accion == "seguridad" / "rendimiento" (v4.2.0): an√°lisis enfocado;
     # en --auto se ejecutan solos y las sugerencias solo se muestran.
     if accion in ("seguridad", "rendimiento"):
         tipos = ("vulnerabilidad",) if accion == "seguridad" \
@@ -6663,13 +6663,13 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
                 exito(f"Anotada: {sugg['solucion']}")
         return (True, f"{len(encontradas)} hallazgo(s) de {accion}")
 
-    # accion == "asesor" (v3.5.0): an·lisis est·tico del proyecto; cada
+    # accion == "asesor" (v3.5.0): an√°lisis est√°tico del proyecto; cada
     # sugerencia se presenta al usuario para aceptarla o rechazarla. En modo
-    # --auto solo se informan (nunca se aplica cÛdigo sin confirmaciÛn).
+    # --auto solo se informan (nunca se aplica c√≥digo sin confirmaci√≥n).
     if accion == "asesor":
         sugerencias_paso = _asesor_analizar(raiz)
         if not sugerencias_paso:
-            exito("[asesor] Sin sugerencias: el cÛdigo est· limpio.")
+            exito("[asesor] Sin sugerencias: el c√≥digo est√° limpio.")
             return (True, "sin sugerencias")
         aceptadas = 0
         for sugg in sugerencias_paso:
@@ -6694,7 +6694,7 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
         archivos_paso = paso.get("archivos", [])
         contenido_paso = paso.get("contenido")
         if archivos_paso and contenido_paso is not None:
-            # Si el paso trae archivo y contenido explÌcito
+            # Si el paso trae archivo y contenido expl√≠cito
             todo_ok = True
             for arch in archivos_paso:
                 if not _editor_sobrescribir(arch, contenido_paso, raiz):
@@ -6706,7 +6706,7 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
     orch = Orquestador()
     plan = orch._planificar(paso_args, sc)
     if plan is None:
-        return (False, "no se pudo planificar la ediciÛn (sin candidatos)")
+        return (False, "no se pudo planificar la edici√≥n (sin candidatos)")
     _, ruta_raiz, _, seleccion = plan
 
     if editor_elegido == "propio":
@@ -6744,7 +6744,7 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
         seleccion, descripcion, str(ruta_raiz),
         opciones_aider=getattr(args, "aider_opciones", ""),
     )
-    # v6.22.0: hook `after_plan_step` ‚Äî observabilidad post-ejecuciÛn del paso.
+    # v6.22.0: hook `after_plan_step` ‚Äî observabilidad post-ejecuci√≥n del paso.
     try:
         _hooks.ejecutar_hook("after_plan_step", {
             "paso": paso, "ok": ok, "detalle": f"Aider sobre {len(seleccion)} archivo(s)"})
@@ -6756,7 +6756,7 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
 # --- Condiciones y paralelismo del planificador (v1.4.0) --------------------
 def _evaluar_condicion(condicion: str, raiz: str = ".",
                       contexto: Optional[dict] = None) -> bool:
-    """Eval˙a la condiciÛn de un paso del plan. Devuelve True si se cumple.
+    """Eval√∫a la condici√≥n de un paso del plan. Devuelve True si se cumple.
 
     Formatos soportados:
 
@@ -6766,14 +6766,14 @@ def _evaluar_condicion(condicion: str, raiz: str = ".",
         comando_exito('flutter test')
         variable_existe('mi_variable')            # v2.3.0
 
-      Comparaciones din·micas (v2.3.0), con resultados de pasos previos o
+      Comparaciones din√°micas (v2.3.0), con resultados de pasos previos o
       variables dejadas en el contexto (p. ej. por pasos "mcp"):
         pasos[0].resultado == 'ok'
         pasos[2].resultado != 'fallo'
         resultados.mi_variable == 'listo'
         mi_variable != ''                         # forma abreviada
 
-    Las cadenas pueden ir con comillas simples o dobles. Cualquier condiciÛn
+    Las cadenas pueden ir con comillas simples o dobles. Cualquier condici√≥n
     mal formada o desconocida devuelve False con un aviso (fallo elegante:
     el paso se salta, nunca se aborta el plan).
     """
@@ -6783,7 +6783,7 @@ def _evaluar_condicion(condicion: str, raiz: str = ".",
     if not condicion:
         return True
 
-    # 1) Comparaciones din·micas (== / !=).
+    # 1) Comparaciones din√°micas (== / !=).
     comparacion = re.match(r"^(.+?)\s*(==|!=)\s*(.+)$", condicion, re.S)
     if comparacion and "(" not in condicion.split("==")[0].split("!=")[0]:
         izquierdo = _resolver_operando_condicion(
@@ -6791,17 +6791,17 @@ def _evaluar_condicion(condicion: str, raiz: str = ".",
         derecho = _resolver_operando_condicion(
             comparacion.group(3).strip(), contexto)
         if izquierdo is _DESCONOCIDO or derecho is _DESCONOCIDO:
-            aviso(f"CondiciÛn con referencia desconocida: '{condicion}'.")
+            aviso(f"Condici√≥n con referencia desconocida: '{condicion}'.")
             return False
         iguales = (_normalizar_comparacion(izquierdo)
                    == _normalizar_comparacion(derecho))
         return iguales if comparacion.group(2) == "==" else not iguales
 
-    # 2) Formas funcionales cl·sicas.
+    # 2) Formas funcionales cl√°sicas.
     coincidencia = re.match(r"^([a-zA-Z_]\w*)\s*\((.*)\)\s*$",
                             condicion, re.S)
     if not coincidencia:
-        aviso(f"CondiciÛn de paso mal formada: '{condicion}'. Se interpreta "
+        aviso(f"Condici√≥n de paso mal formada: '{condicion}'. Se interpreta "
               f"como no cumplida.")
         return False
     funcion, crudo_args = coincidencia.group(1), coincidencia.group(2)
@@ -6809,7 +6809,7 @@ def _evaluar_condicion(condicion: str, raiz: str = ".",
         argumentos = [a.strip()
                       for a in _partir_argumentos(crudo_args)]
     except ValueError as exc:
-        aviso(f"CondiciÛn inv·lida '{condicion}': {exc}")
+        aviso(f"Condici√≥n inv√°lida '{condicion}': {exc}")
         return False
 
     if funcion == "archivo_existe":
@@ -6829,7 +6829,7 @@ def _evaluar_condicion(condicion: str, raiz: str = ".",
             variables = dict(contexto.get("variables", {}))
         return bool(argumentos) and argumentos[0] in variables
 
-    aviso(f"FunciÛn de condiciÛn desconocida: '{funcion}'. Soportadas: "
+    aviso(f"Funci√≥n de condici√≥n desconocida: '{funcion}'. Soportadas: "
           f"archivo_existe, archivo_contiene, comando_exito, "
           f"variable_existe.")
     return False
@@ -6840,9 +6840,9 @@ _DESCONOCIDO = object()
 
 
 def _resolver_operando_condicion(operando: str, contexto: dict):
-    """Convierte un operando de condiciÛn en un valor Python concreto.
+    """Convierte un operando de condici√≥n en un valor Python concreto.
 
-    Acepta literales ('texto', n˙meros, true/false/null) y referencias al
+    Acepta literales ('texto', n√∫meros, true/false/null) y referencias al
     contexto: pasos[N].campo, resultados.nombre o un identificador simple.
     Devuelve _DESCONOCIDO si no se puede resolver.
     """
@@ -6889,7 +6889,7 @@ def _resolver_operando_condicion(operando: str, contexto: dict):
 
 
 def _normalizar_comparacion(valor):
-    """Normaliza valores para poder compararlos entre sÌ."""
+    """Normaliza valores para poder compararlos entre s√≠."""
     if isinstance(valor, bool):
         return "ok" if valor else "fallo"
     if isinstance(valor, (int, float)):
@@ -6904,7 +6904,7 @@ def _normalizar_comparacion(valor):
 
 
 def _partir_argumentos(texto: str) -> List[str]:
-    """Separa los argumentos de una condiciÛn respetando comillas."""
+    """Separa los argumentos de una condici√≥n respetando comillas."""
     partes, actual, comilla = [], "", None
     for caracter in texto:
         if comilla:
@@ -6927,7 +6927,7 @@ def _partir_argumentos(texto: str) -> List[str]:
     return [p for p in (p.strip() for p in partes)]
 
 
-# --- Contexto din·mico del plan (v2.3.0) ------------------------------------
+# --- Contexto din√°mico del plan (v2.3.0) ------------------------------------
 # Los pasos pueden dejar resultados (p. ej. herramientas MCP) en este contexto
 # y los pasos posteriores los consumen con {{resultado}}, {{mi_variable}} o
 # condiciones como "pasos[0].resultado == 'ok'" / "resultados.mi_var == 'x'".
@@ -6936,14 +6936,14 @@ _CANDADO_CONTEXTO_PLAN = threading.Lock()
 
 
 def _contexto_plan_reiniciar() -> None:
-    """Limpia el contexto din·mico al empezar cada ejecuciÛn del plan."""
+    """Limpia el contexto din√°mico al empezar cada ejecuci√≥n del plan."""
     with _CANDADO_CONTEXTO_PLAN:
         _CONTEXTO_PLAN["variables"].clear()
         _CONTEXTO_PLAN["pasos"].clear()
 
 
 def _contexto_plan_variable(nombre: str, valor) -> None:
-    """Guarda ``valor`` bajo ``nombre`` (y como ˙ltimo ``resultado``)."""
+    """Guarda ``valor`` bajo ``nombre`` (y como √∫ltimo ``resultado``)."""
     if not nombre:
         return
     with _CANDADO_CONTEXTO_PLAN:
@@ -6953,7 +6953,7 @@ def _contexto_plan_variable(nombre: str, valor) -> None:
 
 def _registrar_resultado_plan(numero: int, ok: bool, detalle: str,
                               estado: str = "") -> None:
-    """Registra el resultado de un paso (base 1) para condiciones din·micas."""
+    """Registra el resultado de un paso (base 1) para condiciones din√°micas."""
     with _CANDADO_CONTEXTO_PLAN:
         _CONTEXTO_PLAN["pasos"][str(numero)] = {
             "resultado": estado or ("ok" if ok else "fallo"),
@@ -6962,7 +6962,7 @@ def _registrar_resultado_plan(numero: int, ok: bool, detalle: str,
 
 def _resolver_marcadores(texto: str):
     """Sustituye la marca de doble llave {{clave}} por el valor que
-    tenga esa clave en el contexto din·mico del plan. Si la clave
+    tenga esa clave en el contexto din√°mico del plan. Si la clave
     no existe o el texto no es una cadena, se devuelve sin cambios.
 
     Si ``texto`` no es una cadena se devuelve tal cual. Las claves desconocidas
@@ -6990,7 +6990,7 @@ def _resolver_marcadores(texto: str):
 
 
 def _refs_de_condicion(condicion: str) -> tuple:
-    """Extrae los Ìndices de pasos y nombres de variables que usa una condiciÛn."""
+    """Extrae los √≠ndices de pasos y nombres de variables que usa una condici√≥n."""
     condicion = condicion or ""
     indices = set()
     for m in re.findall(r"pasos\[(\d+)\]", condicion):
@@ -7008,7 +7008,7 @@ def _refs_de_condicion(condicion: str) -> tuple:
 
 
 def _resolver_marcadores_args(argumentos: dict) -> dict:
-    """Aplica la sustituciÛn de marcadores a los valores string de un dict."""
+    """Aplica la sustituci√≥n de marcadores a los valores string de un dict."""
     resuelto = {}
     for clave, valor in (argumentos or {}).items():
         if isinstance(valor, str):
@@ -7031,14 +7031,14 @@ def _ejecutar_paso_paralelo(paso: dict, args: argparse.Namespace,
 
     condicion = paso.get("condicion")
     if condicion and not _evaluar_condicion(condicion, raiz):
-        aviso(f"{prefijo} condiciÛn no cumplida ({condicion}); se salta.")
+        aviso(f"{prefijo} condici√≥n no cumplida ({condicion}); se salta.")
         return {"paso": numero, "descripcion": paso["descripcion"],
                 "accion": paso["accion"], "resultado": "saltado",
-                "detalle": f"condiciÛn no cumplida: {condicion}", "intentos": 0}
+                "detalle": f"condici√≥n no cumplida: {condicion}", "intentos": 0}
     try:
         ok, detalle = _ejecutar_paso_plan(paso, args, raiz)
     except Exception as exc:                     # blindaje del hilo
-        ok, detalle = False, f"excepciÛn: {exc}"
+        ok, detalle = False, f"excepci√≥n: {exc}"
     _registrar_resultado_plan(numero, ok, detalle)
     marca = "‚úî" if ok else "‚úñ"
     _emitir(sys.stdout, f"  {marca} {prefijo} terminado ({detalle})")
@@ -7046,7 +7046,7 @@ def _ejecutar_paso_paralelo(paso: dict, args: argparse.Namespace,
         with _CANDADO_GIT_PLAN:
             _commit_paso(paso, args, raiz)
     return {"paso": numero, "descripcion": paso["descripcion"],
-            "accion": paso["accion"], "resultado": "Èxito" if ok else "fallo",
+            "accion": paso["accion"], "resultado": "√©xito" if ok else "fallo",
             "detalle": detalle, "intentos": 1}
 
 
@@ -7054,35 +7054,35 @@ def _ejecutar_plan_en_paralelo(pasos: List[dict], args: argparse.Namespace,
                                raiz: str, max_hilos: int) -> List[dict]:
     """Ejecuta el plan con ``--paralelo N`` (modo --auto).
 
-    Rondas de ejecuciÛn: en cada ronda se lanzan todos los pasos cuyas
-    dependencias ya tuvieron Èxito (ThreadPoolExecutor limita la concurrencia
+    Rondas de ejecuci√≥n: en cada ronda se lanzan todos los pasos cuyas
+    dependencias ya tuvieron √©xito (ThreadPoolExecutor limita la concurrencia
     a ``max_hilos``); los pasos con dependencias fallidas o saltadas se marcan
     como saltados. Los logs llevan el identificador ``[paso N]``.
     """
-    estado: dict = {}                            # Ìndice ‚Üí resultado terminal
+    estado: dict = {}                            # √≠ndice ‚Üí resultado terminal
     resultados: List[dict] = []
     pendientes = set(range(len(pasos)))
     MALOS_TERMINALES = ("fallo", "saltado")
 
     with ThreadPoolExecutor(max_workers=max(1, max_hilos)) as pool:
         while pendientes:
-            # 'dependencias' guarda n˙meros de paso (base 1): convertimos.
+            # 'dependencias' guarda n√∫meros de paso (base 1): convertimos.
             for i in sorted(pendientes):
                 deps = [d - 1 for d in (pasos[i].get("dependencias") or [])]
                 if any(estado.get(d) in MALOS_TERMINALES for d in deps):
                     numero = i + 1
-                    aviso(f"[paso {numero}] saltado: dependencia(s) sin Èxito "
+                    aviso(f"[paso {numero}] saltado: dependencia(s) sin √©xito "
                           f"({[d + 1 for d in deps]}).")
                     estado[i] = "saltado"
                     resultados.append(
                         {"paso": numero, "descripcion": pasos[i]["descripcion"],
                          "accion": pasos[i]["accion"], "resultado": "saltado",
-                         "detalle": "dependencia sin Èxito", "intentos": 0})
+                         "detalle": "dependencia sin √©xito", "intentos": 0})
                     pendientes.discard(i)
 
-            # v2.3.0: adem·s de las dependencias explÌcitas, un paso queda
-            # bloqueado mientras su condiciÛn referencie variables que alg˙n
-            # paso pendiente a˙n puede producir (p. ej. un paso "mcp").
+            # v2.3.0: adem√°s de las dependencias expl√≠citas, un paso queda
+            # bloqueado mientras su condici√≥n referencie variables que alg√∫n
+            # paso pendiente a√∫n puede producir (p. ej. un paso "mcp").
             producibles = set()
             for j in pendientes:
                 _pj = pasos[j]
@@ -7095,11 +7095,11 @@ def _ejecutar_plan_en_paralelo(pasos: List[dict], args: argparse.Namespace,
 
             def _listo(i):
                 deps = [d - 1 for d in (pasos[i].get("dependencias") or [])]
-                if any(estado.get(d) != "Èxito" for d in deps):
+                if any(estado.get(d) != "√©xito" for d in deps):
                     return False
                 ref_i, ref_v = _refs_de_condicion(
                     pasos[i].get("condicion") or "")
-                if any(estado.get(d) != "Èxito" for d in ref_i):
+                if any(estado.get(d) != "√©xito" for d in ref_i):
                     return False
                 with _CANDADO_CONTEXTO_PLAN:
                     disponibles = set(_CONTEXTO_PLAN["variables"])
@@ -7142,10 +7142,10 @@ def _ejecutar_plan_en_paralelo(pasos: List[dict], args: argparse.Namespace,
 
 
 def _graph_rag_activo(args: argparse.Namespace) -> bool:
-    """v5.5.0: True si el Grafo de Conocimiento est· activado.
+    """v5.5.0: True si el Grafo de Conocimiento est√° activado.
 
     Prioridad: flag ``--graph-rag`` > env ``SNAPCONTEXT_GRAPH_RAG=1``.
-    Nunca lanza excepciones (si graph_rag no est· disponible ‚Üí False).
+    Nunca lanza excepciones (si graph_rag no est√° disponible ‚Üí False).
     """
     if getattr(args, "graph_rag", False):
         return True
@@ -7211,10 +7211,10 @@ def obtener_simbolos_lsp(
         tipo: str = "funcion",
         grafo: Optional[Dict] = None,
         config: Optional[Dict] = None) -> List[Dict[str, Any]]:
-    """v6.33.0: Obtiene sÌmbolos LSP de un archivo (p˙blico).
+    """v6.33.0: Obtiene s√≠mbolos LSP de un archivo (p√∫blico).
 
-    FunciÛn de conveniencia que delega en ``graph_lsp_integrator``.
-    Nunca lanza; devuelve ``[]`` si el mÛdulo no est· disponible.
+    Funci√≥n de conveniencia que delega en ``graph_lsp_integrator``.
+    Nunca lanza; devuelve ``[]`` si el m√≥dulo no est√° disponible.
     """
     try:
         import graph_lsp_integrator as gli
@@ -7226,7 +7226,7 @@ def obtener_simbolos_lsp(
 
 
 def _multi_agent_activo(flag: Optional[bool] = None) -> bool:
-    """v6.0.0: True si el modo multi-agente est· activado.
+    """v6.0.0: True si el modo multi-agente est√° activado.
 
     Prioridad: flag ``--multi-agent`` > env ``SNAPCONTEXT_MULTI_AGENT=1``.
     """
@@ -7245,12 +7245,12 @@ def _ejecutar_multi_agent(args: argparse.Namespace) -> int:
     consulta = getattr(args, "consulta", None)
     if not consulta:
         error("El modo --multi-agent necesita una consulta. Uso:\n"
-              '  snapcontext --multi-agent "aÒadir un endpoint de login"')
+              '  snapcontext --multi-agent "a√±adir un endpoint de login"')
         return 1
     try:
         import multi_agent as ma                       # noqa: E402
     except Exception as exc:                           # noqa: BLE001
-        error(f"No se pudo cargar el mÛdulo multi_agent: {exc}")
+        error(f"No se pudo cargar el m√≥dulo multi_agent: {exc}")
         return 1
     directorio = getattr(args, "directorio", ".") or "."
     raiz = str(resolver_raiz(directorio))
@@ -7271,23 +7271,23 @@ def _ejecutar_multi_agent(args: argparse.Namespace) -> int:
     )
     resultado = supervisor.ejecutar()
     if resultado.get("ok"):
-        exito("?? Multi-agente: la tarea se completÛ.")
+        exito("üåÅ Multi-agente: la tarea se complet√≥.")
         return 0
     error("Multi-agente: " + str(resultado.get("error")
-          or "la tarea no se completÛ."))
+          or "la tarea no se complet√≥."))
     return 1
 
 
-# v6.20.0: gestiÛn de sub-agentes din·micos desde la CLI (independiente).
+# v6.20.0: gesti√≥n de sub-agentes din√°micos desde la CLI (independiente).
 def _ejecutar_listar_sub_agentes() -> int:
     """``snapcontext --sub-agente-listar``: lista los sub-agentes registrados."""
     try:
         import sub_agent as sa                              # noqa: E402
     except Exception as exc:                                 # noqa: BLE001
-        error(f"No se pudo cargar el mÛdulo de sub-agentes: {exc}")
+        error(f"No se pudo cargar el m√≥dulo de sub-agentes: {exc}")
         return 1
     nombres = sa.REGISTRO_SUB_AGENTES.listar()
-    info(f"?? Sub-agentes din·micos registrados ({len(nombres)}):")
+    info(f"ü§ó Sub-agentes din√°micos registrados ({len(nombres)}):")
     for n in nombres:
         cfg = sa.REGISTRO_SUB_AGENTES.obtener(n)
         desc = str(cfg.get("descripcion") or "")
@@ -7301,7 +7301,7 @@ def _ejecutar_listar_sub_agentes() -> int:
 def _registrar_sub_agente_cli(nombre: str, descripcion: str) -> int:
     """``snapcontext --sub-agente-nuevo <nombre> <descripcion>``.
 
-    Registra un sub-agente din·mico nuevo en el registro por defecto (˙til
+    Registra un sub-agente din√°mico nuevo en el registro por defecto (√∫til
     para plugins: rol bajo demanda con herramientas de solo lectura). El
     nombre queda disponible para ``--sub-agente-listar``, el Supervisor y la
     herramienta ReAct ``invocar_sub_agente``.
@@ -7310,7 +7310,7 @@ def _registrar_sub_agente_cli(nombre: str, descripcion: str) -> int:
         import sub_agent as sa                              # noqa: E402
         from sub_agent_prompts import PROMPTS as _P         # noqa: E402
     except Exception as exc:                                 # noqa: BLE001
-        error(f"No se pudo cargar el mÛdulo de sub-agentes: {exc}")
+        error(f"No se pudo cargar el m√≥dulo de sub-agentes: {exc}")
         return 1
     nombre = str(nombre or "").strip()
     if not nombre:
@@ -7318,8 +7318,8 @@ def _registrar_sub_agente_cli(nombre: str, descripcion: str) -> int:
         return 1
     cfg = {
         "descripcion": str(descripcion or ""),
-        # Si el nombre coincide con un prompt canÛnico se usa ese; si no, un
-        # prompt genÈrico con herramientas de solo lectura (mÌnimo privilegio).
+        # Si el nombre coincide con un prompt can√≥nico se usa ese; si no, un
+        # prompt gen√©rico con herramientas de solo lectura (m√≠nimo privilegio).
         "prompt": _P.get(nombre.lower(),
                          f"Eres {nombre}, un sub-agente especializado. "
                          "Lee e investiga y devuelve un resumen conciso."),
@@ -7337,13 +7337,13 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
     Desde v5.2.0 es el **modo por defecto** para cualquier consulta sin
     ``--plan``; el flag ``--react`` se acepta por compatibilidad aunque sea
     redundante. Instancia el `ReactAgent` de `react_agent.py` y ejecuta el
-    bucle din·mico pensamiento ‚Üí acciÛn ‚Üí observaciÛn hasta que el agente
+    bucle din√°mico pensamiento ‚Üí acci√≥n ‚Üí observaci√≥n hasta que el agente
     decida finalizar, se alcance el tope de iteraciones o el usuario aborte.
     """
     if not getattr(args, "consulta", None):
         error("El modo ReAct necesita una consulta. Uso:\n"
-              '  snapcontext "aÒadir login con Google"\n'
-              '  snapcontext --react "aÒadir login con Google"   # equivalente')
+              '  snapcontext "a√±adir login con Google"\n'
+              '  snapcontext --react "a√±adir login con Google"   # equivalente')
         return 1
     try:
         import react_agent as ra                     # noqa: E402
@@ -7362,27 +7362,27 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
         prompt_caching=getattr(args, "prompt_caching",
                                PROMPT_CACHING_DEFECTO),
         lsp=bool(getattr(args, "lsp", False)),
-        # v6.20.0: commits autom·ticos por acciÛn (git profundo).
+        # v6.20.0: commits autom√°ticos por acci√≥n (git profundo).
         git_commit=bool(getattr(args, "git_commit", True)),
         git_mensaje=getattr(args, "git_mensaje", None),
     )
-    # v6.10.0: activar el modo navegador si se pidiÛ --browser. La sesiÛn
+    # v6.10.0: activar el modo navegador si se pidi√≥ --browser. La sesi√≥n
     # (navegador headless persistente) se cierra al terminar la tarea.
     if bool(getattr(args, "browser", False)):
         try:
             import mcp_tools_browser as btool
             btool.browser_activar(
                 headless=not bool(getattr(args, "browser_headed", False)))
-            info("?? Modo navegador activado (--browser).")
+            info("üÜê Modo navegador activado (--browser).")
         except Exception as exc:                         # noqa: BLE001
             aviso(f"‚ö†Ô∏è No se pudo activar el modo navegador: {exc}")
-    # v6.4.0: la sesiÛn Docker se crea de forma perezosa y se destruye con
-    # total garantÌa al terminar el bucle ReAct (Èxito, aborto o excepciÛn).
+    # v6.4.0: la sesi√≥n Docker se crea de forma perezosa y se destruye con
+    # total garant√≠a al terminar el bucle ReAct (√©xito, aborto o excepci√≥n).
     try:
         resultado = agente.ejecutar(args.consulta)
     finally:
         _destruir_sesion_si_aplica()
-        # v6.10.0: liberar el navegador al terminar (Èxito, aborto o error).
+        # v6.10.0: liberar el navegador al terminar (√©xito, aborto o error).
         try:
             import mcp_tools_browser as _btool
             _btool.browser_cerrar()
@@ -7395,12 +7395,12 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
 # v6.23.0 ‚Äî MODO INTELIGENTE POR DEFECTO (sin flags)
 # ---------------------------------------------------------------------------
 # Capa de "entrada": detecta la complejidad de la tarea y aplica defaults.
-# NO toca la lÛgica del editor, planificador ni agente ReAct (solo flags).
+# NO toca la l√≥gica del editor, planificador ni agente ReAct (solo flags).
 # ---------------------------------------------------------------------------
 
-# Flags que indican que el usuario ya eligiÛ un pipeline concreto. Ante
-# cualquiera de ellos se respeta su elecciÛn (compatibilidad total) y NO se
-# activa la detecciÛn autom·tica ni se sobrescriben defaults.
+# Flags que indican que el usuario ya eligi√≥ un pipeline concreto. Ante
+# cualquiera de ellos se respeta su elecci√≥n (compatibilidad total) y NO se
+# activa la detecci√≥n autom√°tica ni se sobrescriben defaults.
 _FLAGS_MODO_EXPLICITO: Tuple[str, ...] = (
     "plan", "react", "auto",
     "multi_agent", "sub_agents",
@@ -7410,17 +7410,17 @@ _FLAGS_MODO_EXPLICITO: Tuple[str, ...] = (
     "iniciar_proyecto",
 )
 
-# RaÌces verbales para la detecciÛn heurÌstica de intenciÛn (cubren la
-# conjugaciÛn: "arreglar/arregla/arreglo", "aÒadir/aÒade", ...).
+# Ra√≠ces verbales para la detecci√≥n heur√≠stica de intenci√≥n (cubren la
+# conjugaci√≥n: "arreglar/arregla/arreglo", "a√±adir/a√±ade", ...).
 _PALABRAS_EDITAR: Tuple[str, ...] = (
     "arregl", "corrig", "correg", "refactoriz",
-    "aÒad", "anad", "cambi", "elimin",
+    "a√±ad", "anad", "cambi", "elimin",
 )
 _PALABRAS_LEER: Tuple[str, ...] = (
     "analiz", "revis", "leer", "audit", "explor",
 )
 _PALABRAS_MULTIPASO: Tuple[str, ...] = (
-    "luego", "despuÈs", "despues", "entonces",
+    "luego", "despu√©s", "despues", "entonces",
     "primero", "finalmente", "pasos", "posteriormente",
 )
 def _detectar_modo_operacion(consulta: Optional[str],
@@ -7431,17 +7431,17 @@ def _detectar_modo_operacion(consulta: Optional[str],
 
       - ``modo``        ‚Üí ``"chat"`` | ``"plan"`` | ``"react"`` |
                           ``"react_paralelo"`` | ``None``.
-      - ``razon``       ‚Üí explicaciÛn legible de la decisiÛn (mensaje ``??``).
+      - ``razon``       ‚Üí explicaci√≥n legible de la decisi√≥n (mensaje ``üí≠``).
       - ``flags_extra`` ‚Üí flags sugeridos (p. ej. ``{"paralelo": 3}``).
 
     Prioridades (compatibilidad):
-      * Si el usuario ya usÛ flags de pipeline explÌcitos
+      * Si el usuario ya us√≥ flags de pipeline expl√≠citos
         (``--plan``/``--react``/``--auto``/...) devuelve ``modo=None`` y no se
         sobrescribe nada.
       * Consulta que pide editar (arreglar/corregir/... ‚Üí plan).
       * Consulta que pide analizar/revisar/leer ‚Üí react (herramientas lectura).
       * Consulta larga (>50 palabras) o multi-paso ‚Üí react_paralelo.
-      * Consulta corta (<20 palabras) sin ediciÛn ‚Üí chat (ReAct simple).
+      * Consulta corta (<20 palabras) sin edici√≥n ‚Üí chat (ReAct simple).
     """
     if consulta is None:
         consulta = ""
@@ -7449,23 +7449,23 @@ def _detectar_modo_operacion(consulta: Optional[str],
     for flag in _FLAGS_MODO_EXPLICITO:
         if bool(getattr(args, flag, False)):
             return {"modo": None,
-                    "razon": ("Se detectaron flags explÌcitos; se respeta la "
-                              "elecciÛn del usuario."),
+                    "razon": ("Se detectaron flags expl√≠citos; se respeta la "
+                              "elecci√≥n del usuario."),
                     "flags_extra": {}}
     if not consulta:
         return {"modo": None,
-                "razon": "Sin consulta; no se aplica detecciÛn.",
+                "razon": "Sin consulta; no se aplica detecci√≥n.",
                 "flags_extra": {}}
     baja = consulta.lower()
     num_palabras = len(consulta.split())
 
-    # 1) EdiciÛn de archivos ‚Üí planificador.
+    # 1) Edici√≥n de archivos ‚Üí planificador.
     if any(p in baja for p in _PALABRAS_EDITAR):
         return {"modo": "plan",
-                "razon": "La consulta pide modificar/editar el cÛdigo.",
+                "razon": "La consulta pide modificar/editar el c√≥digo.",
                 "flags_extra": {"plan": True, "auto": True}}
 
-    # 2) Lectura / an·lisis ‚Üí ReAct con herramientas de lectura.
+    # 2) Lectura / an√°lisis ‚Üí ReAct con herramientas de lectura.
     if any(p in baja for p in _PALABRAS_LEER):
         return {"modo": "react",
                 "razon": "La consulta pide analizar/revisar (modo lectura).",
@@ -7474,18 +7474,18 @@ def _detectar_modo_operacion(consulta: Optional[str],
     # 3) Larga (>50 palabras) o con varios pasos ‚Üí paralelismo.
     if num_palabras > 50 or any(p in baja for p in _PALABRAS_MULTIPASO):
         return {"modo": "react_paralelo",
-                "razon": ("Tarea extensa o con varios pasos; se usar· "
+                "razon": ("Tarea extensa o con varios pasos; se usar√° "
                           "paralelismo (--paralelo 3)."),
                 "flags_extra": {"paralelo": 3}}
 
-    # 4) Corta (<20 palabras) y sin ediciÛn ‚Üí chat simple (ReAct).
+    # 4) Corta (<20 palabras) y sin edici√≥n ‚Üí chat simple (ReAct).
     if num_palabras < 20:
         return {"modo": "chat",
-                "razon": "Consulta corta; conversaciÛn/ReAct simple.",
+                "razon": "Consulta corta; conversaci√≥n/ReAct simple.",
                 "flags_extra": {}}
 
     return {"modo": "react",
-            "razon": "Consulta de complejidad media; ReAct est·ndar.",
+            "razon": "Consulta de complejidad media; ReAct est√°ndar.",
             "flags_extra": {}}
 def _configurar_comportamiento_por_defecto(
         args: argparse.Namespace) -> argparse.Namespace:
@@ -7496,7 +7496,7 @@ def _configurar_comportamiento_por_defecto(
     - ``--auto`` (+``--plan``)    si el modo detectado es ``"plan"``.
     - ``--paralelo 3``            si el modo detectado es ``"react_paralelo"``.
 
-    Respeta los flags explÌcitos: si ``_detectar_modo_operacion`` devuelve
+    Respeta los flags expl√≠citos: si ``_detectar_modo_operacion`` devuelve
     ``modo=None`` devuelve ``args`` intacto (compatibilidad total).
     """
     det = _detectar_modo_operacion(getattr(args, "consulta", None), args)
@@ -7532,8 +7532,8 @@ def _configurar_comportamiento_por_defecto(
             args.paralelo = 3
             extra.setdefault("paralelo", 3)
 
-    # Marcadores internos (consumidos por la capa de presentaciÛn y por el
-    # planificador para mostrar el resumen condensado sin cambiar su lÛgica).
+    # Marcadores internos (consumidos por la capa de presentaci√≥n y por el
+    # planificador para mostrar el resumen condensado sin cambiar su l√≥gica).
     args._modo_inteligente = True
     args._modo_detectado = modo
     args._modo_razon = det.get("razon", "")
@@ -7542,11 +7542,11 @@ def _configurar_comportamiento_por_defecto(
 
 
 def _mostrar_plan_resumido(plan: Optional[list]) -> str:
-    """Devuelve un resumen legible del plan en 3-5 lÌneas (v6.23.0).
+    """Devuelve un resumen legible del plan en 3-5 l√≠neas (v6.23.0).
 
     En lugar de listar el plan completo, genera una frase compacta
-    ``"Voy a: 1) leer el login, 2) corregir el error, ..."``; si hay m·s de 5
-    pasos aÒade ``"y N m·s"``. Devuelve ``""`` si el plan est· vacÌo.
+    ``"Voy a: 1) leer el login, 2) corregir el error, ..."``; si hay m√°s de 5
+    pasos a√±ade ``"y N m√°s"``. Devuelve ``""`` si el plan est√° vac√≠o.
     """
     if not plan:
         return ""
@@ -7562,22 +7562,22 @@ def _mostrar_plan_resumido(plan: Optional[list]) -> str:
     resumen = ", ".join(t for t in trozos if t)
     resto = len(list(plan)) - len(pasos)
     if resto > 0:
-        resumen += f" y {resto} m·s"
+        resumen += f" y {resto} m√°s"
     return f"Voy a: {resumen}"
 
 
 def _aplicar_modo_inteligente(args: argparse.Namespace) -> argparse.Namespace:
     """v6.23.0: punto de entrada del modo inteligente (capa de "entrada").
 
-    Solo act˙a cuando ``SNAPCONTEXT_MODO_DEFAULT`` ‚â† ``manual`` y el usuario
-    no eligiÛ un pipeline explÌcito (flag de ``_FLAGS_MODO_EXPLICITO``).
+    Solo act√∫a cuando ``SNAPCONTEXT_MODO_DEFAULT`` ‚â† ``manual`` y el usuario
+    no eligi√≥ un pipeline expl√≠cito (flag de ``_FLAGS_MODO_EXPLICITO``).
     Aplica los defaults inteligentes y muestra los mensajes descriptivos.
     """
     modo_env = (os.environ.get("SNAPCONTEXT_MODO_DEFAULT", "inteligente")
                 or "inteligente").strip().lower()
     if modo_env == "manual":
         return args
-    # Flags de pipeline explÌcitos ‚Üí compatibilidad total (sin cambios).
+    # Flags de pipeline expl√≠citos ‚Üí compatibilidad total (sin cambios).
     for flag in _FLAGS_MODO_EXPLICITO:
         if bool(getattr(args, flag, False)):
             return args
@@ -7585,28 +7585,28 @@ def _aplicar_modo_inteligente(args: argparse.Namespace) -> argparse.Namespace:
         return args
     args = _configurar_comportamiento_por_defecto(args)
     if getattr(args, "_modo_inteligente", False):
-        info(f"?? Modo inteligente activado (detectado: "
+        info(f"üß† Modo inteligente activado (detectado: "
              f"{args._modo_detectado}). Escribe /ayuda para ver comandos.")
         if getattr(args, "_modo_razon", ""):
-            info(f"?? {args._modo_razon}")
+            info(f"üí≠ {args._modo_razon}")
     return args
 def _ejecutar_modo_tarea(args: argparse.Namespace) -> int:
-    """Resuelve el modo de ejecuciÛn de la tarea (v5.2.0).
+    """Resuelve el modo de ejecuci√≥n de la tarea (v5.2.0).
 
-    - ``--plan``     ‚Üí planificador est·tico (**modo legacy**, mantenido para
+    - ``--plan``     ‚Üí planificador est√°tico (**modo legacy**, mantenido para
       compatibilidad con scripts existentes).
-    - Por defecto    ‚Üí motor ReAct (razonamiento din·mico). El flag
-      ``--react`` sigue acept·ndose pero ya es redundante.
-    - Sin consulta   ‚Üí flujo cl·sico (`flujo_principal`), que valida la
+    - Por defecto    ‚Üí motor ReAct (razonamiento din√°mico). El flag
+      ``--react`` sigue acept√°ndose pero ya es redundante.
+    - Sin consulta   ‚Üí flujo cl√°sico (`flujo_principal`), que valida la
       entrada y muestra la ayuda amigable si falta la consulta.
     """
     if bool(getattr(args, "plan", False)):
-        return _ejecutar_planificador(args)          # legacy explÌcito
+        return _ejecutar_planificador(args)          # legacy expl√≠cito
     # v6.0.0: multi-agente (--multi-agent o SNAPCONTEXT_MULTI_AGENT=1) gana
     # sobre ReAct, que sigue siendo el modo por defecto para el resto.
     if _multi_agent_activo(getattr(args, "multi_agent", None) or None):
         return _ejecutar_multi_agent(args)
-    # v5.2.0: ReAct es el modo por defecto (--react es redundante aquÌ).
+    # v5.2.0: ReAct es el modo por defecto (--react es redundante aqu√≠).
     if getattr(args, "react", False) or getattr(args, "consulta", None):
         return _ejecutar_react(args)
     return flujo_principal(args)
@@ -7617,10 +7617,10 @@ def _aprender_regla_en_fondo(consulta: str, resultados: list,
     """Extrae (en un hilo demonio) una regla abstracta de un plan exitoso.
 
     v6.6.0: usa ``skill_abstraction.extraer_regla`` (LLM con fallback
-    heurÌstico), la guarda en la tabla ``reglas`` y, si supera el umbral de
+    heur√≠stico), la guarda en la tabla ``reglas`` y, si supera el umbral de
     confianza, la inyecta en CLAUDE.md. Nunca lanza ni bloquea.
 
-    Se omite si ``SKILLS_DINAMICOS`` est· desactivado o si se corre bajo un
+    Se omite si ``SKILLS_DINAMICOS`` est√° desactivado o si se corre bajo un
     test runner (evita hilos con sqlite/imports nativos al cerrar el proceso).
     """
     if not SKILLS_DINAMICOS:
@@ -7632,20 +7632,20 @@ def _aprender_regla_en_fondo(consulta: str, resultados: list,
     def _trabajo():
         try:
             import skill_abstraction as _sa
-            info("?? Extrayendo regla abstracta del plan exitoso...")
+            info("üß† Extrayendo regla abstracta del plan exitoso...")
             plan = {"tarea": consulta, "pasos": resultados}
             regla = _sa.extraer_regla(plan, {"directorio": raiz})
             regla = _sa.guardar_regla(regla, directorio=raiz)
             if regla:
-                info("?? Nueva regla aprendida: "
+                info("üóú Nueva regla aprendida: "
                      f"{regla.get('patron', '')} "
                      f"(confianza: {regla.get('confianza', 1.0):.2f})")
                 if float(regla.get("confianza", 0)) > \
                         _sa.UMBRAL_CONFIANZA_INYECCION:
                     if _sa.inyectar_en_claudemd(regla, raiz):
-                        info("?? Regla inyectada en CLAUDE.md")
+                        info("üóú Regla inyectada en CLAUDE.md")
         except Exception as exc:         # noqa: BLE001 ‚Äî nunca romper
-            depurar(f"[skills-dinamicos] extracciÛn fallÛ: {exc}")
+            depurar(f"[skills-dinamicos] extracci√≥n fall√≥: {exc}")
 
     hilo = threading.Thread(target=_trabajo, daemon=True,
                             name="snap-skills-dinamicos")
@@ -7656,17 +7656,17 @@ def _aprender_regla_en_fondo(consulta: str, resultados: list,
 def _ejecutar_planificador(args: argparse.Namespace) -> int:
     """Modo planificador (`snapcontext --plan "tarea"`, legacy desde v5.2.0).
 
-    Flujo: generar plan con IA ‚Üí confirmaciÛn ‚Üí ejecuciÛn secuencial con men˙
+    Flujo: generar plan con IA ‚Üí confirmaci√≥n ‚Üí ejecuci√≥n secuencial con men√∫
     continuar/reintentar/saltar tras cada paso ‚Üí resumen final. Con
     ``--branch`` crea una rama antes de empezar y con ``--git-commit``
-    (por defecto) commitea `paso: <descripciÛn>` tras cada paso exitoso.
+    (por defecto) commitea `paso: <descripci√≥n>` tras cada paso exitoso.
     """
     global DEPURAR
     DEPURAR = getattr(args, "depurar", False)
     consulta = getattr(args, "consulta", None)
     if not consulta:
         error("El modo --plan necesita una consulta. Uso:\n"
-              '  snapcontext --plan "aÒadir login con Google"')
+              '  snapcontext --plan "a√±adir login con Google"')
         return 1
 
     directorio = getattr(args, "directorio", ".") or "."
@@ -7677,7 +7677,7 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
     if rama and not _git_crear_rama(rama, raiz):
         return 1
 
-    # 1) GeneraciÛn del plan (con un reintento si viene vacÌo/mal formado).
+    # 1) Generaci√≥n del plan (con un reintento si viene vac√≠o/mal formado).
     pasos: List[dict] = []
     for _intento in range(2):
         try:
@@ -7689,26 +7689,26 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
             return 1
         if pasos:
             break
-        aviso("El plan vino vacÌo o mal formado; reintentando...")
+        aviso("El plan vino vac√≠o o mal formado; reintentando...")
     if not pasos:
-        error("No se pudo obtener un plan v·lido del proveedor.")
+        error("No se pudo obtener un plan v√°lido del proveedor.")
         return 1
 
-    # Modo autÛnomo (v0.17.0): sin confirmaciÛn inicial ni men˙ por paso;
-    # reintentos autom·ticos de pasos fallidos.
+    # Modo aut√≥nomo (v0.17.0): sin confirmaci√≥n inicial ni men√∫ por paso;
+    # reintentos autom√°ticos de pasos fallidos.
     auto = bool(getattr(args, "auto", False))
     MAX_REINTENTOS_AUTO = 3
     if auto:
-        exito(f"Modo autÛnomo (--auto): {len(pasos)} paso(s) se ejecutar·n "
+        exito(f"Modo aut√≥nomo (--auto): {len(pasos)} paso(s) se ejecutar√°n "
               f"sin confirmaciones, con hasta {MAX_REINTENTOS_AUTO} "
               f"reintentos por paso. Permisos guardados en permisos.json "
-              f"siguen aplic·ndose.")
+              f"siguen aplic√°ndose.")
         # v6.23.0: en modo inteligente se muestra un resumen condensado del
-        # plan (??) en lugar de la lista completa, antes de ejecutarlo.
+        # plan (üìã) en lugar de la lista completa, antes de ejecutarlo.
         if getattr(args, "_modo_inteligente", False):
-            info(f"?? Plan: {_mostrar_plan_resumido(pasos)}")
+            info(f"üìã Plan: {_mostrar_plan_resumido(pasos)}")
     else:
-        # 2) Mostrar el plan y pedir confirmaciÛn.
+        # 2) Mostrar el plan y pedir confirmaci√≥n.
         exito(f"Plan generado ({len(pasos)} paso(s)):")
         for numero, paso in enumerate(pasos, start=1):
             extra = paso.get("comando") or ", ".join(paso.get("archivos", []))
@@ -7720,17 +7720,17 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
             _destruir_sesion_si_aplica()
             return 0
 
-    # 3) EjecuciÛn (v1.4.0): con --paralelo N (y --auto) se lanzan varios pasos
+    # 3) Ejecuci√≥n (v1.4.0): con --paralelo N (y --auto) se lanzan varios pasos
     # sin dependencias mutuas a la vez; en caso contrario, secuencial.
-    _contexto_plan_reiniciar()   # v2.3.0: contexto din·mico por plan
-    # v6.22.0: hook `session_start` ‚Äî inicio de sesiÛn del planificador.
+    _contexto_plan_reiniciar()   # v2.3.0: contexto din√°mico por plan
+    # v6.22.0: hook `session_start` ‚Äî inicio de sesi√≥n del planificador.
     try:
         _hooks.ejecutar_hook("session_start", {
             "modo": "planificador", "consulta": consulta,
             "pasos": len(pasos), "directorio": raiz})
     except Exception:                                # noqa: BLE001 ‚Äî nunca romper
         pass
-    # v6.20.0: `--paralelo 0` = n¬∫ de n˙cleos de CPU (ParallelExecutor).
+    # v6.20.0: `--paralelo 0` = n¬∫ de n√∫cleos de CPU (ParallelExecutor).
     _paralelo = getattr(args, "paralelo", 1)
     _paralelo = 1 if _paralelo is None else int(_paralelo)
     try:
@@ -7741,42 +7741,42 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
     resultados: List[dict] = []
     abortar = False
     if auto and max_hilos > 1:
-        exito(f"Modo --paralelo: hasta {max_hilos} paso(s) simult·neo(s).")
+        exito(f"Modo --paralelo: hasta {max_hilos} paso(s) simult√°neo(s).")
         resultados = _ejecutar_plan_en_paralelo(pasos, args, raiz, max_hilos)
     else:
         indice = 0
         abortar = False
-        estado_seq: dict = {}   # Ìndice ‚Üí "Èxito"|"fallo"|"saltado"
+        estado_seq: dict = {}   # √≠ndice ‚Üí "√©xito"|"fallo"|"saltado"
         while indice < len(pasos) and not abortar:
             paso = pasos[indice]
             numero = indice + 1
 
-            # v1.4.0: un paso solo se ejecuta si sus dependencias tuvieron Èxito.
-            # 'dependencias' guarda n˙meros de paso (base 1); convertimos.
+            # v1.4.0: un paso solo se ejecuta si sus dependencias tuvieron √©xito.
+            # 'dependencias' guarda n√∫meros de paso (base 1); convertimos.
             deps_paso = [d - 1 for d in (paso.get("dependencias") or [])]
             fallidas = [d + 1 for d in deps_paso
-                        if estado_seq.get(d) != "Èxito"]
+                        if estado_seq.get(d) != "√©xito"]
             if fallidas:
-                aviso(f"Paso {numero} saltado: dependencia(s) sin Èxito "
+                aviso(f"Paso {numero} saltado: dependencia(s) sin √©xito "
                       f"{fallidas}.")
                 resultados.append(
                     {"paso": numero, "descripcion": paso["descripcion"],
                      "accion": paso["accion"], "resultado": "saltado",
-                     "detalle": f"dependencia(s) sin Èxito: {fallidas}",
+                     "detalle": f"dependencia(s) sin √©xito: {fallidas}",
                      "intentos": 0})
                 estado_seq[indice] = "saltado"
                 indice += 1
                 continue
 
-            # v1.4.0: ejecuciÛn condicional del paso.
+            # v1.4.0: ejecuci√≥n condicional del paso.
             condicion = paso.get("condicion")
             if condicion and not _evaluar_condicion(condicion, raiz):
-                aviso(f"Paso {numero} saltado: condiciÛn no cumplida "
+                aviso(f"Paso {numero} saltado: condici√≥n no cumplida "
                       f"({condicion}).")
                 resultados.append(
                     {"paso": numero, "descripcion": paso["descripcion"],
                      "accion": paso["accion"], "resultado": "saltado",
-                     "detalle": f"condiciÛn no cumplida: {condicion}",
+                     "detalle": f"condici√≥n no cumplida: {condicion}",
                      "intentos": 0})
                 estado_seq[indice] = "saltado"
                 indice += 1
@@ -7791,34 +7791,34 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
                 try:
                     ok, detalle = _ejecutar_paso_plan(paso, args, raiz)
                 except Exception as exc:        # blindaje del bucle interactivo
-                    ok, detalle = False, f"excepciÛn: {exc}"
-                    error(f"El paso lanzÛ una excepciÛn: {exc}")
+                    ok, detalle = False, f"excepci√≥n: {exc}"
+                    error(f"El paso lanz√≥ una excepci√≥n: {exc}")
                 if ok or not auto:
                     break
                 if intentos < MAX_REINTENTOS_AUTO:
-                    aviso(f"Paso {numero} fallÛ (intento {intentos}/"
-                          f"{MAX_REINTENTOS_AUTO}); reintentando autom·ticamente‚Ä¶")
+                    aviso(f"Paso {numero} fall√≥ (intento {intentos}/"
+                          f"{MAX_REINTENTOS_AUTO}); reintentando autom√°ticamente‚Ä¶")
                 else:
-                    aviso(f"Paso {numero} agotÛ sus {MAX_REINTENTOS_AUTO} "
-                          f"intentos; se contin˙a con el siguiente paso.")
+                    aviso(f"Paso {numero} agot√≥ sus {MAX_REINTENTOS_AUTO} "
+                          f"intentos; se contin√∫a con el siguiente paso.")
                     break
 
             _registrar_resultado_plan(numero, ok, detalle)
-            estado_seq[indice] = "Èxito" if ok else "fallo"
+            estado_seq[indice] = "√©xito" if ok else "fallo"
             if ok and getattr(args, "git_commit", True):
                 _commit_paso(paso, args, raiz)
 
             if auto:
-                # AutÛnomo: cada paso se registra una ˙nica vez (˙ltimo intento).
+                # Aut√≥nomo: cada paso se registra una √∫nica vez (√∫ltimo intento).
                 resultados.append({"paso": numero,
                                    "descripcion": paso["descripcion"],
                                    "accion": paso["accion"],
-                                   "resultado": "Èxito" if ok else "fallo",
+                                   "resultado": "√©xito" if ok else "fallo",
                                    "detalle": detalle, "intentos": intentos})
                 indice += 1
                 continue
 
-            # Interactivo: men˙ post-paso y registro ˙nico al abandonar el paso.
+            # Interactivo: men√∫ post-paso y registro √∫nico al abandonar el paso.
             while True:
                 try:
                     eleccion = input(_pintar(
@@ -7830,12 +7830,12 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
                     resultados.append(
                         {"paso": numero, "descripcion": paso["descripcion"],
                          "accion": paso["accion"],
-                         "resultado": "Èxito" if ok else "fallo",
+                         "resultado": "√©xito" if ok else "fallo",
                          "detalle": detalle, "intentos": intentos})
                     indice += 1
                     break
                 if eleccion in ("r", "reintentar"):
-                    break                        # mismo Ìndice: repetir el paso
+                    break                        # mismo √≠ndice: repetir el paso
                 if eleccion in ("s", "saltar"):
                     aviso(f"Paso {numero} saltado.")
                     estado_seq[indice] = "saltado"
@@ -7849,13 +7849,13 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
                     aviso("Plan abortado por el usuario.")
                     abortar = True
                     break
-                aviso("OpciÛn no v·lida; usa c, r, s o x.")
+                aviso("Opci√≥n no v√°lida; usa c, r, s o x.")
 
     # 4) Resumen final + memoria persistente.
     _emitir(sys.stdout, "")
     exito("‚îÄ‚îÄ Resumen del plan " + "‚îÄ" * 30)
     for r in resultados:
-        marca = "‚úî" if r["resultado"] == "Èxito" else "‚úñ"
+        marca = "‚úî" if r["resultado"] == "√©xito" else "‚úñ"
         reintentos = (f", {r['intentos']} intento(s)"
                       if r.get("intentos", 1) > 1 else "")
         _emitir(sys.stdout,
@@ -7865,7 +7865,7 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
     saltados = len(pasos) - len(resultados)
     if saltados > 0:
         aviso(f"{saltados} paso(s) sin ejecutar (saltados o abortados).")
-    exitos = sum(1 for r in resultados if r["resultado"] == "Èxito")
+    exitos = sum(1 for r in resultados if r["resultado"] == "√©xito")
     exito(f"Resultado: {exitos}/{len(resultados)} paso(s) exitoso(s).")
 
     todo_ok = bool(resultados) and exitos == len(resultados) and saltados == 0
@@ -7873,7 +7873,7 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
         "fecha": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "consulta": consulta,
         "archivos": [],
-        "resultado": "Èxito" if todo_ok else ("fallo" if exitos == 0 else "parcial"),
+        "resultado": "√©xito" if todo_ok else ("fallo" if exitos == 0 else "parcial"),
         "duracion": round(len(resultados), 2),
         "tipo": "plan",
         "pasos": resultados,
@@ -7890,26 +7890,26 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
         except Exception as exc:
             aviso(f"[aprendizaje] No se pudo registrar la tarea ({exc})")
 
-    # Skills din·micos (v6.6.0): si el plan fue todo exitoso, extraer una
+    # Skills din√°micos (v6.6.0): si el plan fue todo exitoso, extraer una
     # regla abstracta en segundo plano (nunca bloquea al usuario).
     if todo_ok and SKILLS_DINAMICOS and not getattr(
             args, "sin_aprendizaje", False):
         _aprender_regla_en_fondo(consulta, resultados, str(raiz))
 
     # Memoria de proyecto (v0.15.0): tras un plan exitoso se propone (con
-    # confirmaciÛn) actualizar CLAUDE.md con lo aprendido.
+    # confirmaci√≥n) actualizar CLAUDE.md con lo aprendido.
     if todo_ok and MEMORIA_PROYECTO:
         resumen = "; ".join(
             f"{r['descripcion']} [{r['accion']}] ({r['resultado']})"
             for r in resultados)
         _actualizar_claude_md_automatico(resumen, raiz)
-    # v6.4.0: al terminar el plan (Èxito, aborto o error) se destruye la sesiÛn
-    # Docker persistente para no dejar contenedores huÈrfanos.
-    # v6.22.0: hook `session_end` ‚Äî cierre de sesiÛn del planificador.
+    # v6.4.0: al terminar el plan (√©xito, aborto o error) se destruye la sesi√≥n
+    # Docker persistente para no dejar contenedores hu√©rfanos.
+    # v6.22.0: hook `session_end` ‚Äî cierre de sesi√≥n del planificador.
     try:
         _hooks.ejecutar_hook("session_end", {
             "modo": "planificador", "consulta": consulta,
-            "resultado": "Èxito" if todo_ok else ("abortado" if abortar else "fallo"),
+            "resultado": "√©xito" if todo_ok else ("abortado" if abortar else "fallo"),
             "exitos": exitos, "total": len(resultados)})
     except Exception:                                # noqa: BLE001 ‚Äî nunca romper
         pass
@@ -7921,7 +7921,7 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
 # Permisos y confirmaciones (--confirmar / --no-confirmar) ‚Äî v0.13.0
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
-# Memoria persistente avanzada (SQLite) y aprendizaje autÛnomo ‚Äî v3.0.0
+# Memoria persistente avanzada (SQLite) y aprendizaje aut√≥nomo ‚Äî v3.0.0
 # ---------------------------------------------------------------------------
 # Sustituye/complementa el historial JSON con una base de datos robusta en
 # ~/.snapcontext/memoria.db. sqlite3 forma parte de la stdlib: sin dependencias.
@@ -7929,7 +7929,7 @@ import sqlite3
 import datetime
 
 DB_PATH = CONFIG_DIR / "memoria.db"
-_DB_CONEXION = None                    # conexiÛn singleton (check_same_thread=False)
+_DB_CONEXION = None                    # conexi√≥n singleton (check_same_thread=False)
 _CANDADO_DB = threading.RLock()        # reentrante: _db_insert ‚Üí _db ‚Üí _db_init
 
 
@@ -7938,7 +7938,7 @@ def _db_init() -> str:
 
     Tablas:
       skills               ‚Üí procedimientos reutilizables aprendidos.
-      historial_aprendizaje ‚Üí tareas completadas (Èxito/fallo/correcciones).
+      historial_aprendizaje ‚Üí tareas completadas (√©xito/fallo/correcciones).
       contexto_kv          ‚Üí preferencias del usuario y metadatos (clave/valor).
       cola                 ‚Üí skills pendientes de ejecutar por el daemon.
     """
@@ -8017,7 +8017,7 @@ def _db_init() -> str:
 
 
 def _db_migrar_tareas() -> None:
-    """MigraciÛn v6.8.0: crea la tabla ``tareas`` (cola de tareas asÌncronas) si falta.
+    """Migraci√≥n v6.8.0: crea la tabla ``tareas`` (cola de tareas as√≠ncronas) si falta.
 
     Idempotente: usa ``CREATE TABLE IF NOT EXISTS``, permitiendo que tareas de
     GitHub/Telegram/Discord se encolen y procesen en segundo plano.
@@ -8038,7 +8038,7 @@ def _db_migrar_tareas() -> None:
 
 
 def _db_migrar_reglas() -> None:
-    """MigraciÛn v6.6.0: crea la tabla ``reglas`` (skills din·micos) si falta.
+    """Migraci√≥n v6.6.0: crea la tabla ``reglas`` (skills din√°micos) si falta.
 
     Idempotente: usa ``CREATE TABLE IF NOT EXISTS``, de modo que las bases
     creadas antes de v6.6.0 se actualizan sin perder datos.
@@ -8056,13 +8056,13 @@ def _db_migrar_reglas() -> None:
 
 
 def _db_migrar_curador() -> None:
-    """MigraciÛn v5.0.0: aÒade las columnas de mÈtricas del curador proactivo.
+    """Migraci√≥n v5.0.0: a√±ade las columnas de m√©tricas del curador proactivo.
 
     Las bases creadas antes de v5.0.0 no tienen `exitos`, `tokens_promedio`,
-    `tiempo_promedio_ms`, `ultimo_uso`, `version` ni `activo`. Esta funciÛn
-    aÒade SOLO las que falten con ``ALTER TABLE ... ADD COLUMN`` (idempotente).
-    TambiÈn crea la tabla `historial_skills` para registrar el prompt previo
-    cuando un skill se refactoriza (desactivando la versiÛn anterior).
+    `tiempo_promedio_ms`, `ultimo_uso`, `version` ni `activo`. Esta funci√≥n
+    a√±ade SOLO las que falten con ``ALTER TABLE ... ADD COLUMN`` (idempotente).
+    Tambi√©n crea la tabla `historial_skills` para registrar el prompt previo
+    cuando un skill se refactoriza (desactivando la versi√≥n anterior).
     """
     _COLUMNAS_NUEVAS = {
         "exitos": "INTEGER DEFAULT 0",
@@ -8089,14 +8089,14 @@ def _db_migrar_curador() -> None:
 
 
 def _db():
-    """Devuelve la conexiÛn activa, inicializando la base si hace falta."""
+    """Devuelve la conexi√≥n activa, inicializando la base si hace falta."""
     if _DB_CONEXION is None:
         _db_init()
     return _DB_CONEXION
 
 
 def _db_cerrar() -> None:
-    """Cierra la conexiÛn (˙til en tests tras re-apuntar DB_PATH)."""
+    """Cierra la conexi√≥n (√∫til en tests tras re-apuntar DB_PATH)."""
     global _DB_CONEXION
     with _CANDADO_DB:
         if _DB_CONEXION is not None:
@@ -8122,7 +8122,7 @@ def _db_insert(sql: str, params: tuple = ()) -> int:
 
 
 def _db_ejecutar(sql: str, params: tuple = ()) -> int:
-    """Ejecuta UPDATE/DELETE y devuelve el n˙mero de filas afectadas."""
+    """Ejecuta UPDATE/DELETE y devuelve el n√∫mero de filas afectadas."""
     with _CANDADO_DB:
         cursor = _db().execute(sql, params)
         _db().commit()
@@ -8148,7 +8148,7 @@ def _kv_fijar(clave: str, valor: str) -> None:
 def _skill_normalizar_nombre(consulta: str, max_len: int = 60) -> str:
     """Genera un nombre estable a partir de la consulta del usuario.
 
-    Translitera acentos y eÒes (·‚Üía, Ò‚Üín) para que el nombre sea estable
+    Translitera acentos y e√±es (√°‚Üía, √±‚Üín) para que el nombre sea estable
     e independiente del teclado del usuario.
     """
     texto = unicodedata.normalize("NFD", consulta.lower())
@@ -8202,32 +8202,32 @@ def _skill_obtener(skill_id: int) -> Optional[dict]:
     return skill
 
 
-# ‚îÄ‚îÄ‚îÄ Skills del editor propio: patrones de ediciÛn (v3.3.0) ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+# ‚îÄ‚îÄ‚îÄ Skills del editor propio: patrones de edici√≥n (v3.3.0) ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
 _EDITOR_PATRONES = (
     ("renombrar", re.compile(
-        r"\b(renombrar|rename|cambia(r| el nombre)( de| la)? (la )?(funciÛn|"
-        r"funcion|variable|clase|mÈtodo|metodo))\b", re.IGNORECASE)),
-    ("aÒadir_import", re.compile(
-        r"\b(a[nÒ]ad(i|ir)|importar|import|agregar)\s+(el\s+|la\s+)?"
-        r"(import|mÛdulo|modulo|librerÌa|libreria|paquete)\b", re.IGNORECASE)),
+        r"\b(renombrar|rename|cambia(r| el nombre)( de| la)? (la )?(funci√≥n|"
+        r"funcion|variable|clase|m√©todo|metodo))\b", re.IGNORECASE)),
+    ("a√±adir_import", re.compile(
+        r"\b(a[n√±]ad(i|ir)|importar|import|agregar)\s+(el\s+|la\s+)?"
+        r"(import|m√≥dulo|modulo|librer√≠a|libreria|paquete)\b", re.IGNORECASE)),
     ("refactorizar_clase", re.compile(
         r"\b(refactoriza(r)?|reestructura|rdivide|extraer\s+clase|"
-        r"reorganiza(r)?)\b.*\b(clase|class|mÛdulo|modulo)\b", re.IGNORECASE)),
-    ("aÒadir_funcion", re.compile(
-        r"\b(a[nÒ]ade?|a[nÒ]adir|crear?|agrega(r)?)\s+(una?\s+)?"
-        r"(funciÛn|funcion|funciÛn nueva|nueva funci|nuevo m[Èe]todo|"
-        r"m[Èe]todo)\b", re.IGNORECASE)),
+        r"reorganiza(r)?)\b.*\b(clase|class|m√≥dulo|modulo)\b", re.IGNORECASE)),
+    ("a√±adir_funcion", re.compile(
+        r"\b(a[n√±]ade?|a[n√±]adir|crear?|agrega(r)?)\s+(una?\s+)?"
+        r"(funci√≥n|funcion|funci√≥n nueva|nueva funci|nuevo m[√©e]todo|"
+        r"m[√©e]todo)\b", re.IGNORECASE)),
     ("corregir_error", re.compile(
-        r"\b(arregla|r|corrige|fix|bug|error|fallo|excepci[oÛ]n)\b",
+        r"\b(arregla|r|corrige|fix|bug|error|fallo|excepci[o√≥]n)\b",
         re.IGNORECASE)),
 )
 
 
 def _editor_clasificar_tarea(tarea: str) -> str:
-    """Clasifica una tarea de ediciÛn en un patrÛn conocido (v3.3.0).
+    """Clasifica una tarea de edici√≥n en un patr√≥n conocido (v3.3.0).
 
-    Devuelve uno de: 'renombrar', 'aÒadir_import', 'refactorizar_clase',
-    'aÒadir_funcion', 'corregir_error' o 'general'.
+    Devuelve uno de: 'renombrar', 'a√±adir_import', 'refactorizar_clase',
+    'a√±adir_funcion', 'corregir_error' o 'general'.
     """
     texto = (tarea or "").strip()
     if not texto:
@@ -8240,9 +8240,9 @@ def _editor_clasificar_tarea(tarea: str) -> str:
 
 def _skill_editor_guardar(tarea: str, archivo: str, patron: str,
                           estrategia: str = "parche") -> Optional[int]:
-    """Guarda/actualiza un skill con el patrÛn de ediciÛn exitoso (v3.3.0).
+    """Guarda/actualiza un skill con el patr√≥n de edici√≥n exitoso (v3.3.0).
 
-    Idempotente por nombre (`editor-<patrÛn>`): si ya existe se actualiza.
+    Idempotente por nombre (`editor-<patr√≥n>`): si ya existe se actualiza.
     Nunca lanza excepciones (los errores de memoria solo avisan).
     """
     try:
@@ -8250,30 +8250,30 @@ def _skill_editor_guardar(tarea: str, archivo: str, patron: str,
             nombre=f"editor-{patron}",
             consulta=tarea or f"editar {archivo}",
             pasos=[{
-                "descripcion": (f"EdiciÛn '{patron}' aplicada con Èxito "
+                "descripcion": (f"Edici√≥n '{patron}' aplicada con √©xito "
                                 f"sobre {archivo}"),
                 "accion": "editor_propio",
                 "estrategia": estrategia,
             }],
             contexto={"archivo": archivo, "patron": patron,
                       "estrategia": estrategia},
-            descripcion=f"PatrÛn de ediciÛn del editor propio: {patron}")
+            descripcion=f"Patr√≥n de edici√≥n del editor propio: {patron}")
     except Exception as exc:                   # pragma: no cover
         depurar(f"[skills-editor] No se pudo guardar el skill: {exc}")
         return None
 
 
 def _skill_editor_estrategia(tarea: str, umbral: float = 0.6) -> Optional[str]:
-    """Busca un skill de ediciÛn previo y devuelve su estrategia (v3.3.0).
+    """Busca un skill de edici√≥n previo y devuelve su estrategia (v3.3.0).
 
     Permite que el editor propio aplique directamente la estrategia que ya
-    funcionÛ para tareas similares, sin pasar por el proveedor de IA.
+    funcion√≥ para tareas similares, sin pasar por el proveedor de IA.
     Solo se aceptan skills de editor no archivados y con confiabilidad >= 0.6.
     """
     try:
         skill = _skill_buscar(f"editor {(tarea or '').strip()}", umbral=umbral)
     except Exception as exc:
-        depurar(f"[skills-editor] B˙squeda fallÛ: {exc}")
+        depurar(f"[skills-editor] B√∫squeda fall√≥: {exc}")
         return None
     if not skill or not str(skill.get("nombre", "")).startswith("editor-"):
         return None
@@ -8309,7 +8309,7 @@ def _skill_registrar_exito(skill_id: int, tokens: int = 0,
     """Refuerza un skill tras un uso exitoso. Devuelve la nueva confiabilidad.
 
     Con 3+ usos sin fallos el skill se considera 'confiable' (confiabilidad
-    1.0) y el planificador lo prioriza. v5.0.0: tambiÈn actualiza las mÈtricas
+    1.0) y el planificador lo prioriza. v5.0.0: tambi√©n actualiza las m√©tricas
     del curador proactivo (`exitos`, `tokens_promedio`, `tiempo_promedio_ms`,
     `ultimo_uso`).
     """
@@ -8337,8 +8337,8 @@ def _skill_registrar_fallo(skill_id: int, tokens: int = 0,
     """Penaliza un skill tras un fallo. Devuelve la nueva confiabilidad.
 
     A partir de 2 fallos la confiabilidad cae por debajo de 0.4 y el skill
-    queda marcado para revisiÛn por el curador/agente. v5.0.0: tambiÈn
-    actualiza las mÈtricas del curador proactivo.
+    queda marcado para revisi√≥n por el curador/agente. v5.0.0: tambi√©n
+    actualiza las m√©tricas del curador proactivo.
     """
     ahora = time.strftime("%Y-%m-%dT%H:%M:%S")
     _db_ejecutar(
@@ -8359,7 +8359,7 @@ def _skill_registrar_fallo(skill_id: int, tokens: int = 0,
 def _skill_similitud(texto_a: str, texto_b: str) -> float:
     """Similitud [0..1] entre dos textos.
 
-    Usa embeddings (coseno) si sentence-transformers est· disponible; si no,
+    Usa embeddings (coseno) si sentence-transformers est√° disponible; si no,
     cae a similitud Jaccard de palabras (fallo elegante, cero dependencias).
     """
     modelo = _modelo_embeddings()
@@ -8382,18 +8382,18 @@ def _skill_similitud(texto_a: str, texto_b: str) -> float:
     interseccion = len(palabras_a & palabras_b)
     union = len(palabras_a | palabras_b)
     jaccard = interseccion / union if union else 0.0
-    # ContenciÛn: captura frases donde una contiene a la otra ("... ya",
+    # Contenci√≥n: captura frases donde una contiene a la otra ("... ya",
     # "... ahora"), que Jaccard penaliza en exceso. Exige >= 2 palabras en
-    # com˙n para evitar falsos positivos con consultas muy cortas.
+    # com√∫n para evitar falsos positivos con consultas muy cortas.
     contencion = (interseccion / min(len(palabras_a), len(palabras_b))
                   if interseccion >= 2 else 0.0)
     return min(1.0, max(jaccard, contencion))
 
 
 def _skill_buscar(consulta: str, umbral: float = 0.75) -> Optional[dict]:
-    """Busca el skill activo m·s similar a ``consulta``.
+    """Busca el skill activo m√°s similar a ``consulta``.
 
-    Compara con similitud sem·ntica (embeddings o Jaccard como fallback)
+    Compara con similitud sem√°ntica (embeddings o Jaccard como fallback)
     contra las consultas de los skills no archivados. Devuelve el skill
     completo con su campo extra 'similitud', o None si ninguno supera el
     umbral.
@@ -8417,10 +8417,10 @@ def _skill_buscar(consulta: str, umbral: float = 0.75) -> Optional[dict]:
 
 def _skill_generar(consulta: str, resultados: List[dict],
                    raiz: str = ".") -> Optional[int]:
-    """Genera un skill a partir de una tarea completada con Èxito.
+    """Genera un skill a partir de una tarea completada con √©xito.
 
     Extrae los pasos clave de ``resultados`` (del planificador). Si hay
-    proveedor de IA disponible, pide una descripciÛn breve; si no, construye
+    proveedor de IA disponible, pide una descripci√≥n breve; si no, construye
     el skill directamente de los resultados (modo local, sin red).
     Devuelve el id del skill o None si no hay material suficiente.
     """
@@ -8465,7 +8465,7 @@ def _aprender_de_tarea(consulta: str, todo_ok: bool,
 
     Registra la tarea en historial_aprendizaje y:
       - exito ‚Üí refuerza el skill similar existente o genera uno nuevo.
-      - fallo ‚Üí penaliza el skill similar (queda marcado para revisiÛn).
+      - fallo ‚Üí penaliza el skill similar (queda marcado para revisi√≥n).
     Devuelve el id del skill afectado/generado, o None.
     """
     _db_init()
@@ -8503,15 +8503,15 @@ def _aprender_de_tarea(consulta: str, todo_ok: bool,
 
 
 def _cola_encolar(skill_id: int) -> int:
-    """Encola un skill para ejecuciÛn en segundo plano por el daemon."""
+    """Encola un skill para ejecuci√≥n en segundo plano por el daemon."""
     return _db_insert(
         "INSERT INTO cola (skill_id, estado, fecha) VALUES (?, 'pendiente', ?)",
         (skill_id, time.strftime("%Y-%m-%dT%H:%M:%S")))
 
 
-# ‚îÄ‚îÄ‚îÄ Curador autÛnomo ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
-CURADOR_DIAS_SIN_USO = 30          # skills sin uso > 30 dÌas ‚Üí archivados
-CURADOR_UMBRAL_FUSION = 0.90       # similitud mÌnima para fusionar skills
+# ‚îÄ‚îÄ‚îÄ Curador aut√≥nomo ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+CURADOR_DIAS_SIN_USO = 30          # skills sin uso > 30 d√≠as ‚Üí archivados
+CURADOR_UMBRAL_FUSION = 0.90       # similitud m√≠nima para fusionar skills
 CLAVE_CURADOR_ULTIMA = "curador_ultima_ejecucion"
 
 
@@ -8521,10 +8521,10 @@ def _curador_ejecutar(dias_sin_uso: int = CURADOR_DIAS_SIN_USO,
 
     Acciones:
       - Archiva skills activos cuyo ultimo_exito (o creado) sea anterior a
-        ``dias_sin_uso`` dÌas.
+        ``dias_sin_uso`` d√≠as.
       - Fusiona pares de skills muy similares (sim >= ``umbral_fusion``):
-        conserva el m·s usado sumando usos/fallos y archiva el otro.
-      - Notifica por la CLI los skills con baja confiabilidad (revisiÛn).
+        conserva el m√°s usado sumando usos/fallos y archiva el otro.
+      - Notifica por la CLI los skills con baja confiabilidad (revisi√≥n).
     """
     _db_init()
     acciones = {"archivados": [], "fusiones": [], "revision": []}
@@ -8548,7 +8548,7 @@ def _curador_ejecutar(dias_sin_uso: int = CURADOR_DIAS_SIN_USO,
             acciones["archivados"].append(
                 {"id": fila["id"], "nombre": fila["nombre"]})
 
-    # 2) Fusionar skills muy similares entre sÌ.
+    # 2) Fusionar skills muy similares entre s√≠.
     activos = _skill_listar()
     vistos = set()
     for i, a in enumerate(activos):
@@ -8580,7 +8580,7 @@ def _curador_ejecutar(dias_sin_uso: int = CURADOR_DIAS_SIN_USO,
                 "archivado": fusionar["id"],
                 "similitud": round(sim, 3)})
 
-    # 3) Notificar skills marcados para revisiÛn (muchos fallos).
+    # 3) Notificar skills marcados para revisi√≥n (muchos fallos).
     for fila in _db_query(
             "SELECT id, nombre FROM skills "
             "WHERE archivado = 0 AND confiabilidad < 0.4"):
@@ -8602,17 +8602,17 @@ def _curador_ejecutar(dias_sin_uso: int = CURADOR_DIAS_SIN_USO,
 
 
 # ‚îÄ‚îÄ‚îÄ Daemon: proceso en segundo plano (--daemon) ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
-DAEMON_INTERVALO_HORAS_DEFECTO = 168     # curador cada 7 dÌas
+DAEMON_INTERVALO_HORAS_DEFECTO = 168     # curador cada 7 d√≠as
 DAEMON_PAUSA_SEGUNDOS = 60               # frecuencia de sondeo del bucle
 
 
 def _daemon_tick(intervalo_horas: int = DAEMON_INTERVALO_HORAS_DEFECTO,
                  ahora=None) -> dict:
-    """Una iteraciÛn del daemon (funciÛn aislada para facilitar los tests).
+    """Una iteraci√≥n del daemon (funci√≥n aislada para facilitar los tests).
 
-    Ejecuta el curador si ha pasado ``intervalo_horas`` desde su ˙ltima
+    Ejecuta el curador si ha pasado ``intervalo_horas`` desde su √∫ltima
     pasada (registrada en contexto_kv) y procesa la cola de skills
-    pendientes marc·ndolos como 'hecho' (o 'descartado').
+    pendientes marc√°ndolos como 'hecho' (o 'descartado').
     """
     _db_init()
     resultado = {"curador": False, "procesados": []}
@@ -8644,13 +8644,13 @@ def _daemon_tick(intervalo_horas: int = DAEMON_INTERVALO_HORAS_DEFECTO,
         _db_ejecutar("UPDATE cola SET estado = 'ejecutando' WHERE id = ?",
                      (tarea["id"],))
         depurar("[daemon] Skill #" + str(skill["id"]) + " '"
-                + skill["nombre"] + "' listo para ejecuciÛn en segundo "
+                + skill["nombre"] + "' listo para ejecuci√≥n en segundo "
                 "plano (" + str(len(skill.get("pasos") or [])) + " pasos)")
         _db_ejecutar("UPDATE cola SET estado = 'hecho' WHERE id = ?",
                      (tarea["id"],))
         resultado["procesados"].append(skill["id"])
 
-    # v6.8.0: procesa tareas asÌncronas encoladas (GitHub/Telegram/Discord)
+    # v6.8.0: procesa tareas as√≠ncronas encoladas (GitHub/Telegram/Discord)
     try:
         import task_queue as _tq
         while True:
@@ -8682,14 +8682,14 @@ def _daemon_bucle(intervalo_horas: int = DAEMON_INTERVALO_HORAS_DEFECTO,
 PERMISOS_PATH = CONFIG_DIR / "permisos.json"
 
 # Interruptor global: main() lo sincroniza con args.confirmar (por defecto
-# True). Con --no-confirmar todas las preguntas se omiten (modo autom·tico).
+# True). Con --no-confirmar todas las preguntas se omiten (modo autom√°tico).
 CONFIRMAR_ACCIONES = True
 
 
 def _cargar_permisos() -> dict:
     """Devuelve las preferencias guardadas en ~/.snapcontext/permisos.json.
 
-    Formato: {"<tipo>": "siempre" | "nunca"} para cada tipo de acciÛn
+    Formato: {"<tipo>": "siempre" | "nunca"} para cada tipo de acci√≥n
     ("editar", "ejecutar", "consultar", ...). Archivo corrupto ‚Üí {}.
     """
     try:
@@ -8720,7 +8720,7 @@ def _permiso_recordado(tipo: str) -> Optional[bool]:
     """Devuelve la preferencia guardada para ``tipo`` sin preguntar.
 
     True ‚Üí "siempre" permitido ¬∑ False ‚Üí "nunca" ¬∑ None ‚Üí sin preferencia.
-    Lo usa el modo autÛnomo (--auto), que no puede preguntar pero sÌ debe
+    Lo usa el modo aut√≥nomo (--auto), que no puede preguntar pero s√≠ debe
     respetar las decisiones previas del usuario en permisos.json.
     """
     recordado = _cargar_permisos().get(tipo)
@@ -8748,17 +8748,17 @@ def _limpiar_permisos() -> bool:
 def _confirmar_accion(descripcion: str, tipo: str = "editar",
                       detalles: Optional[str] = None,
                       confirmar: Optional[bool] = None) -> bool:
-    """Pide permiso al usuario antes de una acciÛn sensible.
+    """Pide permiso al usuario antes de una acci√≥n sensible.
 
-    - Muestra un resumen (tipo, descripciÛn y detalles opcionales).
+    - Muestra un resumen (tipo, descripci√≥n y detalles opcionales).
     - Respeta las preferencias guardadas en permisos.json:
       "siempre" ‚Üí permite sin preguntar; "nunca" ‚Üí deniega sin preguntar.
-    - Pregunta ``¬øPermitir esta acciÛn? (s/n/t/a)`` donde:
+    - Pregunta ``¬øPermitir esta acci√≥n? (s/n/t/a)`` donde:
         s ‚Üí permitir solo esta vez ¬∑ n ‚Üí saltar esta vez
         t ‚Üí permitir TODAS las de este tipo (se guarda)
         a ‚Üí no permitir NINGUNA de este tipo (se guarda)
 
-    Devuelve True si la acciÛn est· permitida. Con confirmaciones desactivadas
+    Devuelve True si la acci√≥n est√° permitida. Con confirmaciones desactivadas
     (``--no-confirmar`` o ``confirmar=False``) devuelve True siempre.
     """
     activo = CONFIRMAR_ACCIONES if confirmar is None else confirmar
@@ -8776,35 +8776,35 @@ def _confirmar_accion(descripcion: str, tipo: str = "editar",
 
     exito("‚îÄ‚îÄ Permiso requerido " + "‚îÄ" * 30)
     _emitir(sys.stdout, f"  tipo        : {tipo}")
-    _emitir(sys.stdout, f"  acciÛn      : {descripcion}")
+    _emitir(sys.stdout, f"  acci√≥n      : {descripcion}")
     if detalles:
         for linea in str(detalles).splitlines()[:6]:
             _emitir(sys.stdout, f"  detalle     : {linea}")
     while True:
         try:
             eleccion = input(_pintar(
-                "¬øPermitir esta acciÛn? "
-                "[s]Ì ¬∑ [n]o ¬∑ [t]odos este tipo ¬∑ [a]nular todas (s/n/t/a): ",
+                "¬øPermitir esta acci√≥n? "
+                "[s]√≠ ¬∑ [n]o ¬∑ [t]odos este tipo ¬∑ [a]nular todas (s/n/t/a): ",
                 _AMARILLO)).strip().lower()
         except EOFError:
-            aviso("Sin entrada disponible; acciÛn denegada por seguridad.")
+            aviso("Sin entrada disponible; acci√≥n denegada por seguridad.")
             return False
-        if eleccion in ("s", "si", "sÌ", "y", "yes"):
+        if eleccion in ("s", "si", "s√≠", "y", "yes"):
             return True
         if eleccion in ("n", "no"):
-            aviso("AcciÛn denegada por el usuario.")
+            aviso("Acci√≥n denegada por el usuario.")
             return False
         if eleccion in ("t", "todos", "todo"):
             _guardar_permiso(tipo, "siempre")
-            exito(f"Se recordar·: '{tipo}' siempre permitido "
+            exito(f"Se recordar√°: '{tipo}' siempre permitido "
                   f"({PERMISOS_PATH}). Usa --init o borra el archivo para "
                   "restaurar las preguntas.")
             return True
         if eleccion in ("a", "anular", "nunca"):
             _guardar_permiso(tipo, "nunca")
-            aviso(f"Se recordar·: '{tipo}' nunca permitido ({PERMISOS_PATH}).")
+            aviso(f"Se recordar√°: '{tipo}' nunca permitido ({PERMISOS_PATH}).")
             return False
-        aviso("OpciÛn no v·lida; responde s, n, t o a.")
+        aviso("Opci√≥n no v√°lida; responde s, n, t o a.")
 
 
 # ---------------------------------------------------------------------------
@@ -8817,20 +8817,20 @@ PLUGINS_DIR = CONFIG_DIR / "plugins"
 REPOSITORIO_PLUGINS = "https://github.com/NicolasBruna24/snapcontext-plugins"
 
 # Registro de herramientas predefinidas. Cada entrada describe la herramienta
-# (para que el agente/usuario sepa cÛmo usarla) y si requiere permiso.
+# (para que el agente/usuario sepa c√≥mo usarla) y si requiere permiso.
 HERRAMIENTAS_PREDEFINIDAS = {
     "grep": {
-        "descripcion": "Busca un patrÛn en el cÛdigo (rg/grep/findstr).",
+        "descripcion": "Busca un patr√≥n en el c√≥digo (rg/grep/findstr).",
         "parametros": {"patron": "str", "directorio": "str='.'"},
         "requiere_permiso": False,          # solo lectura
     },
     "read_file": {
-        "descripcion": "Lee un archivo completo o un rango de lÌneas.",
+        "descripcion": "Lee un archivo completo o un rango de l√≠neas.",
         "parametros": {"ruta": "str", "linea_inicio": "int?", "linea_fin": "int?"},
         "requiere_permiso": False,          # solo lectura
     },
     "list_files": {
-        "descripcion": "Lista archivos de una carpeta, con filtro de extensiÛn.",
+        "descripcion": "Lista archivos de una carpeta, con filtro de extensi√≥n.",
         "parametros": {"directorio": "str='.'", "extensiones": "list?",
                        "max_archivos": "int=200"},
         "requiere_permiso": False,          # solo lectura
@@ -8840,18 +8840,18 @@ HERRAMIENTAS_PREDEFINIDAS = {
         "parametros": {"ruta": "str"},
         "requiere_permiso": False,          # solo lectura
     },
-    # v1.4.0: an·lisis sint·ctico multi-lenguaje (tree-sitter) y b˙squeda
-    # sem·ntica integrada en el sistema de herramientas MCP.
+    # v1.4.0: an√°lisis sint√°ctico multi-lenguaje (tree-sitter) y b√∫squeda
+    # sem√°ntica integrada en el sistema de herramientas MCP.
     "ast_avanzado": {
-        "descripcion": "An·lisis sint·ctico multi-lenguaje con tree-sitter "
+        "descripcion": "An√°lisis sint√°ctico multi-lenguaje con tree-sitter "
                        "(funciones, clases, imports y llamadas); sin "
                        "tree-sitter usa ast de Python.",
         "parametros": {"ruta": "str"},
         "requiere_permiso": False,          # solo lectura
     },
     "semantic_search": {
-        "descripcion": "B˙squeda sem·ntica por embeddings; devuelve los "
-                       "fragmentos/archivos m·s relevantes para una consulta.",
+        "descripcion": "B√∫squeda sem√°ntica por embeddings; devuelve los "
+                       "fragmentos/archivos m√°s relevantes para una consulta.",
         "parametros": {"consulta": "str", "directorio": "str='.'",
                        "max_resultados": "int=10"},
         "requiere_permiso": False,          # solo lectura
@@ -8867,7 +8867,7 @@ HERRAMIENTAS_PREDEFINIDAS = {
         "requiere_permiso": False,          # solo lectura
     },
     "execute_command": {
-        "descripcion": "Ejecuta cualquier comando shell (confirmaciÛn estricta).",
+        "descripcion": "Ejecuta cualquier comando shell (confirmaci√≥n estricta).",
         "parametros": {"comando": "str", "directorio": "str='.'",
                        "background": "bool=False",
                        "capture_output": "bool=True"},
@@ -8875,18 +8875,18 @@ HERRAMIENTAS_PREDEFINIDAS = {
     },
     "execute_command_status": {
         "descripcion": "Consulta el estado de un comando lanzado en segundo plano "
-                       "(devuelve stdout/stderr/cÛdigo si terminÛ).",
+                       "(devuelve stdout/stderr/c√≥digo si termin√≥).",
         "parametros": {"pid": "int"},
         "requiere_permiso": False,
     },
-    # v6.7.0: expansiÛn MCP ‚Äî bases de datos (solo lectura) y APIs externas.
+    # v6.7.0: expansi√≥n MCP ‚Äî bases de datos (solo lectura) y APIs externas.
     "db_query": {
         "descripcion": "Ejecuta una consulta SQL de SOLO LECTURA (SELECT, SHOW, "
                        "DESCRIBE, EXPLAIN) sobre la base de datos conectada "
                        "(conectar antes con --db-url o db_connect). Requiere "
-                       "confirmaciÛn del usuario en modo interactivo.",
+                       "confirmaci√≥n del usuario en modo interactivo.",
         "parametros": {"consulta": "str", "auto": "bool=False"},
-        "requiere_permiso": False,   # la validaciÛn/confirmaciÛn es interna
+        "requiere_permiso": False,   # la validaci√≥n/confirmaci√≥n es interna
     },
     "db_schema": {
         "descripcion": "Devuelve el esquema de la base de datos conectada "
@@ -8895,7 +8895,7 @@ HERRAMIENTAS_PREDEFINIDAS = {
         "requiere_permiso": False,          # solo lectura
     },
     "api_request": {
-        "descripcion": "Hace una peticiÛn HTTP (GET/POST/PUT/PATCH/DELETE/HEAD) "
+        "descripcion": "Hace una petici√≥n HTTP (GET/POST/PUT/PATCH/DELETE/HEAD) "
                        "a una URL externa y devuelve status, cabeceras y cuerpo "
                        "(JSON parseado si aplica).",
         "parametros": {"url": "str", "metodo": "str='GET'",
@@ -8905,11 +8905,11 @@ HERRAMIENTAS_PREDEFINIDAS = {
     },
     "api_inspect": {
         "descripcion": "Inspecciona una URL con GET: status, tiempo de "
-                       "respuesta, tamaÒo y tipo de contenido.",
+                       "respuesta, tama√±o y tipo de contenido.",
         "parametros": {"url": "str", "timeout": "float=15"},
         "requiere_permiso": False,          # solo lectura (GET)
     },
-    # v6.10.0: herramientas de navegador (Playwright) para depuraciÛn visual.
+    # v6.10.0: herramientas de navegador (Playwright) para depuraci√≥n visual.
     "browser_abrir": {
         "descripcion": "Abre una URL en el navegador headless (Playwright); "
                        "espera opcionalmente a que aparezca un selector.",
@@ -8917,30 +8917,30 @@ HERRAMIENTAS_PREDEFINIDAS = {
         "requiere_permiso": False,
     },
     "browser_screenshot": {
-        "descripcion": "Captura de pantalla (base64 PNG) de la p·gina actual "
-                       "o de una URL; p·gina completa o un selector concreto.",
+        "descripcion": "Captura de pantalla (base64 PNG) de la p√°gina actual "
+                       "o de una URL; p√°gina completa o un selector concreto.",
         "parametros": {"url": "str?", "full_page": "bool=False",
                        "selector": "str?"},
         "requiere_permiso": False,
     },
     "browser_click": {
-        "descripcion": "Hace clic en un elemento de la p·gina actual.",
+        "descripcion": "Hace clic en un elemento de la p√°gina actual.",
         "parametros": {"selector": "str"},
         "requiere_permiso": True,
     },
     "browser_type": {
-        "descripcion": "Escribe texto en un campo de entrada de la p·gina "
+        "descripcion": "Escribe texto en un campo de entrada de la p√°gina "
                        "actual.",
         "parametros": {"selector": "str", "texto": "str"},
         "requiere_permiso": True,
     },
     "browser_get_text": {
-        "descripcion": "Extrae el texto de un elemento de la p·gina actual.",
+        "descripcion": "Extrae el texto de un elemento de la p√°gina actual.",
         "parametros": {"selector": "str"},
         "requiere_permiso": False,
     },
     "browser_analizar_imagen": {
-        "descripcion": "Analiza una captura (base64) con un modelo de visiÛn "
+        "descripcion": "Analiza una captura (base64) con un modelo de visi√≥n "
                        "(Gemini 2.5 Pro / Claude 3.7 Sonnet) para detectar "
                        "errores visuales.",
         "parametros": {"imagen_base64": "str", "pregunta": "str"},
@@ -8964,12 +8964,12 @@ def _cargar_herramientas_mcp() -> dict:
                     "comando": "npm run build", "requiere_permiso": true}]}
 
     Cada herramienta de usuario se ejecuta como comando shell. Archivo
-    corrupto o entradas inv·lidas se ignoran con aviso (sin romper nada).
+    corrupto o entradas inv√°lidas se ignoran con aviso (sin romper nada).
     """
     herramientas = {nombre: dict(cfg)
                     for nombre, cfg in HERRAMIENTAS_PREDEFINIDAS.items()}
     # v6.10.0: herramientas de navegador (Playwright), solo si Playwright
-    # est· instalado (import perezoso; si falta no se ofrecen).
+    # est√° instalado (import perezoso; si falta no se ofrecen).
     try:
         import mcp_tools_browser as _btool
         if _btool._importar_playwright():
@@ -8983,7 +8983,7 @@ def _cargar_herramientas_mcp() -> dict:
                 nombre = str(cruda.get("nombre") or "").strip()
                 comando = str(cruda.get("comando") or "").strip()
                 if not nombre or not comando:
-                    aviso(f"[mcp] Herramienta de usuario inv·lida ignorada: "
+                    aviso(f"[mcp] Herramienta de usuario inv√°lida ignorada: "
                           f"{cruda}")
                     continue
                 herramientas[nombre] = {
@@ -9020,20 +9020,20 @@ PERMISOS_PLUGIN_VALIDOS = ("archivos", "red", "red_escrita", "ejecucion",
 
 
 def _plugins_directorio() -> Path:
-    """Devuelve ~/.snapcontext/plugins cre·ndolo si no existe."""
+    """Devuelve ~/.snapcontext/plugins cre√°ndolo si no existe."""
     PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
     return PLUGINS_DIR
 
 
 def _plugin_leer_manifest(ruta_plugin: Path) -> Optional[dict]:
-    """Lee y valida el ``plugin.json`` de un plugin. None si es inv·lido."""
+    """Lee y valida el ``plugin.json`` de un plugin. None si es inv√°lido."""
     manifest = ruta_plugin / "plugin.json"
     if not manifest.is_file():
         return None
     try:
         datos = json.loads(manifest.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        aviso(f"[plugin] plugin.json inv·lido o ilegible: {ruta_plugin.name}")
+        aviso(f"[plugin] plugin.json inv√°lido o ilegible: {ruta_plugin.name}")
         return None
     if not isinstance(datos, dict):
         return None
@@ -9056,7 +9056,7 @@ def _plugin_leer_manifest(ruta_plugin: Path) -> Optional[dict]:
 def _plugins_instalados() -> dict:
     """Escanea el directorio de plugins y devuelve {nombre: manifest}.
 
-    Los plugins inv·lidos (sin plugin.json o corruptos) se ignoran con un
+    Los plugins inv√°lidos (sin plugin.json o corruptos) se ignoran con un
     aviso; nunca rompen el arranque de SnapContext.
     """
     raiz = _plugins_directorio()
@@ -9073,7 +9073,7 @@ def _plugins_instalados() -> dict:
 def _plugins_herramientas() -> dict:
     """Herramientas MCP aportadas por los plugins habilitados.
 
-    Formato idÈntico al de las herramientas de usuario (``comando``), m·s
+    Formato id√©ntico al de las herramientas de usuario (``comando``), m√°s
     metadatos propios (``plugin``, ``permisos``) para trazabilidad.
     """
     resultado: dict = {}
@@ -9126,7 +9126,7 @@ def _plugin_descargar_zip(origen: str, destino_tmp: Path) -> Optional[Path]:
     ``origen`` acepta:
       - URL de codeload/GitHub directa al zip.
       - Slug ``usuario/repositorio`` ‚Üí codeload con la rama ``main``.
-    Devuelve la carpeta extraÌda que contiene ``plugin.json`` o None.
+    Devuelve la carpeta extra√≠da que contiene ``plugin.json`` o None.
     """
     import urllib.request
     import zipfile
@@ -9144,7 +9144,7 @@ def _plugin_descargar_zip(origen: str, destino_tmp: Path) -> Optional[Path]:
     except Exception as exc:   # noqa: BLE001 ‚Äî se reporta al llamador
         error(f"No se pudo descargar el plugin desde '{origen}': {exc}")
         return None
-    # Busca el primer directorio extraÌdo que contenga plugin.json.
+    # Busca el primer directorio extra√≠do que contenga plugin.json.
     for candidato in sorted(destino_tmp.rglob("plugin.json")):
         return candidato.parent
     aviso("El archivo descargado no contiene un plugin.json.")
@@ -9153,11 +9153,11 @@ def _plugin_descargar_zip(origen: str, destino_tmp: Path) -> Optional[Path]:
 
 def _plugin_instalar(origen: str, confirmar: bool = True,
                      auto: bool = False) -> int:
-    """Instala un plugin desde un repositorio o carpeta local. ‚Üí cÛdigo salida.
+    """Instala un plugin desde un repositorio o carpeta local. ‚Üí c√≥digo salida.
 
     - Origen local: ruta a una carpeta con ``plugin.json`` (o su padre).
     - Origen remoto: slug GitHub (``usuario/repo``) o URL del zip.
-    Siempre pide confirmaciÛn para fuentes externas salvo ``auto=True``.
+    Siempre pide confirmaci√≥n para fuentes externas salvo ``auto=True``.
     """
     raiz = _plugins_directorio()
     candidata = Path(origen).expanduser()
@@ -9175,7 +9175,7 @@ def _plugin_instalar(origen: str, confirmar: bool = True,
         if manifest is None:
             return 1
     else:
-        error(f"'{origen}' no es una carpeta de plugin v·lida "
+        error(f"'{origen}' no es una carpeta de plugin v√°lida "
               f"(falta plugin.json).")
         return 1
 
@@ -9188,7 +9188,7 @@ def _plugin_instalar(origen: str, confirmar: bool = True,
                 tipo="plugin",
                 detalles=f"permisos declarados: {permisos}",
                 confirmar=confirmar):
-            aviso("InstalaciÛn cancelada.")
+            aviso("Instalaci√≥n cancelada.")
             return 1
     destino = raiz / nombre
     if destino.exists():
@@ -9215,7 +9215,7 @@ def _plugin_instalar(origen: str, confirmar: bool = True,
 
 
 def _plugin_remove(nombre: str, confirmar: bool = True) -> int:
-    """Desinstala un plugin borrando su carpeta (con confirmaciÛn)."""
+    """Desinstala un plugin borrando su carpeta (con confirmaci√≥n)."""
     instalados = _plugins_instalados()
     if nombre not in instalados:
         error(f"Plugin '{nombre}' no encontrado. Instalados: "
@@ -9223,7 +9223,7 @@ def _plugin_remove(nombre: str, confirmar: bool = True) -> int:
         return 1
     if confirmar and not _confirmar_accion(f"desinstalar el plugin '{nombre}'",
                                            tipo="plugin"):
-        aviso("DesinstalaciÛn cancelada.")
+        aviso("Desinstalaci√≥n cancelada.")
         return 1
     shutil.rmtree(Path(instalados[nombre]["ruta"]), ignore_errors=True)
     exito(f"Plugin '{nombre}' desinstalado.")
@@ -9231,13 +9231,13 @@ def _plugin_remove(nombre: str, confirmar: bool = True) -> int:
 
 
 def _plugin_create(nombre: str = None) -> int:
-    """Asistente que genera la estructura b·sica de un plugin nuevo."""
+    """Asistente que genera la estructura b√°sica de un plugin nuevo."""
     nombre = (nombre or "").strip()
     if not nombre or not re.fullmatch(r"[a-zA-Z0-9_\-]+", nombre):
         nombre = ""
         while not nombre or not re.fullmatch(r"[a-zA-Z0-9_\-]+", nombre):
             try:
-                nombre = input("Nombre del plugin (letras, n˙meros, - _): "
+                nombre = input("Nombre del plugin (letras, n√∫meros, - _): "
                                ).strip()
             except EOFError:
                 error("Nombre requerido.")
@@ -9274,10 +9274,10 @@ def _plugin_create(nombre: str = None) -> int:
         encoding="utf-8")
     (destino / "README.md").write_text(
         f"# Plugin {nombre}\n\nGenerado por `snapcontext plugin create`.\n\n"
-        "Edita `plugin.json` para aÒadir m·s herramientas.\n",
+        "Edita `plugin.json` para a√±adir m√°s herramientas.\n",
         encoding="utf-8")
     exito(f"Plugin '{nombre}' creado en {destino}.")
-    info("PruÈbalo con: snapcontext plugin list")
+    info("Pru√©balo con: snapcontext plugin list")
     return 0
 
 
@@ -9290,7 +9290,7 @@ def _plugin_update(nombre: str) -> int:
     origen = instalados[nombre].get("origen")
     if not origen:
         aviso(f"El plugin '{nombre}' no registra origen remoto; "
-              "reinst·lalo manualmente.")
+              "reinst√°lalo manualmente.")
         return 1
     info(f"Actualizando '{nombre}' desde {origen}...")
     return _plugin_instalar(origen, auto=True)
@@ -9350,30 +9350,30 @@ def _ejecutar_comando_discord(subargv: List[str]) -> int:
 
     p_setup = sub.add_parser("setup", help="Guarda las credenciales de la app.")
     p_setup.add_argument("--public-key", dest="public_key", default=None,
-                         help="Clave p˙blica Ed25519 de la aplicaciÛn.")
+                         help="Clave p√∫blica Ed25519 de la aplicaci√≥n.")
     p_setup.add_argument("--app-id", dest="app_id", default=None,
-                         help="ID de la aplicaciÛn (Application ID).")
+                         help="ID de la aplicaci√≥n (Application ID).")
     p_setup.add_argument("--token", default=None,
                          help="Token del bot (Bot Token).")
     p_setup.add_argument("--webhook-url", dest="webhook_url", default=None,
-                         help="Webhook est·ndar de un canal (alternativa).")
-    sub.add_parser("estado", help="Muestra la configuraciÛn actual.")
+                         help="Webhook est√°ndar de un canal (alternativa).")
+    sub.add_parser("estado", help="Muestra la configuraci√≥n actual.")
 
     if not subargv or subargv[0] in ("-h", "--help", "help"):
         info(
             "Uso: snapcontext discord <setup|estado> [...]\n"
             "  setup --public-key <KEY> --app-id <ID> --token <BOT_TOKEN> "
             "[--webhook-url <URL>]\n\n"
-            "ConfiguraciÛn del webhook en el portal (self-hosted):\n"
+            "Configuraci√≥n del webhook en el portal (self-hosted):\n"
             "  1. https://discord.com/developers/applications ‚Üí tu app ‚Üí\n"
             "     'General Information': copia PUBLIC KEY y APPLICATION ID.\n"
             "  2. 'Bot': crea el bot y copia el TOKEN.\n"
-            "  3. ExpÛn este servidor con ngrok o un VPS:\n"
+            "  3. Exp√≥n este servidor con ngrok o un VPS:\n"
             "         ngrok http 8001        (si usas `snapcontext --api`)\n"
             "  4. En 'General Information' ‚Üí INTERACTIONS ENDPOINT URL pon:\n"
             "         https://<tu-dominio>/webhook/discord\n"
-            "     Discord lo verificar· con un PING; nuestro endpoint\n"
-            "     responde {\"type\": 1} autom·ticamente.\n"
+            "     Discord lo verificar√° con un PING; nuestro endpoint\n"
+            "     responde {\"type\": 1} autom√°ticamente.\n"
             "  5. 'Bot' ‚Üí activa los permisos que necesites e invita el bot\n"
             "     a tu servidor (OAuth2 ‚Üí URL Generator, scope 'applications.commands bot')."
         )
@@ -9400,8 +9400,8 @@ def _ejecutar_comando_discord(subargv: List[str]) -> int:
             "  https://discord.com/developers/applications ‚Üí tu app ‚Üí\n"
             "  General Information ‚Üí INTERACTIONS ENDPOINT URL:\n"
             "      https://<tu-dominio>/webhook/discord\n"
-            "  (expÛn el puerto con `ngrok http 8001` si desarrollas en local;\n"
-            "   Discord lo verifica con un PING que respondemos autom·ticamente).")
+            "  (exp√≥n el puerto con `ngrok http 8001` si desarrollas en local;\n"
+            "   Discord lo verifica con un PING que respondemos autom√°ticamente).")
         return 0
 
     if args.accion == "estado":
@@ -9435,9 +9435,9 @@ def _ejecutar_comando_telegram(subargv: List[str]) -> int:
     p_setup.add_argument("--token", default=None,
                          help="Token del bot (de @BotFather).")
     p_setup.add_argument("--webhook-url", dest="webhook_url", default=None,
-                         help="URL p˙blica (ngrok/dominio); el webhook queda "
+                         help="URL p√∫blica (ngrok/dominio); el webhook queda "
                               "en <url>/webhook/telegram.")
-    sub.add_parser("estado", help="Muestra la configuraciÛn actual.")
+    sub.add_parser("estado", help="Muestra la configuraci√≥n actual.")
     sub.add_parser("webhook-registrar",
                    help="Llama a setWebhook con la URL configurada.")
 
@@ -9453,7 +9453,7 @@ def _ejecutar_comando_telegram(subargv: List[str]) -> int:
     if args.accion == "setup":
         guardado = tg.guardar_configuracion_telegram(args.token,
                                                      args.webhook_url)
-        exito("ConfiguraciÛn de Telegram guardada en ~/.snapcontext/"
+        exito("Configuraci√≥n de Telegram guardada en ~/.snapcontext/"
               "config.json ('telegram').")
         info(f"  webhook_url : {guardado.get('webhook_url') or '(sin definir)'}")
         info(f"  bot_token   : {'***' + guardado.get('bot_token', '')[-4:]}"
@@ -9462,7 +9462,7 @@ def _ejecutar_comando_telegram(subargv: List[str]) -> int:
             ok, detalle = tg.registrar_webhook()
             (exito if ok else aviso)(f"setWebhook: {detalle}")
         elif not guardado.get("webhook_url"):
-            aviso("Sin --webhook-url no se registrÛ el webhook; ll·malo con\n"
+            aviso("Sin --webhook-url no se registr√≥ el webhook; ll√°malo con\n"
                   "  snapcontext telegram webhook-registrar")
         return 0
 
@@ -9502,13 +9502,13 @@ def _ejecutar_comando_github(subargv: List[str]) -> int:
     p_setup.add_argument("--secret", "--webhook-secret", dest="secret", default=None,
                          help="Secreto para validar la firma HMAC del webhook.")
     p_setup.add_argument("--webhook-url", dest="webhook_url", default=None,
-                         help="URL p˙blica (ngrok/dominio); el webhook queda en <url>/webhook/github.")
+                         help="URL p√∫blica (ngrok/dominio); el webhook queda en <url>/webhook/github.")
 
-    sub.add_parser("estado", help="Muestra la configuraciÛn actual de GitHub.")
+    sub.add_parser("estado", help="Muestra la configuraci√≥n actual de GitHub.")
 
     p_hook = sub.add_parser("webhook-registrar", help="Registra el webhook en un repositorio de GitHub.")
     p_hook.add_argument("--repo", required=True, help="Repositorio en GitHub (ej: owner/repo).")
-    p_hook.add_argument("--webhook-url", dest="webhook_url", default=None, help="URL p˙blica del webhook.")
+    p_hook.add_argument("--webhook-url", dest="webhook_url", default=None, help="URL p√∫blica del webhook.")
     p_hook.add_argument("--secret", dest="secret", default=None, help="Secreto HMAC del webhook.")
 
     if not subargv or subargv[0] in ("-h", "--help", "help"):
@@ -9527,7 +9527,7 @@ def _ejecutar_comando_github(subargv: List[str]) -> int:
             token=getattr(args, "token", None),
             webhook_url=getattr(args, "webhook_url", None),
         )
-        exito("ConfiguraciÛn de GitHub guardada en ~/.snapcontext/config.json ('github').")
+        exito("Configuraci√≥n de GitHub guardada en ~/.snapcontext/config.json ('github').")
         info(f"  webhook_url    : {guardado.get('webhook_url') or '(sin definir)'}")
         info(f"  token          : {_oculto(guardado.get('token'))}")
         info(f"  webhook_secret : {_oculto(guardado.get('webhook_secret'))}")
@@ -9558,8 +9558,8 @@ def _ejecutar_comando_curador(subargv: List[str]) -> int:
     """Despacha el subcomando ``snapcontext curador <accion> [...]`` (v5.0.0).
 
     Acciones:
-      estado      ‚Üí muestra estadÌsticas agregadas de skills.
-      ejecutar    ‚Üí corre el motor de refactorizaciÛn proactivo manualmente.
+      estado      ‚Üí muestra estad√≠sticas agregadas de skills.
+      ejecutar    ‚Üí corre el motor de refactorizaci√≥n proactivo manualmente.
       activar     ‚Üí reactiva el curador proactivo (persistente).
       desactivar  ‚Üí lo desactiva.
     """
@@ -9575,7 +9575,7 @@ def _ejecutar_comando_curador(subargv: List[str]) -> int:
     # Soporte para '-h/--help/help'.
     if accion in ("-h", "--help", "help"):
         info("Uso: snapcontext curador <estado|ejecutar|activar|desactivar>")
-        info("  estado      ‚Üí mÈtricas y estado del motor")
+        info("  estado      ‚Üí m√©tricas y estado del motor")
         info("  ejecutar    ‚Üí refactoriza los skills candidatos ahora")
         info("  activar     ‚Üí reactiva el curador proactivo persistente")
         info("  desactivar  ‚Üí desactiva el curador proactivo")
@@ -9584,12 +9584,12 @@ def _ejecutar_comando_curador(subargv: List[str]) -> int:
     if accion == "estado":
         resumen = cp.estado_curador()
         exito("Estado del curador proactivo:")
-        info(f"  activo            : {'sÌ' if resumen['activo'] else 'no'}")
+        info(f"  activo            : {'s√≠' if resumen['activo'] else 'no'}")
         info(f"  intervalo (horas) : {resumen['intervalo_horas']}")
         info(f"  skills            : {resumen['total_skills']} "
              f"(activos {resumen['activos']})")
         info(f"  candidatos        : {resumen['candidatos']}")
-        info(f"  ˙ltima pasada     : {resumen['ultima_pasada'] or 'nunca'}")
+        info(f"  √∫ltima pasada     : {resumen['ultima_pasada'] or 'nunca'}")
         for fila in resumen.get("reinado_lista", [])[:20]:
             info(f"    #{fila['id']} {fila['nombre']} "
                  f"(usos {fila['usos']}, fallos {fila['fallos']}, "
@@ -9599,7 +9599,7 @@ def _ejecutar_comando_curador(subargv: List[str]) -> int:
     if accion == "ejecutar":
         resultados = cp.ejecutar_curador()
         if resultados is None:
-            aviso("Curador desactivado. ActÌvalo: snapcontext curador activar")
+            aviso("Curador desactivado. Act√≠valo: snapcontext curador activar")
             return 0
         mejorados = [r for r in resultados if r.get("mejorado")]
         info(f"Curador: {len(resultados)} skill(s) candidato(s), "
@@ -9639,7 +9639,7 @@ def _ejecutar_comando_plugin(subargv: List[str]) -> int:
             import marketplace
             return marketplace.instalar_plugin(resto[0])
         except Exception as exc:                         # noqa: BLE001
-            error(f"Error en la instalaciÛn: {exc}")
+            error(f"Error en la instalaci√≥n: {exc}")
             return 1
     if accion in ("remove", "uninstall"):                # v6.22.0: uninstall
         if not resto:
@@ -9663,7 +9663,7 @@ def _ejecutar_comando_plugin(subargv: List[str]) -> int:
             error(f"Uso: snapcontext plugin {accion} <nombre>")
             return 1
         return _plugin_cambiar_estado(resto[0], habilitar=accion == "enable")
-    error(f"AcciÛn de plugin desconocida: '{accion}'. Usa search/list/install/"
+    error(f"Acci√≥n de plugin desconocida: '{accion}'. Usa search/list/install/"
           "remove/create/update/enable/disable.")
     return 1
 
@@ -9683,7 +9683,7 @@ def _plugin_search(termino: str) -> int:
     if not resultados:
         aviso(f"Sin resultados para '{termino}'.")
         return 0
-    info(f"?? {len(resultados)} plugin(s) encontrados para '{termino}':")
+    info(f"üóΩ {len(resultados)} plugin(s) encontrados para '{termino}':")
     for entrada in resultados:
         nombre = entrada.get("nombre") or entrada.get("name") or "?"
         desc = (entrada.get("descripcion") or entrada.get("description")
@@ -9697,9 +9697,9 @@ def _plugin_search(termino: str) -> int:
 # --- Implementaciones de las herramientas (resultados estructurados) -------
 def _tool_grep(patron: str, directorio: str = ".",
                max_resultados: int = 50) -> dict:
-    """Herramienta `grep`: busca un patrÛn en el cÛdigo del proyecto."""
+    """Herramienta `grep`: busca un patr√≥n en el c√≥digo del proyecto."""
     if not patron:
-        return {"ok": False, "error": "falta el patrÛn de b˙squeda"}
+        return {"ok": False, "error": "falta el patr√≥n de b√∫squeda"}
     herramienta = _herramienta_busqueda()
     if herramienta is None:
         return {"ok": False, "error": "sin buscador disponible (rg/grep/findstr)"}
@@ -9723,7 +9723,7 @@ def _tool_grep(patron: str, directorio: str = ".",
 
 def _tool_read_file(ruta: str, linea_inicio: Optional[int] = None,
                     linea_fin: Optional[int] = None) -> dict:
-    """Herramienta `read_file`: lee un archivo completo o un rango de lÌneas."""
+    """Herramienta `read_file`: lee un archivo completo o un rango de l√≠neas."""
     contenido = _leer_archivo(ruta)
     if contenido is None:
         return {"ok": False, "ruta": ruta, "error": "no se pudo leer"}
@@ -9771,7 +9771,7 @@ def _tool_ast(ruta: str) -> dict:
         arbol = ast.parse(contenido)
     except SyntaxError as exc:
         return {"ok": False, "ruta": ruta,
-                "error": f"sintaxis inv·lida: {exc}"}
+                "error": f"sintaxis inv√°lida: {exc}"}
     imports: List[str] = []
     clases: List[dict] = []
     funciones: List[dict] = []
@@ -9835,11 +9835,11 @@ def _tool_execute_command(comando: str, directorio: str = ".",
     """Herramienta `execute_command`: ejecuta un comando shell arbitrario.
 
     - ``background=True`` lanza el proceso en segundo plano y devuelve un
-      ``pid`` para consultarlo despuÈs.
+      ``pid`` para consultarlo despu√©s.
     - ``capture_output=False`` muestra la salida en tiempo real (en su lugar
-      ``stdout``/``stderr`` quedan vacÌos).
+      ``stdout``/``stderr`` quedan vac√≠os).
 
-    Requiere confirmaciÛn estricta (se valida en el dispatcher).
+    Requiere confirmaci√≥n estricta (se valida en el dispatcher).
     """
     if not comando:
         return {"ok": False, "error": "falta el comando a ejecutar"}
@@ -9857,8 +9857,8 @@ def _tool_execute_command(comando: str, directorio: str = ".",
             "stderr": stderr.strip() if stderr else ""}
 
 
-# --- Herramientas avanzadas (v1.4.0): tree-sitter + b˙squeda sem·ntica ------
-# Tipos de nodo tree-sitter por categorÌa (nombres comunes entre gram·ticas).
+# --- Herramientas avanzadas (v1.4.0): tree-sitter + b√∫squeda sem√°ntica ------
+# Tipos de nodo tree-sitter por categor√≠a (nombres comunes entre gram√°ticas).
 _TS_NODOS_FUNCION = frozenset((
     "function_definition", "function_declaration", "function_item",
     "function_signature", "method_definition", "method_declaration",
@@ -9876,7 +9876,7 @@ _TS_NODOS_LLAMADA = frozenset(("call_expression", "call"))
 
 
 def _lenguaje_tree_sitter(ruta: str) -> Optional[str]:
-    """Adivina el nombre de gram·tica tree-sitter para ``ruta``."""
+    """Adivina el nombre de gram√°tica tree-sitter para ``ruta``."""
     extension = Path(ruta).suffix.lower().lstrip(".")
     mapa = {
         "py": "python", "pyi": "python", "js": "javascript", "jsx": "javascript",
@@ -9896,7 +9896,7 @@ def _lenguaje_tree_sitter(ruta: str) -> Optional[str]:
     return mapa.get(extension)
 
 
-# ‚îÄ‚îÄ‚îÄ DetecciÛn de lenguaje por contenido (v3.3.0) ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+# ‚îÄ‚îÄ‚îÄ Detecci√≥n de lenguaje por contenido (v3.3.0) ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
 _PATRONES_LENGUAJE_CONTENIDO = (
     (re.compile(r"^#!.*\bpython\S*", re.MULTILINE), "python"),
     (re.compile(r"^#!.*\b(bash|sh|zsh)\b", re.MULTILINE), "bash"),
@@ -9913,8 +9913,8 @@ _PATRONES_LENGUAJE_CONTENIDO = (
 def _detectar_lenguaje_contenido(contenido: str) -> Optional[str]:
     """Intenta adivinar el lenguaje a partir del contenido del archivo.
 
-    Se usa como refuerzo cuando la extensiÛn es ambigua o desconocida
-    (p. ej. scripts sin extensiÛn, archivos generados, proyectos mixtos).
+    Se usa como refuerzo cuando la extensi√≥n es ambigua o desconocida
+    (p. ej. scripts sin extensi√≥n, archivos generados, proyectos mixtos).
     """
     if not contenido:
         return None
@@ -9927,10 +9927,10 @@ def _detectar_lenguaje_contenido(contenido: str) -> Optional[str]:
 
 def _lenguaje_archivo(ruta: str,
                       contenido: Optional[str] = None) -> Optional[str]:
-    """Detecta el lenguaje de ``ruta`` combinando extensiÛn y contenido.
+    """Detecta el lenguaje de ``ruta`` combinando extensi√≥n y contenido.
 
-    Prioridad: extensiÛn conocida ‚Üí heurÌstica de contenido ‚Üí None.
-    M·s robusto que la detecciÛn solo por extensiÛn en proyectos mixtos.
+    Prioridad: extensi√≥n conocida ‚Üí heur√≠stica de contenido ‚Üí None.
+    M√°s robusto que la detecci√≥n solo por extensi√≥n en proyectos mixtos.
     """
     por_extension = _lenguaje_tree_sitter(ruta)
     if por_extension:
@@ -9943,7 +9943,7 @@ def _lenguaje_archivo(ruta: str,
 
 
 def _extraer_simbolos_ts(arbol, lenguaje: str) -> dict:
-    """Recorre el ·rbol tree-sitter y extrae funciones/clases/imports/llamadas."""
+    """Recorre el √°rbol tree-sitter y extrae funciones/clases/imports/llamadas."""
     funciones: List[dict] = []
     clases: List[dict] = []
     imports: List[str] = []
@@ -9986,8 +9986,8 @@ def _extraer_simbolos_ts(arbol, lenguaje: str) -> dict:
 def _tool_ast_avanzado(ruta: str) -> dict:
     """Herramienta `ast_avanzado` (v1.4.0).
 
-    An·lisis sint·ctico multi-lenguaje con **tree-sitter** si est· instalado
-    (`pip install snapcontext[mcp_avanzado]`). Si no, hace fallback al mÛdulo
+    An√°lisis sint√°ctico multi-lenguaje con **tree-sitter** si est√° instalado
+    (`pip install snapcontext[mcp_avanzado]`). Si no, hace fallback al m√≥dulo
     `ast` de la stdlib (solo para archivos Python). Nunca lanza excepciones.
     """
     contenido = _leer_archivo(ruta)
@@ -10009,8 +10009,8 @@ def _tool_ast_avanzado(ruta: str) -> dict:
             simbolos = _extraer_simbolos_ts(arbol, lenguaje)
             return {"ok": True, "ruta": ruta, "motor": "tree-sitter",
                     "lenguaje": lenguaje, **simbolos}
-        except Exception as exc:                 # gram·tica ausente, API distinta...
-            depurar(f"[ast_avanzado] tree-sitter fallÛ ({exc}); fallback a ast.")
+        except Exception as exc:                 # gram√°tica ausente, API distinta...
+            depurar(f"[ast_avanzado] tree-sitter fall√≥ ({exc}); fallback a ast.")
 
     # 2) Fallback: ast de la stdlib (solo Python).
     if lenguaje == "python":
@@ -10027,15 +10027,15 @@ def _tool_semantic_search(consulta: str, directorio: str = ".",
                           max_resultados: int = 10) -> dict:
     """Herramienta `semantic_search` (v1.4.0).
 
-    B˙squeda sem·ntica por embeddings integrada en el sistema MCP: el agente
-    puede usarla autom·ticamente como contexto. Falla elegantemente si el
-    extra `embeddings` no est· instalado.
+    B√∫squeda sem√°ntica por embeddings integrada en el sistema MCP: el agente
+    puede usarla autom√°ticamente como contexto. Falla elegantemente si el
+    extra `embeddings` no est√° instalado.
     """
     if not consulta.strip():
-        return {"ok": False, "error": "falta la consulta de b˙squeda"}
+        return {"ok": False, "error": "falta la consulta de b√∫squeda"}
     if not _embeddings_disponibles():
         return {"ok": False, "consulta": consulta,
-                "error": "b˙squeda sem·ntica no disponible; instala el extra "
+                "error": "b√∫squeda sem√°ntica no disponible; instala el extra "
                          "'embeddings' (pip install snapcontext[embeddings])"}
     try:
         resultados = _buscar_semanticamente(consulta, directorio,
@@ -10201,7 +10201,7 @@ def _ejecutar_herramienta_mcp(nombre: str, argumentos: Optional[dict] = None,
                     resultado = _btool.browser_cerrar()
                 else:
                     resultado = {"ok": False,
-                                 "error": f"acciÛn desconocida: {nombre}"}
+                                 "error": f"acci√≥n desconocida: {nombre}"}
         else:
             # Herramienta de usuario definida en mcp_tools.json ‚Üí comando.
             if cfg.get("plugin"):
@@ -10216,7 +10216,7 @@ def _ejecutar_herramienta_mcp(nombre: str, argumentos: Optional[dict] = None,
                         resultado = {
                             "ok": False,
                             "error": "Comando del plugin bloqueado "
-                                     "(detecciÛn de peligro)."}
+                                     "(detecci√≥n de peligro)."}
                     else:
                         # seguridad: helper seguro. Los plugins reciben
                         # los argumentos por stdin y responden JSON por stdout.
@@ -10237,17 +10237,17 @@ def _ejecutar_herramienta_mcp(nombre: str, argumentos: Optional[dict] = None,
                                 "stderr": (proceso.stderr or "").strip()}
                 except subprocess.TimeoutExpired:
                     resultado = {"ok": False,
-                                 "error": "el plugin excediÛ el tiempo lÌmite"}
+                                 "error": "el plugin excedi√≥ el tiempo l√≠mite"}
                 except Exception as exc:    # noqa: BLE001 ‚Äî blindaje agente
                     resultado = {"ok": False, "error": str(exc)}
             else:
                 resultado = _tool_execute_command(
                     cfg["comando"], str(argumentos.get("directorio", ".")))
     except Exception as exc:                    # blindaje del agente
-        resultado = {"ok": False, "error": f"excepciÛn: {exc}"}
+        resultado = {"ok": False, "error": f"excepci√≥n: {exc}"}
     _salida = {"ok": bool(resultado.get("ok")), "herramienta": nombre,
                "resultado": resultado}
-    # v6.22.0: hook `after_tool_use` ‚Äî observabilidad / auditorÌa post-llamada.
+    # v6.22.0: hook `after_tool_use` ‚Äî observabilidad / auditor√≠a post-llamada.
     try:
         _hooks.ejecutar_hook("after_tool_use", {
             "herramienta": nombre, "argumentos": argumentos,
@@ -10276,7 +10276,7 @@ def _formatear_resultado_mcp(llamada: dict, max_lineas: int = 40) -> str:
         if clave in ("contenido", "diff") and isinstance(valor, str):
             lineas = valor.splitlines()
             muestra = "\n".join(lineas[:max_lineas])
-            extra = f"\n‚Ä¶ (+{len(lineas) - max_lineas} lÌneas)" \
+            extra = f"\n‚Ä¶ (+{len(lineas) - max_lineas} l√≠neas)" \
                 if len(lineas) > max_lineas else ""
             partes.append(f"{clave}:\n{muestra}{extra}")
         elif isinstance(valor, list):
@@ -10289,33 +10289,33 @@ def _formatear_resultado_mcp(llamada: dict, max_lineas: int = 40) -> str:
 
 
 def _contexto_automatico_mcp(mensaje: str, max_llamadas: int = 2) -> str:
-    """Uso autom·tico de herramientas de solo lectura seg˙n el mensaje.
+    """Uso autom√°tico de herramientas de solo lectura seg√∫n el mensaje.
 
-    HeurÌstica ligera: si el usuario pregunta dÛnde est· algo, el estado del
-    repo o quÈ archivos hay, se ejecutan hasta ``max_llamadas`` herramientas
-    de solo lectura y se devuelve un bloque de contexto (str) para aÒadir al
-    prompt del proveedor. Cadena vacÌa si no aplica.
+    Heur√≠stica ligera: si el usuario pregunta d√≥nde est√° algo, el estado del
+    repo o qu√© archivos hay, se ejecutan hasta ``max_llamadas`` herramientas
+    de solo lectura y se devuelve un bloque de contexto (str) para a√±adir al
+    prompt del proveedor. Cadena vac√≠a si no aplica.
     """
     texto = mensaje.lower()
     llamadas: List[tuple] = []
 
-    if any(p in texto for p in ("busca ", "buscar ", "dÛnde est·",
-                                "donde esta", "grep", "quiÈn usa",
+    if any(p in texto for p in ("busca ", "buscar ", "d√≥nde est√°",
+                                "donde esta", "grep", "qui√©n usa",
                                 "quien usa")):
-        # TÈrminos demasiado genÈricos para usar como patrÛn de b˙squeda.
-        paradas = {"busca", "buscar", "dÛnde", "donde", "est·", "esta",
-                   "quiÈn", "quien", "usa", "usan", "usado", "usar", "usos"}
+        # T√©rminos demasiado gen√©ricos para usar como patr√≥n de b√∫squeda.
+        paradas = {"busca", "buscar", "d√≥nde", "donde", "est√°", "esta",
+                   "qui√©n", "quien", "usa", "usan", "usado", "usar", "usos"}
         candidatos = [p for p in re.findall(r"\w+", mensaje)
                       if len(p) >= 3 and p.lower() not in paradas]
         if candidatos:
-            # El tÈrmino m·s largo suele ser el identificador relevante.
+            # El t√©rmino m√°s largo suele ser el identificador relevante.
             llamadas.append(("grep",
                              {"patron": max(candidatos, key=len)}))
     if any(p in texto for p in ("estado de git", "git status", "sin commitear",
                                 "cambios pendientes")):
         llamadas.append(("git_status", {}))
     if any(p in texto for p in ("lista los archivos", "list_files",
-                                "quÈ archivos hay", "que archivos hay")):
+                                "qu√© archivos hay", "que archivos hay")):
         llamadas.append(("list_files", {"max_archivos": 50}))
 
     bloques: List[str] = []
@@ -10332,20 +10332,20 @@ def _contexto_automatico_mcp(mensaje: str, max_llamadas: int = 2) -> str:
 NOMBRES_MEMORIA = ("CLAUDE.md", "SNAPCONTEXT.md")
 MEMORIA_MAX_CARACTERES = 6000
 
-# Contexto persistente del proyecto cargado al inicio (cadena vacÌa si no hay
+# Contexto persistente del proyecto cargado al inicio (cadena vac√≠a si no hay
 # memoria). La rellenan flujo_principal, --chat y --plan.
 MEMORIA_PROYECTO = ""
 
-# Skills din·micos (v6.6.0): extracciÛn de reglas abstractas de planes
+# Skills din√°micos (v6.6.0): extracci√≥n de reglas abstractas de planes
 # exitosos. Activado por defecto; se desactiva con --sin-skills-dinamicos.
 SKILLS_DINAMICOS = True
 
 
 def _enriquecer_prompt_con_reglas(prompt: str, consulta: str) -> str:
-    """Skills din·micos (v6.6.0): aÒade las reglas aprendidas que coinciden
-    con ``consulta`` al ``prompt`` del planificador (m·x. 3, priorizadas por
-    confianza). Si ``SKILLS_DINAMICOS`` est· desactivado, no hay reglas o
-    falla la b˙squeda, devuelve el prompt intacto. Nunca lanza.
+    """Skills din√°micos (v6.6.0): a√±ade las reglas aprendidas que coinciden
+    con ``consulta`` al ``prompt`` del planificador (m√°x. 3, priorizadas por
+    confianza). Si ``SKILLS_DINAMICOS`` est√° desactivado, no hay reglas o
+    falla la b√∫squeda, devuelve el prompt intacto. Nunca lanza.
     """
     if not SKILLS_DINAMICOS:
         return prompt
@@ -10356,10 +10356,10 @@ def _enriquecer_prompt_con_reglas(prompt: str, consulta: str) -> str:
             bloque = "\n".join(_sa.regla_a_linea(r) for r in reglas)
             prompt += ("\n\nREGLAS APRENDIDAS de tareas anteriores "
                        "(tenlas en cuenta al proponer pasos):\n" + bloque)
-            info("?? Regla(s) aprendida(s) aplicada(s) al plan ("
+            info("üß† Regla(s) aprendida(s) aplicada(s) al plan ("
                  f"{len(reglas)}).")
     except Exception as exc:             # noqa: BLE001 ‚Äî best-effort
-        depurar(f"[skills-dinamicos] b˙squeda de reglas fallÛ: {exc}")
+        depurar(f"[skills-dinamicos] b√∫squeda de reglas fall√≥: {exc}")
     return prompt
 
 
@@ -10405,17 +10405,17 @@ def _plantilla_claude_md_basica(directorio: str = ".") -> str:
                    if (Path(directorio) / n).is_file()]
     return (
         "# Memoria del proyecto\n\n"
-        f"Generada por SnapContext v{VERSION} (modo b·sico, sin IA).\n\n"
-        "## Objetivo\n\n(Describe aquÌ para quÈ sirve este proyecto.)\n\n"
-        f"## TecnologÌas\n\n- Tipo de proyecto detectado: **{tipo}**\n"
+        f"Generada por SnapContext v{VERSION} (modo b√°sico, sin IA).\n\n"
+        "## Objetivo\n\n(Describe aqu√≠ para qu√© sirve este proyecto.)\n\n"
+        f"## Tecnolog√≠as\n\n- Tipo de proyecto detectado: **{tipo}**\n"
         + ("- Manifiestos encontrados: " + ", ".join(manifiestos) + "\n"
            if manifiestos else "- Sin manifiestos detectados.\n")
         + "\n## Estructura\n\nArchivos principales:\n"
         + "".join(f"- {a}\n" for a in archivos[:20])
         + "\n## Convenciones\n\n"
           "- (Describe convenciones de estilo y ramas.)\n\n"
-          "## Comandos ˙tiles\n\n"
-          "- (Describe cÛmo ejecutar tests/build.)\n")
+          "## Comandos √∫tiles\n\n"
+          "- (Describe c√≥mo ejecutar tests/build.)\n")
 
 
 def _generar_claude_md(proveedor: Optional[str] = None,
@@ -10423,14 +10423,14 @@ def _generar_claude_md(proveedor: Optional[str] = None,
                        directorio: str = ".") -> Path:
     """Genera un CLAUDE.md inicial escaneando el proyecto (``--init-claude``).
 
-    Usa el proveedor de IA para redactar el contenido; si falta clave/librerÌa
-    o la llamada falla, cae a una plantilla b·sica offline. Devuelve la ruta
-    escrita. Si ya existÌa memoria, pide confirmaciÛn antes de sobreescribir.
+    Usa el proveedor de IA para redactar el contenido; si falta clave/librer√≠a
+    o la llamada falla, cae a una plantilla b√°sica offline. Devuelve la ruta
+    escrita. Si ya exist√≠a memoria, pide confirmaci√≥n antes de sobreescribir.
     """
     raiz = Path(directorio).resolve()
     destino = _buscar_claude_md(str(raiz)) or (raiz / "CLAUDE.md")
 
-    # 1) Escaneo local: tipo de proyecto, estructura y estado git (vÌa MCP).
+    # 1) Escaneo local: tipo de proyecto, estructura y estado git (v√≠a MCP).
     tipo = _detectar_tipo_proyecto(str(raiz)) or "desconocido"
     listado = _ejecutar_herramienta_mcp(
         "list_files", {"directorio": str(raiz), "max_archivos": 60},
@@ -10442,17 +10442,17 @@ def _generar_claude_md(proveedor: Optional[str] = None,
                                            confirmar=False)
 
     prompt = (
-        "Eres un asistente que documenta proyectos. Analiza esta informaciÛn "
+        "Eres un asistente que documenta proyectos. Analiza esta informaci√≥n "
         "de un proyecto y genera el contenido de un archivo CLAUDE.md: la "
-        "memoria persistente de un agente de cÛdigo.\n\n"
+        "memoria persistente de un agente de c√≥digo.\n\n"
         f"Tipo de proyecto detectado: {tipo}\n"
         f"Estado git: "
         f"{json.dumps(estado_git.get('resultado', {}), ensure_ascii=False)}\n"
         f"Estructura de archivos:\n{estructura}\n\n"
         "Devuelve SOLO el contenido markdown del archivo, con estas secciones:\n"
-        "# <nombre del proyecto>\n## Objetivo\n## TecnologÌas\n"
-        "## Estructura\n## Convenciones\n## Comandos ˙tiles\n"
-        "SÈ concreto y breve (m·ximo ~80 lÌneas).")
+        "# <nombre del proyecto>\n## Objetivo\n## Tecnolog√≠as\n"
+        "## Estructura\n## Convenciones\n## Comandos √∫tiles\n"
+        "S√© concreto y breve (m√°ximo ~80 l√≠neas).")
 
     contenido = ""
     preferencias = cargar_configuracion()
@@ -10462,16 +10462,16 @@ def _generar_claude_md(proveedor: Optional[str] = None,
                                          [{"role": "user", "content": prompt}])
         info(f"Contenido generado con {PROVEEDORES[proveedor]['nombre']}.")
     except RuntimeError as exc:
-        aviso(f"Sin generaciÛn por IA ({str(exc).splitlines()[0]}); "
-              "se usar· una plantilla b·sica.")
+        aviso(f"Sin generaci√≥n por IA ({str(exc).splitlines()[0]}); "
+              "se usar√° una plantilla b√°sica.")
     if not contenido.strip():
         contenido = _plantilla_claude_md_basica(str(raiz))
 
-    # 2) ConfirmaciÛn si se va a sobreescribir una memoria existente.
+    # 2) Confirmaci√≥n si se va a sobreescribir una memoria existente.
     if destino.exists() and not _confirmar_accion(
             f"sobreescribir {destino.name}", tipo="editar",
-            detalles=f"tamaÒo actual: {destino.stat().st_size} bytes"):
-        aviso("OperaciÛn cancelada; no se modificÛ la memoria.")
+            detalles=f"tama√±o actual: {destino.stat().st_size} bytes"):
+        aviso("Operaci√≥n cancelada; no se modific√≥ la memoria.")
         return destino
 
     destino.write_text(contenido.strip() + "\n", encoding="utf-8")
@@ -10483,9 +10483,9 @@ def _actualizar_claude_md_automatico(resumen_tarea: str,
                                      directorio: str = ".") -> bool:
     """Tras una tarea significativa, propone actualizar la memoria (opcional).
 
-    Pide confirmaciÛn; si se acepta, el proveedor reescribe la memoria
-    incorporando el resumen de lo aprendido. Solo act˙a si ya existe memoria:
-    la creaciÛn inicial es responsabilidad de ``--init-claude``.
+    Pide confirmaci√≥n; si se acepta, el proveedor reescribe la memoria
+    incorporando el resumen de lo aprendido. Solo act√∫a si ya existe memoria:
+    la creaci√≥n inicial es responsabilidad de ``--init-claude``.
     """
     camino = _buscar_claude_md(directorio)
     if camino is None:
@@ -10496,9 +10496,9 @@ def _actualizar_claude_md_automatico(resumen_tarea: str,
             detalles=resumen_tarea[:200]):
         return False
     prompt = (
-        "Actualiza esta memoria de proyecto incorporando la informaciÛn nueva. "
-        "MantÈn el formato y las secciones; devuelve SOLO el markdown final.\n\n"
-        f"--- MEMORIA ACTUAL ---\n{actual or '(vacÌa)'}\n\n"
+        "Actualiza esta memoria de proyecto incorporando la informaci√≥n nueva. "
+        "Mant√©n el formato y las secciones; devuelve SOLO el markdown final.\n\n"
+        f"--- MEMORIA ACTUAL ---\n{actual or '(vac√≠a)'}\n\n"
         f"--- LO APRENDIDO EN LA √öLTIMA TAREA ---\n{resumen_tarea}\n")
     preferencias = cargar_configuracion()
     try:
@@ -10509,7 +10509,7 @@ def _actualizar_claude_md_automatico(resumen_tarea: str,
         aviso(f"No se pudo actualizar la memoria: {str(exc).splitlines()[0]}")
         return False
     if not nuevo.strip():
-        aviso("El proveedor devolviÛ contenido vacÌo; memoria sin cambios.")
+        aviso("El proveedor devolvi√≥ contenido vac√≠o; memoria sin cambios.")
         return False
     camino.write_text(nuevo.strip() + "\n", encoding="utf-8")
     exito(f"Memoria actualizada: {camino}")
@@ -10517,12 +10517,12 @@ def _actualizar_claude_md_automatico(resumen_tarea: str,
 
 
 # ---------------------------------------------------------------------------
-# Embeddings locales: b˙squeda sem·ntica de archivos ‚Äî v1.1.0
+# Embeddings locales: b√∫squeda sem√°ntica de archivos ‚Äî v1.1.0
 # ---------------------------------------------------------------------------
 MENSAJE_EMBEDDINGS_FALTANTE = (
-    "La b˙squeda sem·ntica requiere la librerÌa 'sentence-transformers'.\n"
-    "Inst·lala con:  pip install snapcontext[embeddings]\n"
-    "  (descarga torch; primera ejecuciÛn descarga el modelo "
+    "La b√∫squeda sem√°ntica requiere la librer√≠a 'sentence-transformers'.\n"
+    "Inst√°lala con:  pip install snapcontext[embeddings]\n"
+    "  (descarga torch; primera ejecuci√≥n descarga el modelo "
     "all-MiniLM-L6-v2, ~90 MB)"
 )
 
@@ -10535,14 +10535,14 @@ EXTENSIONES_EMBEDDINGS = {
 }
 CARPETAS_IGNORADAS = {".git", "__pycache__", "node_modules", "venv", ".venv",
                       "dist", "build", ".idea", ".vscode"}
-CHUNK_CARACTERES = 2000          # ~512 tokens con heurÌstica de 4 chars/token
+CHUNK_CARACTERES = 2000          # ~512 tokens con heur√≠stica de 4 chars/token
 
 _MODELO_EMBEDDINGS = None        # singleton del modelo cargado
 
-# v6.9.0 ‚Äî CachÈ persistente de embeddings (SQLite)
+# v6.9.0 ‚Äî Cach√© persistente de embeddings (SQLite)
 # `~/.snapcontext/embeddings.db` almacena el vector por hash de contenido del
 # fragmento. En re-escaneos solo se recalculan los fragmentos cuyo contenido
-# cambiÛ (reutiliza el resto), reduciendo el tiempo de selecciÛn hasta ~80%.
+# cambi√≥ (reutiliza el resto), reduciendo el tiempo de selecci√≥n hasta ~80%.
 # Es opcional y best-effort: si no hay soporte/espacio en disco falla
 # silenciosamente y se recomputa todo desde cero.
 EMBEDDINGS_DB = CONFIG_DIR / "embeddings.db"
@@ -10572,13 +10572,13 @@ def _init_db_embeddings(con) -> None:
 
 
 def _conexion_embeddings():
-    """Abre (y prepara) la cachÈ SQLite de embeddings, o None si falla."""
+    """Abre (y prepara) la cach√© SQLite de embeddings, o None si falla."""
     try:
         EMBEDDINGS_DB.parent.mkdir(parents=True, exist_ok=True)
         con = sqlite3.connect(str(EMBEDDINGS_DB), timeout=2.0)
         _init_db_embeddings(con)
         return con
-    except Exception:                       # noqa: BLE001 ‚Äî cachÈ best-effort
+    except Exception:                       # noqa: BLE001 ‚Äî cach√© best-effort
         return None
 
 
@@ -10601,7 +10601,7 @@ def _consultar_embedding_cache(clave_hash: str) -> Optional[bytes]:
 
 
 def _guardar_embedding_cache(clave_hash: str, archivo: str, vector) -> bool:
-    """Guarda o actualiza un embedding en la cachÈ SQLite (best-effort)."""
+    """Guarda o actualiza un embedding en la cach√© SQLite (best-effort)."""
     try:
         import sqlite3 as _sqlite3
         con = _conexion_embeddings()
@@ -10622,12 +10622,12 @@ def _guardar_embedding_cache(clave_hash: str, archivo: str, vector) -> bool:
 
 
 def _embeddings_disponibles() -> bool:
-    """True si sentence-transformers est· instalado."""
+    """True si sentence-transformers est√° instalado."""
     return _importar_sentence_transformer() is not None
 
 
 def _modelo_embeddings():
-    """Devuelve el modelo de embeddings (singleton) o None si no est· instalado.
+    """Devuelve el modelo de embeddings (singleton) o None si no est√° instalado.
 
     Si ``sc._MODELO_EMBEDDINGS`` ya fue establecido (p. ej. por tests o por una
     carga previa), se reutiliza tal cual.
@@ -10648,7 +10648,7 @@ def _modelo_embeddings():
 def _calcular_embeddings(textos: List[str]) -> List[List[float]]:
     """Calcula embeddings para una lista de textos (lista de vectores).
 
-    Lanza RuntimeError con MENSAJE_EMBEDDINGS_FALTANTE si la librerÌa no est·
+    Lanza RuntimeError con MENSAJE_EMBEDDINGS_FALTANTE si la librer√≠a no est√°
     disponible. Normaliza los vectores a longitud 1 para que la similitud de
     coseno sea un simple producto escalar.
     """
@@ -10661,13 +10661,13 @@ def _calcular_embeddings(textos: List[str]) -> List[List[float]]:
 
 def _calcular_embeddings_con_cache(
         textos: List[str], claves: Optional[List[tuple]] = None) -> List[List[float]]:
-    """Calcula embeddings reutilizando la cachÈ SQLite persistente (v6.9.0).
+    """Calcula embeddings reutilizando la cach√© SQLite persistente (v6.9.0).
 
     Para cada ``texto`` consulta ``~/.snapcontext/embeddings.db`` por el hash de
     su contenido; si existe, reutiliza el vector y solo recalcula los que fallan
-    (cambio de contenido o primera vez), guardando los nuevos en cachÈ. AsÌ, en
-    proyectos re-escaneados se reduce el tiempo de selecciÛn hasta ~80%.
-    Payload por si la cachÈ no est· disponible: recalcula todo desde cero.
+    (cambio de contenido o primera vez), guardando los nuevos en cach√©. As√≠, en
+    proyectos re-escaneados se reduce el tiempo de selecci√≥n hasta ~80%.
+    Payload por si la cach√© no est√° disponible: recalcula todo desde cero.
     """
     vectores: List[Optional[List[float]]] = [None] * len(textos)
     pendientes: List[int] = []
@@ -10711,7 +10711,7 @@ def _dividir_en_fragmentos(texto: str,
                            max_caracteres: int = CHUNK_CARACTERES) -> List[dict]:
     """Divide el contenido en fragmentos de ~``max_caracteres`` (~512 tokens).
 
-    Corta por lÌneas para no partir sentencias a mitad y registra la lÌnea de
+    Corta por l√≠neas para no partir sentencias a mitad y registra la l√≠nea de
     inicio de cada fragmento (1-based).
     """
     fragmentos: List[dict] = []
@@ -10729,7 +10729,7 @@ def _dividir_en_fragmentos(texto: str,
     if actual:
         fragmentos.append({"linea_inicio": linea_inicio,
                            "texto": "\n".join(actual)})
-    if linea_actual == 0:               # archivo vacÌo
+    if linea_actual == 0:               # archivo vac√≠o
         fragmentos.append({"linea_inicio": 1, "texto": ""})
     return fragmentos
 
@@ -10751,13 +10751,13 @@ def _patrones_gitignore(raiz: Path) -> List[str]:
 
 
 def _ruta_indice(directorio: str) -> Path:
-    """Ruta del Ìndice en disco para ``directorio`` (hash de la ruta absoluta)."""
+    """Ruta del √≠ndice en disco para ``directorio`` (hash de la ruta absoluta)."""
     clave = _hash_texto(str(Path(directorio).resolve()))
     return INDICE_DIR / f"{clave}.json"
 
 
 def _cargar_indice(directorio: str) -> dict:
-    """Lee el Ìndice de embeddings de ``directorio`` ({} si no existe)."""
+    """Lee el √≠ndice de embeddings de ``directorio`` ({} si no existe)."""
     camino = _ruta_indice(directorio)
     try:
         if camino.is_file():
@@ -10770,25 +10770,25 @@ def _cargar_indice(directorio: str) -> dict:
 
 
 def _guardar_indice(directorio: str, indice: dict) -> bool:
-    """Persiste el Ìndice en ~/.snapcontext/index/<hash>.json."""
+    """Persiste el √≠ndice en ~/.snapcontext/index/<hash>.json."""
     try:
         INDICE_DIR.mkdir(parents=True, exist_ok=True)
         _ruta_indice(directorio).write_text(
             json.dumps(indice, ensure_ascii=False), encoding="utf-8")
         return True
     except OSError as exc:
-        aviso(f"No se pudo guardar el Ìndice: {exc}")
+        aviso(f"No se pudo guardar el √≠ndice: {exc}")
         return False
 
 
 def _es_ignorado(relativo: str, patrones: List[str]) -> bool:
-    """True si ``relativo`` (ruta POSIX relativa) casa con alg˙n patrÛn."""
+    """True si ``relativo`` (ruta POSIX relativa) casa con alg√∫n patr√≥n."""
     partes = relativo.split("/")
     for patron in patrones:
         if fnmatch.fnmatch(relativo, patron) or fnmatch.fnmatch(
                 partes[-1], patron):
             return True
-        # PatrÛn de directorio: ignorar todo lo que cuelga de Èl.
+        # Patr√≥n de directorio: ignorar todo lo que cuelga de √©l.
         if any(fnmatch.fnmatch(parte, patron) for parte in partes):
             return True
     return False
@@ -10797,9 +10797,9 @@ def _es_ignorado(relativo: str, patrones: List[str]) -> bool:
 def _hash_proyecto(raiz) -> str:
     """Computa un hash que representa el estado actual del proyecto.
 
-    Recorre los archivos de cÛdigo (misma lÛgica que ``_indexar_proyecto`` pero
+    Recorre los archivos de c√≥digo (misma l√≥gica que ``_indexar_proyecto`` pero
     sin calcular embeddings) y devuelve un hash combinado de todos los hashes de
-    contenido. Muy r·pido comparado con el indexado completo.
+    contenido. Muy r√°pido comparado con el indexado completo.
     """
     raiz = raiz if isinstance(raiz, Path) else Path(raiz)
     patrones = _patrones_gitignore(raiz)
@@ -10822,15 +10822,15 @@ def _hash_proyecto(raiz) -> str:
 
 def _indexar_proyecto(directorio: str = ".",
                       extensiones: Optional[set] = None) -> dict:
-    """Indexa el proyecto: embeddings por fragmento de cada archivo de cÛdigo.
+    """Indexa el proyecto: embeddings por fragmento de cada archivo de c√≥digo.
 
     - Escanea recursivamente respetando .gitignore y ``CARPETAS_IGNORADAS``.
     - Divide cada archivo en fragmentos (~512 tokens) y calcula su embedding
       con el modelo local (all-MiniLM-L6-v2).
     - Cache por hash de contenido: los archivos sin cambios reutilizan los
-      embeddings del Ìndice previo.
+      embeddings del √≠ndice previo.
 
-    Lanza RuntimeError si los embeddings no est·n disponibles.
+    Lanza RuntimeError si los embeddings no est√°n disponibles.
     """
     raiz = Path(directorio).resolve()
     if not raiz.is_dir():
@@ -10872,7 +10872,7 @@ def _indexar_proyecto(directorio: str = ".",
                     archivos.append(res)
 
     if not archivos:
-        raise RuntimeError("No se encontraron archivos de cÛdigo para indexar.")
+        raise RuntimeError("No se encontraron archivos de c√≥digo para indexar.")
 
     # 2) Separar fragmentos cacheados (mismo hash+texto) de los nuevos.
     fragmentos: List[dict] = []
@@ -10893,7 +10893,7 @@ def _indexar_proyecto(directorio: str = ".",
                                    "hash_archivo": hash_archivo,
                                    "embedding": None})   # marcador temporal
 
-    # 3) Calcular embeddings de los fragmentos nuevos (cachÈ SQLite v6.9.0).
+    # 3) Calcular embeddings de los fragmentos nuevos (cach√© SQLite v6.9.0).
     if nuevos_textos:
         vectores = _calcular_embeddings_con_cache(nuevos_textos, nuevos_claves)
         pendientes = list(zip(nuevos_claves, vectores))
@@ -10921,9 +10921,9 @@ def _indexar_proyecto(directorio: str = ".",
 
 
 def _asegurar_indice(directorio: str) -> dict:
-    """Devuelve el Ìndice del proyecto; lo crea o reindexa si ha cambiado.
+    """Devuelve el √≠ndice del proyecto; lo crea o reindexa si ha cambiado.
 
-    Invalida el cachÈ autom·ticamente cuando el proyecto cambia (se compara el
+    Invalida el cach√© autom√°ticamente cuando el proyecto cambia (se compara el
     ``hash_proyecto`` almacenado con el hash actual) y reindexa con aviso.
     """
     indice = _cargar_indice(directorio)
@@ -10932,19 +10932,19 @@ def _asegurar_indice(directorio: str) -> dict:
         if indice.get("hash_proyecto") == hash_actual:
             return indice
         aviso("[embeddings] El proyecto ha cambiado; reindexando‚Ä¶")
-    info("[embeddings] Indexando el proyecto (primera vez o Ìndice vacÌo)‚Ä¶")
+    info("[embeddings] Indexando el proyecto (primera vez o √≠ndice vac√≠o)‚Ä¶")
     return _indexar_proyecto(directorio)
 
 
 def _buscar_semanticamente(consulta: str, directorio: str = ".",
                            max_resultados: int = 20) -> List[dict]:
-    """B˙squeda sem·ntica: fragmentos m·s similares a ``consulta``.
+    """B√∫squeda sem√°ntica: fragmentos m√°s similares a ``consulta``.
 
     Devuelve una lista ordenada por similitud::
 
         [{"archivo", "linea_inicio", "similitud", "texto"}]
 
-    Lanza RuntimeError si los embeddings no est·n disponibles.
+    Lanza RuntimeError si los embeddings no est√°n disponibles.
     """
     indice = _asegurar_indice(directorio)
     fragmentos = [f for f in indice.get("fragmentos", [])
@@ -10966,12 +10966,12 @@ def _buscar_semanticamente(consulta: str, directorio: str = ".",
 def _seleccionar_archivos_con_embeddings(consulta: str, directorio: str = ".",
                                          max_archivos: int = 3,
                                          umbral: float = 0.6) -> List[str]:
-    """Selecciona archivos relevantes por similitud sem·ntica.
+    """Selecciona archivos relevantes por similitud sem√°ntica.
 
     Agrupa las similitudes por archivo (sumando sus fragmentos), filtra por
     ``umbral`` y devuelve hasta ``max_archivos`` rutas. Si no llegan a
-    ``max_archivos``, rellena con los mejores candidatos de la heurÌstica
-    local (``escanear_repositorio``) que no estÈn ya incluidos.
+    ``max_archivos``, rellena con los mejores candidatos de la heur√≠stica
+    local (``escanear_repositorio``) que no est√©n ya incluidos.
     """
     resultados = _buscar_semanticamente(consulta, directorio,
                                         max_resultados=50)
@@ -10996,9 +10996,9 @@ def _seleccionar_archivos_con_embeddings(consulta: str, directorio: str = ".",
                 seleccion.append(candidato)
     return seleccion
 # ---------------------------------------------------------------------------
-# Editor web y visualizaciÛn de dependencias ‚Äî v1.2.0
+# Editor web y visualizaci√≥n de dependencias ‚Äî v1.2.0
 # ---------------------------------------------------------------------------
-# Mapa extensiÛn ‚Üí lenguaje de Monaco Editor (resaltado de sintaxis).
+# Mapa extensi√≥n ‚Üí lenguaje de Monaco Editor (resaltado de sintaxis).
 _MAPA_LENGUAJE_MONACO = {
     ".py": "python", ".pyi": "python", ".js": "javascript", ".mjs": "javascript",
     ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript",
@@ -11009,7 +11009,7 @@ _MAPA_LENGUAJE_MONACO = {
     ".yml": "yaml", ".toml": "ini", ".html": "html", ".css": "css",
     ".sh": "shell", ".bash": "shell", ".sql": "sql", ".xml": "xml",
 }
-# Extensiones de cÛdigo consideradas al construir el grafo de dependencias.
+# Extensiones de c√≥digo consideradas al construir el grafo de dependencias.
 _GRP_EXT_DEPS = {
     ".py", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".dart", ".go", ".rs",
     ".java", ".kt", ".rb", ".php", ".c", ".cpp", ".h", ".hpp", ".cs",
@@ -11018,17 +11018,17 @@ _GRP_EXT_DEPS = {
 
 
 def _comando_para_monaco(archivo: str) -> str:
-    """Devuelve el id de lenguaje de Monaco para ``archivo`` (detecciÛn por ext.)."""
+    """Devuelve el id de lenguaje de Monaco para ``archivo`` (detecci√≥n por ext.)."""
     ext = Path(archivo).suffix.lower()
     return _MAPA_LENGUAJE_MONACO.get(ext, "plaintext")
 
 
 def _extraer_dependencias(contenido: str, lenguaje: str) -> List[str]:
-    """Extrae las referencias de importaciÛn de ``contenido`` para ``lenguaje``.
+    """Extrae las referencias de importaci√≥n de ``contenido`` para ``lenguaje``.
 
-    Devuelve una lista ordenada y sin duplicados de mÛdulos/sÌmbolos importados.
+    Devuelve una lista ordenada y sin duplicados de m√≥dulos/s√≠mbolos importados.
     No resuelve a rutas absolutas: eso lo hace :func:`_grafo_dependencias` junto
-    con el Ìndice de archivos del proyecto.
+    con el √≠ndice de archivos del proyecto.
     """
     dependencias: set = set()
 
@@ -11070,10 +11070,10 @@ def _extraer_dependencias(contenido: str, lenguaje: str) -> List[str]:
 def _resolver_dependencia(rel, camino, dep, por_ruta, por_stem, raiz):
     """Intenta localizar un archivo del proyecto que satisfaga una dependencia.
 
-    Estrategias, en orden: ruta relativa (./foo), extensiÛn directa,
+    Estrategias, en orden: ruta relativa (./foo), extensi√≥n directa,
     coincidencia por nombre de archivo (stem) y coincidencia de prefijo de
     carpeta (pagos ‚Üí pagos/pago_service.dart). Devuelve la ruta POSIX relativa
-    o None si no se encuentra ning˙n candidato en el repo.
+    o None si no se encuentra ning√∫n candidato en el repo.
     """
     dep_limpia = dep.strip("'\"")
     if dep_limpia.startswith("."):
@@ -11111,11 +11111,11 @@ def _resolver_dependencia(rel, camino, dep, por_ruta, por_stem, raiz):
 
 
 def _grafo_dependencias(directorio="."):
-    """Construye un grafo de dependencias entre archivos de cÛdigo del proyecto.
+    """Construye un grafo de dependencias entre archivos de c√≥digo del proyecto.
 
     Devuelve {"nodos": [{"id", "etiqueta", "lenguaje"}], "enlaces": [{"origen",
     "destino"}]}. Los enlaces unen archivos del proyecto que se importan entre
-    sÌ. Es la fuente del panel de dependencias de la interfaz web.
+    s√≠. Es la fuente del panel de dependencias de la interfaz web.
     """
     raiz = Path(directorio).resolve()
     if not raiz.is_dir():
@@ -11157,9 +11157,9 @@ def _grafo_dependencias(directorio="."):
 
 
 def _buscar_en_codigo(tema, directorio=".", max_resultados=50):
-    """Busca ``tema`` en el cÛdigo del repositorio (rg/grep/findstr).
+    """Busca ``tema`` en el c√≥digo del repositorio (rg/grep/findstr).
 
-    Devuelve una lista de lÌneas de coincidencia ya formateadas para poder
+    Devuelve una lista de l√≠neas de coincidencia ya formateadas para poder
     reutilizarlas en la interfaz web. [] si no hay buscador o coincidencias.
     """
     if not tema:
@@ -11184,9 +11184,9 @@ def _buscar_en_codigo(tema, directorio=".", max_resultados=50):
 # ---------------------------------------------------------------------------
 # Ayuda agrupada y coloreada (`snapcontext --help`)
 # ---------------------------------------------------------------------------
-# CÛdigos ANSI; si el terminal no soporta color (o NO_COLOR est· definido), se
+# C√≥digos ANSI; si el terminal no soporta color (o NO_COLOR est√° definido), se
 # degradan a texto plano. `colorama` se usa solo para inicializar en Windows
-# si est· disponible; nunca es obligatorio.
+# si est√° disponible; nunca es obligatorio.
 _ANSI = {
     "negrita": "\033[1m", "cian": "\033[96m", "amarillo": "\033[93m",
     "verde": "\033[92m", "gris": "\033[90m", "reset": "\033[0m",
@@ -11221,14 +11221,14 @@ def _colores_activos() -> bool:
 
 
 def _pintar(texto: str, clave: str) -> str:
-    """Aplica el color ANSI ``clave`` si los colores est·n activos."""
+    """Aplica el color ANSI ``clave`` si los colores est√°n activos."""
     if not _AYUDA_CON_COLOR:
         return texto
     return f"{_ANSI.get(clave, '')}{texto}{_ANSI['reset']}"
 
-# CategorÌas en orden de apariciÛn; cada opciÛn se muestra una sola vez.
+# Categor√≠as en orden de aparici√≥n; cada opci√≥n se muestra una sola vez.
 CATEGORIAS_AYUDA = (
-    ("Modos de ejecuciÛn",
+    ("Modos de ejecuci√≥n",
      ("--plan", "--auto", "--editor", "--modo-edicion", "--validar", "--no-validar-sintaxis", "--max-intentos-validacion",
       "--max-context-tokens", "--editor-fallback", "--mostrar-razonamiento",
       "--mostrar-diff",
@@ -11239,7 +11239,7 @@ CATEGORIAS_AYUDA = (
       "--chat", "--web", "--web-puerto", "--demo", "--tui",
       "--init", "--init-claude", "--historial", "--historial-limpiar",
       "--diagnostico", "--reparar", "--bienvenida")),
-    ("SelecciÛn de archivos",
+    ("Selecci√≥n de archivos",
      ("consulta", "--local", "--iniciar-proyecto", "--no-validar-proyecto",
       "--experto", "--vista-previa", "--carpetas", "--max-archivos", "--candidatos")),
     ("Proveedores de IA",
@@ -11266,13 +11266,13 @@ ALIAS_AYUDA = (
     ("server <consulta>", "Ejecuta con --server-loop."),
     ("interactive", "Abre la interfaz web (--web)."),
     ("plan <tarea>", "Ejecuta el planificador (--plan)."),
-    ("auto <tarea>", "Ejecuta el planificador autÛnomo (--plan --auto)."),
+    ("auto <tarea>", "Ejecuta el planificador aut√≥nomo (--plan --auto)."),
 )
 
 EJEMPLOS_AYUDA = (
-    'snapcontext "el botÛn de pago no funciona"',
-    'snapcontext fix "el botÛn de pago no funciona"',
-    'snapcontext plan "aÒadir validaciÛn al formulario" --auto',
+    'snapcontext "el bot√≥n de pago no funciona"',
+    'snapcontext fix "el bot√≥n de pago no funciona"',
+    'snapcontext plan "a√±adir validaci√≥n al formulario" --auto',
     'snapcontext review "revisar el login"',
     'snapcontext interactive',
     'snapcontext --chat',
@@ -11282,7 +11282,7 @@ EJEMPLOS_AYUDA = (
 
 
 def _invocacion_accion(accion) -> str:
-    """RepresentaciÛn compacta de una opciÛn (p. ej. ``--max-archivos N``)."""
+    """Representaci√≥n compacta de una opci√≥n (p. ej. ``--max-archivos N``)."""
     if not accion.option_strings:
         return accion.dest.upper()
     partes = ", ".join(accion.option_strings)
@@ -11293,7 +11293,7 @@ def _invocacion_accion(accion) -> str:
 
 
 def action_toma_valor(accion) -> bool:
-    """True si la opciÛn espera un valor (no es un flag booleano)."""
+    """True si la opci√≥n espera un valor (no es un flag booleano)."""
     return accion.nargs != 0
 
 
@@ -11436,33 +11436,33 @@ def _construir_ayuda(parser: argparse.ArgumentParser) -> str:
 def _mostrar_ayuda_resumida() -> None:
     """Ayuda amigable cuando se ejecuta `snapcontext` sin argumentos (v3.1.1).
 
-    M·s corta que --help: comandos de uso com˙n con ejemplos listos para
+    M√°s corta que --help: comandos de uso com√∫n con ejemplos listos para
     copiar y pegar.
     """
     _ui_mostrar_banner(VERSION)   # v4.8.0: banner Rich en vez de print plano.
     lineas = [
-        "Bienvenido a SnapContext ‚Äî tu asistente de IA con contexto autom·tico.",
+        "Bienvenido a SnapContext ‚Äî tu asistente de IA con contexto autom√°tico.",
         "",
-        _pintar("Uso b·sico:", _CYAN),
+        _pintar("Uso b√°sico:", _CYAN),
         '  snapcontext "describe lo que quieres cambiar"',
         "",
-        _pintar("Comandos m·s ˙tiles:", _CYAN),
+        _pintar("Comandos m√°s √∫tiles:", _CYAN),
         "  snapcontext --bienvenida     Tutorial interactivo de primeros pasos",
         "  snapcontext --init           Configurar claves API y proveedor",
-        "  snapcontext --diagnostico    Revisar tu instalaciÛn",
-        "  snapcontext --reparar        Arreglar una instalaciÛn rota",
-        "  snapcontext --demo           Demo autÛnoma (sin API key)",
+        "  snapcontext --diagnostico    Revisar tu instalaci√≥n",
+        "  snapcontext --reparar        Arreglar una instalaci√≥n rota",
+        "  snapcontext --demo           Demo aut√≥noma (sin API key)",
         "  snapcontext --chat           Conversar con el proveedor de IA",
         "  snapcontext --plan \"tarea\"   Planificar y ejecutar paso a paso",
         "  snapcontext --help           Ayuda completa agrupada",
         "",
         _pintar("Ejemplos:", _CYAN),
-        '  snapcontext "el botÛn de pago no funciona"',
-        '  snapcontext "aÒadir login" --test-loop',
+        '  snapcontext "el bot√≥n de pago no funciona"',
+        '  snapcontext "a√±adir login" --test-loop',
         '  snapcontext "revisar pago" --vista-previa   # solo ver, no editar',
         "",
         _pintar("Sin API key", _CYAN) +
-        ": SnapContext usa Ollama local autom·ticamente (modo offline).",
+        ": SnapContext usa Ollama local autom√°ticamente (modo offline).",
         "Instala Ollama desde https://ollama.com y ejecuta: ollama pull llama3.2",
         "",
     ]
@@ -11470,7 +11470,7 @@ def _mostrar_ayuda_resumida() -> None:
 
 
 class _AyudaAccion(argparse.Action):
-    """Muestra la ayuda agrupada por categorÌas y termina."""
+    """Muestra la ayuda agrupada por categor√≠as y termina."""
 
     def __init__(self, option_strings, dest=argparse.SUPPRESS,
                  default=argparse.SUPPRESS, help=None):  # noqa: A002
@@ -11485,9 +11485,9 @@ class _AyudaAccion(argparse.Action):
 
 
 # ---------------------------------------------------------------------------
-# Asesor de cÛdigo proactivo (v3.5.0)
+# Asesor de c√≥digo proactivo (v3.5.0)
 # ---------------------------------------------------------------------------
-# An·lisis est·tico ligero que sugiere mejoras SIN modificar cÛdigo. Solo con
+# An√°lisis est√°tico ligero que sugiere mejoras SIN modificar c√≥digo. Solo con
 # --asesor-auto se aplican las refactorizaciones marcadas como seguras, siempre
 # validando la sintaxis del resultado antes de escribir en disco.
 
@@ -11500,12 +11500,12 @@ ASESOR_CARPETAS_IGNORADAS = {".git", "__pycache__", "node_modules", ".venv",
                              "venv", "env", "dist", "build", ".idea",
                              ".vscode", ".mypy_cache", ".pytest_cache"}
 ASESOR_UMBRALES_DEFECTO = {
-    "funcion_larga": 20,      # m·x. lÌneas por funciÛn
-    "clase_metodos": 10,      # m·x. mÈtodos por clase
-    "duplicado_lineas": 6,    # tamaÒo mÌnimo de un bloque duplicado
+    "funcion_larga": 20,      # m√°x. l√≠neas por funci√≥n
+    "clase_metodos": 10,      # m√°x. m√©todos por clase
+    "duplicado_lineas": 6,    # tama√±o m√≠nimo de un bloque duplicado
 }
 
-# Nombres cortos legÌtimos (Ìndices de bucle, coordenadas...) que el detector
+# Nombres cortos leg√≠timos (√≠ndices de bucle, coordenadas...) que el detector
 # de nombres poco descriptivos ignora.
 _NOMBRES_CORTOS_VALIDOS = {"i", "j", "k", "x", "y", "z", "_", "ok", "id", "ex",
                            "ax", "ay", "bx", "by"}
@@ -11540,7 +11540,7 @@ def _asesor_umbrales() -> dict:
 
 
 def _detectar_funciones_largas(contenido: str, umbral: int) -> List[dict]:
-    """Funciones/mÈtodos con m·s de ``umbral`` lÌneas (AST de Python)."""
+    """Funciones/m√©todos con m√°s de ``umbral`` l√≠neas (AST de Python)."""
     hallazgos: List[dict] = []
     try:
         arbol = ast.parse(contenido)
@@ -11557,7 +11557,7 @@ def _detectar_funciones_largas(contenido: str, umbral: int) -> List[dict]:
 
 
 def _detectar_clases_grandes(contenido: str, max_metodos: int) -> List[dict]:
-    """Clases con demasiadas responsabilidades (> ``max_metodos`` mÈtodos)."""
+    """Clases con demasiadas responsabilidades (> ``max_metodos`` m√©todos)."""
     hallazgos: List[dict] = []
     try:
         arbol = ast.parse(contenido)
@@ -11605,7 +11605,7 @@ def _detectar_nombres_cortos(contenido: str) -> List[dict]:
 
 _PATRONES_OBSOLETOS = [
     (re.compile(r"^\s*except\s*:\s*(#.*)?$"),
-     "'except:' desnudo captura todo; especifica la excepciÛn "
+     "'except:' desnudo captura todo; especifica la excepci√≥n "
      "(p. ej. 'except ValueError:')"),
     (re.compile(r"==\s*None\b"), "usa 'is None' en lugar de '== None'"),
     (re.compile(r"\bNone\s*=="), "usa 'is None' en lugar de 'None =='"),
@@ -11614,7 +11614,7 @@ _PATRONES_OBSOLETOS = [
 
 
 def _detectar_patrones_obsoletos(contenido: str) -> List[dict]:
-    """LÌneas con patrones obsoletos o antipatrones (heurÌstica por regex)."""
+    """L√≠neas con patrones obsoletos o antipatrones (heur√≠stica por regex)."""
     hallazgos: List[dict] = []
     for numero, linea in enumerate(contenido.splitlines(), start=1):
         codigo = linea.split("#", 1)[0]      # ignora comentarios
@@ -11627,16 +11627,16 @@ def _detectar_patrones_obsoletos(contenido: str) -> List[dict]:
 
 
 def _normalizar_linea_duplicado(linea: str) -> str:
-    """Normaliza una lÌnea para comparaciÛn de bloques duplicados."""
+    """Normaliza una l√≠nea para comparaci√≥n de bloques duplicados."""
     return " ".join(linea.strip().split())
 
 
 def _detectar_duplicados(contenidos: Dict[str, str],
                          min_lineas: int) -> List[dict]:
-    """Bloques de ``min_lineas`` lÌneas normalizadas repetidos entre archivos.
+    """Bloques de ``min_lineas`` l√≠neas normalizadas repetidos entre archivos.
 
-    HeurÌstica por ventanas deslizantes: dos bloques son duplicados si todas
-    sus lÌneas normalizadas coinciden. Devuelve como m·ximo una sugerencia por
+    Heur√≠stica por ventanas deslizantes: dos bloques son duplicados si todas
+    sus l√≠neas normalizadas coinciden. Devuelve como m√°ximo una sugerencia por
     par de archivos (limitada a 20 para no saturar la salida).
     """
     huellas: Dict[str, tuple] = {}
@@ -11668,32 +11668,32 @@ def _detectar_duplicados(contenidos: Dict[str, str],
 
 
 # ---------------------------------------------------------------------------
-# An·lisis de seguridad y rendimiento del asesor (v4.2.0)
+# An√°lisis de seguridad y rendimiento del asesor (v4.2.0)
 # ---------------------------------------------------------------------------
 
-# Patrones de vulnerabilidades comunes (regex sobre cÛdigo sin comentarios).
+# Patrones de vulnerabilidades comunes (regex sobre c√≥digo sin comentarios).
 _VULNERABILIDADES_PATRONES = [
     (re.compile(r"\bos\.system\s*\("),
      "Command injection: 'os.system' con entrada no sanitizada.",
      "Usa 'subprocess.run' con lista de argumentos y shell=False.", "alta"),
     (re.compile(r"subprocess\.\w+\([^)]*shell\s*=\s*True"),
-     "Command injection: 'subprocess' con shell=True permite inyecciÛn.",
+     "Command injection: 'subprocess' con shell=True permite inyecci√≥n.",
      "Usa shell=False y pasa los argumentos como lista.", "alta"),
     (re.compile(r"\beval\s*\("),
-     "Uso inseguro de 'eval': ejecuta cÛdigo din·mico arbitrario.",
-     "Sustit˙yelo por 'ast.literal_eval' o lÛgica explÌcita.", "alta"),
+     "Uso inseguro de 'eval': ejecuta c√≥digo din√°mico arbitrario.",
+     "Sustit√∫yelo por 'ast.literal_eval' o l√≥gica expl√≠cita.", "alta"),
     (re.compile(r"\bexec\s*\("),
-     "Uso inseguro de 'exec': ejecuta cÛdigo din·mico arbitrario.",
-     "Evita 'exec'; refactoriza el cÛdigo din·mico en funciones.", "alta"),
+     "Uso inseguro de 'exec': ejecuta c√≥digo din√°mico arbitrario.",
+     "Evita 'exec'; refactoriza el c√≥digo din√°mico en funciones.", "alta"),
     (re.compile(r"(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)[^\n]*"
                 r"(\+|%|\bf\"|\.format\()", re.IGNORECASE),
-     "Posible inyecciÛn SQL: consulta construida por concatenaciÛn.",
+     "Posible inyecci√≥n SQL: consulta construida por concatenaci√≥n.",
      "Usa consultas parametrizadas ('?' o '%s') u ORM.", "alta"),
     (re.compile(r"open\s*\(\s*[^)]*\"\.\./"),
-     "Posible path traversal: ruta con '../' construida din·micamente.",
+     "Posible path traversal: ruta con '../' construida din√°micamente.",
      "Valida y normaliza la ruta (resolve + comprobar base).", "alta"),
     (re.compile(r"innerHTML\s*="),
-     "Posible XSS: asignaciÛn directa a innerHTML.",
+     "Posible XSS: asignaci√≥n directa a innerHTML.",
      "Usa textContent o sanea la entrada antes de insertarla.", "media"),
     (re.compile(r"dangerouslySetInnerHTML"),
      "Posible XSS React: uso de dangerouslySetInnerHTML.",
@@ -11708,7 +11708,7 @@ _SECRETES_RE = re.compile(
 
 def _detectar_vulnerabilidades(contenido: str,
                                lenguaje: str = "") -> List[dict]:
-    """Detecta vulnerabilidades comunes por heurÌsticas propias (v4.2.0).
+    """Detecta vulnerabilidades comunes por heur√≠sticas propias (v4.2.0).
 
     No requiere herramientas externas (bandit etc.); devuelve hallazgos con
     ``linea``, ``mensaje``, ``solucion`` y ``prioridad``.
@@ -11729,7 +11729,7 @@ def _detectar_vulnerabilidades(contenido: str,
             hallazgos.append({
                 "linea": numero,
                 "mensaje": f"Hardcoded secret en '{coincidencia.group(1)}'.",
-                "solucion": "MuÈvelo a una variable de entorno o gestor de "
+                "solucion": "Mu√©velo a una variable de entorno o gestor de "
                             "secretos; nunca al repositorio.",
                 "prioridad": "alta"})
     return hallazgos
@@ -11737,11 +11737,11 @@ def _detectar_vulnerabilidades(contenido: str,
 
 _RENDIMIENTO_PATRONES = [
     (re.compile(r"for\s+\w+\s+in\s+range\s*\(\s*len\s*\("),
-     "'range(len(...))': patrÛn innecesario y propenso a recalcular.",
+     "'range(len(...))': patr√≥n innecesario y propenso a recalcular.",
      "Itera directamente sobre la secuencia o usa enumerate().", "media"),
     (re.compile(r"\.read\(\)\s*$"),
      "Lectura completa del archivo en memoria.",
-     "Procesa lÌnea a lÌnea ('for linea in fichero') si es grande.", "media"),
+     "Procesa l√≠nea a l√≠nea ('for linea in fichero') si es grande.", "media"),
     (re.compile(r"\.objects\.get\s*\("),
      "Posible consulta N+1: acceso al ORM dentro de un bucle.",
      "Usa select_related/prefetch_related o una consulta por lotes.", "alta"),
@@ -11749,7 +11749,7 @@ _RENDIMIENTO_PATRONES = [
 
 
 def _detectar_rendimiento(contenido: str, lenguaje: str = "") -> List[dict]:
-    """Detecta problemas comunes de rendimiento por heurÌsticas (v4.2.0)."""
+    """Detecta problemas comunes de rendimiento por heur√≠sticas (v4.2.0)."""
     hallazgos: List[dict] = []
     lineas_codigo = [(n, l.split("#", 1)[0])
                      for n, l in enumerate(contenido.splitlines(), start=1)]
@@ -11758,7 +11758,7 @@ def _detectar_rendimiento(contenido: str, lenguaje: str = "") -> List[dict]:
         if not codigo.strip():
             continue
 
-        # Bucles anidados (O(n¬≤)): un 'for' seguido de otro m·s indentado.
+        # Bucles anidados (O(n¬≤)): un 'for' seguido de otro m√°s indentado.
         coincide_for = re.match(r"^(\s*)for\s+", codigo)
         if coincide_for:
             sangria = len(coincide_for.group(1))
@@ -11770,21 +11770,21 @@ def _detectar_rendimiento(contenido: str, lenguaje: str = "") -> List[dict]:
                     if len(coincide2.group(1)) > sangria:
                         hallazgos.append({
                             "linea": numero,
-                            "mensaje": "Bucles anidados: coste cuadr·tico "
+                            "mensaje": "Bucles anidados: coste cuadr√°tico "
                                        "O(n¬≤).",
-                            "solucion": "Considera sets/dicts para b˙squedas "
+                            "solucion": "Considera sets/dicts para b√∫squedas "
                                         "(O(1)) o reformula el algoritmo.",
                             "prioridad": "media"})
                     break
                 break
 
-        # ConcatenaciÛn de cadenas con '+=' dentro de un bucle cercano.
+        # Concatenaci√≥n de cadenas con '+=' dentro de un bucle cercano.
         if re.search(r"^\s*\w+\s*\+=\s*[\"']", codigo) and \
                 any(re.match(r"^\s*(for|while)\s+", c)
                     for _, c in lineas_codigo[max(0, indice - 5):indice]):
             hallazgos.append({
                 "linea": numero,
-                "mensaje": "ConcatenaciÛn de cadenas con '+=' en bucle: "
+                "mensaje": "Concatenaci√≥n de cadenas con '+=' en bucle: "
                            "copias repetidas.",
                 "solucion": "Acumula en una lista y usa ''.join(lista).",
                 "prioridad": "media"})
@@ -11807,8 +11807,8 @@ def _asesor_analizar(directorio: str = ".",
     ``solucion``, ``prioridad`` (alta|media|baja) y, si se puede aplicar de
     forma segura, ``operaciones`` + ``auto=True``.
 
-    Con ``profundo=True`` (v4.2.0, ``--asesor-profundo``) aÒade an·lisis de
-    seguridad (?? tipos ``vulnerabilidad``) y rendimiento (‚ö° tipo
+    Con ``profundo=True`` (v4.2.0, ``--asesor-profundo``) a√±ade an√°lisis de
+    seguridad (üóù tipos ``vulnerabilidad``) y rendimiento (‚ö° tipo
     ``rendimiento``).
     """
     umbrales = _asesor_umbrales()
@@ -11839,7 +11839,7 @@ def _asesor_analizar(directorio: str = ".",
             auto = "is None" in hallazgo["mensaje"] and lenguaje == "python"
             sugerencias.append({
                 "tipo": "patron_obsoleto",
-                "descripcion": f"PatrÛn obsoleto: {hallazgo['mensaje']}",
+                "descripcion": f"Patr√≥n obsoleto: {hallazgo['mensaje']}",
                 "archivo": relativo, "linea": hallazgo["linea"],
                 "solucion": hallazgo["mensaje"],
                 "prioridad": "alta" if "except" in hallazgo["mensaje"]
@@ -11852,7 +11852,7 @@ def _asesor_analizar(directorio: str = ".",
             for hallazgo in _detectar_vulnerabilidades(contenido, lenguaje):
                 sugerencias.append({
                     "tipo": "vulnerabilidad",
-                    "descripcion": f"?? Vulnerabilidad: {hallazgo['mensaje']}",
+                    "descripcion": f"üîí Vulnerabilidad: {hallazgo['mensaje']}",
                     "archivo": relativo, "linea": hallazgo["linea"],
                     "solucion": hallazgo["solucion"],
                     "prioridad": hallazgo["prioridad"],
@@ -11867,15 +11867,15 @@ def _asesor_analizar(directorio: str = ".",
                 })
 
         if lenguaje != "python":
-            continue     # AST detallado solo para Python; resto heurÌsticas.
+            continue     # AST detallado solo para Python; resto heur√≠sticas.
 
         for hallazgo in _detectar_funciones_largas(
                 contenido, umbrales["funcion_larga"]):
             sugerencias.append({
                 "tipo": "funcion_larga",
                 "descripcion": (
-                    f"La funciÛn '{hallazgo['nombre']}' tiene "
-                    f"{hallazgo['lineas']} lÌneas (> {umbrales['funcion_larga']})."),
+                    f"La funci√≥n '{hallazgo['nombre']}' tiene "
+                    f"{hallazgo['lineas']} l√≠neas (> {umbrales['funcion_larga']})."),
                 "archivo": relativo, "linea": hallazgo["linea"],
                 "solucion": "Extrae bloques coherentes en funciones auxiliares.",
                 "prioridad": "media",
@@ -11887,12 +11887,12 @@ def _asesor_analizar(directorio: str = ".",
                 "tipo": "clase_grande",
                 "descripcion": (
                     f"La clase '{hallazgo['nombre']}' tiene "
-                    f"{hallazgo['metodos']} mÈtodos "
+                    f"{hallazgo['metodos']} m√©todos "
                     f"(> {umbrales['clase_metodos']}): posibles demasiadas "
                     "responsabilidades."),
                 "archivo": relativo, "linea": hallazgo["linea"],
-                "solucion": ("Divide la clase en clases m·s pequeÒas con una "
-                             "responsabilidad ˙nica."),
+                "solucion": ("Divide la clase en clases m√°s peque√±as con una "
+                             "responsabilidad √∫nica."),
                 "prioridad": "media",
             })
 
@@ -11905,7 +11905,7 @@ def _asesor_analizar(directorio: str = ".",
                 "descripcion": (
                     f"El nombre '{hallazgo['nombre']}' no es descriptivo."),
                 "archivo": relativo, "linea": hallazgo["linea"],
-                "solucion": f"RenÛmbralo a algo como '{hallazgo['sugerido']}'.",
+                "solucion": f"Ren√≥mbralo a algo como '{hallazgo['sugerido']}'.",
                 "prioridad": "baja",
                 "operaciones": operaciones, "auto": True,
             })
@@ -11915,10 +11915,10 @@ def _asesor_analizar(directorio: str = ".",
         sugerencias.append({
             "tipo": "codigo_duplicado",
             "descripcion": (
-                f"Bloque duplicado de {hallazgo['lineas']} lÌneas "
+                f"Bloque duplicado de {hallazgo['lineas']} l√≠neas "
                 f"(original en {hallazgo['original']})."),
             "archivo": hallazgo["archivo"], "linea": hallazgo["linea"],
-            "solucion": "Extrae el bloque com˙n a una funciÛn compartida.",
+            "solucion": "Extrae el bloque com√∫n a una funci√≥n compartida.",
             "prioridad": "media",
         })
 
@@ -11928,27 +11928,27 @@ def _asesor_analizar(directorio: str = ".",
 
 
 def _asesor_analizar_por_tipo(directorio: str, tipos: tuple) -> List[dict]:
-    """Ejecuta el an·lisis profundo y devuelve solo los ``tipos`` pedidos."""
+    """Ejecuta el an√°lisis profundo y devuelve solo los ``tipos`` pedidos."""
     return [s for s in _asesor_analizar(directorio, profundo=True)
             if s.get("tipo") in tipos]
 
 
 def _analizar_seguridad(directorio: str = ".") -> List[dict]:
-    """An·lisis de seguridad del proyecto (?? tipo 'vulnerabilidad')."""
+    """An√°lisis de seguridad del proyecto (üóù tipo 'vulnerabilidad')."""
     return _asesor_analizar_por_tipo(directorio, ("vulnerabilidad",))
 
 
 def _analizar_rendimiento(directorio: str = ".") -> List[dict]:
-    """An·lisis de rendimiento del proyecto (‚ö° tipo 'rendimiento')."""
+    """An√°lisis de rendimiento del proyecto (‚ö° tipo 'rendimiento')."""
     return _asesor_analizar_por_tipo(directorio, ("rendimiento",))
 
 
 def _asesor_mostrar(sugerencias: List[dict]) -> None:
     """Muestra las sugerencias en la CLI con colores por prioridad."""
     if not sugerencias:
-        exito("Asesor: sin sugerencias. El cÛdigo est· limpio. ‚úî")
+        exito("Asesor: sin sugerencias. El c√≥digo est√° limpio. ‚úî")
         return
-    aviso(f"Asesor de cÛdigo ‚Äî {len(sugerencias)} sugerencia(s):")
+    aviso(f"Asesor de c√≥digo ‚Äî {len(sugerencias)} sugerencia(s):")
     color_prioridad = {"alta": _ROJO, "media": _AMARILLO, "baja": _CYAN}
     for indice, sugg in enumerate(sugerencias, start=1):
         color = color_prioridad.get(sugg.get("prioridad"), _CYAN)
@@ -11959,7 +11959,7 @@ def _asesor_mostrar(sugerencias: List[dict]) -> None:
         _emitir(sys.stdout, _pintar(f"       ‚Üí {sugg['solucion']}", _VERDE))
         if sugg.get("auto"):
             _emitir(sys.stdout, _pintar(
-                "       (aplicable autom·ticamente con --asesor-auto)",
+                "       (aplicable autom√°ticamente con --asesor-auto)",
                 _CYAN))
 
 
@@ -11968,8 +11968,8 @@ def _asesor_aplicar_automaticas(sugerencias: List[dict],
     """Aplica solo las sugerencias marcadas ``auto=True`` (--asesor-auto).
 
     Cada cambio se valida con ``_validar_sintaxis`` antes de escribir; si la
-    validaciÛn falla, se descarta el cambio y el archivo queda intacto.
-    Devuelve el n˙mero de cambios aplicados.
+    validaci√≥n falla, se descarta el cambio y el archivo queda intacto.
+    Devuelve el n√∫mero de cambios aplicados.
     """
     raiz = Path(directorio).resolve()
     aplicadas = 0
@@ -11988,7 +11988,7 @@ def _asesor_aplicar_automaticas(sugerencias: List[dict],
         exito_val, err = _validar_sintaxis(sugg["archivo"], nuevo, str(raiz))
         if not exito_val:
             aviso(f"[asesor-auto] Cambio descartado en {sugg['archivo']} "
-                  f"(validaciÛn fallÛ: {err}).")
+                  f"(validaci√≥n fall√≥: {err}).")
             continue
         try:
             archivo.write_text(nuevo, encoding="utf-8")
@@ -12006,7 +12006,7 @@ def _ejecutar_asesor(args: argparse.Namespace) -> int:
     from agentes import AgenteAsesor      # import diferido (evita ciclos)
     directorio = getattr(args, "directorio", ".") or "."
     agente = AgenteAsesor()
-    info("?? Asesor de cÛdigo proactivo analizando el proyecto...")
+    info("üß† Asesor de c√≥digo proactivo analizando el proyecto...")
     sugerencias = agente.analizar(
         directorio,
         umbral_funcion=getattr(args, "asesor_umbral", None),
@@ -12015,11 +12015,11 @@ def _ejecutar_asesor(args: argparse.Namespace) -> int:
     if getattr(args, "asesor_auto", False):
         aplicadas = agente.aplicar_automaticas(sugerencias, directorio)
         if aplicadas:
-            exito(f"{aplicadas} mejora(s) aplicada(s) autom·ticamente.")
+            exito(f"{aplicadas} mejora(s) aplicada(s) autom√°ticamente.")
         else:
-            info("Ninguna sugerencia era aplicable autom·ticamente.")
+            info("Ninguna sugerencia era aplicable autom√°ticamente.")
     else:
-        info("Modo informativo: no se modificÛ ning˙n archivo "
+        info("Modo informativo: no se modific√≥ ning√∫n archivo "
              "(usa --asesor-auto para aplicar mejoras seguras).")
     return 0
 
@@ -12035,21 +12035,21 @@ def crear_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             "Ejemplos:\n"
-            '  snapcontext "el botÛn de pago no funciona"\n'
-            '  snapcontext "aÒadir Ìndice a la tabla pedidos" --test-loop\n'
+            '  snapcontext "el bot√≥n de pago no funciona"\n'
+            '  snapcontext "a√±adir √≠ndice a la tabla pedidos" --test-loop\n'
             '  snapcontext "revisar login" --vista-previa\n'
             '  snapcontext "revisar pago" --experto\n'
             '  snapcontext "arreglar el checkout" --server-loop\n'
             '  snapcontext "arreglar login" --manual-loop\n'
-            '  snapcontext fix "el botÛn de pago no funciona"\n'
-            '  snapcontext review "revisar cÛdigo"\n'
+            '  snapcontext fix "el bot√≥n de pago no funciona"\n'
+            '  snapcontext review "revisar c√≥digo"\n'
             '  snapcontext server "iniciar servidor"\n'
             '  snapcontext interactive\n'
             '  snapcontext --chat\n'
             '  snapcontext --historial\n'
             '  snapcontext --demo\n'
             '  snapcontext "..." --provider groq --model llama-3.3-70b-versatile\n'
-            "Variables de entorno: clave seg˙n --provider (GEMINI_API_KEY / "
+            "Variables de entorno: clave seg√∫n --provider (GEMINI_API_KEY / "
             "ANTHROPIC_API_KEY / DEEPSEEK_API_KEY / GROQ_API_KEY), OLLAMA_URL "
             "(default localhost:11434), SNAPCONTEXT_PROVIDER y SNAPCONTEXT_MODELO "
             "(opcionales).\n"
@@ -12058,17 +12058,17 @@ def crear_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "consulta", type=str, nargs="?", default=None,
-        help="La tarea a resolver (p·sala entre comillas). Omitible con --init.",
+        help="La tarea a resolver (p√°sala entre comillas). Omitible con --init.",
     )
     parser.add_argument(
         "--init", action="store_true",
-        help="Asistente de configuraciÛn inicial: claves API, proveedor y "
+        help="Asistente de configuraci√≥n inicial: claves API, proveedor y "
              "modelo favorito (se guarda en ~/.snapcontext/config.json). "
              "Independiente de la consulta y el escaneo.",
     )
     parser.add_argument(
         "--directorio", default=".",
-        help="Repositorio donde trabajar (por defecto: raÌz git detectada desde "
+        help="Repositorio donde trabajar (por defecto: ra√≠z git detectada desde "
              "el directorio actual).",
     )
     parser.add_argument(
@@ -12077,24 +12077,24 @@ def crear_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--max-archivos", type=int, default=MAX_ARCHIVOS_DEFECTO,
-        help="N˙mero de archivos que recibe Aider (por defecto: 3).",
+        help="N√∫mero de archivos que recibe Aider (por defecto: 3).",
     )
     parser.add_argument(
         "--candidatos", type=int, default=MAX_CANDIDATOS_DEFECTO,
-        help="M·ximo de candidatos que recibe Gemini (por defecto: 80).",
+        help="M√°ximo de candidatos que recibe Gemini (por defecto: 80).",
     )
     parser.add_argument(
         "--provider", choices=sorted(PROVEEDORES), default=None,
         help="Proveedor de IA que elige los archivos (gemini | ollama | "
              "deepseek | groq). Si no se indica -y tampoco --local-, se usa el "
              "guardado en ~/.snapcontext/config.json o, si es el primer uso, "
-             "se muestra un men˙ interactivo (questionary); con --no-persist "
-             "se fuerza siempre el men˙. Env: SNAPCONTEXT_PROVIDER.",
+             "se muestra un men√∫ interactivo (questionary); con --no-persist "
+             "se fuerza siempre el men√∫. Env: SNAPCONTEXT_PROVIDER.",
     )
     parser.add_argument(
         "--no-persist", action="store_true",
         help="Ignora la configuracion guardada (~/.snapcontext/config.json) y "
-             "fuerza el men˙ interactivo de proveedor (si no hay --local).",
+             "fuerza el men√∫ interactivo de proveedor (si no hay --local).",
     )
     parser.add_argument(
         "--model", "--modelo", dest="modelo", default=MODELO_DEFECTO,
@@ -12103,15 +12103,15 @@ def crear_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--local", action="store_true",
-        help="SelecciÛn local por heurÌstica, sin llamar a Gemini "
-             "(˙til para probar offline). TambiÈn desactiva la validaciÛn "
+        help="Selecci√≥n local por heur√≠stica, sin llamar a Gemini "
+             "(√∫til para probar offline). Tambi√©n desactiva la validaci√≥n "
              "de carpeta de proyecto.",
     )
     parser.add_argument(
         "--multi-agent", dest="multi_agent", action="store_true", default=False,
         help="Sistema multi-agente (v6.0.0): un Supervisor coordina a un "
              "Arquitecto (plan), un Programador (editor propio) y un Tester "
-             "(pruebas) con bucle de realimentaciÛn. Env: "
+             "(pruebas) con bucle de realimentaci√≥n. Env: "
              "SNAPCONTEXT_MULTI_AGENT=1.",
     )
     parser.add_argument(
@@ -12147,37 +12147,37 @@ def crear_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--graph-rag", dest="graph_rag", action="store_true", default=False,
         help="Grafo de conocimiento (v5.5.0): combina AST + embeddings y "
-             "amplÌa el contexto con archivos relacionados (imports, "
+             "ampl√≠a el contexto con archivos relacionados (imports, "
              "llamadas, herencia). Env: SNAPCONTEXT_GRAPH_RAG=1.",
     )
     parser.add_argument(
         "--graph-rag-lsp", dest="graph_rag_lsp", action="store_true",
         default=False,
-        help="IntegraciÛn Graph RAG + LSP (v6.33.0): inyecta sÌmbolos precisos "
+        help="Integraci√≥n Graph RAG + LSP (v6.33.0): inyecta s√≠mbolos precisos "
              "(definiciones, referencias) en lugar de archivos completos. "
              "Requiere --graph-rag y --lsp. Env: SNAPCONTEXT_GRAPH_RAG_LSP=1.",
     )
     parser.add_argument(
         "--lsp-profundidad", dest="lsp_profundidad", type=int, default=None,
-        help="Profundidad de expansiÛn en Graph RAG para LSP (v6.33). "
+        help="Profundidad de expansi√≥n en Graph RAG para LSP (v6.33). "
              "Por defecto: 2.",
     )
     parser.add_argument(
         "--lsp-simbolos-max", dest="lsp_simbolos_max", type=int, default=None,
-        help="N˙mero m·ximo de sÌmbolos a inyectar vÌa LSP (v6.33). "
+        help="N√∫mero m√°ximo de s√≠mbolos a inyectar v√≠a LSP (v6.33). "
              "Por defecto: 10.",
     )
     parser.add_argument(
         "--iniciar-proyecto", "--no-validar", dest="iniciar_proyecto",
         action="store_true",
-        help="Desactiva por completo la validaciÛn de carpeta de proyecto: "
-             "trabaja en el directorio actual (o --directorio) aunque estÈ "
-             "vacÌo. Ideal para empezar un proyecto desde cero.",
+        help="Desactiva por completo la validaci√≥n de carpeta de proyecto: "
+             "trabaja en el directorio actual (o --directorio) aunque est√© "
+             "vac√≠o. Ideal para empezar un proyecto desde cero.",
     )
     parser.add_argument(
         "--no-validar-proyecto", dest="no_validar_proyecto",
         action="store_true",
-        help="Omite la verificaciÛn temprana de directorio de proyecto "
+        help="Omite la verificaci√≥n temprana de directorio de proyecto "
              "(mostrada al inicio cuando no se detectan archivos de proyecto). "
              "Para usuarios avanzados que quieren saltar este aviso.",
     )
@@ -12197,52 +12197,52 @@ def crear_parser() -> argparse.ArgumentParser:
         "--browser-headed", dest="browser_headed", action="store_true",
         default=False,
         help="(v6.10.0) Muestra la ventana del navegador (por defecto es "
-             "headless, sin interfaz gr·fica).",
+             "headless, sin interfaz gr√°fica).",
     )
-        # v6.16.0: Prompt Caching (activado por defecto; mÈtricas en --depurar).
+        # v6.16.0: Prompt Caching (activado por defecto; m√©tricas en --depurar).
     parser.add_argument(
         "--prompt-caching", dest="prompt_caching", action="store_true",
         default=PROMPT_CACHING_DEFECTO,
         help="(v6.16.0) Activa el Prompt Caching para proveedores compatibles "
-             "(Anthropic, DeepSeek): mantiene en cachÈ el mensaje del sistema, "
+             "(Anthropic, DeepSeek): mantiene en cach√© el mensaje del sistema, "
              "las herramientas MCP y CLAUDE.md. Activado por defecto. Con "
-             "--depurar se muestran mÈtricas de tokens cacheados. Se "
+             "--depurar se muestran m√©tricas de tokens cacheados. Se "
              "desactiva con --no-prompt-caching, SNAPCONTEXT_PROMPT_CACHING=0 "
              "o 'prompt_caching': false en config.json.",
     )
     parser.add_argument(
         "--no-prompt-caching", dest="prompt_caching", action="store_false",
-        help="(v6.16.0) Desactiva el Prompt Caching (no aÒade marcas "
+        help="(v6.16.0) Desactiva el Prompt Caching (no a√±ade marcas "
              "cache_control). Sin efecto para proveedores que no lo soportan.",
     )
     # v6.31.0: Prompt Caching por Capas (activado por defecto si el caching
-    # b·sico est· activo; --no-prompt-caching-capas usa el caching de v6.16.0).
+    # b√°sico est√° activo; --no-prompt-caching-capas usa el caching de v6.16.0).
     parser.add_argument(
         "--prompt-caching-capas", dest="prompt_caching_capas",
         action=argparse.BooleanOptionalAction, default=None,
-        help="(v6.31.0) Activa/desactiva la estructuraciÛn del Prompt Caching "
-             "por Capas inmutables: est·tica (system + herramientas MCP), "
-             "semi-est·tica (GraphRAG, CLAUDE.md, reglas) y vol·til (mensajes "
-             "recientes, tool_results, diffs). Maximiza el prefijo idÈntico "
+        help="(v6.31.0) Activa/desactiva la estructuraci√≥n del Prompt Caching "
+             "por Capas inmutables: est√°tica (system + herramientas MCP), "
+             "semi-est√°tica (GraphRAG, CLAUDE.md, reglas) y vol√°til (mensajes "
+             "recientes, tool_results, diffs). Maximiza el prefijo id√©ntico "
              "entre peticiones. Por defecto: activado si --prompt-caching lo "
-             "est· (o 'prompt_caching.capas_activo' de config.json); con "
-             "--no-prompt-caching-capas se usa el caching b·sico de v6.16.0.",
+             "est√° (o 'prompt_caching.capas_activo' de config.json); con "
+             "--no-prompt-caching-capas se usa el caching b√°sico de v6.16.0.",
     )
-    # v6.32.0: Pruning proactivo de contexto (ediciÛn quir˙rgica del historial).
+    # v6.32.0: Pruning proactivo de contexto (edici√≥n quir√∫rgica del historial).
     parser.add_argument(
         "--prune-context", dest="prune_context",
         action=argparse.BooleanOptionalAction, default=None,
         help="(v6.32.0) Activa/desactiva el pruning proactivo: poda resultados "
-             "extensos de herramientas (logs, salidas, diffs) reemplaz·ndolos "
-             "por un resumen de una lÌnea. Por defecto: activado (o 'pruning.activo' "
+             "extensos de herramientas (logs, salidas, diffs) reemplaz√°ndolos "
+             "por un resumen de una l√≠nea. Por defecto: activado (o 'pruning.activo' "
              "de config.json); con --no-prune-context se desactiva.",
     )
     parser.add_argument(
         "--prune-umbral", dest="prune_umbral", type=int, default=None,
-        help="(v6.32.0) N˙mero m·ximo de lÌneas antes de podar un resultado "
-             "(por defecto: 10). Un valor menor poda m·s agresivamente.",
+        help="(v6.32.0) N√∫mero m√°ximo de l√≠neas antes de podar un resultado "
+             "(por defecto: 10). Un valor menor poda m√°s agresivamente.",
     )
-    # v6.34.0: Soporte para Intel XPU (GPU Intel Arc) vÌa IPEX.
+    # v6.34.0: Soporte para Intel XPU (GPU Intel Arc) v√≠a IPEX.
     parser.add_argument(
         "--xpu-model", dest="xpu_model", type=str, default=None,
         help="(v6.34.0) Modelo de Hugging Face para inferencia en Intel XPU "
@@ -12250,7 +12250,7 @@ def crear_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--xpu-max-tokens", dest="xpu_max_tokens", type=int, default=None,
-        help="(v6.34.0) N˙mero m·ximo de tokens a generar (por defecto: 500).",
+        help="(v6.34.0) N√∫mero m√°ximo de tokens a generar (por defecto: 500).",
     )
     parser.add_argument(
         "--xpu-temperature", dest="xpu_temperature", type=float, default=None,
@@ -12260,12 +12260,12 @@ def crear_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--benchmark", action="store_true",
         help="(v6.9.0) Mide y muestra en una tabla el tiempo de cada fase "
-             "(inicio, escaneo, selecciÛn, plan, ediciÛn, pruebas y total). "
+             "(inicio, escaneo, selecci√≥n, plan, edici√≥n, pruebas y total). "
              "No necesita API key.",
     )
     parser.add_argument(
         "--experto", "--expert", action="store_true",
-        help="Modo experto: revisar la selecciÛn y aÒadir/eliminar archivos "
+        help="Modo experto: revisar la selecci√≥n y a√±adir/eliminar archivos "
              "antes de ejecutar Aider.",
     )
     parser.add_argument(
@@ -12274,24 +12274,24 @@ def crear_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--asesor", "--sugerir", dest="asesor", action="store_true",
-        help="Asesor de cÛdigo proactivo (v3.5.0): analiza el proyecto y "
-             "muestra sugerencias de mejora sin modificar cÛdigo.",
+        help="Asesor de c√≥digo proactivo (v3.5.0): analiza el proyecto y "
+             "muestra sugerencias de mejora sin modificar c√≥digo.",
     )
     parser.add_argument(
         "--asesor-auto", dest="asesor_auto", action="store_true",
-        help="Como --asesor, pero aplica autom·ticamente las mejoras seguras "
-             "(renombrar sÌmbolos); cada cambio se valida antes de guardarse. "
-             "Las dem·s sugerencias solo se muestran.",
+        help="Como --asesor, pero aplica autom√°ticamente las mejoras seguras "
+             "(renombrar s√≠mbolos); cada cambio se valida antes de guardarse. "
+             "Las dem√°s sugerencias solo se muestran.",
     )
     parser.add_argument(
         "--asesor-umbral", dest="asesor_umbral", type=int, default=None,
-        help="Umbral de lÌneas por funciÛn para el asesor (por defecto 20; "
-             "tambiÈn configurable en config.json clave 'asesor').",
+        help="Umbral de l√≠neas por funci√≥n para el asesor (por defecto 20; "
+             "tambi√©n configurable en config.json clave 'asesor').",
     )
     parser.add_argument(
         "--api", "--api-server", dest="api", action="store_true",
-        help="API p˙blica (v3.6.0): arranca el servidor HTTP REST en "
-             "http://host:puerto con documentaciÛn OpenAPI en /docs. "
+        help="API p√∫blica (v3.6.0): arranca el servidor HTTP REST en "
+             "http://host:puerto con documentaci√≥n OpenAPI en /docs. "
              "Requiere las dependencias web: pip install snapcontext[web].",
     )
     parser.add_argument(
@@ -12318,57 +12318,57 @@ def crear_parser() -> argparse.ArgumentParser:
     bucle.add_argument(
         "--test-loop", action="store_true",
         help="Tras Aider ejecuta las pruebas y repite si fallan "
-             "(bucle agÈntico b·sico).",
+             "(bucle ag√©ntico b√°sico).",
     )
     bucle.add_argument(
         "--server-loop", action="store_true",
-        help="Bucle agÈntico con servidor Flutter en MODO AUTOM√ÅTICO: "
+        help="Bucle ag√©ntico con servidor Flutter en MODO AUTOM√ÅTICO: "
              "reintenta hasta --max-intentos y pregunta s/n al usuario.",
     )
     bucle.add_argument(
         "--manual-loop", action="store_true",
-        help="Bucle agÈntico con servidor Flutter en MODO MANUAL: "
+        help="Bucle ag√©ntico con servidor Flutter en MODO MANUAL: "
              "el usuario decide en cada paso.",
     )
     parser.add_argument(
         "--comando-test", default=None,
         help='Comando de pruebas del bucle. Si se omite se detecta '
-             'autom·ticamente seg˙n el lenguaje del proyecto '
+             'autom√°ticamente seg√∫n el lenguaje del proyecto '
              '(p. ej. "go test ./...", "pytest", "flutter test").',
     )
     # v4.3.0/v5.4.0: sandbox Docker, ahora inteligente.
     #   --sandbox        ‚Üí fuerza el contenedor para TODO (como siempre).
     #   --no-sandbox     ‚Üí lo desactiva por completo, incluso ante comandos
-    #                      peligrosos (prioridad m·xima, opt-out explÌcito).
+    #                      peligrosos (prioridad m√°xima, opt-out expl√≠cito).
     #   Sin ninguno      ‚Üí modo inteligente: solo se encapsulan los comandos
     #                      peligrosos detectados (sandbox_utils).
     parser.add_argument(
         "--sandbox", action="store_true",
         help="(v4.3.0) Ejecuta TODOS los comandos y pruebas dentro de un "
              "contenedor Docker aislado (monta el proyecto en /workspace). "
-             "Si Docker no est· disponible, falla con error claro. "
+             "Si Docker no est√° disponible, falla con error claro. "
              "(v5.4.0) Sin este flag, el sandbox se activa de forma "
              "inteligente SOLO ante comandos peligrosos.",
     )
     parser.add_argument(
         "--no-sandbox", dest="no_sandbox", action="store_true",
-        help="(v5.4.0) Desactiva el sandboxing inteligente: ning˙n comando se "
+        help="(v5.4.0) Desactiva el sandboxing inteligente: ning√∫n comando se "
              "ejecuta en Docker, incluso si se detecta peligro. Tiene "
              "prioridad sobre --sandbox y sobre SNAPCONTEXT_SANDBOX=1. "
              "Equivalente a la variable SNAPCONTEXT_SANDBOX=0.",
     )
     parser.add_argument(
         "--sandbox-session", dest="sandbox_session", action="store_true",
-        help="(v6.4.0) Persistencia de Docker por sesiÛn: crea UN contenedor "
+        help="(v6.4.0) Persistencia de Docker por sesi√≥n: crea UN contenedor "
              "al inicio de la tarea y lo reutiliza para todos los comandos "
              "(mantiene estado: `npm install` ‚Üí `npm test`, `pip install` ‚Üí "
              "`pytest`). Se destruye al finalizar (o con Ctrl+C). Sin este "
-             "flag se usa `docker run --rm` (comportamiento histÛrico).",
+             "flag se usa `docker run --rm` (comportamiento hist√≥rico).",
     )
     parser.add_argument(
         "--sandbox-session-clean", dest="sandbox_session_clean",
         action="store_true",
-        help="(v6.4.0) Elimina los contenedores de sesiÛn huÈrfanos "
+        help="(v6.4.0) Elimina los contenedores de sesi√≥n hu√©rfanos "
              "(snap-session-*) de sesiones anteriores y sale. Con "
              "--auto los borra sin preguntar.",
     )
@@ -12379,12 +12379,12 @@ def crear_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--sandbox-comando", dest="sandbox_comando", default=None,
-        help='Comando de preparaciÛn dentro del contenedor antes del comando '
+        help='Comando de preparaci√≥n dentro del contenedor antes del comando '
              'principal (ej.: "apt update && apt install -y make").',
     )
     parser.add_argument(
         "--max-iteraciones", type=int, default=MAX_ITERACIONES_TEST_DEFECTO,
-        help="M·ximo de iteraciones del bucle de pruebas.",
+        help="M√°ximo de iteraciones del bucle de pruebas.",
     )
     # v6.29.0: Sistema de autocorreccion (bucle pruebas + correccion).
     parser.add_argument(
@@ -12402,7 +12402,7 @@ def crear_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--max-intentos", type=int, default=3,
-        help="Intentos m·ximos del bucle autom·tico --server-loop "
+        help="Intentos m√°ximos del bucle autom√°tico --server-loop "
              "(por defecto: 3).",
     )
     parser.add_argument(
@@ -12416,28 +12416,28 @@ def crear_parser() -> argparse.ArgumentParser:
              "(por defecto: http://localhost:5000).",
     )
     parser.add_argument(
-        "--depurar", action="store_true", help="Logs de depuraciÛn.",
+        "--depurar", action="store_true", help="Logs de depuraci√≥n.",
     )
     parser.add_argument(
         "--version", action=_VersionAction, nargs=0,
     )
     parser.add_argument(
         "--setup-path", action="store_true",
-        help="Configura autom·ticamente el PATH del usuario para Windows: aÒade la "
+        help="Configura autom√°ticamente el PATH del usuario para Windows: a√±ade la "
              "carpeta de ejecutable al PATH persistente. √ötil si instalaste con "
              "'pip install snapcontext' sin usar el one-liner. Solo funciona en Windows.",
     )
     parser.add_argument(
         "--diagnostico", action="store_true",
-        help="(v3.1.0) Revisa la instalaciÛn: Python, paquete, dependencias "
+        help="(v3.1.0) Revisa la instalaci√≥n: Python, paquete, dependencias "
              "opcionales, PATH, proveedor de IA (API key / Ollama) y memoria "
              "SQLite, con resumen en colores y soluciones sugeridas.",
     )
     parser.add_argument(
         "--reparar", action="store_true",
-        help="(v3.1.0) Repara una instalaciÛn rota: limpia entornos uv "
+        help="(v3.1.0) Repara una instalaci√≥n rota: limpia entornos uv "
              "corruptos, reinstala SnapContext con pip, recrea la base de "
-             "datos SQLite si est· corrupta y ajusta el PATH (Windows).",
+             "datos SQLite si est√° corrupta y ajusta el PATH (Windows).",
     )
     parser.add_argument(
         "--bienvenida", action="store_true",
@@ -12455,8 +12455,8 @@ def crear_parser() -> argparse.ArgumentParser:
     # v6.12.0: TUI inmersiva con Textual (grupo opcional [tui]).
     parser.add_argument(
         "--tui", action="store_true",
-        help="Inicia la TUI inmersiva en la terminal (Textual): pestaÒas de "
-             "logs, ·rbol de archivos, control del agente y visor de diffs. "
+        help="Inicia la TUI inmersiva en la terminal (Textual): pesta√±as de "
+             "logs, √°rbol de archivos, control del agente y visor de diffs. "
              "Requiere: pip install snapcontext[tui].",
     )
     # v6.27.0: TUI interactiva (edicion de plan + visualizacion del grafo).
@@ -12474,7 +12474,7 @@ def crear_parser() -> argparse.ArgumentParser:
              "una pestana de la TUI. Requiere --tui. Activado por defecto; "
              "desactivar con --no-tui-grafo.",
     )
-    # v6.7.0: expansiÛn MCP ‚Äî conexiÛn perezosa a base de datos.
+    # v6.7.0: expansi√≥n MCP ‚Äî conexi√≥n perezosa a base de datos.
     parser.add_argument(
         "--db-url", default=None,
         help="(v6.7.0) URL de la base de datos para las herramientas MCP "
@@ -12487,7 +12487,7 @@ def crear_parser() -> argparse.ArgumentParser:
         help="(v6.7.0) Fuerza el driver de la base de datos (por defecto se "
              "deduce de --db-url).",
     )
-    # v6.8.0: omnicanalidad avanzada ‚Äî GitHub webhooks y tareas asÌncronas.
+    # v6.8.0: omnicanalidad avanzada ‚Äî GitHub webhooks y tareas as√≠ncronas.
     parser.add_argument(
         "--github-webhook-secreto", default=None,
         help="(v6.8.0) Secreto para validar firmas HMAC de webhooks de GitHub.",
@@ -12498,20 +12498,20 @@ def crear_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--webhook-url", default=None,
-        help="(v6.8.0) URL p˙blica del webhook de SnapContext para registrar en servicios externos.",
+        help="(v6.8.0) URL p√∫blica del webhook de SnapContext para registrar en servicios externos.",
     )
     parser.add_argument(
         "--web-interactive", action="store_true",
-        help="(v6.5.0) Activa el centro de control web interactivo adem·s de la "
-             "web actual: timeline de ReAct en tiempo real (Pensamiento‚ÜíAcciÛn‚Üí"
-             "ObservaciÛn), diff viewer Monaco para resolver conflictos de "
+        help="(v6.5.0) Activa el centro de control web interactivo adem√°s de la "
+             "web actual: timeline de ReAct en tiempo real (Pensamiento‚ÜíAcci√≥n‚Üí"
+             "Observaci√≥n), diff viewer Monaco para resolver conflictos de "
              "parches y panel de estado del agente en http://localhost:8000/"
              "interactive. Requiere --web.",
     )
     parser.add_argument(
         "--demo", action="store_true",
-        help="Ejecuta una demo autÛnoma de SnapContext: crea un proyecto de prueba "
-             "temporal, muestra la selecciÛn de archivos (--vista-previa --local) y "
+        help="Ejecuta una demo aut√≥noma de SnapContext: crea un proyecto de prueba "
+             "temporal, muestra la selecci√≥n de archivos (--vista-previa --local) y "
              "el bucle de pruebas completo, sin necesidad de API key.",
     )
     parser.add_argument(
@@ -12522,7 +12522,7 @@ def crear_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--historial", action="store_true",
-        help="Muestra las ˙ltimas 20 tareas guardadas en ~/.snapcontext/historial.json.",
+        help="Muestra las √∫ltimas 20 tareas guardadas en ~/.snapcontext/historial.json.",
     )
     parser.add_argument(
         "--historial-limpiar", action="store_true",
@@ -12530,14 +12530,14 @@ def crear_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--plan", action="store_true",
-        help="Usar el planificador est·tico (modo legacy) ‚Äî ˙til para scripts "
+        help="Usar el planificador est√°tico (modo legacy) ‚Äî √∫til para scripts "
              "que requieren pasos predefinidos: pide al proveedor de IA que "
              "descomponga la tarea en pasos y los ejecuta secuencialmente con "
              "control continuar/reintentar/saltar. Requiere consulta.",
     )
     parser.add_argument(
         "--react", action="store_true",
-        help="Usar el modo ReAct (razonamiento din·mico) ‚Äî este es el "
+        help="Usar el modo ReAct (razonamiento din√°mico) ‚Äî este es el "
              "comportamiento por defecto si no se usa --plan; el flag se "
              "conserva por compatibilidad pero ya es redundante.",
     )
@@ -12557,11 +12557,11 @@ def crear_parser() -> argparse.ArgumentParser:
         "--git-revert", dest="git_revert", nargs="?", const=-1, default=None,
         type=int, metavar="STEP",
         help="Revierte el paso indicado (id de la tabla 'pasos') con "
-             "'git revert'. Sin valor, revierte el ˙ltimo paso commiteado.",
+             "'git revert'. Sin valor, revierte el √∫ltimo paso commiteado.",
     )
     parser.add_argument(
         "--git-mensaje", dest="git_mensaje", default=None, metavar="TEXTO",
-        help="Mensaje manual para los commits autom·ticos por paso "
+        help="Mensaje manual para los commits autom√°ticos por paso "
              "(si se omite, se genera con IA en formato Conventional Commits).",
     )
     parser.add_argument(
@@ -12571,29 +12571,29 @@ def crear_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--confirmar", action=argparse.BooleanOptionalAction, default=True,
-        help="Pide confirmaciÛn (s/n/todos/nunca) antes de acciones sensibles "
+        help="Pide confirmaci√≥n (s/n/todos/nunca) antes de acciones sensibles "
              "(pasos del planificador, /run y /edit del chat). Por defecto "
-             "activado; desactivar con --no-confirmar para modo autom·tico.",
+             "activado; desactivar con --no-confirmar para modo autom√°tico.",
     )
     parser.add_argument(
         "--init-claude", action="store_true",
         help="Escanea el proyecto (estructura, dependencias, git) y genera una "
              "memoria persistente CLAUDE.md (o SNAPCONTEXT.md) usando el "
-             "proveedor de IA; sin conexiÛn usa una plantilla b·sica.",
+             "proveedor de IA; sin conexi√≥n usa una plantilla b√°sica.",
     )
     parser.add_argument(
         "--auto", action="store_true", default=False,
-        help="Modo autÛnomo para --plan: salta las confirmaciones paso a paso "
-             "(siguiendo respetando permisos.json) y reintenta autom·ticamente "
+        help="Modo aut√≥nomo para --plan: salta las confirmaciones paso a paso "
+             "(siguiendo respetando permisos.json) y reintenta autom√°ticamente "
              "cada paso fallido hasta 3 veces antes de continuar. Con "
-             "--no-confirmar no aÒade diferencia adicional.",
+             "--no-confirmar no a√±ade diferencia adicional.",
     )
     parser.add_argument(
         "--paralelo", type=int, default=1, metavar="N",
         help="En modo --plan --auto: ejecuta hasta N pasos sin dependencias "
              "mutuas en paralelo (por defecto 1 = secuencial). Los logs de cada "
              "paso llevan su identificador [paso N]. Los pasos con campo "
-             "'dependencias' esperan a que sus dependencias tengan Èxito y "
+             "'dependencias' esperan a que sus dependencias tengan √©xito y "
              "las condiciones que referencien resultados de pasos previos o "
              "variables MCP bloquean al paso hasta estar disponibles.",
     )
@@ -12601,44 +12601,44 @@ def crear_parser() -> argparse.ArgumentParser:
         "--editor", choices=["aider", "propio"], default="propio",
         help="Editor a usar para aplicar cambios: 'propio' (por defecto "
              "desde v4.1.0; editor integrado con estrategias AST ‚Üí parche ‚Üí "
-             "sobrescritura, validaciÛn sint·ctica y backups) o 'aider' "
+             "sobrescritura, validaci√≥n sint√°ctica y backups) o 'aider' "
              "(requiere Aider instalado).",
     )
-    # v6.22.0: hooks / lifecycle events ‚Äî activaciÛn y listado.
+    # v6.22.0: hooks / lifecycle events ‚Äî activaci√≥n y listado.
     parser.add_argument(
         "--hooks", action=argparse.BooleanOptionalAction, default=True,
         help="Activa/desactiva el sistema de hooks/lifecycle events (v6.22.0). "
              "Por defecto: activado; desactivar con --no-hooks.",
     )
-    # v6.24.0: orquestaciÛn inteligente de modelos (model_router.py).
+    # v6.24.0: orquestaci√≥n inteligente de modelos (model_router.py).
     parser.add_argument(
         "--model-routing", dest="model_routing",
         action=argparse.BooleanOptionalAction, default=True,
         help="Activa/desactiva el enrutamiento inteligente de modelos "
-             "(v6.24.0): cada categorÌa de tarea (indexacion, busqueda_semantica, "
+             "(v6.24.0): cada categor√≠a de tarea (indexacion, busqueda_semantica, "
              "planificacion_simple, edicion_critica, razonamiento_complejo, "
-             "chat_general) usa el modelo configurado en la secciÛn "
-             "'model_routing' de ~/.snapcontext/config.json. Sin configuraciÛn "
+             "chat_general) usa el modelo configurado en la secci√≥n "
+             "'model_routing' de ~/.snapcontext/config.json. Sin configuraci√≥n "
              "se usa el modelo por defecto, como siempre. Los flags --model y "
-             "--provider tienen prioridad m·xima; desactivar con "
+             "--provider tienen prioridad m√°xima; desactivar con "
              "--no-model-routing.",
     )
-    # v6.30.0: enrutamiento hÌbrido Local-Nube (fallback entre modelos).
+    # v6.30.0: enrutamiento h√≠brido Local-Nube (fallback entre modelos).
     parser.add_argument(
         "--model-fallback", dest="model_fallback",
         action=argparse.BooleanOptionalAction, default=None,
         help="Activa/desactiva el fallback entre modelos del enrutamiento "
-             "hÌbrido Local-Nube (v6.30.0): las tareas simples usan modelos "
+             "h√≠brido Local-Nube (v6.30.0): las tareas simples usan modelos "
              "locales (Ollama) y escalan a la nube (Gemini, Claude, DeepSeek) "
              "cuando la tarea es compleja o el modelo falla (timeout, error "
-             "de API; los errores de autenticaciÛn no se reintentan). Por "
-             "defecto: activado (o seg˙n 'fallback_automatico' de "
+             "de API; los errores de autenticaci√≥n no se reintentan). Por "
+             "defecto: activado (o seg√∫n 'fallback_automatico' de "
              "config.json); desactivar con --no-model-fallback.",
     )
     parser.add_argument(
         "--complejidad-umbral", dest="complejidad_umbral", type=int,
         default=None, metavar="N",
-        help="Longitud mÌnima (en palabras) de la consulta para considerarla "
+        help="Longitud m√≠nima (en palabras) de la consulta para considerarla "
              "compleja y escalar a modelos cloud (v6.30.0; por defecto 100, "
              "o el 'umbral_complejidad.longitud_consulta' de config.json).",
     )
@@ -12664,13 +12664,13 @@ def crear_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--modelo-ligero", dest="modelo_ligero", action="store_true",
         help="Usa prompts concisos en el editor propio (pensados para "
-             "modelos pequeÒos); se activa autom·ticamente con Ollama.",
+             "modelos peque√±os); se activa autom√°ticamente con Ollama.",
     )
     parser.add_argument(
         "--asesor-profundo", dest="asesor_profundo", action="store_true",
-        help="Asesor exhaustivo (v4.2.0): aÒade an·lisis de seguridad ?? "
-             "(inyecciÛn SQL, command injection, path traversal, secretos, "
-             "eval/exec, XSS) y rendimiento ‚ö° al asesor b·sico.",
+        help="Asesor exhaustivo (v4.2.0): a√±ade an√°lisis de seguridad üóù "
+             "(inyecci√≥n SQL, command injection, path traversal, secretos, "
+             "eval/exec, XSS) y rendimiento ‚ö° al asesor b√°sico.",
     )
     parser.add_argument(
         "--modo-edicion",
@@ -12678,46 +12678,46 @@ def crear_parser() -> argparse.ArgumentParser:
         help="Estrategia del editor propio: 'auto' (intenta aplicar parche unificado, "
              "fallback a sobrescritura), 'parche' (solo parches unificados), "
              "'sobrescribir' (sobrescritura completa del archivo) o 'ast' "
-             "(ediciÛn basada en el ·rbol sint·ctico con fallback a sobrescritura).",
+             "(edici√≥n basada en el √°rbol sint√°ctico con fallback a sobrescritura).",
     )
     parser.add_argument(
         "--validar", dest="validar", action="store_const", const=True,
         default=True,
-        help="Valida la sintaxis del cÛdigo antes de guardar en el editor propio "
+        help="Valida la sintaxis del c√≥digo antes de guardar en el editor propio "
              "(por defecto activado).",
     )
     parser.add_argument(
         "--no-validar-sintaxis", dest="validar", action="store_const",
         const=False,
-        help="Desactiva la validaciÛn de sintaxis en el editor propio "
+        help="Desactiva la validaci√≥n de sintaxis en el editor propio "
              "(comportamiento previo a v3.4.0). Nota: su nombre no es "
-             "'--no-validar' porque ese alias ya est· reservado por "
+             "'--no-validar' porque ese alias ya est√° reservado por "
              "--iniciar-proyecto.",
     )
     parser.add_argument(
         "--max-intentos-validacion", type=int,
         default=MAX_INTENTOS_VALIDACION, metavar="N",
-        help=f"Intentos m·ximos de validaciÛn de sintaxis antes de cancelar la "
-             f"ediciÛn (por defecto: {MAX_INTENTOS_VALIDACION}).",
+        help=f"Intentos m√°ximos de validaci√≥n de sintaxis antes de cancelar la "
+             f"edici√≥n (por defecto: {MAX_INTENTOS_VALIDACION}).",
     )
     # v6.1.0 ‚Äî Manejo de contexto inteligente (modelos con poca ventana).
     parser.add_argument(
         "--max-context-tokens", type=int, default=MAX_CONTEXT_TOKENS,
         metavar="N",
-        help=f"LÌmite m·ximo de tokens estimados a enviar al proveedor en una "
-             f"sola peticiÛn de ediciÛn (por defecto: {MAX_CONTEXT_TOKENS}). Los "
-             f"archivos m·s grandes se envÌan con contexto selectivo (resumen "
+        help=f"L√≠mite m√°ximo de tokens estimados a enviar al proveedor en una "
+             f"sola petici√≥n de edici√≥n (por defecto: {MAX_CONTEXT_TOKENS}). Los "
+             f"archivos m√°s grandes se env√≠an con contexto selectivo (resumen "
              f"AST + bloque objetivo), evitando los fallos por ventana de "
-             f"contexto de los modelos pequeÒos (p. ej. deepseek-r1:14b).",
+             f"contexto de los modelos peque√±os (p. ej. deepseek-r1:14b).",
     )
     parser.add_argument(
         "--mostrar-razonamiento", dest="mostrar_razonamiento",
         action="store_true",
         help="v6.2.0: muestra el razonamiento del modelo (chain-of-thought) "
-             "antes de cada acciÛn/respuesta en chat, planificador, editor y "
-             "ReAct. TambiÈn activable con la variable de entorno "
+             "antes de cada acci√≥n/respuesta en chat, planificador, editor y "
+             "ReAct. Tambi√©n activable con la variable de entorno "
              "SNAPCONTEXT_MOSTRAR_RAZONAMIENTO=1.")
-    # v6.3.0 ‚Äî RevisiÛn interactiva del parche antes de aplicar.
+    # v6.3.0 ‚Äî Revisi√≥n interactiva del parche antes de aplicar.
     parser.add_argument(
         "--mostrar-diff", dest="mostrar_diff", action="store_true",
         help="v6.3.0: muestra el diff propuesto (coloreado) antes de aplicar "
@@ -12728,11 +12728,11 @@ def crear_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--editor-fallback", dest="editor_fallback", action="store_true",
         help="v6.1.0: si el editor propio falla (por contexto o por estrategia), "
-             "intenta autom·ticamente Aider como respaldo para los archivos "
+             "intenta autom√°ticamente Aider como respaldo para los archivos "
              "fallidos (requiere 'aider' en el PATH; si no, muestra una "
              "sugerencia clara).",
     )
-    # Aprendizaje autÛnomo / memoria avanzada (v3.0.0)
+    # Aprendizaje aut√≥nomo / memoria avanzada (v3.0.0)
     parser.add_argument(
         "--daemon", action="store_true",
         help="Ejecuta el daemon en segundo plano: corre el curador cada "
@@ -12741,8 +12741,8 @@ def crear_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--daemon-intervalo", type=int,
         default=DAEMON_INTERVALO_HORAS_DEFECTO, metavar="HORAS",
-        help="Horas entre pasadas del curador cuando el daemon est· activo "
-             "(por defecto 168 = 7 dÌas).",
+        help="Horas entre pasadas del curador cuando el daemon est√° activo "
+             "(por defecto 168 = 7 d√≠as).",
     )
     # v6.28.0: Gestor de sesiones persistentes (Agente Fantasma).
     parser.add_argument(
@@ -12768,7 +12768,7 @@ def crear_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--curador", action="store_true",
-        help="Ejecuta una pasada ˙nica del curador (archiva skills antiguos, "
+        help="Ejecuta una pasada √∫nica del curador (archiva skills antiguos, "
              "fusiona duplicados) y termina.",
     )
     parser.add_argument(
@@ -12784,20 +12784,20 @@ def crear_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--skills-dinamicos", dest="skills_dinamicos",
         action="store_true", default=True,
-        help="(v6.6.0) Skills din·micos: extrae reglas abstractas de planes "
+        help="(v6.6.0) Skills din√°micos: extrae reglas abstractas de planes "
              "exitosos y las reutiliza en el planificador (activado por "
              "defecto).",
     )
     parser.add_argument(
         "--sin-skills-dinamicos", dest="skills_dinamicos",
         action="store_false",
-        help="Desactiva los skills din·micos (no extrae ni aplica reglas "
+        help="Desactiva los skills din√°micos (no extrae ni aplica reglas "
              "abstractas).",
     )
     parser.add_argument(
         "--inyectar-reglas", action="store_true",
-        help="(v6.6.0) Fuerza la inyecciÛn de todas las reglas aprendidas en "
-             "CLAUDE.md/SNAPCONTEXT.md (secciÛn '## Reglas aprendidas') y "
+        help="(v6.6.0) Fuerza la inyecci√≥n de todas las reglas aprendidas en "
+             "CLAUDE.md/SNAPCONTEXT.md (secci√≥n '## Reglas aprendidas') y "
              "termina.",
     )
             # v6.26.0: Memoria a largo plazo (historial de decisiones en SQLite).
@@ -12843,16 +12843,16 @@ def crear_parser() -> argparse.ArgumentParser:
              "Por defecto: 'media'.",
     )
 
-# Ayuda agrupada por categorÌas (-h/--help) ‚Äî v1.7.
+# Ayuda agrupada por categor√≠as (-h/--help) ‚Äî v1.7.
     parser.add_argument(
         "-h", "--help", action=_AyudaAccion,
-        help="Muestra esta ayuda agrupada por categorÌas, con alias y ejemplos.",
+        help="Muestra esta ayuda agrupada por categor√≠as, con alias y ejemplos.",
     )
     return parser
 
 
 def _preparar_argv_aliases(argv: Optional[List[str]]) -> List[str]:
-    """Convierte el primer token en un alias de comando com˙n.
+    """Convierte el primer token en un alias de comando com√∫n.
 
     Sintaxis ``snapcontext <alias> "mensaje"``:
 
@@ -12882,11 +12882,11 @@ def _preparar_argv_aliases(argv: Optional[List[str]]) -> List[str]:
 def _candidatos_carpetas_scripts() -> List[str]:
     """Devuelve, en orden de prioridad, las carpetas donde suele instalarse el
     comando `snapcontext` (carpetas de scripts/bin de Python), sin comprobar
-    todavÌa si existen. Prioriza el intÈrprete Python en uso."""
+    todav√≠a si existen. Prioriza el int√©rprete Python en uso."""
     candidatos: List[str] = []
 
-    # 1) Carpeta de scripts del intÈrprete Python en uso (donde pip y
-    #    `pip install -e .` registran el comando `snapcontext`). Prioridad m·xima.
+    # 1) Carpeta de scripts del int√©rprete Python en uso (donde pip y
+    #    `pip install -e .` registran el comando `snapcontext`). Prioridad m√°xima.
     try:
         import sysconfig
         candidatos.append(sysconfig.get_path("scripts"))
@@ -12897,7 +12897,7 @@ def _candidatos_carpetas_scripts() -> List[str]:
     dir_python = os.path.dirname(sys.executable)
     candidatos.append(os.path.join(dir_python, "Scripts"))
 
-    # 3) Rutas tÌpicas de instalaciones de usuario en Windows.
+    # 3) Rutas t√≠picas de instalaciones de usuario en Windows.
     appdata = os.environ.get("APPDATA", "")
     localappdata = os.environ.get("LOCALAPPDATA", "")
     if appdata:
@@ -12906,7 +12906,7 @@ def _candidatos_carpetas_scripts() -> List[str]:
         candidatos.append(
             os.path.join(localappdata, "Programs", "Python", "Scripts")
         )
-        # Python3X: localizaciones con n˙mero de versiÛn (p. ej. Python313).
+        # Python3X: localizaciones con n√∫mero de versi√≥n (p. ej. Python313).
         base_prog = os.path.join(localappdata, "Programs", "Python")
         try:
             for nombre in sorted(os.listdir(base_prog)):
@@ -12919,7 +12919,7 @@ def _candidatos_carpetas_scripts() -> List[str]:
     if getattr(sys, "frozen", False):
         candidatos.append(os.path.dirname(os.path.abspath(sys.executable)))
 
-    # Eliminar vacÌos y duplicados conservando el orden de prioridad.
+    # Eliminar vac√≠os y duplicados conservando el orden de prioridad.
     vistos = set()
     unicos: List[str] = []
     for c in candidatos:
@@ -12935,10 +12935,10 @@ def _localizar_carpeta_scripts() -> Optional[str]:
     Prioriza `sysconfig.get_path("scripts")`: si esa carpeta existe se devuelve
     directamente, sin exigir que contenga el ejecutable, porque en instalaciones
     en modo editable el stub `snapcontext` puede tener otro nombre o no estar
-    todavÌa en el mismo lugar que apunta el sysconfig.
+    todav√≠a en el mismo lugar que apunta el sysconfig.
 
-    Si esa carpeta no existe, se devuelve la primera de las dem·s rutas tÌpicas
-    de Python que sÌ exista. Nunca devuelve el directorio del proyecto actual.
+    Si esa carpeta no existe, se devuelve la primera de las dem√°s rutas t√≠picas
+    de Python que s√≠ exista. Nunca devuelve el directorio del proyecto actual.
     """
     marcadores = ("snapcontext.exe", "snapcontext", "snapcontext.bat")
     intentadas: List[str] = []
@@ -12948,7 +12948,7 @@ def _localizar_carpeta_scripts() -> Optional[str]:
             intentadas.append(c)
             continue
         # En ejecutables empaquetados la carpeta propia no es de scripts;
-        # exigimos ahÌ el ejecutable para no devolver una carpeta cualquiera.
+        # exigimos ah√≠ el ejecutable para no devolver una carpeta cualquiera.
         if getattr(sys, "frozen", False):
             if any(os.path.exists(os.path.join(c, m)) for m in marcadores):
                 return c
@@ -12956,7 +12956,7 @@ def _localizar_carpeta_scripts() -> Optional[str]:
         return c
 
     if intentadas:
-        depurar("--setup-path: rutas probadas sin Èxito: " + "; ".join(intentadas))
+        depurar("--setup-path: rutas probadas sin √©xito: " + "; ".join(intentadas))
     return None
 
 
@@ -12989,16 +12989,16 @@ def _guardar_path_windows(nuevo_path: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# DiagnÛstico y reparaciÛn (v3.1.0)
+# Diagn√≥stico y reparaci√≥n (v3.1.0)
 # ---------------------------------------------------------------------------
 def _diagnostico_item(nombre: str, ok: bool, detalle: str,
                       solucion: Optional[str] = None) -> bool:
-    """Imprime una lÌnea de diagnÛstico con color seg˙n el estado."""
+    """Imprime una l√≠nea de diagn√≥stico con color seg√∫n el estado."""
     if ok:
         exito(f"{nombre}: {detalle}")
     elif solucion:
         aviso(f"{nombre}: {detalle}")
-        print(_pintar("    ‚Üí SoluciÛn: " + solucion, _AMARILLO))
+        print(_pintar("    ‚Üí Soluci√≥n: " + solucion, _AMARILLO))
     else:
         error(f"{nombre}: {detalle}")
     return ok
@@ -13033,7 +13033,7 @@ def snapcontext_en_path() -> bool:
 
 
 def _estado_memoria() -> dict:
-    """Comprueba la base SQLite y el n˙mero de skills.
+    """Comprueba la base SQLite y el n√∫mero de skills.
 
     Devuelve {'ok': bool, 'skills': int, 'error': str|None}.
     """
@@ -13048,10 +13048,10 @@ def _estado_memoria() -> dict:
                 resultado = con.execute("PRAGMA quick_check").fetchone()
                 if not resultado or resultado[0] != "ok":
                     return {"ok": False, "skills": 0,
-                            "error": "La base de datos est· corrupta."}
+                            "error": "La base de datos est√° corrupta."}
             except sqlite3.DatabaseError:
                 return {"ok": False, "skills": 0,
-                        "error": "La base de datos est· corrupta."}
+                        "error": "La base de datos est√° corrupta."}
             try:
                 skills = con.execute(
                     "SELECT COUNT(*) FROM skills").fetchone()[0]
@@ -13065,13 +13065,13 @@ def _estado_memoria() -> dict:
 
 
 def _ejecutar_diagnostico(args: argparse.Namespace) -> int:
-    """Modo --diagnostico: revisa la instalaciÛn y muestra un resumen.
+    """Modo --diagnostico: revisa la instalaci√≥n y muestra un resumen.
 
-    Comprueba Python, instalaciÛn del paquete, dependencias opcionales,
+    Comprueba Python, instalaci√≥n del paquete, dependencias opcionales,
     PATH, proveedor de IA (API key / Ollama) y memoria SQLite.
-    Devuelve 0 si todo est· OK, 1 si hay errores y 2 si solo hay avisos.
+    Devuelve 0 si todo est√° OK, 1 si hay errores y 2 si solo hay avisos.
     """
-    info("=== SnapContext ¬∑ DiagnÛstico ===")
+    info("=== SnapContext ¬∑ Diagn√≥stico ===")
     problemas = 0
     avisos = 0
 
@@ -13081,12 +13081,12 @@ def _ejecutar_diagnostico(args: argparse.Namespace) -> int:
     if not _diagnostico_item(
             "Python", en_path,
             f"v{version_py} ({sys.executable})" if en_path
-            else "no se encontrÛ 'python' en el PATH",
+            else "no se encontr√≥ 'python' en el PATH",
             "Instala Python 3.9+ desde https://python.org y marca "
             "'Add to PATH'"):
         problemas += 1
 
-    # 2) InstalaciÛn de SnapContext
+    # 2) Instalaci√≥n de SnapContext
     if getattr(sys, "frozen", False):
         exito("SnapContext: instalado como ejecutable empaquetado.")
     else:
@@ -13097,7 +13097,7 @@ def _ejecutar_diagnostico(args: argparse.Namespace) -> int:
                   "`python -m snapcontext --version` disponible.")
         except Exception:
             aviso("SnapContext no consta como paquete instalado.")
-            print(_pintar("    ‚Üí SoluciÛn: pip install snapcontext "
+            print(_pintar("    ‚Üí Soluci√≥n: pip install snapcontext "
                           "(o python -m pip install -e .)", _AMARILLO))
             avisos += 1
 
@@ -13115,7 +13115,7 @@ def _ejecutar_diagnostico(args: argparse.Namespace) -> int:
         exito("PATH: el comando 'snapcontext' es accesible.")
     else:
         aviso("PATH: 'snapcontext' no es accesible como comando global.")
-        print(_pintar("    ‚Üí SoluciÛn: ejecuta 'snapcontext --setup-path' "
+        print(_pintar("    ‚Üí Soluci√≥n: ejecuta 'snapcontext --setup-path' "
                       "(Windows) o reinstala con install.ps1/install.sh",
                       _AMARILLO))
         avisos += 1
@@ -13127,15 +13127,15 @@ def _ejecutar_diagnostico(args: argparse.Namespace) -> int:
         estado_ol = _estado_ollama()
         if estado_ol["modelos"]:
             ligero = _elegir_modelo_ligero(estado_ol["modelos"])
-            exito("Proveedor de IA: sin API key, pero Ollama est· listo "
+            exito("Proveedor de IA: sin API key, pero Ollama est√° listo "
                   f"(modo offline con '{ligero}').")
         elif estado_ol["instalado"]:
             aviso("Ollama instalado pero sin modelos descargados.")
-            print(_pintar("    ‚Üí SoluciÛn: ollama pull llama3.2", _AMARILLO))
+            print(_pintar("    ‚Üí Soluci√≥n: ollama pull llama3.2", _AMARILLO))
             avisos += 1
         else:
-            error("No se encontrÛ una API key ni Ollama.")
-            print(_pintar("    ‚Üí SoluciÛn: instala Ollama desde "
+            error("No se encontr√≥ una API key ni Ollama.")
+            print(_pintar("    ‚Üí Soluci√≥n: instala Ollama desde "
                           "https://ollama.com o ejecuta 'snapcontext --init'.",
                           _ROJO))
             problemas += 1
@@ -13146,7 +13146,7 @@ def _ejecutar_diagnostico(args: argparse.Namespace) -> int:
         exito(f"Memoria: base de datos OK ({memoria['skills']} skills).")
     elif memoria["error"] and "corrupta" in (memoria["error"] or ""):
         error(f"Memoria: {memoria['error']}")
-        print(_pintar("    ‚Üí SoluciÛn: ejecuta 'snapcontext --reparar'",
+        print(_pintar("    ‚Üí Soluci√≥n: ejecuta 'snapcontext --reparar'",
                       _ROJO))
         problemas += 1
     else:
@@ -13155,29 +13155,29 @@ def _ejecutar_diagnostico(args: argparse.Namespace) -> int:
 
     print()
     if problemas:
-        error(f"DiagnÛstico completado con {problemas} problema(s) y "
+        error(f"Diagn√≥stico completado con {problemas} problema(s) y "
               f"{avisos} aviso(s). Ejecuta 'snapcontext --reparar' si lo "
               "necesitas.")
         return 1
     if avisos:
-        aviso(f"DiagnÛstico completado: todo funcional, {avisos} aviso(s).")
+        aviso(f"Diagn√≥stico completado: todo funcional, {avisos} aviso(s).")
         return 2
-    exito("DiagnÛstico completado: todo correcto ‚úî")
+    exito("Diagn√≥stico completado: todo correcto ‚úî")
     return 0
 
 
 def _limpiar_entorno_uv_corrupto() -> bool:
-    """Elimina carpetas de entorno de 'uv' vacÌas/corruptas (v3.1.0).
+    """Elimina carpetas de entorno de 'uv' vac√≠as/corruptas (v3.1.0).
 
-    Un fallo conocido deja entornos vacÌos que rompen reintentos.
-    Devuelve True si se limpiÛ algo.
+    Un fallo conocido deja entornos vac√≠os que rompen reintentos.
+    Devuelve True si se limpi√≥ algo.
     """
     limpio = False
     for carpeta in (CONFIG_DIR / ".venv-uv", CONFIG_DIR / ".venv"):
         try:
             if carpeta.is_dir() and not any(carpeta.iterdir()):
                 carpeta.rmdir()
-                info(f"Entorno uv vacÌo eliminado: {carpeta}")
+                info(f"Entorno uv vac√≠o eliminado: {carpeta}")
                 limpio = True
         except OSError:
             pass
@@ -13195,7 +13195,7 @@ def _reinstalar_snapcontext() -> bool:
         if proc.returncode == 0:
             exito("SnapContext reinstalado correctamente.")
             return True
-        aviso("pip devolviÛ un error: " +
+        aviso("pip devolvi√≥ un error: " +
               ((proc.stderr or proc.stdout or "").strip()[-300:]))
     except (OSError, subprocess.SubprocessError) as exc:
         aviso(f"No se pudo ejecutar pip: {exc}")
@@ -13203,7 +13203,7 @@ def _reinstalar_snapcontext() -> bool:
 
 
 def _reparar_memoria_si_corrupta() -> bool:
-    """Recrea la base SQLite si est· corrupta. True si quedÛ operativa."""
+    """Recrea la base SQLite si est√° corrupta. True si qued√≥ operativa."""
     estado = _estado_memoria()
     if estado["ok"]:
         return True
@@ -13220,7 +13220,7 @@ def _reparar_memoria_si_corrupta() -> bool:
         except OSError as exc:
             error(f"No se pudo reparar la base de datos: {exc}")
             return False
-    # No existe a˙n: crearla.
+    # No existe a√∫n: crearla.
     try:
         _db_init()
         exito("Memoria inicializada.")
@@ -13234,9 +13234,9 @@ def _ejecutar_reparacion(args: argparse.Namespace) -> int:
     """Modo --reparar: arregla instalaciones rotas paso a paso.
 
     Pasos: limpiar entornos uv corruptos, reinstalar con pip, reparar la
-    base SQLite y aÒadir la carpeta de scripts al PATH (Windows).
+    base SQLite y a√±adir la carpeta de scripts al PATH (Windows).
     """
-    info("=== SnapContext ¬∑ ReparaciÛn ===")
+    info("=== SnapContext ¬∑ Reparaci√≥n ===")
     ok_global = True
 
     if _limpiar_entorno_uv_corrupto():
@@ -13259,30 +13259,30 @@ def _ejecutar_reparacion(args: argparse.Namespace) -> int:
         exito("PATH correcto: 'snapcontext' accesible.")
 
     if ok_global:
-        exito("ReparaciÛn completada. Prueba 'snapcontext --diagnostico'.")
+        exito("Reparaci√≥n completada. Prueba 'snapcontext --diagnostico'.")
         return 0
-    error("La reparaciÛn terminÛ con incidencias; revisa los mensajes.")
+    error("La reparaci√≥n termin√≥ con incidencias; revisa los mensajes.")
     return 1
 
 
 def _tutorial_interactivo() -> int:
-    """Tutorial interactivo (--bienvenida): guÌa de primeros pasos."""
+    """Tutorial interactivo (--bienvenida): gu√≠a de primeros pasos."""
     info("=== SnapContext ¬∑ Tutorial interactivo ===")
     pasos = [
-        ("1. Comprueba tu instalaciÛn",
+        ("1. Comprueba tu instalaci√≥n",
          "  Ejecuta 'snapcontext --version' y 'snapcontext --diagnostico'\n"
-         "  para verificar que todo est· listo."),
+         "  para verificar que todo est√° listo."),
         ("2. Configura tu cerebro",
-         "  Sin API key, SnapContext usa Ollama local autom·ticamente.\n"
+         "  Sin API key, SnapContext usa Ollama local autom√°ticamente.\n"
          "  Con clave: 'snapcontext --init' guarda tu proveedor favorito."),
         ("3. Tu primera tarea",
          '  En tu proyecto ejecuta:\n'
          '    snapcontext "describe brevemente este proyecto" --vista-previa\n'
-         "  Ver·s quÈ archivos seleccionarÌa la IA sin tocar nada."),
+         "  Ver√°s qu√© archivos seleccionar√≠a la IA sin tocar nada."),
         ("4. Deja que trabaje",
-         "  Quita --vista-previa y SnapContext usar· Aider para editar.\n"
-         "  AÒade --test-loop para que verifique con tus pruebas."),
-        ("5. Aprende m·s",
+         "  Quita --vista-previa y SnapContext usar√° Aider para editar.\n"
+         "  A√±ade --test-loop para que verifique con tus pruebas."),
+        ("5. Aprende m√°s",
          "  'snapcontext --help' (ayuda agrupada), 'snapcontext --demo'\n"
          '  y \'snapcontext --plan "tarea"\' (planificador).'),
     ]
@@ -13308,7 +13308,7 @@ def configurar_path() -> int:
     """Configura el PATH del usuario en Windows (--setup-path).
 
     Es independiente de la consulta: localiza la carpeta de ejecutables, la
-    aÒade al PATH persistente del usuario y sale. CÛdigo 0 = Èxito.
+    a√±ade al PATH persistente del usuario y sale. C√≥digo 0 = √©xito.
     """
     if not sys.platform.startswith("win"):
         error("--setup-path solo funciona en Windows.")
@@ -13317,9 +13317,9 @@ def configurar_path() -> int:
     info("Configurando el PATH del usuario para Windows...")
     carpeta = _localizar_carpeta_scripts()
     if not carpeta:
-        error("No se pudo localizar autom·ticamente la carpeta de ejecutables "
+        error("No se pudo localizar autom√°ticamente la carpeta de ejecutables "
               "de SnapContext.")
-        aviso("Rutas tÌpicas donde suele instalarse el comando 'snapcontext':")
+        aviso("Rutas t√≠picas donde suele instalarse el comando 'snapcontext':")
         for r in _candidatos_carpetas_scripts():
             if r:
                 aviso("  - " + r)
@@ -13336,24 +13336,24 @@ def configurar_path() -> int:
             if manual and os.path.isdir(manual):
                 carpeta = manual
             else:
-                aviso("Ruta no v·lida o inexistente: no se modificar· el PATH.")
+                aviso("Ruta no v√°lida o inexistente: no se modificar√° el PATH.")
 
         if not carpeta or not os.path.isdir(carpeta):
-            aviso("AÒade la ruta de Scripts manualmente al PATH del usuario "
+            aviso("A√±ade la ruta de Scripts manualmente al PATH del usuario "
                   "o vuelve a ejecutar --setup-path tras instalar SnapContext.")
-            aviso("SnapContext seguir· funcionando con: 'python -m snapcontext'")
+            aviso("SnapContext seguir√° funcionando con: 'python -m snapcontext'")
             return 1
 
     path_actual = os.environ.get("PATH", "")
     if carpeta in [p for p in path_actual.split(";") if p]:
-        exito("'" + carpeta + "' ya est· en el PATH del usuario (sin cambios).")
+        exito("'" + carpeta + "' ya est√° en el PATH del usuario (sin cambios).")
         return 0
 
     nuevo = carpeta + ";" + path_actual
     os.environ["PATH"] = nuevo
 
     if _guardar_path_windows(nuevo):
-        exito("'" + carpeta + "' aÒadido al PATH persistente del usuario.")
+        exito("'" + carpeta + "' a√±adido al PATH persistente del usuario.")
         info("Reinicia tu terminal para que el cambio surta efecto.")
         info("Si instalaste Chocolatey, ejecuta 'refreshenv'.")
         return 0
@@ -13374,18 +13374,18 @@ def _crear_demo_proyecto(directorio: Path) -> None:
       - ``tests/test_main.py``: test que falla con el bug.
       - ``src/__init__.py``: hace ``src`` importable para el comando de prueba.
 
-    La carpeta ``src``/``tests`` hace que la auto-detecciÛn clasifique la demo
+    La carpeta ``src``/``tests`` hace que la auto-detecci√≥n clasifique la demo
     como proyecto Python y que el escaneo (--local) encuentre los archivos.
     """
     (directorio / "src").mkdir(parents=True, exist_ok=True)
     (directorio / "tests").mkdir(parents=True, exist_ok=True)
-    # Archivo identificador: fuerza la auto-detecciÛn como proyecto Python
+    # Archivo identificador: fuerza la auto-detecci√≥n como proyecto Python
     # (evita que `src/` haga que se clasifique como Node en el respaldo por carpetas).
     (directorio / "requirements.txt").write_text("", encoding="utf-8")
     (directorio / "src" / "__init__.py").write_text("", encoding="utf-8")
     (directorio / "src" / "main.py").write_text(
         "def saludar(nombre):\n"
-        '    return f"Hola, {name}"  # bug: deberÌa ser {nombre}\n',
+        '    return f"Hola, {name}"  # bug: deber√≠a ser {nombre}\n',
         encoding="utf-8",
     )
     (directorio / "tests" / "test_main.py").write_text(
@@ -13397,12 +13397,12 @@ def _crear_demo_proyecto(directorio: Path) -> None:
 
 
 def _crear_demo_editor(directorio: Path):
-    """Devuelve un "editor" de demostraciÛn que sustituye a Aider en la demo.
+    """Devuelve un "editor" de demostraci√≥n que sustituye a Aider en la demo.
 
     En la primera llamada simula que Aider intenta corregir pero deja el bug
     (para que el tester falle); en la segunda recibe el error realimentado y
-    corrige ``name`` ‚Üí ``nombre`` en ``src/main.py``. AsÌ se muestra el ciclo
-    completo Editor ‚Üí Tester ‚Üí error ‚Üí correcciÛn ‚Üí Èxito, sin dependencias.
+    corrige ``name`` ‚Üí ``nombre`` en ``src/main.py``. As√≠ se muestra el ciclo
+    completo Editor ‚Üí Tester ‚Üí error ‚Üí correcci√≥n ‚Üí √©xito, sin dependencias.
     """
     estado = {"llamadas": 0}
     ruta_main = directorio / "src" / "main.py"
@@ -13410,7 +13410,7 @@ def _crear_demo_editor(directorio: Path):
     def _editor(archivos, mensaje, directorio, opciones_aider=""):
         estado["llamadas"] += 1
         if estado["llamadas"] == 1:
-            info("‚Üí Aider (demo) intenta corregir el saludo... (a˙n quedar· un error)")
+            info("‚Üí Aider (demo) intenta corregir el saludo... (a√∫n quedar√° un error)")
             return True
         info("‚Üí Aider (demo) recibe el error realimentado y corrige 'name' ‚Üí 'nombre'.")
         texto = ruta_main.read_text(encoding="utf-8")
@@ -13424,16 +13424,16 @@ def _crear_demo_editor(directorio: Path):
 
 
 def _ejecutar_demo() -> int:
-    """Ejecuta una demo autÛnoma de SnapContext (sin API key ni Aider real).
+    """Ejecuta una demo aut√≥noma de SnapContext (sin API key ni Aider real).
 
     Fases:
       1. Crea un proyecto Python de ejemplo en ``tempfile.mkdtemp()``.
-      2. ``--vista-previa --local``: muestra la selecciÛn de archivos relevantes.
+      2. ``--vista-previa --local``: muestra la selecci√≥n de archivos relevantes.
       3. ``--test-loop`` (equivalente): ejecuta el bucle de pruebas completo
-         (Editor ‚Üí Tester ‚Üí error realimentado ‚Üí correcciÛn ‚Üí Èxito).
+         (Editor ‚Üí Tester ‚Üí error realimentado ‚Üí correcci√≥n ‚Üí √©xito).
       4. Resume el tiempo total, los archivos seleccionados y el resultado.
 
-    Devuelve el cÛdigo de salida (0 = Èxito, 1 = fallo).
+    Devuelve el c√≥digo de salida (0 = √©xito, 1 = fallo).
     """
     t_inicio = time.monotonic()
     info("=== SnapContext ¬∑ Demo (sin API key) ===")
@@ -13441,7 +13441,7 @@ def _ejecutar_demo() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="snapcontext-demo-"))
     try:
         _crear_demo_proyecto(tmp)
-        consulta = ("Corrige la funciÛn saludar para que devuelva el saludo "
+        consulta = ("Corrige la funci√≥n saludar para que devuelva el saludo "
                     "correcto")
 
         args = crear_parser().parse_args(
@@ -13450,11 +13450,11 @@ def _ejecutar_demo() -> int:
             )
         )
 
-        # FASE 1: mostrar la selecciÛn de archivos (sin tocar cÛdigo).
-        info("‚îÄ‚îÄ FASE 1 ¬∑ SelecciÛn de archivos (--vista-previa --local) ‚îÄ‚îÄ")
+        # FASE 1: mostrar la selecci√≥n de archivos (sin tocar c√≥digo).
+        info("‚îÄ‚îÄ FASE 1 ¬∑ Selecci√≥n de archivos (--vista-previa --local) ‚îÄ‚îÄ")
         args.vista_previa = True
         if flujo_principal(args) != 0:
-            error("La selecciÛn de archivos fallÛ durante la demo.")
+            error("La selecci√≥n de archivos fall√≥ durante la demo.")
             return 1
 
         # Tras la fase 1, args ya trae carpetas/extensiones ajustadas por tipo.
@@ -13507,7 +13507,7 @@ def _registrar_historial_async(args: argparse.Namespace, codigo: int,
         "fecha": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "consulta": getattr(args, "consulta", None) or "(sin consulta)",
         "archivos": list(getattr(args, "archivos_seleccionados", []) or []),
-        "resultado": "Èxito" if codigo == 0 else "fallo",
+        "resultado": "√©xito" if codigo == 0 else "fallo",
         "duracion": round(duracion, 2),
     }
     hilo = threading.Thread(target=_guardar_historial,
@@ -13517,17 +13517,17 @@ def _registrar_historial_async(args: argparse.Namespace, codigo: int,
 
 
 def flujo_principal(args: argparse.Namespace) -> int:
-    """Orquesta el pipeline completo. Devuelve el cÛdigo de salida.
+    """Orquesta el pipeline completo. Devuelve el c√≥digo de salida.
 
-    La lÛgica se delega en el Orquestador (arquitectura de agentes); aquÌ solo
-    se conserva la firma de la CLI, la bandera de depuraciÛn global y, desde
-    v0.10.0, el registro autom·tico de la tarea en el historial persistente.
+    La l√≥gica se delega en el Orquestador (arquitectura de agentes); aqu√≠ solo
+    se conserva la firma de la CLI, la bandera de depuraci√≥n global y, desde
+    v0.10.0, el registro autom√°tico de la tarea en el historial persistente.
     """
     global DEPURAR
     DEPURAR = args.depurar
     # Al ejecutar como `python -m snapcontext` el archivo vive como `__main__`,
-    # pero agentes/orquestador hacen `import snapcontext` (copia de mÛdulo). Se
-    # sincroniza el flag en el mÛdulo compartido para que los logs salgan.
+    # pero agentes/orquestador hacen `import snapcontext` (copia de m√≥dulo). Se
+    # sincroniza el flag en el m√≥dulo compartido para que los logs salgan.
     import snapcontext as _snap_sync
     _snap_sync.DEPURAR = args.depurar
     from orquestador import Orquestador  # import diferido para evitar ciclos
@@ -13541,25 +13541,25 @@ def flujo_principal(args: argparse.Namespace) -> int:
         # hilo para no bloquear la salida del proceso.
         _registrar_historial_async(args, codigo, time.monotonic() - inicio)
         # Memoria de proyecto (v0.15.0): tras una tarea exitosa se propone
-        # (con confirmaciÛn) actualizar CLAUDE.md con lo aprendido.
+        # (con confirmaci√≥n) actualizar CLAUDE.md con lo aprendido.
         if codigo == 0 and MEMORIA_PROYECTO:
             try:
                 _actualizar_claude_md_automatico(
                     f"Tarea completada: {getattr(args, 'consulta', '')}",
                     directorio=getattr(args, "directorio", ".") or ".")
             except Exception as exc:        # nunca romper la salida
-                depurar(f"[memoria] actualizaciÛn fallÛ: {exc}")
+                depurar(f"[memoria] actualizaci√≥n fall√≥: {exc}")
 
 def conectar_db_inicial(args: argparse.Namespace) -> int:
-    """Conecta perezosamente a la base de datos si se pasÛ ``--db-url`` (v6.7.0).
+    """Conecta perezosamente a la base de datos si se pas√≥ ``--db-url`` (v6.7.0).
 
-    Prepara la conexiÛn para las herramientas MCP ``db_query``/``db_schema``.
-    Devuelve 0 (Èxito), 1 (error de conexiÛn) o 2 (driver no instalado).
+    Prepara la conexi√≥n para las herramientas MCP ``db_query``/``db_schema``.
+    Devuelve 0 (√©xito), 1 (error de conexi√≥n) o 2 (driver no instalado).
     """
     url = (getattr(args, "db_url", None) or "").strip()
     if not url:
         return 0
-    info("?? Conectando a base de datos...")
+    info("üêú Conectando a base de datos...")
     try:
         import mcp_tools_db as dbt
     except Exception as exc:                    # noqa: BLE001
@@ -13569,12 +13569,12 @@ def conectar_db_inicial(args: argparse.Namespace) -> int:
         resultado = dbt.db_connect(url,
                                    driver=getattr(args, "db_driver", None))
     except Exception as exc:                    # noqa: BLE001
-        error(f"‚ö†Ô∏è Error de conexiÛn: {exc}")
+        error(f"‚ö†Ô∏è Error de conexi√≥n: {exc}")
         return 1
     if resultado.get("ok"):
         exito(f"‚úÖ Conectado a {resultado.get('motor', 'base de datos')}")
         return 0
-    error(f"‚ö†Ô∏è Error de conexiÛn: {resultado.get('error', 'desconocido')}")
+    error(f"‚ö†Ô∏è Error de conexi√≥n: {resultado.get('error', 'desconocido')}")
     return 1
 
 
@@ -13584,7 +13584,7 @@ def iniciar_servidor_web(args: argparse.Namespace) -> int:
     Importa ``web.app`` de forma diferida para que la CLI funcione sin FastAPI;
     si falta la dependencia opcional, devuelve un mensaje claro y sal con 1.
 
-    v6.5.0: con ``--web-interactive`` se activa adem·s el centro de control
+    v6.5.0: con ``--web-interactive`` se activa adem√°s el centro de control
     interactivo (timeline ReAct + diff viewer) en ``/interactive``.
     """
     puerto = int(getattr(args, "web_puerto", 8000) or 8000)
@@ -13600,7 +13600,7 @@ def iniciar_servidor_web(args: argparse.Namespace) -> int:
         return 1
     info(f"Interfaz web en http://localhost:{puerto}  (Ctrl+C para salir)...")
     if interactiva:
-        info(f"?? Interfaz web interactiva: http://localhost:{puerto}/interactive")
+        info(f"üÜê Interfaz web interactiva: http://localhost:{puerto}/interactive")
     try:
         arrancar_servidor(puerto=puerto, interactiva=interactiva)
     except KeyboardInterrupt:
@@ -13616,9 +13616,9 @@ def iniciar_servidor_web(args: argparse.Namespace) -> int:
 
 
 def iniciar_api(args: argparse.Namespace) -> int:
-    """Arranca la API p˙blica (v3.6.0) en http://host:puerto.
+    """Arranca la API p√∫blica (v3.6.0) en http://host:puerto.
 
-    Reutiliza ``web.app``; si falta FastAPI/uvicorn muestra cÛmo instalarlas
+    Reutiliza ``web.app``; si falta FastAPI/uvicorn muestra c√≥mo instalarlas
     (``pip install snapcontext[web]``) y devuelve 1.
     """
     puerto = int(getattr(args, "api_puerto", 8001) or 8001)
@@ -13637,7 +13637,7 @@ def iniciar_api(args: argparse.Namespace) -> int:
         configuracion = cargar_configuracion()
         if not (configuracion.get("api_key") or "").strip():
             _generar_clave_api()
-            aviso("No habÌa API key: se generÛ una nueva y se guardÛ en "
+            aviso("No hab√≠a API key: se gener√≥ una nueva y se guard√≥ en "
                   "config.json ('api_key'). Consulta con --api-generate-key.")
     info(f"API de SnapContext en http://{host}:{puerto} "
          f"(docs interactivas en /docs y /redoc). Ctrl+C para salir...")
@@ -13651,14 +13651,14 @@ def _ejecutar_benchmark(args: argparse.Namespace) -> int:
     """``--benchmark``: mide y muestra el tiempo de cada fase (v6.9.0).
 
     Mide fases reales de SnapContext sin necesidad de API key:
-      ‚Ä¢ Inicio (import del mÛdulo + CLI).
+      ‚Ä¢ Inicio (import del m√≥dulo + CLI).
       ‚Ä¢ Escaneo de archivos.
-      ‚Ä¢ SelecciÛn (embeddings si disponible; si no, heurÌstica local).
-      ‚Ä¢ PreparaciÛn de plan (prompt + contexto, offline).
-      ‚Ä¢ EdiciÛn (fuzzy matching incremental sobre un archivo sintÈtico).
-      ‚Ä¢ DetecciÛn/validaciÛn de pruebas.
+      ‚Ä¢ Selecci√≥n (embeddings si disponible; si no, heur√≠stica local).
+      ‚Ä¢ Preparaci√≥n de plan (prompt + contexto, offline).
+      ‚Ä¢ Edici√≥n (fuzzy matching incremental sobre un archivo sint√©tico).
+      ‚Ä¢ Detecci√≥n/validaci√≥n de pruebas.
       ‚Ä¢ Total.
-    Muestra una tabla con `rich` (fallo a print plano si no est· instalado).
+    Muestra una tabla con `rich` (fallo a print plano si no est√° instalado).
     """
     import time as _t
     directorio = getattr(args, "directorio", None) or "."
@@ -13690,7 +13690,7 @@ def _ejecutar_benchmark(args: argparse.Namespace) -> int:
                 "(benchmark)", directorio, max_archivos=3)
     except Exception:                                # noqa: BLE001
         pass
-    filas.append(("SelecciÛn (embeddings/heurÌstica)", _t.perf_counter() - _t0))
+    filas.append(("Selecci√≥n (embeddings/heur√≠stica)", _t.perf_counter() - _t0))
 
     _t0 = _t.perf_counter()
     try:
@@ -13698,11 +13698,11 @@ def _ejecutar_benchmark(args: argparse.Namespace) -> int:
         _enriquecer_prompt_con_reglas(prompt, "(benchmark)")
     except Exception:                                # noqa: BLE001
         pass
-    filas.append(("GeneraciÛn de plan (prompt+contexto)", _t.perf_counter() - _t0))
+    filas.append(("Generaci√≥n de plan (prompt+contexto)", _t.perf_counter() - _t0))
 
     _t0 = _t.perf_counter()
     _fuzzy = _bench_fuzzy_edicion(directorio)
-    filas.append(("EdiciÛn (fuzzy matching)", _t.perf_counter() - _t0))
+    filas.append(("Edici√≥n (fuzzy matching)", _t.perf_counter() - _t0))
 
     _t0 = _t.perf_counter()
     try:
@@ -13710,7 +13710,7 @@ def _ejecutar_benchmark(args: argparse.Namespace) -> int:
         _det = _det
     except Exception:                                # noqa: BLE001
         pass
-    filas.append(("DetecciÛn de pruebas", _t.perf_counter() - _t0))
+    filas.append(("Detecci√≥n de pruebas", _t.perf_counter() - _t0))
 
     total = _t.perf_counter() - _TIEMPO_INICIO_MODULO
     filas.append(("Tiempo total", total))
@@ -13720,7 +13720,7 @@ def _ejecutar_benchmark(args: argparse.Namespace) -> int:
 
 
 def _bench_fuzzy_edicion(directorio: str) -> bool:
-    """Ejercita el fuzzy matching incremental sobre un archivo sintÈtico."""
+    """Ejercita el fuzzy matching incremental sobre un archivo sint√©tico."""
     import tempfile
     try:
         tmp = Path(tempfile.mkdtemp(prefix="sc_bench_"))
@@ -13740,7 +13740,7 @@ def _bench_fuzzy_edicion(directorio: str) -> bool:
 
 
 def _mostrar_tabla_benchmark(filas: List[tuple]) -> None:
-    """Pinta la tabla de tiempos con `rich` (o print plano sin Èl)."""
+    """Pinta la tabla de tiempos con `rich` (o print plano sin √©l)."""
     try:
         from rich.console import Console
         from rich.table import Table
@@ -13760,11 +13760,11 @@ def _mostrar_tabla_benchmark(filas: List[tuple]) -> None:
 def _ejecutar_tui(args: argparse.Namespace) -> int:
     """Modo TUI inmersiva (v6.12.0): ``snapcontext --tui [consulta]``.
 
-    Lanza la aplicaciÛn Textual (``tui_app.py``) y ejecuta el flujo de tarea
-    habitual (ReAct por defecto) en un hilo demonio. La comunicaciÛn agente ‚Üí
-    TUI se realiza vÌa la cola de ``tui_hub`` (nunca bloquea al agente).
+    Lanza la aplicaci√≥n Textual (``tui_app.py``) y ejecuta el flujo de tarea
+    habitual (ReAct por defecto) en un hilo demonio. La comunicaci√≥n agente ‚Üí
+    TUI se realiza v√≠a la cola de ``tui_hub`` (nunca bloquea al agente).
 
-    Si Textual no est· instalado, muestra un error claro y devuelve 2.
+    Si Textual no est√° instalado, muestra un error claro y devuelve 2.
     """
     try:
         import tui_app
@@ -13772,13 +13772,13 @@ def _ejecutar_tui(args: argparse.Namespace) -> int:
         error(f"No se pudo cargar la TUI: {exc}")
         return 2
     if not getattr(tui_app, "TEXTUAL_DISPONIBLE", False):
-        error("Textual no est· instalado. Instala el grupo opcional:\n"
+        error("Textual no est√° instalado. Instala el grupo opcional:\n"
               "    pip install snapcontext[tui]\n"
               "    (o directamente: pip install 'textual>=0.50.0')")
         return 2
     consulta = str(getattr(args, "consulta", "") or "")
     print("üñ•Ô∏è Interfaz TUI inmersiva (Textual) ‚Äî Ctrl+C para salir")
-    # Import tardÌo: evita ciclos y mantiene el CLI tradicional intacto.
+    # Import tard√≠o: evita ciclos y mantiene el CLI tradicional intacto.
     import tui_hub
     tui_hub.reiniciar()
     tui_hub.activar()
@@ -13800,7 +13800,7 @@ def _ejecutar_tui(args: argparse.Namespace) -> int:
                                       version=VERSION)
         return int(codigo or 0)
     except Exception as exc:                     # noqa: BLE001
-        error(f"La TUI fallÛ: {exc}")
+        error(f"La TUI fall√≥: {exc}")
         return 1
     finally:
         tui_hub.desactivar()
@@ -13809,13 +13809,13 @@ def _ejecutar_tui(args: argparse.Namespace) -> int:
 def _ejecutar_comando_hook(argv: Optional[list] = None) -> int:
     """Gateway ``snapcontext hook list`` (v6.22.0).
 
-    Por ahora la ˙nica subacciÛn es ``list``, que vuelca los hooks registrados
+    Por ahora la √∫nica subacci√≥n es ``list``, que vuelca los hooks registrados
     (tras cargar plugins y directorio de hooks) en formato legible.
     """
     try:
         import hooks as _hooks
     except Exception as exc:                             # noqa: BLE001
-        error(f"No se pudo importar el mÛdulo de hooks: {exc}")
+        error(f"No se pudo importar el m√≥dulo de hooks: {exc}")
         return 1
     if not argv or argv[0].lower() == "list":
         _hooks.cargar_todos_los_hooks()
@@ -13836,7 +13836,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     _registrar_manejadores_senales()
     if argv is None:
         # Al ejecutar como script (`python snapcontext.py ...`) argparse debe
-        # ver los argumentos reales; si pas·ramos [] vacÌo, se perderÌan.
+        # ver los argumentos reales; si pas√°ramos [] vac√≠o, se perder√≠an.
         argv = sys.argv[1:]
     # v3.1.1: sin argumentos ‚Üí ayuda resumida y amigable (no un error).
     if not argv:
@@ -13873,13 +13873,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         # para todos los modos (chat, planificador, ...).
         global CONFIRMAR_ACCIONES
         CONFIRMAR_ACCIONES = getattr(args, "confirmar", True)
-        # v6.24.0: enrutamiento de modelos. Los flags explÌcitos --model /
-        # --provider desactivan el enrutado (prioridad m·xima del usuario).
+        # v6.24.0: enrutamiento de modelos. Los flags expl√≠citos --model /
+        # --provider desactivan el enrutado (prioridad m√°xima del usuario).
         _explicito = bool(getattr(args, "modelo", None)
                           or getattr(args, "provider", None))
         _configurar_model_routing(
             bool(getattr(args, "model_routing", True)), explicito=_explicito)
-        # v6.30.0: enrutamiento hÌbrido Local-Nube (fallback + umbrales CLI).
+        # v6.30.0: enrutamiento h√≠brido Local-Nube (fallback + umbrales CLI).
         _mf_flag = getattr(args, "model_fallback", None)
         if _mf_flag is None:
             try:
@@ -13893,33 +13893,33 @@ def main(argv: Optional[List[str]] = None) -> int:
             prioridad_local=getattr(args, "model_prioridad_local", None),
             prioridad_nube=getattr(args, "model_prioridad_nube", None),
         )
-        # v6.31.0: Prompt Caching por Capas (None ? entorno/config/defecto).
+        # v6.31.0: Prompt Caching por Capas (None ‚Üí entorno/config/defecto).
         _configurar_prompt_caching_capas(
             getattr(args, "prompt_caching_capas", None))
-        # v6.32.0: Pruning proactivo de contexto (None ? config/defecto activado).
+        # v6.32.0: Pruning proactivo de contexto (None ‚Üí config/defecto activado).
         _configurar_pruning(getattr(args, "prune_context", None))
         _configurar_umbral_pruning(getattr(args, "prune_umbral", None))
         # v4.8.0: sincroniza el modo no interactivo de la capa UI (--auto).
         _ui_configurar_auto(bool(getattr(args, "auto", False)))
 # v4.8.0: sincroniza el modo no interactivo de la capa UI (--auto).
         _ui_configurar_auto(bool(getattr(args, "auto", False)))
-        # v6.4.0: `--sandbox-session-clean` limpia contenedores huÈrfanos y sale.
+        # v6.4.0: `--sandbox-session-clean` limpia contenedores hu√©rfanos y sale.
         if getattr(args, "sandbox_session_clean", False):
-            _limpiar_sesiones_huÈrfanas(
+            _limpiar_sesiones_hu√©rfanas(
                 auto=bool(getattr(args, "auto", False)))
             return 0
-        # v4.3.0/v5.4.0: polÌtica de sandbox. --no-sandbox gana sobre todo;
-        # despuÈs --sandbox explÌcito; y SNAPCONTEXT_SANDBOX=1 activa el
-        # contenedor para todo (no estricto: si falta Docker se contin˙a sin
-        # Èl, los comandos peligrosos los gestiona _decidir_ejecucion_sandbox).
+        # v4.3.0/v5.4.0: pol√≠tica de sandbox. --no-sandbox gana sobre todo;
+        # despu√©s --sandbox expl√≠cito; y SNAPCONTEXT_SANDBOX=1 activa el
+        # contenedor para todo (no estricto: si falta Docker se contin√∫a sin
+        # √©l, los comandos peligrosos los gestiona _decidir_ejecucion_sandbox).
         if getattr(args, "no_sandbox", False) or \
                 os.environ.get("SNAPCONTEXT_SANDBOX") == "0":
             _configurar_no_sandbox(True)
         elif getattr(args, "sandbox_session", False):
             if not _docker_disponible():
                 raise RuntimeError(
-                    "--sandbox-session solicita Docker pero no est· disponible "
-                    "(¬øinstalado? ¬øel daemon est· en ejecuciÛn?). Instala Docker "
+                    "--sandbox-session solicita Docker pero no est√° disponible "
+                    "(¬øinstalado? ¬øel daemon est√° en ejecuci√≥n?). Instala Docker "
                     "Desktop o inicia el servicio 'docker'.")
             _activar_sandbox(
                 imagen=getattr(args, "sandbox_imagen", None),
@@ -13949,23 +13949,23 @@ def main(argv: Optional[List[str]] = None) -> int:
                 _cp.iniciar_daemon_fondo()
         except Exception:                        # noqa: BLE001 ‚Äî nunca bloquea
             pass
-        # v5.6.0: verificaciÛn temprana de directorio de proyecto.
-        # Si el directorio actual no parece ser raÌz de un proyecto y no se ha
-        # usado un flag que no requiera proyecto, muestra un aviso ˙til.
+        # v5.6.0: verificaci√≥n temprana de directorio de proyecto.
+        # Si el directorio actual no parece ser ra√≠z de un proyecto y no se ha
+        # usado un flag que no requiera proyecto, muestra un aviso √∫til.
         _salida_proyecto = _advertencia_directorio_proyecto(args)
         if _salida_proyecto is not None:
             return _salida_proyecto
-        # v3.1.1: --bienvenida explÌcito ejecuta el tutorial y marca el
+        # v3.1.1: --bienvenida expl√≠cito ejecuta el tutorial y marca el
         # primer uso como completado (por si quiere volver a verlo).
         if getattr(args, "bienvenida", False):
             codigo = _tutorial_interactivo()
             _marcar_primer_uso_completado()
             return codigo
-        # v3.1.1: primer uso ‚Üí tutorial autom·tico y se contin˙a con el
+        # v3.1.1: primer uso ‚Üí tutorial autom√°tico y se contin√∫a con el
         # comando pedido. Solo en terminales interactivos (nunca en tests,
         # CI o scripts) para evitar bloqueos.
         if _primer_uso_pendiente() and _entrada_interactiva():
-            info("?? Parece que es tu primera vez con SnapContext. "
+            info("üòπ Parece que es tu primera vez con SnapContext. "
                  "Mostrando el tutorial (--bienvenida)...")
             print()
             _tutorial_interactivo()
@@ -13979,12 +13979,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         # existe, para todos los modos que hablan con el agente.
         global MEMORIA_PROYECTO
         MEMORIA_PROYECTO = _cargar_claude_md()
-        # Skills din·micos (v6.6.0): flag global (activado por defecto,
+        # Skills din√°micos (v6.6.0): flag global (activado por defecto,
         # se desactiva con --sin-skills-dinamicos).
         global SKILLS_DINAMICOS
         SKILLS_DINAMICOS = bool(getattr(args, "skills_dinamicos", True))
         if MEMORIA_PROYECTO:
-            info("?? Memoria de proyecto cargada ("
+            info("üóú Memoria de proyecto cargada ("
                  + (_buscar_claude_md().name or "CLAUDE.md") + ").")
         # --init es independiente: configura claves/proveedor y sale.
         if getattr(args, "init", False):
@@ -13993,7 +13993,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         # y termina sin recorrer el pipeline (ni pedir consulta).
         if getattr(args, "setup_path", False):
             return configurar_path()
-        # v3.1.0: diagnÛstico, reparaciÛn y tutorial son independientes.
+        # v3.1.0: diagn√≥stico, reparaci√≥n y tutorial son independientes.
         if getattr(args, "diagnostico", False):
             return _ejecutar_diagnostico(args)
         if getattr(args, "reparar", False):
@@ -14004,7 +14004,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         # v6.12.0: --tui inicia la TUI inmersiva (Textual) y bloquea hasta salir.
         if getattr(args, "tui", False):
             return _ejecutar_tui(args)
-        # v6.20.0: gestiÛn de sub-agentes din·micos (independiente).
+        # v6.20.0: gesti√≥n de sub-agentes din√°micos (independiente).
         if getattr(args, "sub_agente_listar", False):
             return _ejecutar_listar_sub_agentes()
         if getattr(args, "sub_agente_nuevo", None):
@@ -14015,13 +14015,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             _paso = args.git_revert
             return _ejecutar_revert(
                 None if _paso == -1 else str(_paso))
-        # --demo ejecuta una demo autÛnoma (sin API key ni Aider) y termina.
+        # --demo ejecuta una demo aut√≥noma (sin API key ni Aider) y termina.
         if getattr(args, "demo", False):
             return _ejecutar_demo()
         # --historial-limpiar borra la memoria persistente y termina.
         if getattr(args, "historial_limpiar", False):
             return 0 if _limpiar_historial() else 1
-        # --historial muestra las ˙ltimas tareas guardadas y termina.
+        # --historial muestra las √∫ltimas tareas guardadas y termina.
         if getattr(args, "historial", False):
             _mostrar_historial()
             return 0
@@ -14031,7 +14031,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 intervalo_horas=getattr(args, "daemon_intervalo",
                                         DAEMON_INTERVALO_HORAS_DEFECTO))
             return 0
-        # --curador ejecuta una pasada ˙nica del curador y termina.
+        # --curador ejecuta una pasada √∫nica del curador y termina.
         if getattr(args, "curador", False):
             _curador_ejecutar()
             return 0
@@ -14039,17 +14039,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         # CLAUDE.md/SNAPCONTEXT.md y termina (idempotente).
         if getattr(args, "inyectar_reglas", False):
             import skill_abstraction as _sa
-            aÒadidas = _sa.inyectar_todas_las_reglas(
+            a√±adidas = _sa.inyectar_todas_las_reglas(
                 getattr(args, "directorio", ".") or ".")
-            info(f"?? Reglas inyectadas en CLAUDE.md: {aÒadidas} nueva(s).")
+            info(f"üóú Reglas inyectadas en CLAUDE.md: {a√±adidas} nueva(s).")
             return 0
-        # v3.5.0/4.2.0: asesor de cÛdigo (--asesor/--sugerir/--asesor-auto/
-        # --asesor-profundo; el profundo implica ejecutar el an·lisis).
+        # v3.5.0/4.2.0: asesor de c√≥digo (--asesor/--sugerir/--asesor-auto/
+        # --asesor-profundo; el profundo implica ejecutar el an√°lisis).
         if (getattr(args, "asesor", False)
                 or getattr(args, "asesor_auto", False)
                 or getattr(args, "asesor_profundo", False)):
             return _ejecutar_asesor(args)
-        # v3.6.0: API p˙blica ‚Äî generar clave y/o arrancar el servidor REST.
+        # v3.6.0: API p√∫blica ‚Äî generar clave y/o arrancar el servidor REST.
         if getattr(args, "api_generate_key", False):
             clave = _generar_clave_api()
             exito("API key generada y guardada en ~/.snapcontext/config.json "
@@ -14062,7 +14062,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         if getattr(args, "skills", False):
             filas = _skill_listar(incluir_archivados=True)
             if not filas:
-                info("A˙n no hay skills aprendidos. Se crean al completar "
+                info("A√∫n no hay skills aprendidos. Se crean al completar "
                      "tareas con --plan.")
             for f in filas:
                 estado = "archivado" if f["archivado"] else "activo"
@@ -14085,7 +14085,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         # legacy para scripts. El flag --react se acepta (redundante).
         # v6.23.0: modo inteligente por defecto ‚Äî detecta la complejidad y
         # aplica defaults (--local/--mostrar-razonamiento/--auto/--paralelo)
-        # solo si el usuario no eligiÛ flags explÌcitos.
+        # solo si el usuario no eligi√≥ flags expl√≠citos.
         args = _aplicar_modo_inteligente(args)
         # v6.24.0: mensaje de enrutamiento al inicio de la tarea.
         if (_MODEL_ROUTING_ACTIVO and not _MODELO_EXPLICITO
@@ -14098,7 +14098,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     {"model_routing": _cargar_configuracion_routing()})
                 if _p:
                     _m_ef = _m or PROVEEDORES[_p]["modelo_default"]
-                    info(f"?? Modelo enrutado: {_cat} ‚Üí {_p}/{_m_ef}")
+                    info(f"üß† Modelo enrutado: {_cat} ‚Üí {_p}/{_m_ef}")
             except Exception:                            # noqa: BLE001
                 pass
         return _ejecutar_modo_tarea(args)
