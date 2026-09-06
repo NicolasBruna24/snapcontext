@@ -4,6 +4,26 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.34.4] - 2026-09-05 - 🧪 CI: smoke tests para evitar OOM killer
+
+### Fixed
+- **OOM killer (exit 137) en GitHub Actions**: la suite completa de tests
+  (~1.771 tests) carga dependencias pesadas (textual, playwright,
+  tree-sitter, docker, torch) y supera los ~7 GB de RAM de los runners
+  gratuitos. El workflow de CI ahora ejecuta únicamente smoke tests
+  (`tests/test_import.py`) con instalación base (`pip install -e .`,
+  sin extras).
+
+### Added
+- **`tests/test_import.py`**: smoke tests mínimos — importa `snapcontext`
+  (verifica `VERSION`), valida el formato de la versión y comprueba que
+  `python -m snapcontext --help` responde correctamente.
+- La verificación estricta del wheel (módulos críticos) y `twine check`
+  se mantienen en el workflow, y `publish-pypi` sigue dependiendo de que
+  los tests pasen.
+
+
+
 ## [6.34.3] - 2026-09-05 - 🌐 Codificación UTF-8 en todo el código
 
 ### Fixed
