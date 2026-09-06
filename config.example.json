@@ -1,0 +1,21 @@
+{
+  "provider": "gemini",
+  "model": "gemini-2.0-flash",
+  "api_keys": {
+    "gemini": "TU_AQUI_LA_CLAVE_DE_GEMINI"
+  },
+  "asesor": {
+    "max_lineas_funcion": 50,
+    "max_lineas_clase": 200,
+    "max_duplicado_lineas": 6,
+    "max_archivos_escaneados": 200
+  },
+  "sandbox": {
+    "habilitado": true,
+    "imagen": "python:3.12-slim"
+  },
+  "mcp": {
+    "servidores": []
+  },
+  "plugins": {}
+}

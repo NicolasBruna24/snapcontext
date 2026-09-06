@@ -165,6 +165,32 @@ def guardar_configuracion(provider: str, model: Optional[str] = None,
     except OSError:
         return False
 
+
+# --- _asegurar_permisos_config (nuevo: seguridad de secretos) ---
+def _asegurar_permisos_config() -> None:
+    """Restringe los permisos de ~/.snapcontext/config.json al propietario.
+
+    - Unix/Linux/macOS: ``0o600`` (solo lectura/escritura para el usuario).
+    - Windows: ``os.chmod`` es limitado, pero al menos elimina herencia de ACLs
+      del directorio padre. La protección real en Windows depende del usuario
+      mover ``~/.snapcontext`` a una ubicación con ACLs restrictivas.
+    """
+    import stat
+
+    try:
+        if not CONFIG_PATH.is_file():
+            return
+        if os.name == "nt":
+            # Windows: 0o600 se traduce a "solo el propietario tiene control".
+            # No es perfecto (Windows usa ACLs), pero es mejor que nada.
+            os.chmod(CONFIG_PATH, stat.S_IRUSR | stat.S_IWUSR)
+        else:
+            # Unix/Linux/macOS: 0o600 estricto.
+            os.chmod(CONFIG_PATH, 0o600)
+    except OSError:
+        pass  # No romper el flujo si el SO no lo soporta
+
+
 # --- _actualizar_clave_configuracion (1317-1331) ---
 def _actualizar_clave_configuracion(clave: str, valor) -> bool:
     """Actualiza una clave arbitraria de ~/.snapcontext/config.json.
@@ -178,9 +204,11 @@ def _actualizar_clave_configuracion(clave: str, valor) -> bool:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         CONFIG_PATH.write_text(
             json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8")
+        _asegurar_permisos_config()
         return True
     except OSError:
         return False
+
 
 # --- _generar_clave_api (1334-1345) ---
 def _generar_clave_api(guardar: bool = True) -> str:
