@@ -91,6 +91,8 @@ py-modules = [
     "instalador",
     # Fase 3: capa de presentación (UI/colores/banners) extraída del monolito.
     "presentacion",
+    # Fase 4: asistente de configuración inicial y proveedores de IA.
+    "configuracion",
 ]
 packages = ["web"]
 
