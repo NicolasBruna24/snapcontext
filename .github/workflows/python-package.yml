@@ -42,7 +42,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pytest build twine
-          pip install -e ".[all]"
+          # Instalamos solo los extras necesarios para los tests.
+          # El extra "all" incluye "xpu" (Intel XPU) que requiere torch/ipex,
+          # paquetes que fallan con frecuencia en GitHub Actions.
+          pip install -e ".[web,browser,db,tui]"
 
       - name: Run tests
         run: pytest tests -q
