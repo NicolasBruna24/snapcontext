@@ -1,0 +1,111 @@
+# CI/CD para el paquete Python de SnapContext.
+#
+# 1. Ejecuta los tests en cada push/PR a main (Python 3.10–3.13).
+# 2. Verifica de forma ESTRICTA que el wheel contiene todos los módulos
+#    críticos, evitando el bug de empaquetado C1 (módulos faltantes).
+# 3. Publica en PyPI (trusted publishing) al crear un tag v*.*.*.
+name: python-package
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build & Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest build twine
+          pip install -e ".[all]"
+
+      - name: Run tests
+        run: pytest tests -q
+
+      - name: Build wheel and sdist
+        run: python -m build
+
+      - name: List wheel contents
+        run: unzip -l dist/*.whl
+
+      - name: Verify wheel contains all critical modules
+        # Verificación estricta: si falta alguno de estos módulos, el job
+        # falla y bloquea tanto la merge como la publicación.
+        run: |
+          python - <<'PY'
+          import glob, sys, zipfile
+
+          wheels = glob.glob("dist/*.whl")
+          assert len(wheels) == 1, f"Se esperaba 1 wheel, hay {len(wheels)}: {wheels}"
+
+          names = zipfile.ZipFile(wheels[0]).namelist()
+          criticos = [
+              "sandbox_session", "tui_hub", "tui_app", "lsp_client",
+              "qa_tester_logic", "session_manager", "memory_store",
+              "tui_interactiva", "autocorrector",
+          ]
+          faltantes = [m for m in criticos if f"{m}.py" not in names]
+          if faltantes:
+              print("FALTAN MODULOS EN EL WHEEL:", faltantes)
+              sys.exit(1)
+          print("OK: todos los módulos críticos están presentes en el wheel.")
+          PY
+
+      - name: Validate package with twine
+        run: python -m twine check dist/*
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build-and-test
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/snapcontext/
+    permissions:
+      # Necesario para trusted publishing (OIDC a PyPI). NO requiere token.
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+          python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
