@@ -255,3 +255,49 @@ def ejecutar_comando_con_politica(comando: str,
         timeout=timeout,
         creationflags=_flags_creacion(),
     )
+
+
+def lanzar_proceso_fondo_seguro(comando: str,
+                                cwd: Optional[str] = None,
+                                capturar_salida: bool = True,
+                                ) -> "subprocess.Popen":
+    """Lanza ``comando`` en segundo plano aplicando la política segura.
+
+    Igual que :func:`ejecutar_comando_con_politica` pero vía
+    :class:`subprocess.Popen` (no bloquea): sin sintaxis de shell el comando
+    se divide con ``shlex.split`` y se ejecuta con ``shell=False``; con
+    pipes/redirecciones se mantiene ``shell=True`` **tras validar** con
+    :func:`es_comando_peligroso` (lanza :class:`RuntimeError` si es peligroso).
+
+    Devuelve el objeto ``Popen`` (el llamador es responsable de registrarlo
+    y leer sus pipes si capturó la salida).
+    """
+    texto = str(comando or "")
+    if not texto.strip():
+        raise ValueError("Comando vacío en lanzar_proceso_fondo_seguro.")
+    if not tiene_metacaracteres_shell(texto):
+        argv = shlex.split(texto)
+        return subprocess.Popen(
+            argv,
+            cwd=cwd,
+            shell=False,
+            stdout=subprocess.PIPE if capturar_salida else None,
+            stderr=subprocess.PIPE if capturar_salida else None,
+            text=capturar_salida,
+            errors="replace" if capturar_salida else None,
+            creationflags=_flags_creacion(),
+        )
+    if es_comando_peligroso(texto):
+        raise RuntimeError(
+            "Comando potencialmente peligroso rechazado para ejecución en "
+            f"segundo plano: {texto!r}")
+    return subprocess.Popen(
+        texto,
+        cwd=cwd,
+        shell=True,
+        stdout=subprocess.PIPE if capturar_salida else None,
+        stderr=subprocess.PIPE if capturar_salida else None,
+        text=capturar_salida,
+        errors="replace" if capturar_salida else None,
+        creationflags=_flags_creacion(),
+    )

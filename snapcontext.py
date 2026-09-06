@@ -4559,13 +4559,12 @@ def _lanzar_proceso_fondo(comando: str, directorio: str = ".",
         return {"ok": False,
                 "error": f"Comando peligroso rechazado (sin sandbox): {comando}"}
     try:
-        if capture_output:
-            proc = subprocess.Popen(
-                comando, cwd=str(raiz), shell=True,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, errors="replace")
-        else:
-            proc = subprocess.Popen(comando, cwd=str(raiz), shell=True)
+        # seguridad (A1): lanzamiento en background vía helper con política
+        # (shell=False para comandos simples; shell=True solo para pipes,
+        #  tras validar que no es peligroso — ya pre-filtrado arriba).
+        import sandbox_utils as _su                        # noqa: E402
+        proc = _su.lanzar_proceso_fondo_seguro(
+            comando, cwd=str(raiz), capturar_salida=capture_output)
         registro = {"ok": True, "pid": proc.pid,
                     "proceso": proc, "estado": "ejecutando",
                     "comando": comando, "codigo_retorno": None,
