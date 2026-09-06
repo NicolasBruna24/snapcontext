@@ -4,6 +4,16 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.34.6] - 2026-09-05 - 🔧 Fix: error de importación en CI (Fase 4)
+
+### Fixed
+- **ImportError en GitHub Actions (Fase 4)**: el proxy PEP 562 `__getattr__`
+  en `configuracion.py` causaba un ciclo de importación cuando `snapcontext.py`
+  ejecutaba `from configuracion import (...)` durante su propia inicialización.
+  Reemplazado por **imports diferidos explícitos** dentro de cada función
+  (patrón ya probado en fases anteriores), eliminando el ciclo y restaurando
+  el build en CI para Python 3.10–3.13.
+
 ## [6.34.4] - 2026-09-05 - 🧪 CI: smoke tests para evitar OOM killer
 
 ### Fixed

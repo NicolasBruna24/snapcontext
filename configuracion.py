@@ -25,25 +25,6 @@ from presentacion import (  # noqa: E402
     info,
 )
 
-# Globales perezosos de snapcontext (módulos IA y helpers) — PEP 562.
-_PROXY = (
-    "_importar_anthropic",
-    "_importar_genai",
-    "_importar_openai",
-    "_resolver_url_openai",
-    "anthropic",
-    "genai",
-    "openai",
-    "MODELOS_LIGEROS_OLLAMA",
-)
-
-
-def __getattr__(name: str):  # noqa: D103
-    if name in _PROXY:
-        import snapcontext as _sc  # lazy: evita ciclo en import time
-
-        return getattr(_sc, name)
-    raise AttributeError(f"módulo 'configuracion' no tiene el atributo {name!r}")
 
 
 # --- PROVEEDOR_DEFECTO (487-487) ---
