@@ -84,9 +84,10 @@ py-modules = [
     "graph_lsp_integrator", "backend_xpu",
     # v6.34.1: fix crÃ­tico â€” mÃ³dulos faltantes que el cÃ³digo importa en
     # tiempo de ejecuciÃ³n (--sandbox-session, --tui, --lsp, --multi-agent).
+    # v6.34.5: asesor de seguridad/rendimiento extraído del monolito.
     "sandbox_session", "tui_hub", "tui_app", "lsp_client",
     "qa_tester_logic", "session_manager", "memory_store",
-    "tui_interactiva", "autocorrector",
+    "tui_interactiva", "autocorrector", "seguridad",
 ]
 packages = ["web"]
 
