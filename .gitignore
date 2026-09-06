@@ -10,9 +10,27 @@ venv/
 # Entorno
 .env
 .env.*
+# Archivos de depuraciÃ³n y logs
+# `/_*` anclado a la raÃ­z: no ignoramos __init__.py ni archivos `_*` de subcarpetas.
+*.log
+*.bak
+*.diff
+/_*
+builderr.txt
+piplog.txt
+pytest_result.txt
+results.txt
+test_output.log
+test_result.txt
+buildlog.txt
+
+# Archivos de empaquetado temporal
+*.spec
+*.nsi
+*.pyc
 
 
-# Artefactos de compilación de la extensión JetBrains
+# Artefactos de compilaciï¿½n de la extensiï¿½n JetBrains
 jetbrains/build/
 jetbrains/.gradle/
 jetbrains/buildSearchableOptions/
