@@ -164,7 +164,8 @@ class TestIntegracionCLI(unittest.TestCase):
         self.assertFalse(args.tui)
 
     def test_version_actualizada(self):
-        self.assertEqual(sc.VERSION, "6.33.0")
+        # Dinámico: solo verifica coherencia entre snapcontext y pyproject.toml.
+        self.assertIsInstance(sc.VERSION, str)
         ruta = os.path.join(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))), "pyproject.toml")
         with open(ruta, encoding="utf-8") as fh:

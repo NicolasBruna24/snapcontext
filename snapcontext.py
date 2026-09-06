@@ -603,149 +603,17 @@ if os.name == "nt":
             pass
 
 # ---------------------------------------------------------------------------
-# Salida por consola (colores ANSI con soporte Windows y NO_COLOR)
+# Salida por consola: la implementación vive en :mod:`presentacion` (Fase 3).
+# Se re-exportan los nombres para preservar la API interna (``sc.info``,
+# ``sc._pintar``, ``sc.DEPURAR``, ``sc.fijar_evento_callback``, ...).
 # ---------------------------------------------------------------------------
-_GLIFOS_ASCII = {
-    "\u2139": "[i]",           # ℹ
-    "\u2714": "[OK]",          # ✔
-    "\u26a0": "[!]",           # ⚠
-    "\u2716": "[ERROR]",       # ✖
-    "\u2022": "-",             # •
-    "\u2192": "->",            # →
-    "\u2014": "-",            # — (em dash)
-}
-
-
-def _consola_es_utf8() -> bool:
-    """Heurística: todas las salidas estándar soportan UTF-8 sin excepción."""
-    for _flujo in (sys.stdout, sys.stderr):
-        try:
-            codificacion = (_flujo.encoding or "").lower().replace("-", "")
-        except Exception:
-            codificacion = ""
-        if codificacion and "utf" not in codificacion:
-            return False
-    return True
-
-
-def _texto_seguro(texto: str) -> str:
-    """Reemplaza símbolos Unicode por alternativas ASCII si la consola no es UTF-8."""
-    if _consola_es_utf8():
-        return texto
-    for simbolo, alternativo in _GLIFOS_ASCII.items():
-        texto = texto.replace(simbolo, alternativo)
-    return texto
-
-
-# Callback global de eventos hacia la interfaz web (y otros consumidores).
-# Recibe dicts con al menos {"tipo": ...}. Se activa con fijar_evento_callback.
-EVENTO_CALLBACK = None  # type: ignore[assignment]
-
-
-def fijar_evento_callback(manejador) -> None:
-    """Registra un manejador de eventos (p. ej. la interfaz web).
-
-    ``manejador(dict)`` recibe eventos como ``{\"tipo\": \"log\", ...}`` para
-    mostrar en tiempo real lo que hacen el orquestador y los agentes. Pasa
-    ``None`` para limpiar el registro.
-    """
-    global EVENTO_CALLBACK
-    EVENTO_CALLBACK = manejador
-
-
-def _emitir(stream, texto: str) -> None:
-    """Escribe texto con seguridad ante codificaciones limitadas."""
-    seguro = _texto_seguro(texto)
-    try:
-        print(seguro, file=stream)
-    except UnicodeEncodeError:
-        print(seguro.encode("ascii", "replace").decode("ascii"), file=stream)
-    # Si hay un manejador registrado (interfaz web), se le difunde el log en
-    # tiempo real junto con su nivel, para que la UI lo muestre mientras corre.
-    if EVENTO_CALLBACK is not None:
-        try:
-            EVENTO_CALLBACK({
-                "tipo": "log",
-                "nivel": "error" if stream is sys.stderr else "info",
-                "texto": seguro,
-            })
-        except Exception:
-            pass
-
-
-def _soporta_color() -> bool:
-    """Activa colores solo en terminal interactiva (respeta NO_COLOR)."""
-    if os.environ.get("NO_COLOR"):
-        return False
-    if os.environ.get("FORCE_COLOR") not in (None, "", "0"):
-        return True
-    try:
-        return sys.stdout.isatty()
-    except Exception:
-        return False
-
-
-if _soporta_color():
-    _VERDE, _AMARILLO, _ROJO, _CYAN, _GRIS, _REINICIO = (
-        "\033[92m", "\033[93m", "\033[91m", "\033[96m", "\033[90m", "\033[0m",
-    )
-else:
-    _VERDE = _AMARILLO = _ROJO = _CYAN = _GRIS = _REINICIO = ""
-
-DEPURAR = False  # se activa con --depurar
-
-
-def _pintar(texto: str, codigo: str) -> str:
-    return f"{codigo}{texto}{_REINICIO}"
-
-
-_TUI_HUB: object = False  # caché perezosa del hub TUI (False = no probado)
-
-
-def _tui_log(nivel: str, msg: str) -> None:
-    """Reenvía un log a la TUI (v6.12.0) si el modo está activo.
-
-    Nunca lanza ni bloquea: si Textual/tui_hub no está disponible o la cola
-    está llena, el evento simplemente se descarta. Coste ~0 cuando la TUI
-    está inactiva (una comprobación booleana).
-    """
-    global _TUI_HUB
-    if _TUI_HUB is False:
-        try:
-            import tui_hub as _hub
-            _TUI_HUB = _hub
-        except Exception:                        # noqa: BLE001
-            _TUI_HUB = None
-    if _TUI_HUB and getattr(_TUI_HUB, "esta_activo", lambda: False)():
-        try:
-            _TUI_HUB.enviar_log(nivel, str(msg))
-        except Exception:                        # noqa: BLE001 — nunca romper
-            pass
-
-
-def info(msg: str) -> None:
-    _tui_log("info", msg)
-    _emitir(sys.stdout, _pintar("\u2139 " + msg, _CYAN))
-
-
-def exito(msg: str) -> None:
-    _tui_log("info", msg)
-    _emitir(sys.stdout, _pintar("\u2714 " + msg, _VERDE))
-
-
-def aviso(msg: str) -> None:
-    _tui_log("warning", msg)
-    _emitir(sys.stdout, _pintar("\u26a0 " + msg, _AMARILLO))
-
-
-def error(msg: str) -> None:
-    _tui_log("error", msg)
-    _emitir(sys.stderr, _pintar("\u2716 " + msg, _ROJO))
-
-
-def depurar(msg: str) -> None:
-    if DEPURAR:
-        _emitir(sys.stdout, _pintar("  [depuración] " + msg, _GRIS))
+from presentacion import (                              # noqa: E402,F401
+    DEPURAR, EVENTO_CALLBACK, _ANSI, _AMARILLO, _AYUDA_CON_COLOR, _CYAN,
+    _GLIFOS_ASCII, _GRIS, _REINICIO, _ROJO, _TUI_HUB, _VERDE,
+    _colores_activos, _consola_es_utf8, _emitir, _pintar, _soporta_color,
+    _texto_seguro, _tui_log, aviso, depurar, error, exito,
+    fijar_evento_callback, info,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -2542,15 +2410,17 @@ def _mostrar_diff_parche(parche: str, ruta: Optional[str] = None) -> None:
         _tui_log("info", f"🗜 Diff generado: {ruta or '(parche)'} "
                          f"(+{anadidas}/-{eliminadas})")
         try:
-            global _TUI_HUB
-            if _TUI_HUB is False:
+            import presentacion as _pres
+            if _pres._TUI_HUB is False:
                 try:
                     import tui_hub as _hub_d
-                    _TUI_HUB = _hub_d
+                    _pres._TUI_HUB = _hub_d
                 except Exception:                # noqa: BLE001
-                    _TUI_HUB = None
-            if _TUI_HUB and getattr(_TUI_HUB, "esta_activo", lambda: False)():
-                _TUI_HUB.enviar_diff(ruta or "(parche)", parche)
+                    _pres._TUI_HUB = None
+            _hub_activo = _pres._TUI_HUB
+            if _hub_activo and getattr(_hub_activo, "esta_activo",
+                                       lambda: False)():
+                _hub_activo.enviar_diff(ruta or "(parche)", parche)
         except Exception:                        # noqa: BLE001 — blindaje TUI
             pass
         _ui.mostrar_diff(ruta or "(parche)", anadidas, eliminadas, parche)
@@ -7661,7 +7531,8 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
     (por defecto) commitea `paso: <descripción>` tras cada paso exitoso.
     """
     global DEPURAR
-    DEPURAR = getattr(args, "depurar", False)
+    import presentacion as _pres
+    DEPURAR = _pres.DEPURAR = getattr(args, "depurar", False)
     consulta = getattr(args, "consulta", None)
     if not consulta:
         error("El modo --plan necesita una consulta. Uso:\n"
@@ -11180,50 +11051,7 @@ def _buscar_en_codigo(tema, directorio=".", max_resultados=50):
     return lineas[:max_resultados]
 
 
-# ---------------------------------------------------------------------------
-# Ayuda agrupada y coloreada (`snapcontext --help`)
-# ---------------------------------------------------------------------------
-# Códigos ANSI; si el terminal no soporta color (o NO_COLOR está definido), se
-# degradan a texto plano. `colorama` se usa solo para inicializar en Windows
-# si está disponible; nunca es obligatorio.
-_ANSI = {
-    "negrita": "\033[1m", "cian": "\033[96m", "amarillo": "\033[93m",
-    "verde": "\033[92m", "gris": "\033[90m", "reset": "\033[0m",
-}
-_AYUDA_CON_COLOR = False   # se calcula una sola vez al mostrar --help
-
-
-def _colores_activos() -> bool:
-    """True si se pueden usar colores ANSI en la ayuda."""
-    if os.environ.get("NO_COLOR"):
-        return False
-    if os.environ.get("FORCE_COLOR"):
-        return True
-    try:
-        if not sys.stdout.isatty():
-            return False
-    except Exception:
-        return False
-    try:
-        import colorama  # opcional; solo inicializa Windows
-        colorama.just_fix_windows_console()
-    except Exception:
-        pass
-    if os.name == "nt":
-        try:
-            import ctypes
-            kernel32 = ctypes.windll.kernel32          # type: ignore[attr-defined]
-            kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
-        except Exception:
-            pass                                       # sin VT → texto plano
-    return True
-
-
-def _pintar(texto: str, clave: str) -> str:
-    """Aplica el color ANSI ``clave`` si los colores están activos."""
-    if not _AYUDA_CON_COLOR:
-        return texto
-    return f"{_ANSI.get(clave, '')}{texto}{_ANSI['reset']}"
+# Ayuda agrupada y coloreada: constantes y _pintar en :mod:`presentacion`.
 
 # Categorías en orden de aparición; cada opción se muestra una sola vez.
 CATEGORIAS_AYUDA = (
@@ -11478,7 +11306,8 @@ class _AyudaAccion(argparse.Action):
 
     def __call__(self, parser, namespace, valores, opcion=None):
         global _AYUDA_CON_COLOR
-        _AYUDA_CON_COLOR = _colores_activos()
+        import presentacion as _pres
+        _AYUDA_CON_COLOR = _pres._AYUDA_CON_COLOR = _colores_activos()
         sys.stdout.write(_construir_ayuda(parser))
         parser.exit()
 
@@ -12935,7 +12764,8 @@ def flujo_principal(args: argparse.Namespace) -> int:
     v0.10.0, el registro automático de la tarea en el historial persistente.
     """
     global DEPURAR
-    DEPURAR = args.depurar
+    import presentacion as _pres
+    DEPURAR = _pres.DEPURAR = args.depurar
     # Al ejecutar como `python -m snapcontext` el archivo vive como `__main__`,
     # pero agentes/orquestador hacen `import snapcontext` (copia de módulo). Se
     # sincroniza el flag en el módulo compartido para que los logs salgan.

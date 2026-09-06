@@ -89,6 +89,8 @@ py-modules = [
     "qa_tester_logic", "session_manager", "memory_store",
     "tui_interactiva", "autocorrector", "seguridad",
     "instalador",
+    # Fase 3: capa de presentación (UI/colores/banners) extraída del monolito.
+    "presentacion",
 ]
 packages = ["web"]
 
