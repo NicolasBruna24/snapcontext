@@ -34,8 +34,12 @@ class TestFlagsCli310(unittest.TestCase):
         self.assertTrue(sc.crear_parser().parse_args(["--bienvenida"]
                                                      ).bienvenida)
 
-    def test_version_es_3_1_0(self):
-        self.assertEqual(sc.VERSION, "6.33.0")
+    def test_version_definida(self):
+        """La versión existe y sigue el formato X.Y.Z (dinámico, no fijo)."""
+        self.assertIsInstance(sc.VERSION, str)
+        partes = sc.VERSION.split(".")
+        self.assertEqual(len(partes), 3)
+        self.assertTrue(all(p.isdigit() for p in partes))
 
 
 class TestApiKeyDetection(unittest.TestCase):
