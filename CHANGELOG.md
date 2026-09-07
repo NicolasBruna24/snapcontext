@@ -4,6 +4,29 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.34.11] - 2026-09-07
+
+### Refactor (fragmentación del monolito, fases 5-9)
+- Extracción de módulos independientes: `configuracion`, `planificador`,
+  `permisos`, `hooks` y `mcp_tools` (con re-exports para compatibilidad).
+- `snapcontext.py` reducido de 14.113 a ~11.400 líneas.
+
+### Seguridad
+- Validación de path traversal en el editor y en la aplicación de parches
+  (`_validar_ruta_segura`): las escrituras y los `+++` de los parches deben
+  quedar dentro del proyecto (M1 de la auditoría).
+
+### Herramientas de calidad (Fase 10)
+- `ruff` (lint + format), `mypy` y `pytest-cov` configurados en
+  `pyproject.toml`, con job no bloqueante de calidad en CI.
+- Correcciones automáticas aplicadas (Fase 10a) y hallazgos manuales
+  priorizados (Fase 10b): F821 a cero (2 bugs reales corregidos).
+
+### CI/CD
+- Job `quality` en el workflow (ruff check/format, mypy, tests) con
+  `continue-on-error` mientras se reduce la deuda de hallazgos.
+
+
 ## [6.34.7] - 2026-09-05 - 🔧 Fix: importación de `List` en `configuracion.py`
 
 ### Fixed
@@ -36,8 +59,6 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 - La verificación estricta del wheel (módulos críticos) y `twine check`
   se mantienen en el workflow, y `publish-pypi` sigue dependiendo de que
   los tests pasen.
-
-
 
 ## [6.34.3] - 2026-09-05 - 🌐 Codificación UTF-8 en todo el código
 
@@ -91,52 +112,6 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 - **Tests**: nuevo `tests/test_sandbox_utils.py` (y actualizados
   `test_sandbox_430.py`, `test_sandbox_session.py`, `test_sandbox_inteligente.py`)
 
-## [6.32.0] - 2026-09-04 - ✂️ Edición Quirúrgica de Contexto (Pruning Proactivo)
-
-### Added
-- **Nuevo módulo `context_pruner.py`**: Pruning proactivo de contexto — poda
-  los datos de herramientas (logs, salidas, diffs) después de cada uso,
-  reemplazándolos por un resumen de una línea para reducir drásticamente el
-  consumo de tokens:
-  - `prune_resultado(resultado, tipo_herramienta, umbral_lineas, ...)`: poda un
-    resultado extenso (más de N líneas) reemplazando cada campo podable por un
-    resumen de una línea; añade `_pruned: True` y `_resumen` para trazabilidad;
-    nunca muta el original.
-  - `resumir_linea(texto, max_lineas, usar_llm, proveedor_llm)`: genera un
-    resumen de una línea usando el LLM si está disponible (categoría
-    ``"resumen"``) o una heurística simple (primera línea + " (y N líneas más)").
-  - `es_resultado_extenso(resultado, umbral_lineas, tipos_podables)`: detecta si
-    un resultado supera el umbral en stdout, stderr, contenido, diff o texto.
-  - `obtener_metadatos_clave(resultado, tipo_herramienta)`: extrae información
-    crítica (código de retorno, archivo afectado, error) que se preserva siempre.
-  - `configuracion_pruning(config)`: fusiona valores por defecto con
-    ``config["pruning"]``.
-- **Integración en `_enviar_al_proveedor_unico`** (snapcontext.py): con
-  `--prune-context` activo, los resultados extensos de herramientas se podan
-  después del paso de Prompt Caching (no interfiere con `cache_control`).
-- **Nuevas configuraciones** en `config.json`: sección `pruning` con `activo`,
-  `umbral_lineas` (10 por defecto), `usar_llm` y `tipos_podables`.
-- **Nuevos flags CLI**: `--prune-context` / `--no-prune-context` (activado por
-  defecto) y `--prune-umbral N` (configura el umbral de líneas).
-- **Helpers en snapcontext.py**: `_configurar_pruning`, `_resolver_pruning`,
-  `_pruning_activo`, `_umbral_pruning`, `podar_si_extenso` (wrapper seguro) y
-  `_podar_resultados_extensos` (poda mensajes tool/assistant en el historial).
-- **Mensajes de usuario**: `✂️ Podando contexto (resultados extensos → resumen 1
-  línea)` en modo `--depurar`.
-- **Tests**: nuevo `tests/test_context_pruner.py` (más de 25 casos): detección de
-  resultados extensos, resumen con LLM y heurística, metadatos clave, poda,
-  configuración personalizada, flags CLI e integración con snapcontext.
-
-### Changed
-- **Compatibilidad**: sin `--prune-context` (o con `--no-prune-context`) el
-  comportamiento es idéntico al actual; el pruning es rápido (heurística simple
-  si el LLM no está disponible) y no pierde información crítica para el agente.
-- README: nueva sección "✂️ Edición Quirúrgica de Contexto (v6.32.0)" con
-  configuración, flags y ejemplos.
-- Versión `6.32.0` en `snapcontext.py` y `pyproject.toml`; `context_pruner`
-  añadido a `py-modules`; aserciones de versión de los tests de coherencia
-  actualizadas a `6.32.0`.
-
 ## [6.33.0] - 2026-09-04 - 🔗 Integración Agresiva Graph RAG + LSP
 
 ### Added
@@ -182,6 +157,52 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 - Versión `6.33.0` en `snapcontext.py` y `pyproject.toml`;
   `graph_lsp_integrator` añadido a `py-modules`; aserciones de versión de
   los tests de coherencia actualizadas a `6.33.0`.
+
+## [6.32.0] - 2026-09-04 - ✂️ Edición Quirúrgica de Contexto (Pruning Proactivo)
+
+### Added
+- **Nuevo módulo `context_pruner.py`**: Pruning proactivo de contexto — poda
+  los datos de herramientas (logs, salidas, diffs) después de cada uso,
+  reemplazándolos por un resumen de una línea para reducir drásticamente el
+  consumo de tokens:
+  - `prune_resultado(resultado, tipo_herramienta, umbral_lineas, ...)`: poda un
+    resultado extenso (más de N líneas) reemplazando cada campo podable por un
+    resumen de una línea; añade `_pruned: True` y `_resumen` para trazabilidad;
+    nunca muta el original.
+  - `resumir_linea(texto, max_lineas, usar_llm, proveedor_llm)`: genera un
+    resumen de una línea usando el LLM si está disponible (categoría
+    ``"resumen"``) o una heurística simple (primera línea + " (y N líneas más)").
+  - `es_resultado_extenso(resultado, umbral_lineas, tipos_podables)`: detecta si
+    un resultado supera el umbral en stdout, stderr, contenido, diff o texto.
+  - `obtener_metadatos_clave(resultado, tipo_herramienta)`: extrae información
+    crítica (código de retorno, archivo afectado, error) que se preserva siempre.
+  - `configuracion_pruning(config)`: fusiona valores por defecto con
+    ``config["pruning"]``.
+- **Integración en `_enviar_al_proveedor_unico`** (snapcontext.py): con
+  `--prune-context` activo, los resultados extensos de herramientas se podan
+  después del paso de Prompt Caching (no interfiere con `cache_control`).
+- **Nuevas configuraciones** en `config.json`: sección `pruning` con `activo`,
+  `umbral_lineas` (10 por defecto), `usar_llm` y `tipos_podables`.
+- **Nuevos flags CLI**: `--prune-context` / `--no-prune-context` (activado por
+  defecto) y `--prune-umbral N` (configura el umbral de líneas).
+- **Helpers en snapcontext.py**: `_configurar_pruning`, `_resolver_pruning`,
+  `_pruning_activo`, `_umbral_pruning`, `podar_si_extenso` (wrapper seguro) y
+  `_podar_resultados_extensos` (poda mensajes tool/assistant en el historial).
+- **Mensajes de usuario**: `✂️ Podando contexto (resultados extensos → resumen 1
+  línea)` en modo `--depurar`.
+- **Tests**: nuevo `tests/test_context_pruner.py` (más de 25 casos): detección de
+  resultados extensos, resumen con LLM y heurística, metadatos clave, poda,
+  configuración personalizada, flags CLI e integración con snapcontext.
+
+### Changed
+- **Compatibilidad**: sin `--prune-context` (o con `--no-prune-context`) el
+  comportamiento es idéntico al actual; el pruning es rápido (heurística simple
+  si el LLM no está disponible) y no pierde información crítica para el agente.
+- README: nueva sección "✂️ Edición Quirúrgica de Contexto (v6.32.0)" con
+  configuración, flags y ejemplos.
+- Versión `6.32.0` en `snapcontext.py` y `pyproject.toml`; `context_pruner`
+  añadido a `py-modules`; aserciones de versión de los tests de coherencia
+  actualizadas a `6.32.0`.
 
 ## [6.31.0] - 2026-09-04 - 🧠 Prompt Caching por Capas 📊
 
@@ -425,26 +446,6 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 - Versión `6.23.0` en `snapcontext.py` y `pyproject.toml`.
 
 ## [6.22.0] - 2026-09-02 - Hooks / lifecycle events 🔗
-## [6.22.0] - 2026-09-02 - Hooks / lifecycle events 🔗
-
-### Added
-- **`hooks.py`**: nuevo módulo con `HookManager` (registro por evento +
-  prioridad, ejecución en orden, aborto graceful), 8 eventos del ciclo de vida
-  (`before_tool_use`, `after_tool_use`, `before_plan_step`, `after_plan_step`,
-  `session_start`, `session_end`, `before_react_iteration`,
-  `after_react_iteration`), y cargadores desde plugins (`plugin.json` → `hooks`)
-  y desde scripts sueltos en `~/.snapcontext/hooks/` (convención
-  `<evento>[__<prioridad>].py|.sh`).
-- **Integración**: `react_agent.py` (sesión + iteraciones ReAct),
-  `orquestador.py` (sesión del planificador), `snapcontext.py` (dispatcher MCP
-  `before/after_tool_use`, `before/after_plan_step`).
-- Flags `--hooks` (activado por defecto) y `--hook-list` (lista hooks
-  registrados y sale).
-- Mensajes: `🔗 Hook ejecutado: {evento} desde {origen}` (en `--depurar`),
-  `❌ Hook abortó la ejecución: {razon}`.
-- Tests: `tests/test_hooks.py` (19 casos: registro, orden, prioridades,
-  modificación/aborto de contexto, carga desde plugins y archivos, shell,
-  integración, flags).
 
 ## [6.21.0] - 2026-09-02 - Marketplace MCP 📦🔌
 
@@ -563,7 +564,6 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 - Compatibilidad: sin `--sub-agents` el pipeline multi-agente y el ReAct son
   idénticos a los anteriores; los sub-agentes son totalmente opcionales.
 
-
 ## [6.17.0] - 2026-09-02 - TUI inmersiva con Textual 🖥️✨
 
 ### Added
@@ -592,7 +592,6 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
   es un modo adicional y Textual es una dependencia opcional.
 - Degradación elegante: si Textual no está instalado, `--tui` muestra un error
   claro y devuelve código 2 sin abrir ninguna interfaz.
-
 
 ## [6.16.0] - 2026-09-02 - Prompt Caching: métricas de caché en modo --depurar 🧠⚡
 
@@ -623,7 +622,6 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
   métricas y ejemplo de uso con `--depurar`.
 - Badge de versión en README actualizado a `v6.16.0`.
 
-
 ## [6.15.0] - 2026-09-01 - Extensión VS Code: icono en Activity Bar y fix del chat 🧩 vscode
 
 ### Fixed (extensión `snapcontext-ai` de VS Code)
@@ -643,7 +641,6 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
   (24x24, mono para theming claro/oscuro de VS Code).
 - La vista lateral reutiliza el mismo servidor del chat (`arrancarServidorChat`,
   ahora lazy y con error claro si no responde en 10 s) sin duplicar procesos.
-
 
 ## [6.14.0] - 2026-09-01 - LSP e indexación global 🔗🔍
 
@@ -683,7 +680,6 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 ### Robustez
 - Si el servidor no está instalado, falla al arrancar o no responde
   (timeout), se muestra un mensaje claro y la tarea **continúa sin LSP**.
-
 
 ## [6.13.0] - 2026-09-01 - Sub-agentes dinámicos 🤖🚀
 
@@ -808,8 +804,6 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 - El navegador se ejecuta **headless por defecto** (sin interferir con el usuario).
 - Playwright se carga solo cuando se usa (lazy import); sin `--browser` no se importa nunca.
 
-## [6.8.0] - 2026-08-30 - Omnicanalidad avanzada (GitHub + tareas asíncronas + notificaciones)
-
 ## [6.9.0] - 2026-08-31 - Mejora de rendimiento ⚡
 
 ### Added
@@ -855,6 +849,8 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
   - `tests/test_github_gateway.py` (15 casos).
   - `tests/test_task_queue.py` (15 casos).
   - `tests/test_omnicanalidad_avanzada.py` (10 casos).
+
+## [6.8.0] - 2026-08-30 - Omnicanalidad avanzada (GitHub + tareas asíncronas + notificaciones)
 
 ## [6.7.0] - 2026-08-30 - Expansión de MCP (bases de datos y APIs)
 
@@ -997,7 +993,6 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 ### Tests
 - `tests/test_sandbox_session.py`: 26 casos (creación, reutilización,
   destrucción, huérfanos, integración en plan/ReAct, compatibilidad, Ctrl+C).
-
 
 ## [6.3.0] - 2026-08-30 - Mejora del editor de parches (fuzzy matching y resolución de conflictos)
 
@@ -1319,45 +1314,6 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
   a `5.2.0`.
 
 ## [5.1.0] - 2026-08-26 - 🧠 Motor ReAct (razonamiento dinámico)
-## [5.1.0] - 2026-08-26 - 🧠 Motor ReAct (razonamiento dinámico)
-
-### 🧠 Nuevo módulo `react_agent.py` (FEATURES)
-- **Bucle ReAct** (Reasoning + Acting): el agente **piensa → actúa → observa**
-  y decide el siguiente paso según el resultado real de la acción anterior,
-  a diferencia del planificador `--plan`, cuya lista de pasos es estática.
-- Clase `ReactAgent` con: `historial` de mensajes, tope anti-bucles
-  (`max_iteraciones`, 15 por defecto), catálogo de herramientas, directorio de
-  trabajo y modo `--auto`.
-- Formato de salida del LLM en **JSON estricto** (`pensamiento`, `accion`,
-  `argumentos`) con reintentos correctivos (hasta 3) si el JSON es inválido.
-- Acción `finalizar` para cerrar el bucle con un resumen.
-
-### 🔧 Herramientas disponibles (ACTIONS)
-- `editar_archivo(ruta, contenido)` — usa el editor propio (v4.6/4.7),
-  con copia de seguridad, y devuelve el diff aplicado.
-- `ejecutar_pruebas(archivo=None)` — ejecuta el comando de pruebas configurado.
-- `buscar_codigo(patron)` — búsqueda de código (o semántica si está activa).
-- `ejecutar_comando(comando)` — shell; **respeta el sandbox Docker de v4.3.0**.
-- `leer_archivo(ruta)` — lectura truncada (8 KB), con ruta validada.
-
-### ⏳ Gestión de contexto (INTEGRATION)
-- Resumen automático: cuando el historial supera el umbral de tokens (estimado,
-  ~4 chars/token; configurable con `REACT_UMBRAL_RESUMEN_TOKENS`), se pide al
-  LLM que lo comprima a ≤500 palabras y el bucle continúa con el resumen.
-
-### 🖥️ Integración CLI (v5.1.0)
-- Nuevo flag `--react` (+ `--react-max-iter N`). Sin `--plan`; compatible:
-  sin el flag, el flujo actual no cambia en absoluto.
-- En modo interactivo muestra el pensamiento y pregunta continuar/abortar/
-  saltar con `ui.preguntar_interactivo`; con `--auto` ejecuta sin preguntar.
-
-### 🧪 Tests
-- Nuevos tests en `tests/test_react_510.py` (15 casos): bucle básico, límite de
-  iteraciones, `finalizar`, JSON inválido (reintento correctivo), acciones
-  desconocidas, modo interactivo (pregunta llamada), cada herramienta, resumen
-  de contexto y presencia del flag en el parser.
-
-
 
 ## [5.0.0] - 2026-08-26 - 🤖 Curador Proactivo (motor autónomo estilo Hermes)
 
@@ -1407,8 +1363,6 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
   (LLM error, prompt inválido, sandbox falla, sin mejora de tokens), guardado con
   historial, notificaciones, comandos CLI y daemon.
 
-
-
 ## [4.8.1] - 2026-08-26 - 🔧 URL del repositorio configurable
 
 ### 🔧 Mejora (IMP)
@@ -1425,7 +1379,6 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 - Nuevos tests en `tests/test_ui_480.py`: el banner muestra `REPO_URL`,
   el fallback sin Rich también lo usa, y `SNAPCONTEXT_REPO` sobreescribe el
   valor por defecto (con `importlib.reload` y `mock.patch.dict`).
-
 
 ## [4.8.0] - 2026-08-25 - 🎨 CLI profesional con Rich
 
@@ -1463,8 +1416,6 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 - Tests de coherencia de versión (18 archivos) actualizados de `4.7.0` a
   `4.8.0` para reflejar el bump de versión. Suite completa: 628 tests OK.
 
-
-
 ## [4.7.0] - 2026-08-25 - 🧠 Editor inteligente: impacto + contexto selectivo
 
 ### 🔗 Análisis de Impacto por Dependencias (FEATURES)
@@ -1497,8 +1448,6 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
   archivo completo), splicing de bloque y flujo completo de sobrescritura
   truncada.
 
-
-
 ## [4.6.0] - 2026-08-25 - 🛡️ Editor transaccional, seguro y tolerante
 
 ### 🔒 Editor propio transaccional (FEATURES)
@@ -1524,9 +1473,6 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 - Nuevo `tests/test_editor_460.py`: rollback multiarchivo, fuzzy matching con
   comentario intercalado y aborto cuando el directorio de backups no permite
   escritura.
-
-
-
 
 ## [4.5.0] - 2026-08-25 - 🎮 Gateway de Omnicanalidad: Discord
 
@@ -2013,6 +1959,7 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
   aprendizaje, curador, daemon, agente de aprendizaje y flags CLI.
 - Suite completa: 350 pruebas pasando.
 ---
+
 ## [2.4.0] - 2026-08-24 - Instaladores robustos: limpieza de entornos corruptos y PATH automático
 ### 🔧 Mejoras en los instaladores
 - **Detección robusta de Python**: ahora los scripts `install.ps1` y `install.sh` buscan Python en el PATH, con el lanzador `py`, y en rutas típicas de instalación. Si no lo encuentran, dan instrucciones claras para instalarlo.
@@ -2022,6 +1969,7 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 - **Configuración automática del PATH**: en Windows, añade `%USERPROFILE%\.local\bin` al PATH del usuario sin duplicados; en Linux/macOS, añade `~/.local/bin` al perfil del shell.
 
 ---
+
 ## [2.3.0] - 2026-08-24 - Integracion MCP-Planificador + dependencias dinamicas
 
 ### Nuevas funcionalidades
@@ -2108,6 +2056,7 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 - Suite completa pasando con 302+ pruebas unitarias.
 
 ---
+
 ## [2.1.0] - 2026-08-23 · 🧩 Editor Propio Fase 2: Diffs y Parches Unificados
 
 ### ✨ Nuevas funcionalidades
@@ -2521,8 +2470,6 @@ versiones 0.x (config.json, permisos.json, historial.json, mcp_tools.json).
 
 ---
 
-
-
 ## [0.15.0] - 2026-08-22
 
 ### 📄 Memoria de proyecto (CLAUDE.md)
@@ -2540,8 +2487,6 @@ versiones 0.x (config.json, permisos.json, historial.json, mcp_tools.json).
   confirmación) actualizar la memoria con lo aprendido.
 
 ---
-
-
 
 ## [0.14.0] - 2026-08-22
 
