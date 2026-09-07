@@ -97,6 +97,8 @@ py-modules = [
     "planificador",
     # Fase 6: subsistema de permisos y confirmaciones del usuario (Fase 6).
     "permisos",
+    # Fase 8: subsistema de herramientas MCP (dispatcher y registro).
+    "mcp_tools",
 ]
 packages = ["web"]
 
