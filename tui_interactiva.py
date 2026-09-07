@@ -90,7 +90,7 @@ def grafo_a_texto(grafo: dict[str, Any], expandir: bool = True) -> str:  # noqa:
 
     lineas = []
     archivos: dict[str, list[str]] = {}
-    for nodo_id, info in nodos.items():
+    for nodo_id in nodos:
         archivo = nodo_id.split("::")[0] if "::" in nodo_id else "general"
         archivos.setdefault(archivo, []).append(nodo_id)
 
@@ -208,7 +208,7 @@ if TEXTUAL_DISPONIBLE:
             if not self.grafo:
                 return
             nodos = self.grafo.get("nodos", {})
-            for nodo_id, info in nodos.items():
+            for nodo_id in nodos:
                 partes = nodo_id.split("::")
                 archivo = partes[0] if partes else "general"
                 nombre = partes[-1] if len(partes) > 1 else nodo_id

@@ -197,6 +197,7 @@ class Orquestador:
                 return 1
 
             consulta, raiz, carpeta, seleccion = plan
+            del carpeta  # parte del contrato de `plan`; no se usa aquí.
             sc.depurar(f"[Orquestador] Plan listo: {len(seleccion)} archivo(s) a usar.")
 
             # 3) Ejecución (Aider directo, pruebas o bucle con servidor Flutter)

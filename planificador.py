@@ -720,7 +720,7 @@ def _partir_argumentos(texto: str) -> list[str]:
     if comilla:
         raise ValueError("comillas sin cerrar")
     partes.append(actual)
-    return [p for p in (p.strip() for p in partes)]
+    return [p.strip() for p in partes]
 
 
 # --- Contexto dinámico del plan (v2.3.0) ------------------------------------
@@ -894,7 +894,9 @@ def _ejecutar_plan_en_paralelo(  # noqa: C901  (refactor de complejidad: Fase 10
                     producibles.add(str(_pj.get("variable") or _pj.get("herramienta") or ""))
                     producibles.add("resultado")
 
-            def _listo(i):
+            def _listo(i, _producibles=producibles):
+                # `_producibles` vincula el conjunto de esta pasada del bucle
+                # (B023: binding por defecto, misma semántica de uso inmediato).
                 deps = [d - 1 for d in (pasos[i].get("dependencias") or [])]
                 if any(estado.get(d) != "éxito" for d in deps):
                     return False
@@ -905,7 +907,7 @@ def _ejecutar_plan_en_paralelo(  # noqa: C901  (refactor de complejidad: Fase 10
                     disponibles = set(_CONTEXTO_PLAN["variables"])
                     registrados = set(_CONTEXTO_PLAN["pasos"])
                 for v in ref_v:
-                    if v not in disponibles and v in producibles:
+                    if v not in disponibles and v in _producibles:
                         return False  # esperar a que se produzca
                 for d in ref_i:
                     if str(d + 1) not in registrados:

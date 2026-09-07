@@ -32,16 +32,16 @@ from typing import Any
 
 __all__ = [
     "CATEGORIAS",
+    "PROVEEDORES_LOCALES",
     "ROUTING_DEFECTO",
     "clasificar_tarea",
-    "seleccionar_modelo",
     "enrutar_tarea",
+    "es_proveedor_local",
     # v6.30.0: enrutamiento híbrido Local-Nube.
     "es_tarea_compleja",
     "obtener_orden_prioridad",
+    "seleccionar_modelo",
     "seleccionar_modelo_con_fallback",
-    "es_proveedor_local",
-    "PROVEEDORES_LOCALES",
 ]
 
 # Categorías soportadas (extensibles).

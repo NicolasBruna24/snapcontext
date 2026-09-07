@@ -68,7 +68,7 @@ def _texto_nivel(nivel: str) -> str:
     """Texto Rich coloreado para un nivel de log."""
     color = COLORES_NIVEL.get(nivel, "cyan")
     marca = {"info": "INFO ", "warning": "WARN ", "error": "ERROR"}.get(nivel, "INFO ")
-    return "[bold %s]%s[/]" % (color, marca)
+    return f"[bold {color}]{marca}[/]"
 
 
 def _escapar(linea: str) -> str:

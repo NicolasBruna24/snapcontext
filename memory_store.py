@@ -229,7 +229,7 @@ def buscar_decisiones(
             ORDER BY creado DESC
             LIMIT ?
         """,
-            parametros + [limite],
+            [*parametros, limite],
         )
 
         resultados = []

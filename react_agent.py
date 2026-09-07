@@ -751,7 +751,8 @@ class ReactAgent:
                 if not isinstance(decision["argumentos"], dict):
                     decision["argumentos"] = {}
                 return decision
-            mensajes = mensajes + [
+            mensajes = [
+                *mensajes,
                 {"role": "assistant", "content": bruto},
                 {"role": "user", "content": correctivo},
             ]

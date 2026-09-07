@@ -388,7 +388,7 @@ def _texto_resumen(contenido: str, lenguaje: str, metadatos: list[dict]) -> str:
 
 
 def extraer_bloques_relevantes(
-    contenido: str, lenguaje: str, objetivo: str = None
+    contenido: str, lenguaje: str, objetivo: str | None = None
 ) -> tuple[str, list[str]]:
     """Extrae funciones/clases de ``contenido`` (v6.1.0).
 
@@ -407,7 +407,7 @@ def extraer_bloques_relevantes(
     if objetivo and metadatos:
         indice = next((i for i, m in enumerate(metadatos) if m["nombre"] == objetivo), None)
         if indice is not None:
-            metadatos = [metadatos.pop(indice)] + metadatos
+            metadatos = [metadatos.pop(indice), *metadatos]
     lineas = contenido.splitlines() if contenido else []
     bloques = ["\n".join(lineas[m["inicio"] - 1 : m["fin"]]) for m in metadatos]
     return resumen, bloques
@@ -456,7 +456,7 @@ def _seleccionar_bloques(
 
 
 def seleccionar_contexto(
-    contenido: str, lenguaje: str, objetivo: str = None, max_tokens: int = MAX_CONTEXT_TOKENS
+    contenido: str, lenguaje: str, objetivo: str | None = None, max_tokens: int = MAX_CONTEXT_TOKENS
 ) -> str:
     """Selecciona el contexto a enviar al modelo (v6.1.0).
 

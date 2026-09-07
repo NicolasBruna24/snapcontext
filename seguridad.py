@@ -375,7 +375,9 @@ _RENDIMIENTO_PATRONES = [
 def _detectar_rendimiento(contenido: str, lenguaje: str = "") -> list[dict]:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Detecta problemas comunes de rendimiento por heurísticas (v4.2.0)."""
     hallazgos: list[dict] = []
-    lineas_codigo = [(n, l.split("#", 1)[0]) for n, l in enumerate(contenido.splitlines(), start=1)]
+    lineas_codigo = [
+        (n, ln.split("#", 1)[0]) for n, ln in enumerate(contenido.splitlines(), start=1)
+    ]
 
     for indice, (numero, codigo) in enumerate(lineas_codigo):
         if not codigo.strip():

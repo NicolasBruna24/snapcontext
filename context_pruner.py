@@ -161,7 +161,7 @@ def resumir_linea(
     """
     if not isinstance(texto, str):
         texto = str(texto) if texto else ""
-    lineas = [l for l in texto.splitlines() if l.strip()]
+    lineas = [linea for linea in texto.splitlines() if linea.strip()]
     if not lineas:
         return ""
     if len(lineas) <= max_lineas:

@@ -108,7 +108,6 @@ def main() -> int:
             "comando": f'"{sys.executable}" --version',
         }
     ]
-    guardados = []
     with mock_plan(pasos):
         codigo = sc._ejecutar_planificador(
             sc.argparse.Namespace(

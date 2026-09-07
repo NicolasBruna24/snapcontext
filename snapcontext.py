@@ -387,8 +387,8 @@ def _detectar_tipo_proyecto(directorio: str) -> str | None:
             return tipo
 
     # Sin archivo identificador, se busca una carpeta típica por tipo.
-    for tipo, info in _CORRECTORES_CARPETAS_PROYECTO.items():
-        for carpeta in info.get("carpetas_defecto", []):
+    for tipo, cfg_carpetas in _CORRECTORES_CARPETAS_PROYECTO.items():
+        for carpeta in cfg_carpetas.get("carpetas_defecto", []):
             if (ruta / carpeta).exists():
                 depurar(f"[Detección] Carpetilla típica de {tipo}: {carpeta}/")
                 return tipo
@@ -779,33 +779,10 @@ if os.name == "nt":
 # Se re-exportan los nombres para preservar la API interna (``sc.info``,
 # ``sc._pintar``, ``sc.DEPURAR``, ``sc.fijar_evento_callback``, ...).
 # ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
 # Configuración inicial: la implementación vive en :mod:`configuracion` (Fase 4).
-# Se re-exportan los nombres para preservar la API interna.
+# Se re-exportan los nombres para preservar la API interna (import único en la
+# línea ~598; v6.34.14: eliminado el duplicado que lo sombreaba, F811).
 # ---------------------------------------------------------------------------
-from configuracion import (
-    CONFIG_DIR,
-    CONFIG_PATH,
-    MENSAJE_ANTHROPIC_FALTANTE,
-    MENSAJE_OPENAI_FALTANTE,
-    PROVEEDOR_DEFECTO,
-    PROVEEDORES,
-    _actualizar_clave_configuracion,
-    _crear_demo_proyecto,
-    _elegir_modelo_ligero,
-    _estado_ollama,
-    _generar_clave_api,
-    _importar_questionary,
-    _listar_modelos_ollama,
-    _preguntar_guardar_config,
-    _probar_conexion_proveedor,
-    _tutorial_interactivo,
-    asistente_configuracion_inicial,
-    cargar_configuracion,
-    guardar_configuracion,
-    hay_api_key_configurada,
-    seleccionar_proveedor_interactivo,
-)
 from presentacion import (
     _AMARILLO,
     _ANSI,
@@ -1897,8 +1874,8 @@ def _splicear_bloque(contenido: str, bloque_viejo: str, bloque_nuevo: str) -> st
     n = len(viejas)
     if n == 0 or len(actuales) < n:
         return None
-    stripped = [l.strip() for l in actuales]
-    viejas_st = [l.strip() for l in viejas]
+    stripped = [linea.strip() for linea in actuales]
+    viejas_st = [linea.strip() for linea in viejas]
     mejor_pos, mejor_ratio = -1, 0.0
     for i in range(len(actuales) - n + 1):
         suma = sum(
@@ -2230,7 +2207,7 @@ def _parsear_hunks(parche: str) -> list[tuple]:
             hunk_actual.append((" ", texto[1:] if texto else ""))
     if hunk_actual:
         hunks.append((inicio_orig, hunk_actual))
-    return [(i, l) for i, l in hunks if any(marca != " " for marca, _ in l)]
+    return [(i, hunk) for i, hunk in hunks if any(marca != " " for marca, _ in hunk)]
 
 
 def _quitar_comentario(linea: str) -> str:
@@ -2470,7 +2447,7 @@ def _aplicar_hunks_incremental(parche: str, directorio: str, mostrar_diff: bool 
                 :MAX_CONTEXTO_DIFUSO_LINEAS
             ]
             if contexto_idx:
-                lineas_stripped = [l.strip() for l in resultado]
+                lineas_stripped = [linea.strip() for linea in resultado]
                 mejor_ratio, mejor_cand = 0.0, -1
                 limite = max(1, len(resultado) - n_borrados + 1)
                 textos_ctx = [(i, cambios[i][1].strip()) for i in contexto_idx]
@@ -2505,9 +2482,9 @@ def _aplicar_hunks_incremental(parche: str, directorio: str, mostrar_diff: bool 
             n_bloque = len(bloque_original)
             if n_bloque:
                 texto_bloque = "\n".join(bloque_original)
-                texto_bloque_norm = "\n".join(" ".join(l.split()) for l in bloque_original)
+                texto_bloque_norm = "\n".join(" ".join(linea.split()) for linea in bloque_original)
                 if lineas_norm is None:
-                    lineas_norm = [" ".join(l.split()) for l in resultado]
+                    lineas_norm = [" ".join(linea.split()) for linea in resultado]
                 mejor_ratio, mejor_cand = 0.0, -1
                 limite = max(0, len(resultado) - n_bloque + 1)
                 # v6.9.0: fast path con difflib.get_close_matches para buscar
@@ -2925,7 +2902,7 @@ def _insertar_import(contenido: str, importacion: str) -> str:
     if not imp:
         return contenido
     lineas = contenido.split("\n")
-    if any(l.strip() == imp for l in lineas):
+    if any(linea.strip() == imp for linea in lineas):
         return contenido
     idx = 0
     while idx < len(lineas):
@@ -3310,7 +3287,8 @@ def esperar_servidor(
             if _PATRONES_SERVIDOR.search(linea):
                 coincidencia = _RE_URL.search(linea)
                 if coincidencia:
-                    return coincidencia.group(0).rstrip("\"'.,;,)")
+                    # rstrip con un conjunto de caracteres es intencional aquí
+                    return coincidencia.group(0).rstrip("\"'.,;,)")  # noqa: B005
                 return url_defecto
         if proceso.poll() is not None:
             break  # el proceso terminó antes de arrancar el servidor
@@ -5883,7 +5861,7 @@ def _cmd_chat_alias(alias: str, mensaje: str) -> int:
     if not mensaje:
         aviso(f"Uso: /{alias} <mensaje>")
         return 1
-    argv = _preparar_argv_aliases([alias] + shlex.split(mensaje))
+    argv = _preparar_argv_aliases([alias, *shlex.split(mensaje)])
     args = crear_parser().parse_args(argv)
     args.depurar = DEPURAR
     info(f"Ejecutando alias '{alias}' con: {mensaje}")
@@ -5910,7 +5888,7 @@ def _cmd_chat_edit(archivo: str, confirmar: bool | None = None) -> None:
     for cmd in candidatos:
         if shutil.which(cmd[0]):
             try:
-                subprocess.Popen(cmd + [str(camino)])
+                subprocess.Popen([*cmd, str(camino)])
                 exito(f"Abriendo '{camino}' con {cmd[0]}...")
             except OSError as exc:
                 error(f"No se pudo abrir el editor: {exc}")
@@ -6200,11 +6178,12 @@ try:
     _hooks_ejecutar = _hooks._hooks_ejecutar
 except Exception:  # pragma: no cover
     _hooks = None  # type: ignore[assignment]
-    _hooks_inicializar = lambda: None  # type: ignore[assignment]
-    _hooks_ejecutar = lambda evento, contexto=None: (
-        False,
-        (contexto if isinstance(contexto, dict) else {}),
-    )
+
+    def _hooks_inicializar() -> None:  # type: ignore[misc]
+        return None
+
+    def _hooks_ejecutar(evento: str, contexto: dict | None = None):  # type: ignore[misc]
+        return False, (contexto if isinstance(contexto, dict) else {})
 
 
 def _graph_rag_activo(args: argparse.Namespace) -> bool:
@@ -8091,7 +8070,7 @@ def _plugin_remove(nombre: str, confirmar: bool = True) -> int:
     return 0
 
 
-def _plugin_create(nombre: str = None) -> int:
+def _plugin_create(nombre: str | None = None) -> int:
     """Asistente que genera la estructura básica de un plugin nuevo."""
     nombre = (nombre or "").strip()
     if not nombre or not re.fullmatch(r"[a-zA-Z0-9_\-]+", nombre):
@@ -8627,7 +8606,7 @@ def _tool_grep(patron: str, directorio: str = ".", max_resultados: int = 50) -> 
     # v4.3.0: grep es de solo lectura → corre fuera del sandbox.
     with _sandbox_pausado():
         codigo, stdout, stderr = _ejecutar_comando(comando, directorio, timeout=60)
-    lineas = [l for l in (stdout or "").splitlines() if l.strip()]
+    lineas = [linea for linea in (stdout or "").splitlines() if linea.strip()]
     return {
         "ok": codigo == 0 or bool(lineas),
         "buscador": herramienta,
@@ -8718,7 +8697,7 @@ def _tool_git_status(directorio: str = ".") -> dict:
     _, rama, _ = _ejecutar_comando("git rev-parse --abbrev-ref HEAD", directorio, timeout=15)
     with _sandbox_pausado():  # v4.3.0: solo lectura → fuera del sandbox
         codigo, salida, _ = _ejecutar_comando("git status --porcelain", directorio, timeout=30)
-    modificados = [l.strip() for l in (salida or "").splitlines() if l.strip()]
+    modificados = [linea.strip() for linea in (salida or "").splitlines() if linea.strip()]
     return {
         "ok": codigo == 0,
         "rama": (rama or "").strip(),
@@ -9459,7 +9438,7 @@ def _calcular_embeddings_con_cache(
 
 def _similitud_coseno(a: list[float], b: list[float]) -> float:
     """Similitud de coseno entre dos vectores (sin depender de numpy)."""
-    punto = sum(x * y for x, y in zip(a, b))
+    punto = sum(x * y for x, y in zip(a, b, strict=False))
     norma_a = sum(x * x for x in a) ** 0.5
     norma_b = sum(x * x for x in b) ** 0.5
     if norma_a == 0 or norma_b == 0:
@@ -9486,7 +9465,7 @@ def _dividir_en_fragmentos(texto: str, max_caracteres: int = CHUNK_CARACTERES) -
     for numero, linea in enumerate(texto.splitlines(), start=1):
         linea_actual = numero
         actual.append(linea)
-        if sum(len(l) + 1 for l in actual) >= max_caracteres:
+        if sum(len(linea) + 1 for linea in actual) >= max_caracteres:
             fragmentos.append({"linea_inicio": linea_inicio, "texto": "\n".join(actual)})
             actual = []
             linea_inicio = numero + 1
@@ -9662,7 +9641,7 @@ def _indexar_proyecto(directorio: str = ".", extensiones: set | None = None) -> 
     # 3) Calcular embeddings de los fragmentos nuevos (caché SQLite v6.9.0).
     if nuevos_textos:
         vectores = _calcular_embeddings_con_cache(nuevos_textos, nuevos_claves)
-        pendientes = list(zip(nuevos_claves, vectores))
+        pendientes = list(zip(nuevos_claves, vectores, strict=False))
         for frag in fragmentos:
             if frag.get("embedding") is not None:
                 continue
@@ -9994,7 +9973,7 @@ def _buscar_en_codigo(tema, directorio=".", max_resultados=50):
     codigo, stdout, _stderr = _ejecutar_comando(comando, directorio, timeout=60)
     if codigo != 0 or not stdout:
         return []
-    lineas = [l for l in (stdout or "").splitlines() if l.strip()]
+    lineas = [linea for linea in (stdout or "").splitlines() if linea.strip()]
     return lineas[:max_resultados]
 
 
@@ -11535,13 +11514,13 @@ def _preparar_argv_aliases(argv: list[str] | None) -> list[str]:
         return argv
     primer = argv[0]
     if primer == "fix":
-        return ["--test-loop"] + argv[1:]
+        return ["--test-loop", *argv[1:]]
     if primer == "review":
-        return ["--vista-previa", "--experto"] + argv[1:]
+        return ["--vista-previa", "--experto", *argv[1:]]
     if primer == "server":
-        return ["--server-loop"] + argv[1:]
+        return ["--server-loop", *argv[1:]]
     if primer == "interactive":
-        return ["--web"] + argv[1:]
+        return ["--web", *argv[1:]]
     return argv
 
 
@@ -12143,13 +12122,13 @@ def _ejecutar_benchmark(args: argparse.Namespace) -> int:
     filas.append(("Escaneo de archivos", _t.perf_counter() - _t0))
 
     _t0 = _t.perf_counter()
-    seleccion = list(candidatos[:3])
+    list(candidatos[:3])  # v6.34.12: sin efecto medible fuera del cronómetro.
     try:
         if _embeddings_disponibles():
             _indexar_proyecto(directorio)
-            seleccion = _seleccionar_archivos_con_embeddings(
+            _seleccionar_archivos_con_embeddings(
                 "(benchmark)", directorio, max_archivos=3
-            )
+            )  # v6.34.12: resultado no usado aquí (solo calienta la caché).
     except Exception:
         pass
     filas.append(("Selección (embeddings/heurística)", _t.perf_counter() - _t0))

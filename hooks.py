@@ -200,18 +200,6 @@ def desactivar() -> None:
     _ACTIVO = False
 
 
-def activar() -> None:
-    """Reactiva el sistema de hooks (por defecto está activo)."""
-    global _ACTIVO
-    _ACTIVO = True
-
-
-def desactivar() -> None:
-    """Desactiva temporalmente el sistema de hooks (``--no-hooks``)."""
-    global _ACTIVO
-    _ACTIVO = False
-
-
 def activo() -> bool:
     return _ACTIVO
 

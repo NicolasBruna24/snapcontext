@@ -558,7 +558,6 @@ class AgenteEditorPropio:
         pref = sc.cargar_configuracion()
         proveedor = pref.get("provider") or sc.PROVEEDOR_DEFECTO
         lenguaje = sc._lenguaje_archivo(archivo, contenido_actual) or "?"
-        num_lineas = contenido_actual.count("\n") + 1 if contenido_actual else 0
         max_val = max(1, int(max_intentos_validacion))
 
         # v6.1.0: contenido a enviar (completo o contexto selectivo por tokens).

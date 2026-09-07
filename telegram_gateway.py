@@ -157,7 +157,8 @@ def enviar_notificacion(chat_id: str | int, mensaje: str) -> bool:
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            asyncio.create_task(send_telegram_message(chat_id, mensaje))
+            # Fire-and-forget intencional: se devuelve True sin esperar la tarea.
+            asyncio.create_task(send_telegram_message(chat_id, mensaje))  # noqa: RUF006
             return True
         return loop.run_until_complete(send_telegram_message(chat_id, mensaje))
     except RuntimeError:
@@ -221,7 +222,7 @@ def _ejecutar_pipeline(consulta: str, argv_extra: list) -> str:
     import snapcontext as sc
 
     buffer = io.StringIO()
-    argv = ([consulta] + list(argv_extra)) if consulta else []
+    argv = ([consulta, *list(argv_extra)]) if consulta else []
     try:
         args = sc.crear_parser().parse_args(sc._preparar_argv_aliases(argv))
         args.auto = True  # Telegram nunca es interactivo

@@ -275,7 +275,10 @@ def enviar_notificacion(
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    asyncio.create_task(tg.send_telegram_message(str(chat_id), mensaje))
+                    # Fire-and-forget intencional (notificación asíncrona).
+                    asyncio.create_task(  # noqa: RUF006
+                        tg.send_telegram_message(str(chat_id), mensaje)
+                    )
                     return True
                 return loop.run_until_complete(tg.send_telegram_message(str(chat_id), mensaje))
             except RuntimeError:
@@ -292,7 +295,10 @@ def enviar_notificacion(
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    asyncio.create_task(dg.send_discord_message(webhook_url, mensaje))
+                    # Fire-and-forget intencional (notificación asíncrona).
+                    asyncio.create_task(  # noqa: RUF006
+                        dg.send_discord_message(webhook_url, mensaje)
+                    )
                     return True
                 return loop.run_until_complete(dg.send_discord_message(webhook_url, mensaje))
             except RuntimeError:

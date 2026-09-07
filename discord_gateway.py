@@ -200,7 +200,8 @@ def enviar_notificacion(canal_id_o_webhook: str | None, mensaje: str) -> bool:
         url = canal_id_o_webhook or obtener_webhook_url()
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            asyncio.create_task(send_discord_message(url, mensaje))
+            # Fire-and-forget intencional: se devuelve True sin esperar la tarea.
+            asyncio.create_task(send_discord_message(url, mensaje))  # noqa: RUF006
             return True
         return loop.run_until_complete(send_discord_message(url, mensaje))
     except RuntimeError:

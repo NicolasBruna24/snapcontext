@@ -193,21 +193,27 @@ def _extraer_nodos_y_aristas(directorio: str) -> dict:  # noqa: C901  (refactor 
     # recorrido recursivo que mantiene el contexto.
     for rel, arbol in arboles.items():
 
-        def _visitar(nodo: ast.AST, contexto: str) -> None:  # noqa: C901  (refactor de complejidad: Fase 10c)
+        def _visitar(  # noqa: C901  (refactor de complejidad: Fase 10d)
+            nodo: ast.AST, contexto: str, _rel: str = rel
+        ) -> None:
+            # `_rel` vincula el `rel` de esta iteración (B023: la closure se
+            # define dentro del bucle; el binding por defecto la fija).
             if isinstance(nodo, ast.ClassDef):
                 for base in nodo.bases:
                     nombre = getattr(base, "id", None) or getattr(base, "attr", None)
                     if nombre and nombre in definiciones:
-                        _enlazar(f"{rel}::{nodo.name}", definiciones[nombre][0], "herencia")
+                        _enlazar(f"{_rel}::{nodo.name}", definiciones[nombre][0], "herencia")
                 for hijo in ast.iter_child_nodes(nodo):
                     _visitar(hijo, contexto)
                 return
             if isinstance(nodo, ast.Import):
                 for alias in nodo.names:
-                    _enlazar(rel, _archivo_de_modulo(rel, alias.name, archivos, paquetes), "import")
+                    _enlazar(
+                        _rel, _archivo_de_modulo(_rel, alias.name, archivos, paquetes), "import"
+                    )
             elif isinstance(nodo, ast.ImportFrom):
                 _enlazar(
-                    rel, _archivo_de_modulo(rel, nodo.module or "", archivos, paquetes), "import"
+                    _rel, _archivo_de_modulo(_rel, nodo.module or "", archivos, paquetes), "import"
                 )
             elif isinstance(nodo, ast.Call):
                 funcion = getattr(nodo.func, "id", None) or getattr(nodo.func, "attr", None)
@@ -218,12 +224,12 @@ def _extraer_nodos_y_aristas(directorio: str) -> dict:  # noqa: C901  (refactor 
                     # p. ej. pagos.procesar(...) → módulo pagos
                     modulo = getattr(getattr(nodo.func, "value", None), "id", None)
                     if modulo:
-                        destino = _archivo_de_modulo(rel, modulo, archivos, paquetes)
+                        destino = _archivo_de_modulo(_rel, modulo, archivos, paquetes)
                 if destino:
                     _enlazar(contexto, destino, "llamada")
             for hijo in ast.iter_child_nodes(nodo):
                 if isinstance(hijo, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    _visitar(hijo, f"{rel}::{hijo.name}")
+                    _visitar(hijo, f"{_rel}::{hijo.name}")
                 else:
                     _visitar(hijo, contexto)
 

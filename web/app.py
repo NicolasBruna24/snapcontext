@@ -205,7 +205,7 @@ def crear_app(api_token: str | None = None, interactiva: bool = False) -> FastAP
         preferencias = sc.cargar_configuracion()
         proveedor = cuerpo.get("proveedor") or preferencias.get("provider") or sc.PROVEEDOR_DEFECTO
         historial = list(cuerpo.get("historial") or [])[-20:]
-        mensajes = historial + [{"role": "user", "content": mensaje}]
+        mensajes = [*historial, {"role": "user", "content": mensaje}]
         try:
             respuesta = sc._enviar_al_proveedor(proveedor, cuerpo.get("modelo"), mensajes)
         except RuntimeError as exc:
@@ -746,9 +746,9 @@ def _construir_args_accion(accion: str, consulta: str, directorio: str):
     import snapcontext as sc
 
     if accion == "fix":
-        argv = sc._preparar_argv_aliases(["fix"] + shlex.split(consulta))
+        argv = sc._preparar_argv_aliases(["fix", *shlex.split(consulta)])
     elif accion == "review":
-        argv = sc._preparar_argv_aliases(["review"] + shlex.split(consulta))
+        argv = sc._preparar_argv_aliases(["review", *shlex.split(consulta)])
     elif accion == "plan":
         argv = ["--plan", consulta or ""]
     else:
