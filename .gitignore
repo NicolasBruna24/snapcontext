@@ -39,3 +39,10 @@ jetbrains/buildSearchableOptions/
 vscode/node_modules/
 vscode/out/
 vscode/*.vsix
+
+# Fase 10: artefactos de herramientas de calidad.
+coverage.xml
+.coverage
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/

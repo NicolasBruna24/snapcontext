@@ -92,6 +92,42 @@ jobs:
           path: dist/
           retention-days: 1
 
+  quality:
+    name: Quality checks (ruff / mypy / cov)
+    runs-on: ubuntu-latest
+    # Fase 10: checks de calidad NO bloqueantes (A3 de la auditoría).
+    # Se promueven a bloqueantes en la Fase 10b, tras limpiar los hallazgos.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install quality tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff mypy pytest-cov
+          pip install -e .
+
+      - name: Ruff (lint)
+        run: python -m ruff check . --statistics
+
+      - name: Ruff (format check)
+        run: python -m ruff format . --check
+
+      - name: Mypy (type check)
+        run: python -m mypy .
+
+      - name: Tests with coverage
+        # Reporte informativo; el umbral duro (--cov-fail-under=60) se activará
+        # en la Fase 10b cuando la cobertura actual (~20%) lo permita.
+        run: pytest tests/test_import.py -q --cov --cov-report=term
+
   publish-pypi:
     name: Publish to PyPI
     needs: build-and-test

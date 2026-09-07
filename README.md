@@ -6304,3 +6304,29 @@ snapcontext "arregla el login" --graph-rag --lsp --graph-rag-lsp --lsp-simbolos-
 ## Licencia
 
 MIT. Open-source y libre de usarlo, estudiarlo y mejorarlo.
+
+
+## Herramientas de calidad (Fase 10)
+
+El proyecto usa `ruff` (lint + formato), `mypy` (tipos estaticos) y
+`pytest-cov` (cobertura). Instalalas con:
+
+```bash
+pip install -e ".[dev]"
+```
+
+Comandos:
+
+```bash
+python -m ruff check .            # lint (reglas en pyproject.toml)
+python -m ruff check . --fix      # lint con autocorreccion
+python -m ruff format .           # formateo (estilo black)
+python -m ruff format . --check   # verificar formato sin cambiar archivos
+python -m mypy .                  # verificacion de tipos
+pytest                            # tests con reporte de cobertura
+pytest --cov --cov-fail-under=60  # tests con umbral minimo de cobertura
+```
+
+El CI ejecuta estos checks de forma NO bloqueante (`continue-on-error`) hasta
+la Fase 10b, en la que se limpiaran los hallazgos actuales (~2.400 de ruff,
+134 de mypy, cobertura ~20%) y se activaran como obligatorios.

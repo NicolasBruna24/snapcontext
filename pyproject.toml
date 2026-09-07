@@ -104,3 +104,93 @@ packages = ["web"]
 
 [tool.setuptools.package-data]
 web = ["static/*", "static/**/*"]
+
+# --- Fase 10: herramientas de calidad (A3 de la auditoría) ------------------
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+exclude = [
+    "build",
+    "dist",
+    ".venv",
+    "__pycache__",
+    "*.egg-info",
+    ".git",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pytest_cache",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "C",   # flake8-comprehensions
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "RUF", # ruff specific rules
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B008",   # do not perform function calls in argument defaults
+    "B904",   # raise from None
+    "RUF012", # mutable class attributes
+]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false   # inicialmente false para no bloquear
+ignore_missing_imports = true
+# mypy espera expresiones regulares (no globs) en exclude.
+exclude = [
+    "^build/",
+    "^dist/",
+    "^\\.venv/",
+    "__pycache__",
+    "egg-info",
+    "^tests/",
+]
+
+[[tool.mypy.overrides]]
+module = "snapcontext"
+ignore_errors = true   # temporal, para no bloquear el CI
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+# Cobertura en cada ejecución (solo reporte). El umbral mínimo (60%) se aplica
+# de forma explícita con: pytest --cov=snapcontext --cov-fail-under=60
+# (pendiente de activar por defecto en la Fase 10b: la cobertura actual del
+# monolito es ~9-20% y un umbral duro rompería el smoke test del CI).
+addopts = "-v --maxfail=3 --cov=snapcontext --cov-report=term --cov-report=xml"
+
+[tool.coverage.run]
+source = ["snapcontext", "planificador", "permisos", "hooks", "mcp_tools",
+          "configuracion", "presentacion", "seguridad", "instalador"]
+omit = ["tests/*", "build/*", "dist/*"]
+
+[project.optional-dependencies.dev]
+# NOTA: setuptools no admite entradas tipo "lint = ruff check ." en
+# [project.scripts] (requieren module:func). Los comandos de calidad se
+# documentan en el README y se integran en el workflow de GitHub Actions.
+dev = [
+    "ruff>=0.8.0",
+    "mypy>=1.10.0",
+    "pytest-cov>=5.0.0",
+]
