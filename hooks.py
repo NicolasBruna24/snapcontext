@@ -421,3 +421,37 @@ def cargar_todos_los_hooks() -> int:
     """Carga hooks de plugins y del directorio de configuración (una vez)."""
     return cargar_hooks_desde_plugins() + cargar_hooks_desde_archivos()
 
+
+# ---------------------------------------------------------------------------
+# Wrappers del gestor global (extraídos de snapcontext.py en la Fase 7)
+# Mantienen la firma y la lógica originales: solo delegan en las funciones
+# del módulo sin depender de snapcontext (import perezoso y tolerante).
+# ---------------------------------------------------------------------------
+
+def _hooks_inicializar() -> None:
+    """Carga perezosa de hooks desde plugins y ~/.snapcontext/hooks/ (v6.22.0).
+
+    Solo se ejecuta una vez por proceso y solo si el sistema está activo
+    (`--no-hooks` lo impide). Sin hooks instalados no tiene coste apreciable.
+    """
+    global _CARGADO
+    try:
+        if not _CARGADO:
+            cargar_todos_los_hooks()
+            _CARGADO = True
+    except Exception as exc:                     # noqa: BLE001
+        _depurar(f"[hooks] No se pudieron cargar los hooks: {exc}")
+
+
+def _hooks_ejecutar(evento: str, contexto: Optional[dict] = None) -> tuple:
+    """Wrapper seguro de ``hooks.ejecutar_hook`` (v6.22.0).
+
+    Devuelve ``(abortado, contexto)``; si el módulo no está disponible o el
+    sistema está desactivado continúa sin abortar (compatibilidad total).
+    """
+    try:
+        return ejecutar_hook(evento, contexto)
+    except Exception as exc:                     # noqa: BLE001
+        _depurar(f"[hooks] Error ejecutando '{evento}': {exc}")
+        return False, (contexto if isinstance(contexto, dict) else {})
+

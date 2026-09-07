@@ -5956,39 +5956,15 @@ def _ejecutar_revert(step: Optional[str] = None) -> int:
 # tolerante: sin `hooks.py` disponible, los call-sites no rompen el flujo.
 try:
     import hooks as _hooks                      # type: ignore[import]
-except Exception:                              # pragma: no cover
+    # Fase 7: wrappers del gestor global extraídos a hooks.py. Se re-importan
+    # para preservar la API interna (``sc._hooks_inicializar``/``sc._hooks_ejecutar``).
+    _hooks_inicializar = _hooks._hooks_inicializar
+    _hooks_ejecutar = _hooks._hooks_ejecutar
+except Exception:                               # pragma: no cover
     _hooks = None                               # type: ignore[assignment]
-
-
-def _hooks_inicializar() -> None:
-    """Carga perezosa de hooks desde plugins y ~/.snapcontext/hooks/ (v6.22.0).
-
-    Solo se ejecuta una vez por proceso y solo si el sistema está activo
-    (`--no-hooks` lo impide). Sin hooks instalados no tiene coste apreciable.
-    """
-    if _hooks is None:
-        return
-    try:
-        if not _hooks._CARGADO:
-            _hooks.cargar_todos_los_hooks()
-            _hooks._CARGADO = True
-    except Exception as exc:                     # noqa: BLE001
-        depurar(f"[hooks] No se pudieron cargar los hooks: {exc}")
-
-
-def _hooks_ejecutar(evento: str, contexto: Optional[dict] = None) -> tuple:
-    """Wrapper seguro de ``hooks.ejecutar_hook`` (v6.22.0).
-
-    Devuelve ``(abortado, contexto)``; si el módulo no está disponible o el
-    sistema está desactivado continúa sin abortar (compatibilidad total).
-    """
-    if _hooks is None:
-        return False, (contexto if isinstance(contexto, dict) else {})
-    try:
-        return _hooks.ejecutar_hook(evento, contexto)
-    except Exception as exc:                     # noqa: BLE001
-        depurar(f"[hooks] Error ejecutando '{evento}': {exc}")
-        return False, (contexto if isinstance(contexto, dict) else {})
+    _hooks_inicializar = lambda: None           # type: ignore[assignment]
+    _hooks_ejecutar = lambda evento, contexto=None: (False,
+        (contexto if isinstance(contexto, dict) else {}))
 
 
 def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
