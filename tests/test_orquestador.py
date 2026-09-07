@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests del orquestador de SnapContext (orquestador.py).
 
 Se cubren el planificador (escaneo/selección con AgenteContexto, --vista-previa)
@@ -13,7 +12,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from orquestador import Orquestador, VISTA_PREVIA
+from orquestador import VISTA_PREVIA, Orquestador
 
 
 class TestPlanificacion(unittest.TestCase):
@@ -35,11 +34,13 @@ class TestPlanificacion(unittest.TestCase):
 
     def _parser_args(self, extra=None):
         import snapcontext as sc
+
         argv = ["consulta", "--directorio", self._tmp, "--local"] + (extra or [])
         return sc.crear_parser().parse_args(argv)
 
     def test_planifica_local(self):
         import snapcontext as snap
+
         orch = Orquestador()
         args = self._parser_args([])
         plano = orch._planificar(args, snap)
@@ -50,11 +51,13 @@ class TestPlanificacion(unittest.TestCase):
 
     def test_vista_previa_devuelve_centinela(self):
         import snapcontext as snap
+
         args = self._parser_args(["--vista-previa"])
         self.assertEqual(Orquestador()._planificar(args, snap), VISTA_PREVIA)
 
     def test_proyecto_invalido_devuelve_none(self):
         import snapcontext as snap
+
         args = snap.crear_parser().parse_args(["consulta"])
         # v1.3.0: solo bloquea si NO hay --local ni --directorio explicito.
         with mock.patch.object(snap, "_es_proyecto_valido", return_value=False):

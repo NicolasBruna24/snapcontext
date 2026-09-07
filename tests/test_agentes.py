@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de los agentes de SnapContext (agentes.py).
 
 Se ejecuta con ``python -m pytest tests`` o ``python -m unittest
@@ -29,29 +28,26 @@ class TestAgenteContexto(_AgenteBase):
         with mock.patch(
             "snapcontext.escanear_repositorio", return_value=["a.dart", "b.dart"]
         ) as escanear:
-            resultado = agente.escanear_candidatos(
-                "consulta", "dir", ["lib"], max_candidatos=10
-            )
+            resultado = agente.escanear_candidatos("consulta", "dir", ["lib"], max_candidatos=10)
         self.assertEqual(resultado, ["a.dart", "b.dart"])
         escanear.assert_called_once_with(
-            "consulta", directorio="dir", carpetas=["lib"],
-            extensiones=None, max_candidatos=10
+            "consulta", directorio="dir", carpetas=["lib"], extensiones=None, max_candidatos=10
         )
 
     def test_seleccionar_archivos_sin_candidatos(self):
         agente = AgenteContexto()
         with mock.patch("snapcontext.escanear_repositorio", return_value=[]):
             self.assertEqual(
-                agente.seleccionar_archivos(
-                    "q", "dir", ["lib"], 2, provider="gemini", modelo="m"
-                ),
+                agente.seleccionar_archivos("q", "dir", ["lib"], 2, provider="gemini", modelo="m"),
                 [],
             )
 
     def test_seleccionar_archivos_delega(self):
         agente = AgenteContexto()
-        with mock.patch("snapcontext.escanear_repositorio", return_value=["a.dart"]), \
-             mock.patch("snapcontext.seleccionar_archivos", return_value=["a.dart"]) as sel:
+        with (
+            mock.patch("snapcontext.escanear_repositorio", return_value=["a.dart"]),
+            mock.patch("snapcontext.seleccionar_archivos", return_value=["a.dart"]) as sel,
+        ):
             resultado = agente.seleccionar_archivos(
                 "consulta", "dir", ["lib"], 1, provider="groq", modelo="m"
             )
@@ -95,6 +91,7 @@ class TestAgenteTester(_AgenteBase):
     def test_analizar_error_recorta(self):
         agente = AgenteTester()
         import snapcontext as sc
+
         limite = getattr(sc, "MAX_ERROR_SALIDA", 4000)
         largo = "A" * (limite + 500)
         resultado = agente.analizar_error(largo)

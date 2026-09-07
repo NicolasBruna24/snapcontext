@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Ejecutor genérico de tareas en paralelo (v6.20.0).
 
 Sobre v6.13.0 (que ya dio `--paralelo` al planificador y
@@ -31,12 +30,12 @@ secuencial habitual: este ejecutor es totalmente opcional.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Dict, List, Optional
 
 import ui
 
-__all__ = ["ParallelExecutor", "resolver_workers", "_ejecutar_tarea"]
+__all__ = ["ParallelExecutor", "_ejecutar_tarea", "resolver_workers"]
 
 
 def resolver_workers(paralelo: int) -> int:
@@ -62,16 +61,26 @@ def _ejecutar_tarea(tarea: dict) -> dict:
     tiempo empleado. Nunca lanza.
     """
     import time
+
     nombre = str(tarea.get("nombre") or "tarea")
     inicio = time.monotonic()
     try:
         funcion: Callable = tarea["funcion"]
         resultado = funcion(*tarea.get("args", ()), **tarea.get("kwargs", {}))
-        return {"nombre": nombre, "ok": True, "resultado": resultado,
-                "tiempo": time.monotonic() - inicio}
-    except Exception as exc:                             # noqa: BLE001
-        return {"nombre": nombre, "ok": False, "resultado": None,
-                "error": str(exc), "tiempo": time.monotonic() - inicio}
+        return {
+            "nombre": nombre,
+            "ok": True,
+            "resultado": resultado,
+            "tiempo": time.monotonic() - inicio,
+        }
+    except Exception as exc:
+        return {
+            "nombre": nombre,
+            "ok": False,
+            "resultado": None,
+            "error": str(exc),
+            "tiempo": time.monotonic() - inicio,
+        }
 
 
 class ParallelExecutor:
@@ -82,7 +91,7 @@ class ParallelExecutor:
 
     # -- API principal ------------------------------------------------------
 
-    def ejecutar_paralelo(self, tareas: List[dict]) -> List[dict]:
+    def ejecutar_paralelo(self, tareas: list[dict]) -> list[dict]:
         """Ejecuta las tareas respetando dependencias y límite de workers.
 
         Cada tarea: ``{"nombre", "funcion", "args", "kwargs", "dependencias"}``
@@ -97,29 +106,29 @@ class ParallelExecutor:
             # Camino secuencial: mismo contrato, cero overhead de hilos.
             return self._ejecutar_secuencial(tareas)
         ui.mostrar_estado(
-            f"🚀 Ejecutando {len(tareas)} tareas en paralelo "
-            f"(máx. {self.max_workers})...", emoji="")
+            f"🚀 Ejecutando {len(tareas)} tareas en paralelo (máx. {self.max_workers})...", emoji=""
+        )
         return self._ejecutar_con_pool(tareas)
 
     # -- Internos -------------------------------------------------------------
 
-    def _ejecutar_secuencial(self, tareas: List[dict]) -> List[dict]:
-        resultados: List[Optional[dict]] = [None] * len(tareas)
-        terminadas: Dict[str, bool] = {}
+    def _ejecutar_secuencial(self, tareas: list[dict]) -> list[dict]:
+        resultados: list[dict | None] = [None] * len(tareas)
+        terminadas: dict[str, bool] = {}
         ui.mostrar_estado(
-            f"🚀 Ejecutando {len(tareas)} tareas en paralelo (secuencial)...",
-            emoji="")
+            f"🚀 Ejecutando {len(tareas)} tareas en paralelo (secuencial)...", emoji=""
+        )
         for indice, tarea in enumerate(tareas):
             res = self._ejecutar_si_puede(tarea, terminadas, anunciar=True)
             resultados[indice] = res
             if not res["ok"] and res.get("estado") != "omitida":
                 # Un fallo bloquea a sus dependientes (idempotencia v6.20.0).
                 self._marcar_huerfanos(tarea, tareas, resultados)
-        return [r for r in resultados if r is not None]      # type: ignore
+        return [r for r in resultados if r is not None]  # type: ignore
 
-    def _ejecutar_con_pool(self, tareas: List[dict]) -> List[dict]:
-        resultados: List[Optional[dict]] = [None] * len(tareas)
-        terminadas: Dict[str, bool] = {}
+    def _ejecutar_con_pool(self, tareas: list[dict]) -> list[dict]:
+        resultados: list[dict | None] = [None] * len(tareas)
+        terminadas: dict[str, bool] = {}
         pendientes = list(range(len(tareas)))
         with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
             futuros = {}
@@ -128,8 +137,7 @@ class ParallelExecutor:
                 for indice in pendientes:
                     tarea = tareas[indice]
                     if self._dependencias_ok(tarea, terminadas):
-                        futuros[pool.submit(
-                            _ejecutar_tarea, tarea)] = indice
+                        futuros[pool.submit(_ejecutar_tarea, tarea)] = indice
                         lanzadas.append(indice)
                 for indice in lanzadas:
                     pendientes.remove(indice)
@@ -138,8 +146,9 @@ class ParallelExecutor:
                     # fallida): se marcan como omitidas y se sale.
                     break
                 terminados = [f for f in futuros if f.done()]
-                if not terminados:                          # pragma: no cover
+                if not terminados:  # pragma: no cover
                     import time
+
                     time.sleep(0.01)
                     continue
                 for futuro in terminados:
@@ -149,15 +158,13 @@ class ParallelExecutor:
                     nombre = res["nombre"]
                     if res["ok"]:
                         terminadas[nombre] = True
-                        ui.mostrar_estado(
-                            f"✅ Tarea {nombre} completada", emoji="")
+                        ui.mostrar_estado(f"✅ Tarea {nombre} completada", emoji="")
                     else:
                         terminadas[nombre] = False
                         ui.mostrar_error(
-                            f"❌ Tarea {nombre} falló: "
-                            f"{res.get('error', 'desconocido')}")
-                        self._marcar_huerfanos(
-                            tareas[indice], tareas, resultados)
+                            f"❌ Tarea {nombre} falló: {res.get('error', 'desconocido')}"
+                        )
+                        self._marcar_huerfanos(tareas[indice], tareas, resultados)
             # Recoge futuros lanzados que siguieron vivos al salir del while
             # (p. ej. dependientes desbloqueados en la última ronda).
             for futuro, indice in list(futuros.items()):
@@ -166,12 +173,9 @@ class ParallelExecutor:
                 nombre = res["nombre"]
                 if res["ok"]:
                     terminadas[nombre] = True
-                    ui.mostrar_estado(
-                        f"✅ Tarea {nombre} completada", emoji="")
+                    ui.mostrar_estado(f"✅ Tarea {nombre} completada", emoji="")
                 else:
-                    ui.mostrar_error(
-                        f"❌ Tarea {nombre} falló: "
-                        f"{res.get('error', 'desconocido')}")
+                    ui.mostrar_error(f"❌ Tarea {nombre} falló: {res.get('error', 'desconocido')}")
                 futuros.pop(futuro)
             # Si nuevas tareas se desbloquearon, sigue el bucle.
         # Cierra tareas que nunca pudieron lanzarse (ciclo de dependencias).
@@ -179,14 +183,17 @@ class ParallelExecutor:
             if resultados[indice] is None:
                 resultados[indice] = {
                     "nombre": str(tarea.get("nombre") or "tarea"),
-                    "ok": False, "resultado": None, "error": None,
-                    "estado": "omitida"}
-        return [r for r in resultados if r is not None]      # type: ignore
+                    "ok": False,
+                    "resultado": None,
+                    "error": None,
+                    "estado": "omitida",
+                }
+        return [r for r in resultados if r is not None]  # type: ignore
 
     # -- Dependencias ----------------------------------------------------------
 
     @staticmethod
-    def _dependencias_ok(tarea: dict, terminadas: Dict[str, bool]) -> bool:
+    def _dependencias_ok(tarea: dict, terminadas: dict[str, bool]) -> bool:
         for dep in tarea.get("dependencias") or ():
             if dep not in terminadas:
                 return False
@@ -194,29 +201,32 @@ class ParallelExecutor:
                 return False
         return True
 
-    def _ejecutar_si_puede(self, tarea: dict, terminadas: Dict[str, bool],
-                           anunciar: bool = True) -> dict:
+    def _ejecutar_si_puede(
+        self, tarea: dict, terminadas: dict[str, bool], anunciar: bool = True
+    ) -> dict:
         nombre = str(tarea.get("nombre") or "tarea")
-        faltantes = [d for d in (tarea.get("dependencias") or ())
-                     if d not in terminadas or not terminadas[d]]
+        faltantes = [
+            d for d in (tarea.get("dependencias") or ()) if d not in terminadas or not terminadas[d]
+        ]
         if faltantes:
-            return {"nombre": nombre, "ok": False, "resultado": None,
-                    "error": f"dependencia no resuelta: {faltantes}",
-                    "estado": "omitida"}
+            return {
+                "nombre": nombre,
+                "ok": False,
+                "resultado": None,
+                "error": f"dependencia no resuelta: {faltantes}",
+                "estado": "omitida",
+            }
         res = _ejecutar_tarea(tarea)
         terminadas[nombre] = res["ok"]
         if anunciar:
             if res["ok"]:
-                ui.mostrar_estado(
-                    f"✅ Tarea {nombre} completada", emoji="")
+                ui.mostrar_estado(f"✅ Tarea {nombre} completada", emoji="")
             else:
-                ui.mostrar_error(
-                    f"❌ Tarea {nombre} falló: {res.get('error', '')}")
+                ui.mostrar_error(f"❌ Tarea {nombre} falló: {res.get('error', '')}")
         return res
 
     @staticmethod
-    def _marcar_huerfanos(tarea: dict, tareas: List[dict],
-                          resultados: List[Optional[dict]]) -> None:
+    def _marcar_huerfanos(tarea: dict, tareas: list[dict], resultados: list[dict | None]) -> None:
         """Marca como omitidas las tareas que dependen (directa o
         transitivamente) de una tarea fallida — idempotencia v6.20.0."""
         huerfanos = {str(tarea.get("nombre") or "tarea")}
@@ -230,9 +240,11 @@ class ParallelExecutor:
                     if dep in huerfanos:
                         resultados[indice] = {
                             "nombre": str(otra.get("nombre") or "tarea"),
-                            "ok": False, "resultado": None,
+                            "ok": False,
+                            "resultado": None,
                             "error": f"dependencia fallida: {dep}",
-                            "estado": "omitida"}
+                            "estado": "omitida",
+                        }
                         huerfanos.add(str(otra.get("nombre") or "tarea"))
                         changed = True
                         break

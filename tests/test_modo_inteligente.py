@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests del modo inteligente por defecto (v6.23.0).
 
 Cubre: detección de complejidad (chat/plan/react/react_paralelo),
@@ -19,7 +18,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import snapcontext as sc       # noqa: E402
+import snapcontext as sc
 
 ENV_MODO = "SNAPCONTEXT_MODO_DEFAULT"
 
@@ -40,23 +39,27 @@ class TestDetectarModo(unittest.TestCase):
         self.assertEqual(self._detectar("explica que hace")["modo"], "chat")
 
     def test_editar_detecta_plan(self):
-        for q in ("arregla el botón de pago",
-                  "corrige el error del login",
-                  "refactorizar el modulo de cobros",
-                  "añadir índice a la tabla pedidos",
-                  "cambiar el color del boton",
-                  "eliminar la función obsoleta"):
+        for q in (
+            "arregla el botón de pago",
+            "corrige el error del login",
+            "refactorizar el modulo de cobros",
+            "añadir índice a la tabla pedidos",
+            "cambiar el color del boton",
+            "eliminar la función obsoleta",
+        ):
             self.assertEqual(self._detectar(q)["modo"], "plan", q)
 
     def test_leer_detecta_react(self):
-        for q in ("analiza el rendimiento del login",
-                  "revisar el codigo",
-                  "leer el archivo de config",
-                  "auditar la seguridad de la api"):
+        for q in (
+            "analiza el rendimiento del login",
+            "revisar el codigo",
+            "leer el archivo de config",
+            "auditar la seguridad de la api",
+        ):
             self.assertEqual(self._detectar(q)["modo"], "react", q)
 
     def test_consulta_larga_react_paralelo(self):
-        q = " ".join(["paso"] * 51)          # >50 palabras
+        q = " ".join(["paso"] * 51)  # >50 palabras
         self.assertEqual(self._detectar(q)["modo"], "react_paralelo")
 
     def test_multipaso_react_paralelo(self):
@@ -86,13 +89,17 @@ class TestConfigurarDefaults(unittest.TestCase):
     """``_configurar_comportamiento_por_defecto`` aplica defaults."""
 
     def _config(self, consulta, api=True, **flags):
-        base = dict(consulta=consulta, local=False,
-                    mostrar_razonamiento=False, auto=False, plan=False,
-                    paralelo=1)
+        base = dict(
+            consulta=consulta,
+            local=False,
+            mostrar_razonamiento=False,
+            auto=False,
+            plan=False,
+            paralelo=1,
+        )
         base.update(flags)
         args = _args_ns(**base)
-        with mock.patch.object(sc, "hay_api_key_configurada",
-                               return_value=api):
+        with mock.patch.object(sc, "hay_api_key_configurada", return_value=api):
             return sc._configurar_comportamiento_por_defecto(args)
 
     def test_forza_local_sin_api_key(self):
@@ -124,6 +131,8 @@ class TestConfigurarDefaults(unittest.TestCase):
         args = self._config("revisar login")
         self.assertTrue(args._modo_inteligente)
         self.assertEqual(args._modo_detectado, "react")
+
+
 class TestAplicarModo(unittest.TestCase):
     """``_aplicar_modo_inteligente``, entorno y mensajes."""
 
@@ -133,8 +142,7 @@ class TestAplicarModo(unittest.TestCase):
     def test_entorno_manual_no_aplica(self):
         os.environ[ENV_MODO] = "manual"
         args = sc.crear_parser().parse_args(["arregla el botón"])
-        with mock.patch.object(sc, "hay_api_key_configurada",
-                               return_value=True):
+        with mock.patch.object(sc, "hay_api_key_configurada", return_value=True):
             args = sc._aplicar_modo_inteligente(args)
         self.assertFalse(getattr(args, "_modo_inteligente", False))
         self.assertFalse(args.plan)
@@ -142,32 +150,30 @@ class TestAplicarModo(unittest.TestCase):
     def test_entorno_inteligente_aplica(self):
         os.environ[ENV_MODO] = "inteligente"
         args = sc.crear_parser().parse_args(["arregla el botón"])
-        with mock.patch.object(sc, "hay_api_key_configurada",
-                               return_value=True):
+        with mock.patch.object(sc, "hay_api_key_configurada", return_value=True):
             args = sc._aplicar_modo_inteligente(args)
         self.assertTrue(args._modo_inteligente)
         self.assertEqual(args._modo_detectado, "plan")
 
     def test_entorno_por_defecto_es_inteligente(self):
-        os.environ.pop(ENV_MODO, None)      # default "inteligente"
+        os.environ.pop(ENV_MODO, None)  # default "inteligente"
         args = sc.crear_parser().parse_args(["arregla el botón"])
-        with mock.patch.object(sc, "hay_api_key_configurada",
-                               return_value=True):
+        with mock.patch.object(sc, "hay_api_key_configurada", return_value=True):
             sc._aplicar_modo_inteligente(args)
         self.assertTrue(args._modo_inteligente)
 
     def test_flags_explicitos_respetados(self):
         args = sc.crear_parser().parse_args(["--plan", "tarea"])
-        with mock.patch.object(sc, "hay_api_key_configurada",
-                               return_value=True):
+        with mock.patch.object(sc, "hay_api_key_configurada", return_value=True):
             args = sc._aplicar_modo_inteligente(args)
         self.assertFalse(getattr(args, "_modo_inteligente", False))
 
     def test_muestra_mensaje_modo_inteligente(self):
         args = sc.crear_parser().parse_args(["arregla el botón"])
-        with mock.patch.object(sc, "info") as info, \
-                mock.patch.object(sc, "hay_api_key_configurada",
-                                  return_value=True):
+        with (
+            mock.patch.object(sc, "info") as info,
+            mock.patch.object(sc, "hay_api_key_configurada", return_value=True),
+        ):
             sc._aplicar_modo_inteligente(args)
         textos = [(c.args[0] if c.args else "") for c in info.call_args_list]
         unidos = " ".join(textos)
@@ -176,10 +182,11 @@ class TestAplicarModo(unittest.TestCase):
 
     def test_sin_consulta_no_aplica(self):
         args = sc.crear_parser().parse_args([])
-        with mock.patch.object(sc, "hay_api_key_configurada",
-                               return_value=True):
+        with mock.patch.object(sc, "hay_api_key_configurada", return_value=True):
             args = sc._aplicar_modo_inteligente(args)
         self.assertFalse(getattr(args, "_modo_inteligente", False))
+
+
 class TestPlanResumido(unittest.TestCase):
     """``_mostrar_plan_resumido`` condensa el plan."""
 
@@ -188,8 +195,11 @@ class TestPlanResumido(unittest.TestCase):
         self.assertEqual(sc._mostrar_plan_resumido(None), "")
 
     def test_plan_corto(self):
-        plan = [{"descripcion": "leer login"}, {"descripcion": "corregir"},
-                {"descripcion": "ejecutar pruebas"}]
+        plan = [
+            {"descripcion": "leer login"},
+            {"descripcion": "corregir"},
+            {"descripcion": "ejecutar pruebas"},
+        ]
         resumen = sc._mostrar_plan_resumido(plan)
         self.assertTrue(resumen.startswith("Voy a:"))
         self.assertIn("1) leer login", resumen)
@@ -209,23 +219,35 @@ class TestReduccionConfirmaciones(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.dir_tmp = Path(self.tmp.name)
-        for attr, nombre in (("CONFIG_DIR", "d"),
-                             ("HISTORIAL_PATH", "historial.json")):
+        for attr, nombre in (("CONFIG_DIR", "d"), ("HISTORIAL_PATH", "historial.json")):
             p = mock.patch.object(sc, attr, self.dir_tmp / nombre)
             p.start()
             self.addCleanup(p.stop)
         self.addCleanup(self.tmp.cleanup)
 
     def _pasos(self):
-        return [{"descripcion": "a", "accion": "consultar"},
-                {"descripcion": "b", "accion": "consultar"}]
+        return [
+            {"descripcion": "a", "accion": "consultar"},
+            {"descripcion": "b", "accion": "consultar"},
+        ]
 
     def _args(self, inteligente=True, auto=True, paralelo=1):
-        base = dict(consulta="arregla el botón", depurar=False, provider=None,
-                    modelo=None, git_commit=False, branch=None,
-                    directorio=".", test_loop=False, aider_opciones="",
-                    comando_test="", max_iteraciones=1, confirmar=True,
-                    auto=auto, paralelo=paralelo)
+        base = dict(
+            consulta="arregla el botón",
+            depurar=False,
+            provider=None,
+            modelo=None,
+            git_commit=False,
+            branch=None,
+            directorio=".",
+            test_loop=False,
+            aider_opciones="",
+            comando_test="",
+            max_iteraciones=1,
+            confirmar=True,
+            auto=auto,
+            paralelo=paralelo,
+        )
         if inteligente:
             base["_modo_inteligente"] = True
             base["_modo_detectado"] = "plan"
@@ -233,17 +255,16 @@ class TestReduccionConfirmaciones(unittest.TestCase):
 
     def test_plan_auto_muestra_resumen_y_no_confirmacion(self):
         pasos = self._pasos()
-        with mock.patch.object(sc, "_generar_plan", return_value=pasos), \
-                mock.patch.object(sc, "_preguntar_si",
-                                  side_effect=AssertionError(
-                                      "no debe confirmar paso a paso")), \
-                mock.patch.object(sc, "_ejecutar_paso_plan",
-                                  return_value=(True, "ok")), \
-                mock.patch.object(sc, "_guardar_historial",
-                                  return_value=True), \
-                mock.patch.object(sc, "_aprender_de_tarea",
-                                  return_value=None), \
-                mock.patch.object(sc, "info") as info:
+        with (
+            mock.patch.object(sc, "_generar_plan", return_value=pasos),
+            mock.patch.object(
+                sc, "_preguntar_si", side_effect=AssertionError("no debe confirmar paso a paso")
+            ),
+            mock.patch.object(sc, "_ejecutar_paso_plan", return_value=(True, "ok")),
+            mock.patch.object(sc, "_guardar_historial", return_value=True),
+            mock.patch.object(sc, "_aprender_de_tarea", return_value=None),
+            mock.patch.object(sc, "info") as info,
+        ):
             codigo = sc._ejecutar_planificador(self._args(inteligente=True))
         self.assertEqual(codigo, 0)
         textos = [(c.args[0] if c.args else "") for c in info.call_args_list]
@@ -251,17 +272,16 @@ class TestReduccionConfirmaciones(unittest.TestCase):
 
     def test_sin_modo_inteligente_no_muestra_resumen(self):
         pasos = self._pasos()
-        with mock.patch.object(sc, "_generar_plan", return_value=pasos), \
-                mock.patch.object(sc, "_preguntar_si",
-                                  side_effect=AssertionError(
-                                      "no debe confirmar paso a paso")), \
-                mock.patch.object(sc, "_ejecutar_paso_plan",
-                                  return_value=(True, "ok")), \
-                mock.patch.object(sc, "_guardar_historial",
-                                  return_value=True), \
-                mock.patch.object(sc, "_aprender_de_tarea",
-                                  return_value=None), \
-                mock.patch.object(sc, "info") as info:
+        with (
+            mock.patch.object(sc, "_generar_plan", return_value=pasos),
+            mock.patch.object(
+                sc, "_preguntar_si", side_effect=AssertionError("no debe confirmar paso a paso")
+            ),
+            mock.patch.object(sc, "_ejecutar_paso_plan", return_value=(True, "ok")),
+            mock.patch.object(sc, "_guardar_historial", return_value=True),
+            mock.patch.object(sc, "_aprender_de_tarea", return_value=None),
+            mock.patch.object(sc, "info") as info,
+        ):
             codigo = sc._ejecutar_planificador(self._args(inteligente=False))
         self.assertEqual(codigo, 0)
         textos = [(c.args[0] if c.args else "") for c in info.call_args_list]

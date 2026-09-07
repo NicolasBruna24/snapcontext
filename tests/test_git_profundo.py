@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de Git profundo (v6.20.0): commits atómicos por paso, mensajes
 generados con IA, tabla ``pasos`` en la BD y revert nativo."""
 
@@ -13,7 +12,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import snapcontext as sc  # noqa: E402
+import snapcontext as sc
 
 
 def _dir_tmp():
@@ -29,6 +28,7 @@ def _args(extra=None):
 def _git(*cmd):
     """Ejecuta un comando git en un directorio y devuelve (codigo, out, err)."""
     import subprocess
+
     p = subprocess.run(["git"] + list(cmd), capture_output=True, text=True)
     return p.returncode, p.stdout, p.stderr
 
@@ -51,11 +51,9 @@ class _BDAislada:
         sc.DB_PATH = self._vieja
 
 
-
 class TestSanearMensajeCommit(unittest.TestCase):
     def test_elimina_clave_openai(self):
-        self.assertNotIn("sk-abcdef123456",
-                         sc._sanear_mensaje_commit("feat: usar sk-abcdef123456"))
+        self.assertNotIn("sk-abcdef123456", sc._sanear_mensaje_commit("feat: usar sk-abcdef123456"))
 
     def test_elimina_asignacion_api_key(self):
         limpio = sc._sanear_mensaje_commit("config api_key = abc123")
@@ -63,34 +61,31 @@ class TestSanearMensajeCommit(unittest.TestCase):
         self.assertIn("[REDACTADO]", limpio)
 
     def test_mensaje_normal_intacto(self):
-        self.assertEqual(sc._sanear_mensaje_commit("feat: login"),
-                         "feat: login")
+        self.assertEqual(sc._sanear_mensaje_commit("feat: login"), "feat: login")
 
 
 class TestGenerarMensajeCommit(unittest.TestCase):
     def test_fallback_sin_proveedor(self):
-        with mock.patch.object(sc, "cargar_configuracion",
-                               side_effect=RuntimeError("sin config")):
+        with mock.patch.object(sc, "cargar_configuracion", side_effect=RuntimeError("sin config")):
             self.assertEqual(
-                sc._generar_mensaje_commit("+ linea", "arreglar login"),
-                "paso: arreglar login")
+                sc._generar_mensaje_commit("+ linea", "arreglar login"), "paso: arreglar login"
+            )
 
     def test_mensaje_con_ia_mockeada(self):
-        with mock.patch.object(sc, "cargar_configuracion",
-                               return_value={"provider": "ollama"}), \
-                mock.patch.object(sc, "_enviar_al_proveedor",
-                                  return_value="feat: añadir login"):
-            self.assertEqual(
-                sc._generar_mensaje_commit("+ login()", "login"),
-                "feat: añadir login")
+        with (
+            mock.patch.object(sc, "cargar_configuracion", return_value={"provider": "ollama"}),
+            mock.patch.object(sc, "_enviar_al_proveedor", return_value="feat: añadir login"),
+        ):
+            self.assertEqual(sc._generar_mensaje_commit("+ login()", "login"), "feat: añadir login")
 
     def test_mensaje_ia_se_sanea(self):
-        with mock.patch.object(sc, "cargar_configuracion",
-                               return_value={"provider": "ollama"}), \
-                mock.patch.object(sc, "_enviar_al_proveedor",
-                                  return_value='feat: "usar sk-abcdefgh123"'):
-            self.assertNotIn("sk-abcdefgh123",
-                             sc._generar_mensaje_commit("", "x"))
+        with (
+            mock.patch.object(sc, "cargar_configuracion", return_value={"provider": "ollama"}),
+            mock.patch.object(
+                sc, "_enviar_al_proveedor", return_value='feat: "usar sk-abcdefgh123"'
+            ),
+        ):
+            self.assertNotIn("sk-abcdefgh123", sc._generar_mensaje_commit("", "x"))
 
 
 class TestCommitPaso(unittest.TestCase):
@@ -103,13 +98,15 @@ class TestCommitPaso(unittest.TestCase):
         # Evita llamadas reales al proveedor: sin config, el generador usa
         # el mensaje de respaldo "paso: <descripcion>".
         self._mock_cfg = mock.patch.object(
-            sc, "cargar_configuracion", side_effect=RuntimeError("offline"))
+            sc, "cargar_configuracion", side_effect=RuntimeError("offline")
+        )
         self._mock_cfg.start()
 
     def tearDown(self):
         self._mock_cfg.stop()
         self._bd.__exit__()
         import shutil
+
         shutil.rmtree(self.dir, ignore_errors=True)
 
     def test_commit_devuelve_hash(self):
@@ -118,19 +115,17 @@ class TestCommitPaso(unittest.TestCase):
 
     def test_commit_registrado_en_bd(self):
         h = sc._commit_paso(self.paso, _args(), self.dir)
-        filas = sc._db_query(
-            "SELECT * FROM pasos WHERE commit_hash = ?", (h,))
+        filas = sc._db_query("SELECT * FROM pasos WHERE commit_hash = ?", (h,))
         self.assertEqual(len(filas), 1)
         self.assertEqual(filas[0]["descripcion"], "crear modulo")
 
     def test_sin_cambios_devuelve_none(self):
         primer = sc._commit_paso(self.paso, _args(), self.dir)
-        self.assertTrue(primer)                     # commit inicial
+        self.assertTrue(primer)  # commit inicial
         self.assertIsNone(sc._commit_paso(self.paso, _args(), self.dir))
 
     def test_git_mensaje_manual_tiene_prioridad(self):
-        sc._commit_paso(self.paso, _args({"git_mensaje": "manual: x"}),
-                        self.dir)
+        sc._commit_paso(self.paso, _args({"git_mensaje": "manual: x"}), self.dir)
         _, out, _ = _git("-C", self.dir, "log", "-1", "--pretty=%s")
         self.assertEqual(out.strip(), "manual: x")
 
@@ -142,8 +137,7 @@ class TestCommitPaso(unittest.TestCase):
         self.assertTrue(Path(self.dir, ".git").exists())
 
     def test_mensaje_generado_fallback_formato(self):
-        with mock.patch.object(sc, "cargar_configuracion",
-                               side_effect=RuntimeError("offline")):
+        with mock.patch.object(sc, "cargar_configuracion", side_effect=RuntimeError("offline")):
             h = sc._commit_paso(self.paso, _args(), self.dir)
             self.assertTrue(h)
         _, out, _ = _git("-C", self.dir, "log", "-1", "--pretty=%s")
@@ -158,7 +152,8 @@ class TestRevertPaso(unittest.TestCase):
         self._bd = _BDAislada()
         self._bd.__enter__()
         self._mock_cfg = mock.patch.object(
-            sc, "cargar_configuracion", side_effect=RuntimeError("offline"))
+            sc, "cargar_configuracion", side_effect=RuntimeError("offline")
+        )
         self._mock_cfg.start()
         _git("init", "-q")
         _git("config", "user.email", "t@t.local")
@@ -169,17 +164,16 @@ class TestRevertPaso(unittest.TestCase):
         self._bd.__exit__()
         os.chdir(self.old)
         import shutil
+
         shutil.rmtree(self.dir, ignore_errors=True)
 
     def _commit_paso_en_bd(self):
         Path(self.dir, "a.py").write_text("a = 1\n", encoding="utf-8")
-        return sc._commit_paso(
-            {"accion": "editar", "descripcion": "paso uno"}, _args(), self.dir)
+        return sc._commit_paso({"accion": "editar", "descripcion": "paso uno"}, _args(), self.dir)
 
     def test_revert_exitoso(self):
         h = self._commit_paso_en_bd()
-        filas = sc._db_query(
-            "SELECT id FROM pasos WHERE commit_hash = ?", (h,))
+        filas = sc._db_query("SELECT id FROM pasos WHERE commit_hash = ?", (h,))
         step_id = filas[0]["id"]
         self.assertTrue(sc._revertir_paso(step_id))
         _, out, _ = _git("log", "-1", "--pretty=%s")
@@ -190,16 +184,15 @@ class TestRevertPaso(unittest.TestCase):
 
     def test_revert_sin_commit_asociado(self):
         sc._db_registrar_paso("sin hash", None)
-        filas = sc._db_query(
-            "SELECT id FROM pasos WHERE commit_hash IS NULL")
+        filas = sc._db_query("SELECT id FROM pasos WHERE commit_hash IS NULL")
         self.assertFalse(sc._revertir_paso(filas[0]["id"]))
 
     def test_mensaje_revert_mostrado(self):
         import io as _io
         from contextlib import redirect_stdout
+
         h = self._commit_paso_en_bd()
-        filas = sc._db_query(
-            "SELECT id FROM pasos WHERE commit_hash = ?", (h,))
+        filas = sc._db_query("SELECT id FROM pasos WHERE commit_hash = ?", (h,))
         buf = _io.StringIO()
         with redirect_stdout(buf):
             sc._revertir_paso(filas[0]["id"])
@@ -207,12 +200,11 @@ class TestRevertPaso(unittest.TestCase):
 
     def test_conflicto_sugerencia_mergetool(self):
         h = self._commit_paso_en_bd()
-        filas = sc._db_query(
-            "SELECT id FROM pasos WHERE commit_hash = ?", (h,))
+        filas = sc._db_query("SELECT id FROM pasos WHERE commit_hash = ?", (h,))
         step_id = filas[0]["id"]
-        with mock.patch.object(sc, "_ejecutar_comando",
-                               return_value=(1, "",
-                                             "CONFLICT (content): x.py")):
+        with mock.patch.object(
+            sc, "_ejecutar_comando", return_value=(1, "", "CONFLICT (content): x.py")
+        ):
             self.assertFalse(sc._revertir_paso(step_id))
 
 
@@ -225,8 +217,7 @@ class TestComandoRevertCLI(unittest.TestCase):
 
     def test_gateway_revert_en_main(self):
         # `snapcontext revert <N>` no llega al parser principal (gateway).
-        with mock.patch.object(sc, "_ejecutar_revert",
-                               return_value=0) as rev:
+        with mock.patch.object(sc, "_ejecutar_revert", return_value=0) as rev:
             sc.main(["revert", "3"])
             rev.assert_called_once_with("3")
 
@@ -246,29 +237,30 @@ class TestComandoRevertCLI(unittest.TestCase):
 class TestIntegracionReAct(unittest.TestCase):
     def test_react_commit_tras_editar_archivo(self):
         import react_agent as ra
+
         dir_tmp = _dir_tmp()
-        agente = ra.ReactAgent(directorio=dir_tmp, auto=True,
-                               proveedor="mock", git_commit=True)
+        agente = ra.ReactAgent(directorio=dir_tmp, auto=True, proveedor="mock", git_commit=True)
         self.assertEqual(agente.git_commit, True)
-        with mock.patch.object(sc, "_commit_paso",
-                               return_value="abc1234") as commit, \
-                mock.patch.object(sc, "cargar_configuracion",
-                                  return_value={"provider": "mock"}), \
-                mock.patch.object(ra.ReactAgent, "_pedir_decision",
-                                  side_effect=[
-                                      {"pensamiento": "editar",
-                                       "accion": "editar_archivo",
-                                       "argumentos": {
-                                           "ruta": "f.txt",
-                                           "contenido": "hola"}},
-                                      {"pensamiento": "fin",
-                                       "accion": "finalizar",
-                                       "argumentos": {"resumen": "ok"}}]):
+        with (
+            mock.patch.object(sc, "_commit_paso", return_value="abc1234") as commit,
+            mock.patch.object(sc, "cargar_configuracion", return_value={"provider": "mock"}),
+            mock.patch.object(
+                ra.ReactAgent,
+                "_pedir_decision",
+                side_effect=[
+                    {
+                        "pensamiento": "editar",
+                        "accion": "editar_archivo",
+                        "argumentos": {"ruta": "f.txt", "contenido": "hola"},
+                    },
+                    {"pensamiento": "fin", "accion": "finalizar", "argumentos": {"resumen": "ok"}},
+                ],
+            ),
+        ):
             r = agente.ejecutar("crear archivo")
         self.assertTrue(r["ok"])
         commit.assert_called_once()
-        contenido_historial = " ".join(
-            m["content"] for m in agente.historial)
+        contenido_historial = " ".join(m["content"] for m in agente.historial)
         self.assertIn("[COMMIT] abc1234", contenido_historial)
 
 
@@ -278,9 +270,7 @@ class TestVersionYBD(unittest.TestCase):
 
     def test_tabla_pasos_existe_tras_inicializar(self):
         sc._db_migrar_pasos()
-        filas = sc._db_query(
-            "SELECT name FROM sqlite_master WHERE type='table' "
-            "AND name='pasos'")
+        filas = sc._db_query("SELECT name FROM sqlite_master WHERE type='table' AND name='pasos'")
         self.assertEqual(len(filas), 1)
 
     def test_migracion_idempotente(self):
@@ -290,5 +280,3 @@ class TestVersionYBD(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-

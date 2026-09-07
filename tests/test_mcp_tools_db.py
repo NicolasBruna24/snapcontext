@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests para mcp_tools_db.py — herramientas MCP de bases de datos (v6.7.0).
 
 Ejecuta con:
     python -m pytest tests/test_mcp_tools_db.py -v
 """
 
-import sqlite3
 import unittest
 
 import mcp_tools_db as dbt
@@ -21,8 +19,9 @@ class TestEsConsultaSoloLectura(unittest.TestCase):
         self.assertTrue(dbt.es_consulta_solo_lectura("SELECT 1"))
 
     def test_select_con_where(self):
-        self.assertTrue(dbt.es_consulta_solo_lectura(
-            "SELECT id, nombre FROM usuarios WHERE activo = 1"))
+        self.assertTrue(
+            dbt.es_consulta_solo_lectura("SELECT id, nombre FROM usuarios WHERE activo = 1")
+        )
 
     def test_show_tables(self):
         self.assertTrue(dbt.es_consulta_solo_lectura("SHOW TABLES"))
@@ -31,12 +30,10 @@ class TestEsConsultaSoloLectura(unittest.TestCase):
         self.assertTrue(dbt.es_consulta_solo_lectura("DESCRIBE usuarios"))
 
     def test_explain_select(self):
-        self.assertTrue(dbt.es_consulta_solo_lectura(
-            "EXPLAIN SELECT * FROM pedidos"))
+        self.assertTrue(dbt.es_consulta_solo_lectura("EXPLAIN SELECT * FROM pedidos"))
 
     def test_pragma_table_info(self):
-        self.assertTrue(dbt.es_consulta_solo_lectura(
-            "PRAGMA table_info('usuarios')"))
+        self.assertTrue(dbt.es_consulta_solo_lectura("PRAGMA table_info('usuarios')"))
 
     def test_select_con_espacios(self):
         self.assertTrue(dbt.es_consulta_solo_lectura("   SELECT 1  "))
@@ -47,27 +44,24 @@ class TestEsConsultaSoloLectura(unittest.TestCase):
     # ── Consultas rechazadas ───────────────────────────────────────────
 
     def test_rechaza_insert(self):
-        self.assertFalse(dbt.es_consulta_solo_lectura(
-            "INSERT INTO usuarios (nombre) VALUES ('x')"))
+        self.assertFalse(dbt.es_consulta_solo_lectura("INSERT INTO usuarios (nombre) VALUES ('x')"))
 
     def test_rechaza_update(self):
-        self.assertFalse(dbt.es_consulta_solo_lectura(
-            "UPDATE usuarios SET nombre = 'x'"))
+        self.assertFalse(dbt.es_consulta_solo_lectura("UPDATE usuarios SET nombre = 'x'"))
 
     def test_rechaza_delete(self):
-        self.assertFalse(dbt.es_consulta_solo_lectura(
-            "DELETE FROM usuarios WHERE id = 1"))
+        self.assertFalse(dbt.es_consulta_solo_lectura("DELETE FROM usuarios WHERE id = 1"))
 
     def test_rechaza_drop(self):
         self.assertFalse(dbt.es_consulta_solo_lectura("DROP TABLE usuarios"))
 
     def test_rechaza_multiples_sentencias(self):
-        self.assertFalse(dbt.es_consulta_solo_lectura(
-            "SELECT 1; DROP TABLE usuarios"))
+        self.assertFalse(dbt.es_consulta_solo_lectura("SELECT 1; DROP TABLE usuarios"))
 
     def test_rechaza_comentario_truco(self):
-        self.assertFalse(dbt.es_consulta_solo_lectura(
-            "/* DROP TABLE usuarios */ SELECT 1; DROP TABLE x"))
+        self.assertFalse(
+            dbt.es_consulta_solo_lectura("/* DROP TABLE usuarios */ SELECT 1; DROP TABLE x")
+        )
 
     def test_rechaza_cadena_vacia(self):
         self.assertFalse(dbt.es_consulta_solo_lectura(""))
@@ -83,26 +77,19 @@ class TestDetectarDriver(unittest.TestCase):
     """Detección automática de driver por prefijo de URL."""
 
     def test_sqlite(self):
-        self.assertEqual(
-            dbt._detectar_driver("sqlite:///mi.db"), "sqlite")
+        self.assertEqual(dbt._detectar_driver("sqlite:///mi.db"), "sqlite")
 
     def test_postgresql(self):
-        self.assertEqual(
-            dbt._detectar_driver("postgresql://user:pass@host/db"),
-            "postgresql")
+        self.assertEqual(dbt._detectar_driver("postgresql://user:pass@host/db"), "postgresql")
 
     def test_postgres(self):
-        self.assertEqual(
-            dbt._detectar_driver("postgres://user:pass@host/db"),
-            "postgresql")
+        self.assertEqual(dbt._detectar_driver("postgres://user:pass@host/db"), "postgresql")
 
     def test_mysql(self):
-        self.assertEqual(
-            dbt._detectar_driver("mysql://user:pass@host/db"), "mysql")
+        self.assertEqual(dbt._detectar_driver("mysql://user:pass@host/db"), "mysql")
 
     def test_driver_forzado(self):
-        self.assertEqual(
-            dbt._detectar_driver("algo://x", driver="sqlite"), "sqlite")
+        self.assertEqual(dbt._detectar_driver("algo://x", driver="sqlite"), "sqlite")
 
     def test_url_desconocida_sin_driver(self):
         with self.assertRaises(ValueError):
@@ -149,13 +136,9 @@ class TestDbQuerySqlite(unittest.TestCase):
         dbt.db_connect("sqlite:///:memory:")
         # Crear tabla de prueba directamente en la conexión.
         conn = dbt._ESTADO["conexion"]
-        conn.execute(
-            "CREATE TABLE productos (id INTEGER PRIMARY KEY, nombre TEXT, "
-            "precio REAL)")
-        conn.execute(
-            "INSERT INTO productos (nombre, precio) VALUES ('Widget', 9.99)")
-        conn.execute(
-            "INSERT INTO productos (nombre, precio) VALUES ('Gadget', 24.50)")
+        conn.execute("CREATE TABLE productos (id INTEGER PRIMARY KEY, nombre TEXT, precio REAL)")
+        conn.execute("INSERT INTO productos (nombre, precio) VALUES ('Widget', 9.99)")
+        conn.execute("INSERT INTO productos (nombre, precio) VALUES ('Gadget', 24.50)")
         conn.commit()
 
     def tearDown(self):
@@ -175,8 +158,7 @@ class TestDbQuerySqlite(unittest.TestCase):
         self.assertTrue(resultado["ok"])
 
     def test_query_bloqueada(self):
-        resultado = dbt.db_query("INSERT INTO productos VALUES (3, 'x', 1.0)",
-                                 auto=True)
+        resultado = dbt.db_query("INSERT INTO productos VALUES (3, 'x', 1.0)", auto=True)
         self.assertFalse(resultado["ok"])
         self.assertIn("lectura", resultado["error"].lower())
 
@@ -205,12 +187,10 @@ class TestDbSchemaSqlite(unittest.TestCase):
         dbt.reiniciar()
         dbt.db_connect("sqlite:///:memory:")
         conn = dbt._ESTADO["conexion"]
+        conn.execute("CREATE TABLE clientes (id INTEGER PRIMARY KEY, nombre TEXT, email TEXT)")
         conn.execute(
-            "CREATE TABLE clientes (id INTEGER PRIMARY KEY, nombre TEXT, "
-            "email TEXT)")
-        conn.execute(
-            "CREATE TABLE pedidos (id INTEGER PRIMARY KEY, "
-            "cliente_id INTEGER, total REAL)")
+            "CREATE TABLE pedidos (id INTEGER PRIMARY KEY, cliente_id INTEGER, total REAL)"
+        )
         conn.commit()
 
     def tearDown(self):
@@ -226,8 +206,7 @@ class TestDbSchemaSqlite(unittest.TestCase):
     def test_schema_columnas(self):
         resultado = dbt.db_schema()
         self.assertTrue(resultado["ok"])
-        clientes = [t for t in resultado["tablas"]
-                     if t["nombre"] == "clientes"][0]
+        clientes = [t for t in resultado["tablas"] if t["nombre"] == "clientes"][0]
         cols = [c["nombre"] for c in clientes["columnas"]]
         self.assertIn("id", cols)
         self.assertIn("nombre", cols)

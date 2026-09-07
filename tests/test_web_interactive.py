@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la UI web interactiva (v6.6.0).
 
 Cubre el hub ``web.interactive`` (timeline ReAct, diff conflicts, validación y
@@ -16,7 +15,6 @@ from types import SimpleNamespace
 from unittest import mock
 
 import snapcontext as sc
-
 import web.interactive as wi
 
 
@@ -73,8 +71,9 @@ class TestTimelineReact(BaseInteractivo):
         wi.activar()
         self.assertTrue(wi.enviar_paso_react(3, "pensamiento", "Analizo…"))
         ev = wi.cola_eventos().get_nowait()
-        self.assertEqual((ev["tipo"], ev["iteracion"], ev["fase"]),
-                         ("react_step", 3, "pensamiento"))
+        self.assertEqual(
+            (ev["tipo"], ev["iteracion"], ev["fase"]), ("react_step", 3, "pensamiento")
+        )
         self.assertEqual(ev["contenido"], "Analizo…")
 
     def test_fase_invalida_se_normaliza_a_observacion(self):
@@ -112,22 +111,26 @@ class TestDiffConflicto(BaseInteractivo):
     def _responder_en_hilo(decision, contenido="nuevo contenido"):
         def _cuerpo():
             ev = wi.cola_eventos().get(timeout=2)
-            wi._recibir_mensaje({"tipo": "diff_respuesta", "id": ev["id"],
-                                 "decision": decision,
-                                 "contenido": contenido})
+            wi._recibir_mensaje(
+                {
+                    "tipo": "diff_respuesta",
+                    "id": ev["id"],
+                    "decision": decision,
+                    "contenido": contenido,
+                }
+            )
+
         hilo = threading.Thread(target=_cuerpo)
         hilo.start()
         return hilo
 
     def test_inactivo_devuelve_none_inmediato(self):
-        self.assertIsNone(
-            wi.enviar_conflicto_diff("a.py", "origen", "propuesto"))
+        self.assertIsNone(wi.enviar_conflicto_diff("a.py", "origen", "propuesto"))
 
     def test_respuesta_aceptar(self):
         wi.activar()
         hilo = self._responder_en_hilo("aceptar")
-        respuesta = wi.enviar_conflicto_diff("a.py", "original", "propuesto",
-                                             timeout=5)
+        respuesta = wi.enviar_conflicto_diff("a.py", "original", "propuesto", timeout=5)
         hilo.join(5)
         self.assertIsNotNone(respuesta)
         self.assertEqual(respuesta["decision"], "aceptar")
@@ -144,23 +147,29 @@ class TestDiffConflicto(BaseInteractivo):
     def test_decision_invalida_no_resuelve(self):
         wi.activar()
         hilo = self._responder_en_hilo("quizas", "x")
-        self.assertIsNone(wi.enviar_conflicto_diff("a.py", "o", "p",
-                                                   timeout=1))
+        self.assertIsNone(wi.enviar_conflicto_diff("a.py", "o", "p", timeout=1))
         hilo.join(5)
 
     def test_respuesta_para_id_desconocido_se_ignora(self):
-        wi._recibir_mensaje({"tipo": "diff_respuesta", "id": "fantasma",
-                             "decision": "aceptar", "contenido": "x"})
-        self.assertTrue(wi.esta_activo() or True)   # no lanzó
+        wi._recibir_mensaje(
+            {"tipo": "diff_respuesta", "id": "fantasma", "decision": "aceptar", "contenido": "x"}
+        )
+        self.assertTrue(wi.esta_activo() or True)  # no lanzó
 
     def test_contenido_no_cadena_se_vacia(self):
         wi.activar()
 
         def _cuerpo():
             ev = wi.cola_eventos().get(timeout=2)
-            wi._recibir_mensaje({"tipo": "diff_respuesta", "id": ev["id"],
-                                 "decision": "aceptar",
-                                 "contenido": {"mal": 1}})
+            wi._recibir_mensaje(
+                {
+                    "tipo": "diff_respuesta",
+                    "id": ev["id"],
+                    "decision": "aceptar",
+                    "contenido": {"mal": 1},
+                }
+            )
+
         hilo = threading.Thread(target=_cuerpo)
         hilo.start()
         respuesta = wi.enviar_conflicto_diff("a.py", "o", "p", timeout=5)
@@ -170,8 +179,7 @@ class TestDiffConflicto(BaseInteractivo):
 
     def test_original_no_cadena_devuelve_none(self):
         wi.activar()
-        self.assertIsNone(
-            wi.enviar_conflicto_diff("a.py", 12345, "propuesto"))
+        self.assertIsNone(wi.enviar_conflicto_diff("a.py", 12345, "propuesto"))
 
     def test_recibir_mensaje_invalido_no_lanza(self):
         wi._recibir_mensaje(None)
@@ -195,6 +203,7 @@ class TestIntegracionAppYFlags(unittest.TestCase):
 
     def test_app_normal_no_tiene_ruta_interactiva(self):
         from web.app import crear_app
+
         app = crear_app()
         rutas = {r.path for r in app.routes}
         self.assertNotIn("/interactive", rutas)
@@ -203,6 +212,7 @@ class TestIntegracionAppYFlags(unittest.TestCase):
 
     def test_app_interactiva_registra_rutas_y_activa_hub(self):
         from web.app import crear_app
+
         app = crear_app(interactiva=True)
         rutas = {r.path for r in app.routes}
         self.assertIn("/interactive", rutas)
@@ -212,8 +222,7 @@ class TestIntegracionAppYFlags(unittest.TestCase):
         self.assertIsNotNone(wi.cola_eventos())
 
     def test_flag_cli_registrado(self):
-        namespace = sc.crear_parser().parse_args(
-            ["--web", "--web-interactive"])
+        namespace = sc.crear_parser().parse_args(["--web", "--web-interactive"])
         self.assertTrue(namespace.web_interactive)
         self.assertTrue(namespace.web)
         # Compatibilidad: sin el flag, False.
@@ -226,7 +235,7 @@ class TestIntegracionAppYFlags(unittest.TestCase):
             codigo = sc.iniciar_servidor_web(namespace)
         self.assertEqual(codigo, 0)
         arranque.assert_called_once_with(puerto=8123, interactiva=True)
-        self.assertFalse(wi.esta_activo())   # hub desactivado tras salir
+        self.assertFalse(wi.esta_activo())  # hub desactivado tras salir
 
     def test_iniciar_servidor_web_sin_flag(self):
         namespace = SimpleNamespace(web_puerto=8000, web_interactive=False)
@@ -247,20 +256,25 @@ class TestIntegracionReAct(unittest.TestCase):
 
     def _agente(self, web_interactive):
         import react_agent as ra
-        with mock.patch.object(sc, "cargar_configuracion",
-                               return_value={"provider": "mock"}):
-            return ra.ReactAgent(auto=True, max_iter=1, proveedor="mock",
-                                 web_interactive=web_interactive)
+
+        with mock.patch.object(sc, "cargar_configuracion", return_value={"provider": "mock"}):
+            return ra.ReactAgent(
+                auto=True, max_iter=1, proveedor="mock", web_interactive=web_interactive
+            )
 
     def test_agente_emite_pasos_react(self):
         wi.activar()
         agente = self._agente(True)
         self.assertIsNotNone(agente._wi)
-        decision = {"pensamiento": "Razono", "accion": "finalizar",
-                    "argumentos": {"resumen": "hecho"}}
-        with mock.patch.object(agente, "_pedir_decision",
-                               return_value=decision), \
-             mock.patch.object(agente, "_resumir_si_hace_falta"):
+        decision = {
+            "pensamiento": "Razono",
+            "accion": "finalizar",
+            "argumentos": {"resumen": "hecho"},
+        }
+        with (
+            mock.patch.object(agente, "_pedir_decision", return_value=decision),
+            mock.patch.object(agente, "_resumir_si_hace_falta"),
+        ):
             resultado = agente.ejecutar("tarea")
         self.assertTrue(resultado["ok"])
         eventos = []
@@ -276,23 +290,24 @@ class TestIntegracionReAct(unittest.TestCase):
     def test_agente_sin_web_interactive_no_emite(self):
         agente = self._agente(False)
         self.assertIsNone(agente._wi)
-        decision = {"pensamiento": "R", "accion": "finalizar",
-                    "argumentos": {"resumen": "f"}}
-        with mock.patch.object(agente, "_pedir_decision",
-                               return_value=decision), \
-             mock.patch.object(agente, "_resumir_si_hace_falta"):
+        decision = {"pensamiento": "R", "accion": "finalizar", "argumentos": {"resumen": "f"}}
+        with (
+            mock.patch.object(agente, "_pedir_decision", return_value=decision),
+            mock.patch.object(agente, "_resumir_si_hace_falta"),
+        ):
             agente.ejecutar("tarea")
         self.assertFalse(wi.esta_activo())
 
     def test_react_recibe_web_interactive_de_args(self):
         """_ejecutar_react propaga el flag del CLI al agente."""
         import inspect
+
         import react_agent as ra
-        self.assertIn("web_interactive=bool(getattr(args, "
-                      "\"web_interactive\", False))",
-                      inspect.getsource(sc))
-        self.assertIn("web_interactive",
-                      inspect.signature(ra.ReactAgent.__init__).parameters)
+
+        self.assertIn(
+            'web_interactive=bool(getattr(args, "web_interactive", False))', inspect.getsource(sc)
+        )
+        self.assertIn("web_interactive", inspect.signature(ra.ReactAgent.__init__).parameters)
 
 
 class TestIntegracionEditor(unittest.TestCase):
@@ -300,62 +315,73 @@ class TestIntegracionEditor(unittest.TestCase):
 
     def _editor(self):
         import agentes as ag
+
         return ag.AgenteEditorPropio.__new__(ag.AgenteEditorPropio)
 
     def test_conflicto_web_aceptar(self):
         import agentes as ag
+
         wi.activar()
         editor = self._editor()
-        with mock.patch.object(ag.AgenteEditorPropio, "aplicar_parche",
-                               return_value=False), \
-             mock.patch.object(ag.AgenteEditorPropio, "sobrescribir",
-                               return_value=True) as sobra:
+        with (
+            mock.patch.object(ag.AgenteEditorPropio, "aplicar_parche", return_value=False),
+            mock.patch.object(ag.AgenteEditorPropio, "sobrescribir", return_value=True) as sobra,
+        ):
+
             def resolver():
                 ev = wi.cola_eventos().get(timeout=2)
-                wi._recibir_mensaje({"tipo": "diff_respuesta", "id": ev["id"],
-                                     "decision": "aceptar",
-                                     "contenido": "contenido aceptado"})
+                wi._recibir_mensaje(
+                    {
+                        "tipo": "diff_respuesta",
+                        "id": ev["id"],
+                        "decision": "aceptar",
+                        "contenido": "contenido aceptado",
+                    }
+                )
+
             hilo = threading.Thread(target=resolver)
             hilo.start()
             resultado = editor._aplicar_con_conflicto(
-                "a.py", "diff", ".", "actual", preview="preview",
-                auto=False, mostrar_diff=False)
+                "a.py", "diff", ".", "actual", preview="preview", auto=False, mostrar_diff=False
+            )
             hilo.join(5)
         self.assertEqual(resultado, "ok")
         sobra.assert_called_once_with("a.py", "contenido aceptado", ".")
 
     def test_conflicto_web_rechazar_reintenta(self):
         import agentes as ag
+
         wi.activar()
         editor = self._editor()
-        with mock.patch.object(ag.AgenteEditorPropio, "aplicar_parche",
-                               return_value=False), \
-             mock.patch.object(ag.AgenteEditorPropio, "sobrescribir") as sobra:
+        with (
+            mock.patch.object(ag.AgenteEditorPropio, "aplicar_parche", return_value=False),
+            mock.patch.object(ag.AgenteEditorPropio, "sobrescribir") as sobra,
+        ):
+
             def resolver():
                 ev = wi.cola_eventos().get(timeout=2)
-                wi._recibir_mensaje({"tipo": "diff_respuesta", "id": ev["id"],
-                                     "decision": "rechazar"})
+                wi._recibir_mensaje(
+                    {"tipo": "diff_respuesta", "id": ev["id"], "decision": "rechazar"}
+                )
+
             hilo = threading.Thread(target=resolver)
             hilo.start()
-            resultado = editor._aplicar_con_conflicto(
-                "a.py", "diff", ".", "actual", auto=False)
+            resultado = editor._aplicar_con_conflicto("a.py", "diff", ".", "actual", auto=False)
             hilo.join(5)
         self.assertEqual(resultado, "reintentar")
         sobra.assert_not_called()
 
     def test_conflicto_hub_inactivo_usa_menu_terminal(self):
         import agentes as ag
+
         editor = self._editor()
-        with mock.patch.object(ag.AgenteEditorPropio, "aplicar_parche",
-                               return_value=False), \
-             mock.patch.object(sc, "_menu_conflicto_parche",
-                               return_value="r"):
-            resultado = editor._aplicar_con_conflicto(
-                "a.py", "diff", ".", "actual", auto=False)
+        with (
+            mock.patch.object(ag.AgenteEditorPropio, "aplicar_parche", return_value=False),
+            mock.patch.object(sc, "_menu_conflicto_parche", return_value="r"),
+        ):
+            resultado = editor._aplicar_con_conflicto("a.py", "diff", ".", "actual", auto=False)
         self.assertEqual(resultado, "reintentar")
 
 
 if __name__ == "__main__":
     unittest.main()
-
-

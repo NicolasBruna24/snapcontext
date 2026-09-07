@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests del sistema de embeddings locales — v1.1.0.
 
 No requieren sentence-transformers: se inyecta un modelo falso que genera
@@ -7,7 +6,6 @@ vectores deterministas a partir de recuentos de letras, suficiente para
 verificar indexado, caché, búsqueda semántica y selección.
 """
 
-import json
 import sys
 import unittest
 from pathlib import Path
@@ -17,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import snapcontext as sc
 
-LETRAS = "pagosusr"          # dimensiones del modelo falso
+LETRAS = "pagosusr"  # dimensiones del modelo falso
 
 
 class ModeloFalso:
@@ -33,12 +31,14 @@ class ModeloFalso:
 
 class _SentenceTransformerStub:
     """Stub que representa a la clase SentenceTransformer importada."""
+
     pass
 
 
 class BaseEmbeddings(unittest.TestCase):
     def setUp(self):
         import tempfile
+
         self.tmp = tempfile.TemporaryDirectory()
         self.raiz_tmp = Path(self.tmp.name)
         self.proyecto = self.raiz_tmp / "proy"
@@ -56,11 +56,11 @@ class BaseEmbeddings(unittest.TestCase):
 
     def _proyecto_pago(self) -> Path:
         (self.proyecto / "pagos.py").write_text(
-            "gestión de pagos\ndef procesar_pago():\n    return 'pago ok'\n",
-            encoding="utf-8")
+            "gestión de pagos\ndef procesar_pago():\n    return 'pago ok'\n", encoding="utf-8"
+        )
         (self.proyecto / "usuarios.py").write_text(
-            "usuarios del sistema\ndef crear_usuario():\n    return 'user'\n",
-            encoding="utf-8")
+            "usuarios del sistema\ndef crear_usuario():\n    return 'user'\n", encoding="utf-8"
+        )
         return self.proyecto
 
 
@@ -118,7 +118,7 @@ class TestSimilitudCoseno(unittest.TestCase):
     def test_parcial(self):
         a = [1.0, 1.0, 0.0]
         b = [1.0, 0.0, 0.0]
-        expected = 1 / (2 ** 0.5)
+        expected = 1 / (2**0.5)
         self.assertAlmostEqual(sc._similitud_coseno(a, b), expected)
 
 
@@ -141,18 +141,16 @@ class TestIndexarProyecto(BaseEmbeddings):
         self._proyecto_pago()
         sc._indexar_proyecto(str(self.proyecto))
         with mock.patch.object(
-                sc, "_calcular_embeddings",
-                side_effect=AssertionError("no debe recalcular embeddings")) as mocked:
+            sc, "_calcular_embeddings", side_effect=AssertionError("no debe recalcular embeddings")
+        ) as mocked:
             indice = sc._indexar_proyecto(str(self.proyecto))
         mocked.assert_not_called()
-        self.assertTrue(
-            all(f.get("embedding") is not None for f in indice["fragmentos"]))
+        self.assertTrue(all(f.get("embedding") is not None for f in indice["fragmentos"]))
 
     def test_indexar_respeta_gitignore(self):
         self._proyecto_pago()
         (self.proyecto / ".gitignore").write_text("secreto.py\n", encoding="utf-8")
-        (self.proyecto / "secreto.py").write_text(
-            "token = 'super secret'\n", encoding="utf-8")
+        (self.proyecto / "secreto.py").write_text("token = 'super secret'\n", encoding="utf-8")
         indice = sc._indexar_proyecto(str(self.proyecto))
         rutas = {f["archivo"] for f in indice["fragmentos"]}
         self.assertIn("pagos.py", rutas)
@@ -173,8 +171,7 @@ class TestCacheInvalidacion(BaseEmbeddings):
     def test_asegurar_indice_reutiliza_sin_reindexar(self):
         self._proyecto_pago()
         sc._indexar_proyecto(str(self.proyecto))
-        with mock.patch.object(sc, "_indexar_proyecto",
-                               return_value={}) as mocked:
+        with mock.patch.object(sc, "_indexar_proyecto", return_value={}) as mocked:
             indice = sc._asegurar_indice(str(self.proyecto))
         mocked.assert_not_called()
         self.assertTrue(indice.get("fragmentos"))
@@ -182,11 +179,8 @@ class TestCacheInvalidacion(BaseEmbeddings):
     def test_asegurar_indice_reindexa_cuando_cambia(self):
         self._proyecto_pago()
         sc._indexar_proyecto(str(self.proyecto))
-        (self.proyecto / "pagos.py").write_text(
-            "gestión de pagos nueva línea\n", encoding="utf-8")
-        with mock.patch.object(
-                sc, "_indexar_proyecto",
-                side_effect=sc._indexar_proyecto) as mocked:
+        (self.proyecto / "pagos.py").write_text("gestión de pagos nueva línea\n", encoding="utf-8")
+        with mock.patch.object(sc, "_indexar_proyecto", side_effect=sc._indexar_proyecto) as mocked:
             sc._asegurar_indice(str(self.proyecto))
         mocked.assert_called_once()
 
@@ -195,8 +189,7 @@ class TestBuscarSemantica(BaseEmbeddings):
     def test_buscar_devuelve_resultados_ordenados(self):
         self._proyecto_pago()
         sc._indexar_proyecto(str(self.proyecto))
-        resultados = sc._buscar_semanticamente("gestión de pagos",
-                                              directorio=str(self.proyecto))
+        resultados = sc._buscar_semanticamente("gestión de pagos", directorio=str(self.proyecto))
         self.assertTrue(resultados)
         self.assertEqual(resultados[0]["archivo"], "pagos.py")
         for actual, siguiente in zip(resultados, resultados[1:]):
@@ -204,11 +197,12 @@ class TestBuscarSemantica(BaseEmbeddings):
 
     def test_buscar_sin_modelo_lanza(self):
         self._proyecto_pago()
-        with mock.patch.object(sc, "_MODELO_EMBEDDINGS", None), \
-             mock.patch.object(sc, "SentenceTransformer", None):
+        with (
+            mock.patch.object(sc, "_MODELO_EMBEDDINGS", None),
+            mock.patch.object(sc, "SentenceTransformer", None),
+        ):
             with self.assertRaises(RuntimeError):
-                sc._buscar_semanticamente("cualquier cosa",
-                                          directorio=str(self.proyecto))
+                sc._buscar_semanticamente("cualquier cosa", directorio=str(self.proyecto))
 
 
 class TestSeleccionarConEmbeddings(BaseEmbeddings):
@@ -216,14 +210,14 @@ class TestSeleccionarConEmbeddings(BaseEmbeddings):
         self._proyecto_pago()
         sc._indexar_proyecto(str(self.proyecto))
         seleccion = sc._seleccionar_archivos_con_embeddings(
-            "gestión de pagos", directorio=str(self.proyecto),
-            max_archivos=2, umbral=0.1)
+            "gestión de pagos", directorio=str(self.proyecto), max_archivos=2, umbral=0.1
+        )
         self.assertIn("pagos.py", seleccion)
 
     def test_seleccionar_umbral_alto_filtra_todo(self):
         self._proyecto_pago()
         sc._indexar_proyecto(str(self.proyecto))
         seleccion = sc._seleccionar_archivos_con_embeddings(
-            "gestión de pagos", directorio=str(self.proyecto),
-            max_archivos=3, umbral=2.0)
+            "gestión de pagos", directorio=str(self.proyecto), max_archivos=3, umbral=2.0
+        )
         self.assertEqual(seleccion, [])

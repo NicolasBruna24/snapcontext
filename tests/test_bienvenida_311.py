@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la v3.1.1: ayuda sin argumentos y bienvenida en el primer uso."""
 
 import io
@@ -33,8 +32,10 @@ class TestAyudaSinArgumentos(_EstadoTemporal):
 
     def test_main_sin_args_muestra_ayuda_y_devuelve_0(self):
         buffer = io.StringIO()
-        with mock.patch.object(sys, "stdout", buffer), \
-                mock.patch.object(sc, "_registrar_manejadores_senales"):
+        with (
+            mock.patch.object(sys, "stdout", buffer),
+            mock.patch.object(sc, "_registrar_manejadores_senales"),
+        ):
             codigo = sc.main([])
         self.assertEqual(codigo, 0)
         salida = buffer.getvalue()
@@ -47,8 +48,7 @@ class TestAyudaSinArgumentos(_EstadoTemporal):
         with mock.patch.object(sys, "stdout", buffer):
             sc._mostrar_ayuda_resumida()
         salida = buffer.getvalue()
-        for fragmento in ("--init", "--reparar", "--demo", "--chat",
-                          "--plan", "ollama"):
+        for fragmento in ("--init", "--reparar", "--demo", "--chat", "--plan", "ollama"):
             self.assertIn(fragmento, salida)
 
 
@@ -67,8 +67,7 @@ class TestEstadoPrimerUso(_EstadoTemporal):
         self.assertFalse(sc._primer_uso_pendiente())
 
     def test_primer_uso_false_en_archivo(self):
-        self.estado.write_text(json.dumps({"primer_uso": False}),
-                               encoding="utf-8")
+        self.estado.write_text(json.dumps({"primer_uso": False}), encoding="utf-8")
         self.assertFalse(sc._primer_uso_pendiente())
 
     def test_estado_corrupto_se_trata_como_primer_uso(self):
@@ -81,14 +80,16 @@ class TestBienvenidaAutomatica(_EstadoTemporal):
 
     def _ejecutar_main_con_mocks(self):
         llamadas = []
-        with mock.patch.object(sc, "_tutorial_interactivo",
-                               side_effect=lambda: llamadas.append(1) or 0), \
-                mock.patch.object(sc, "_entrada_interactiva",
-                                  return_value=True), \
-                mock.patch.object(sc, "_registrar_manejadores_senales"), \
-                mock.patch.object(sc, "_limpiar_historial", return_value=True), \
-                mock.patch.object(sys, "stdout", io.StringIO()), \
-                mock.patch.object(sys, "stderr", io.StringIO()):
+        with (
+            mock.patch.object(
+                sc, "_tutorial_interactivo", side_effect=lambda: llamadas.append(1) or 0
+            ),
+            mock.patch.object(sc, "_entrada_interactiva", return_value=True),
+            mock.patch.object(sc, "_registrar_manejadores_senales"),
+            mock.patch.object(sc, "_limpiar_historial", return_value=True),
+            mock.patch.object(sys, "stdout", io.StringIO()),
+            mock.patch.object(sys, "stderr", io.StringIO()),
+        ):
             codigo = sc.main(["--historial-limpiar"])
         return codigo, llamadas
 
@@ -104,13 +105,14 @@ class TestBienvenidaAutomatica(_EstadoTemporal):
         self.assertEqual(len(llamadas), 0)
 
     def test_entrada_no_interactiva_no_bloquea(self):
-        with mock.patch.object(sc, "_tutorial_interactivo") as tutorial, \
-                mock.patch.object(sc, "_entrada_interactiva",
-                                  return_value=False), \
-                mock.patch.object(sc, "_registrar_manejadores_senales"), \
-                mock.patch.object(sc, "_limpiar_historial", return_value=True), \
-                mock.patch.object(sys, "stdout", io.StringIO()), \
-                mock.patch.object(sys, "stderr", io.StringIO()):
+        with (
+            mock.patch.object(sc, "_tutorial_interactivo") as tutorial,
+            mock.patch.object(sc, "_entrada_interactiva", return_value=False),
+            mock.patch.object(sc, "_registrar_manejadores_senales"),
+            mock.patch.object(sc, "_limpiar_historial", return_value=True),
+            mock.patch.object(sys, "stdout", io.StringIO()),
+            mock.patch.object(sys, "stderr", io.StringIO()),
+        ):
             sc.main(["--historial-limpiar"])
         tutorial.assert_not_called()
         # El estado no se marca: se mostrará en una sesión interactiva real.
@@ -121,9 +123,11 @@ class TestBienvenidaExplicita(_EstadoTemporal):
     """--bienvenida explícito ejecuta el tutorial y marca el estado."""
 
     def test_flag_bienvenida_marca_primer_uso(self):
-        with mock.patch.object(sc, "_tutorial_interactivo", return_value=0), \
-                mock.patch.object(sc, "_registrar_manejadores_senales"), \
-                mock.patch.object(sys, "stdout", io.StringIO()):
+        with (
+            mock.patch.object(sc, "_tutorial_interactivo", return_value=0),
+            mock.patch.object(sc, "_registrar_manejadores_senales"),
+            mock.patch.object(sys, "stdout", io.StringIO()),
+        ):
             codigo = sc.main(["--bienvenida"])
         self.assertEqual(codigo, 0)
         self.assertFalse(sc._primer_uso_pendiente())

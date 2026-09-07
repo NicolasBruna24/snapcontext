@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Gateway de integración con GitHub para SnapContext (v6.8.0).
 
 Permite conectar SnapContext con repositorios de GitHub mediante webhooks:
@@ -16,7 +15,7 @@ import hmac
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import httpx
 
@@ -28,17 +27,17 @@ CONFIG_PATH = CONFIG_DIR / "config.json"
 # ---------------------------------------------------------------------------
 # Configuración y Credenciales
 # ---------------------------------------------------------------------------
-def _leer_seccion_github() -> Dict[str, Any]:
+def _leer_seccion_github() -> dict[str, Any]:
     try:
         if CONFIG_PATH.is_file():
             cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
             return cfg.get("github") or {}
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return {}
 
 
-def obtener_webhook_secreto() -> Optional[str]:
+def obtener_webhook_secreto() -> str | None:
     """Secreto del webhook: GITHUB_WEBHOOK_SECRET > config.json > None."""
     secreto = (os.environ.get("GITHUB_WEBHOOK_SECRET") or "").strip()
     if secreto:
@@ -46,7 +45,7 @@ def obtener_webhook_secreto() -> Optional[str]:
     return (_leer_seccion_github().get("webhook_secret") or "").strip() or None
 
 
-def obtener_github_token() -> Optional[str]:
+def obtener_github_token() -> str | None:
     """Token personal/App de GitHub: GITHUB_TOKEN > config.json > None."""
     token = (os.environ.get("GITHUB_TOKEN") or "").strip()
     if token:
@@ -54,26 +53,28 @@ def obtener_github_token() -> Optional[str]:
     return (_leer_seccion_github().get("token") or "").strip() or None
 
 
-def obtener_webhook_url() -> Optional[str]:
+def obtener_webhook_url() -> str | None:
     """URL pública del webhook: GITHUB_WEBHOOK_URL / SNAPCONTEXT_WEBHOOK_URL > config.json."""
-    url = (os.environ.get("GITHUB_WEBHOOK_URL") or os.environ.get("SNAPCONTEXT_WEBHOOK_URL") or "").strip()
+    url = (
+        os.environ.get("GITHUB_WEBHOOK_URL") or os.environ.get("SNAPCONTEXT_WEBHOOK_URL") or ""
+    ).strip()
     if url:
         return url
     return (_leer_seccion_github().get("webhook_url") or "").strip() or None
 
 
 def guardar_configuracion_github(
-    webhook_secret: Optional[str] = None,
-    token: Optional[str] = None,
-    webhook_url: Optional[str] = None,
-) -> Dict[str, Any]:
+    webhook_secret: str | None = None,
+    token: str | None = None,
+    webhook_url: str | None = None,
+) -> dict[str, Any]:
     """Guarda la configuración de GitHub en ~/.snapcontext/config.json."""
     try:
         if CONFIG_PATH.is_file():
             cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         else:
             cfg = {}
-    except Exception:  # noqa: BLE001
+    except Exception:
         cfg = {}
     seccion = cfg.setdefault("github", {})
     if webhook_secret is not None:
@@ -90,7 +91,9 @@ def guardar_configuracion_github(
 # ---------------------------------------------------------------------------
 # Validación de Firma HMAC
 # ---------------------------------------------------------------------------
-def validar_firma(payload: bytes | str, firma_cabecera: Optional[str], secreto: Optional[str] = None) -> bool:
+def validar_firma(
+    payload: bytes | str, firma_cabecera: str | None, secreto: str | None = None
+) -> bool:
     """Verifica que la firma HMAC enviada por GitHub coincida con el payload.
 
     GitHub envía firmas en la cabecera `X-Hub-Signature-256` (formato `sha256=HEX`)
@@ -126,7 +129,9 @@ def validar_firma(payload: bytes | str, firma_cabecera: Optional[str], secreto: 
 # ---------------------------------------------------------------------------
 # Parseo de Eventos de GitHub
 # ---------------------------------------------------------------------------
-def parsear_evento(payload: Dict[str, Any] | str, tipo_evento: str = "pull_request") -> Dict[str, Any]:
+def parsear_evento(
+    payload: dict[str, Any] | str, tipo_evento: str = "pull_request"
+) -> dict[str, Any]:
     """Extrae los datos clave de un payload de webhook de GitHub.
 
     Soporta eventos: `pull_request`, `issues`, `push`, `issue_comment`.
@@ -134,13 +139,13 @@ def parsear_evento(payload: Dict[str, Any] | str, tipo_evento: str = "pull_reque
     if isinstance(payload, str):
         try:
             datos = json.loads(payload)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return {"ok": False, "error": f"JSON inválido: {exc}"}
     else:
         datos = dict(payload or {})
 
     evento = str(tipo_evento or "pull_request").lower()
-    resultado: Dict[str, Any] = {
+    resultado: dict[str, Any] = {
         "ok": True,
         "tipo_evento": evento,
         "accion": datos.get("action", ""),
@@ -150,50 +155,60 @@ def parsear_evento(payload: Dict[str, Any] | str, tipo_evento: str = "pull_reque
 
     if evento == "pull_request":
         pr = datos.get("pull_request") or {}
-        resultado.update({
-            "numero": datos.get("number") or pr.get("number"),
-            "titulo": pr.get("title", ""),
-            "cuerpo": pr.get("body", ""),
-            "estado": pr.get("state", ""),
-            "rama_origen": (pr.get("head") or {}).get("ref", ""),
-            "rama_destino": (pr.get("base") or {}).get("ref", ""),
-            "head_sha": (pr.get("head") or {}).get("sha", ""),
-            "diff_url": pr.get("diff_url", ""),
-            "creador": (pr.get("user") or {}).get("login", ""),
-            "mergeable": pr.get("mergeable"),
-        })
+        resultado.update(
+            {
+                "numero": datos.get("number") or pr.get("number"),
+                "titulo": pr.get("title", ""),
+                "cuerpo": pr.get("body", ""),
+                "estado": pr.get("state", ""),
+                "rama_origen": (pr.get("head") or {}).get("ref", ""),
+                "rama_destino": (pr.get("base") or {}).get("ref", ""),
+                "head_sha": (pr.get("head") or {}).get("sha", ""),
+                "diff_url": pr.get("diff_url", ""),
+                "creador": (pr.get("user") or {}).get("login", ""),
+                "mergeable": pr.get("mergeable"),
+            }
+        )
     elif evento == "issues":
         issue = datos.get("issue") or {}
-        resultado.update({
-            "numero": issue.get("number"),
-            "titulo": issue.get("title", ""),
-            "cuerpo": issue.get("body", ""),
-            "estado": issue.get("state", ""),
-            "creador": (issue.get("user") or {}).get("login", ""),
-            "etiquetas": [t.get("name") for t in (issue.get("labels") or []) if isinstance(t, dict)],
-        })
+        resultado.update(
+            {
+                "numero": issue.get("number"),
+                "titulo": issue.get("title", ""),
+                "cuerpo": issue.get("body", ""),
+                "estado": issue.get("state", ""),
+                "creador": (issue.get("user") or {}).get("login", ""),
+                "etiquetas": [
+                    t.get("name") for t in (issue.get("labels") or []) if isinstance(t, dict)
+                ],
+            }
+        )
     elif evento == "push":
         head_commit = datos.get("head_commit") or {}
-        resultado.update({
-            "ref": datos.get("ref", ""),
-            "rama": (datos.get("ref", "")).replace("refs/heads/", ""),
-            "head_sha": datos.get("after", ""),
-            "mensaje_commit": head_commit.get("message", ""),
-            "autor_commit": (head_commit.get("author") or {}).get("name", ""),
-            "total_commits": len(datos.get("commits") or []),
-            "modificados": head_commit.get("modified") or [],
-            "agregados": head_commit.get("added") or [],
-            "eliminados": head_commit.get("removed") or [],
-        })
+        resultado.update(
+            {
+                "ref": datos.get("ref", ""),
+                "rama": (datos.get("ref", "")).replace("refs/heads/", ""),
+                "head_sha": datos.get("after", ""),
+                "mensaje_commit": head_commit.get("message", ""),
+                "autor_commit": (head_commit.get("author") or {}).get("name", ""),
+                "total_commits": len(datos.get("commits") or []),
+                "modificados": head_commit.get("modified") or [],
+                "agregados": head_commit.get("added") or [],
+                "eliminados": head_commit.get("removed") or [],
+            }
+        )
     elif evento == "issue_comment":
         comentario = datos.get("comment") or {}
         issue = datos.get("issue") or {}
-        resultado.update({
-            "numero": issue.get("number"),
-            "es_pr": "pull_request" in issue,
-            "cuerpo_comentario": comentario.get("body", ""),
-            "autor_comentario": (comentario.get("user") or {}).get("login", ""),
-        })
+        resultado.update(
+            {
+                "numero": issue.get("number"),
+                "es_pr": "pull_request" in issue,
+                "cuerpo_comentario": comentario.get("body", ""),
+                "autor_comentario": (comentario.get("user") or {}).get("login", ""),
+            }
+        )
     else:
         resultado["datos_crudos"] = datos
 
@@ -204,11 +219,11 @@ def parsear_evento(payload: Dict[str, Any] | str, tipo_evento: str = "pull_reque
 # Procesamiento de Eventos y Encolado de Tareas
 # ---------------------------------------------------------------------------
 def procesar_evento(
-    evento_parseado: Dict[str, Any],
-    chat_id: Optional[str] = None,
-    canal: Optional[str] = None,
-    db_path: Optional[str] = None,
-) -> Optional[int]:
+    evento_parseado: dict[str, Any],
+    chat_id: str | None = None,
+    canal: str | None = None,
+    db_path: str | None = None,
+) -> int | None:
     """Crea y encola una tarea en `task_queue` según el evento de GitHub.
 
     - Pull Request (opened, synchronize, reopened) → tarea `pr_review`.
@@ -232,11 +247,15 @@ def procesar_evento(
     if tipo_evento == "pull_request":
         if accion in ("opened", "synchronize", "reopened"):
             tarea_tipo = "pr_review"
-            datos_tarea["instruccion"] = f"Revisar PR #{evento_parseado.get('numero')}: {evento_parseado.get('titulo')}"
+            datos_tarea["instruccion"] = (
+                f"Revisar PR #{evento_parseado.get('numero')}: {evento_parseado.get('titulo')}"
+            )
     elif tipo_evento == "issues":
         if accion in ("opened", "reopened"):
             tarea_tipo = "plan"
-            datos_tarea["consulta"] = f"Resolver Issue #{evento_parseado.get('numero')}: {evento_parseado.get('titulo')}\n{evento_parseado.get('cuerpo')}"
+            datos_tarea["consulta"] = (
+                f"Resolver Issue #{evento_parseado.get('numero')}: {evento_parseado.get('titulo')}\n{evento_parseado.get('cuerpo')}"
+            )
     elif tipo_evento == "push":
         tarea_tipo = "tests"
         datos_tarea["rama"] = evento_parseado.get("rama", "main")
@@ -263,7 +282,7 @@ def procesar_evento(
 # ---------------------------------------------------------------------------
 # Operaciones con la API REST de GitHub
 # ---------------------------------------------------------------------------
-def obtener_pr_diff(repo: str, numero: int | str, token: Optional[str] = None) -> Optional[str]:
+def obtener_pr_diff(repo: str, numero: int | str, token: str | None = None) -> str | None:
     """Obtiene el diff unificado de un Pull Request desde la API de GitHub."""
     tok = token or obtener_github_token()
     headers = {
@@ -280,11 +299,11 @@ def obtener_pr_diff(repo: str, numero: int | str, token: Optional[str] = None) -
             if resp.status_code == 200:
                 return resp.text
             return None
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 
-def comentar_pr(repo: str, numero: int | str, mensaje: str, token: Optional[str] = None) -> bool:
+def comentar_pr(repo: str, numero: int | str, mensaje: str, token: str | None = None) -> bool:
     """Publica un comentario en un Pull Request o Issue de GitHub."""
     tok = token or obtener_github_token()
     if not tok:
@@ -300,17 +319,17 @@ def comentar_pr(repo: str, numero: int | str, mensaje: str, token: Optional[str]
         with httpx.Client(timeout=30.0) as cliente:
             resp = cliente.post(url, headers=headers, json={"body": mensaje})
             return resp.status_code in (200, 201)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
 
 
 def configurar_webhook(
     url: str,
     secreto: str,
-    repo: Optional[str] = None,
-    token: Optional[str] = None,
-    eventos: Optional[List[str]] = None,
-) -> Tuple[bool, str]:
+    repo: str | None = None,
+    token: str | None = None,
+    eventos: list[str] | None = None,
+) -> tuple[bool, str]:
     """Registra el webhook de SnapContext en el repositorio de GitHub."""
     tok = token or obtener_github_token()
     if not tok:
@@ -348,5 +367,5 @@ def configurar_webhook(
             if resp.status_code == 201:
                 return True, "Webhook configurado exitosamente en GitHub."
             return False, f"Error de GitHub ({resp.status_code}): {resp.text}"
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return False, f"Error de conexión con GitHub: {exc}"

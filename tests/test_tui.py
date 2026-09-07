@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la v6.12.0: TUI inmersiva con Textual (--tui).
 
 Cubre: tui_hub (cola de eventos), tui_app (importación, app y drenaje de
@@ -14,9 +13,9 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import tui_hub as hub          # noqa: E402
-import tui_app                 # noqa: E402
-import snapcontext as sc       # noqa: E402
+import snapcontext as sc
+import tui_app
+import tui_hub as hub
 
 
 class TestTuiHub(unittest.TestCase):
@@ -59,15 +58,13 @@ class TestTuiHub(unittest.TestCase):
 
     def test_enviar_paso_react(self):
         hub.activar()
-        self.assertTrue(hub.enviar_paso_react(3, "accion", "editar_archivo",
-                                              argumentos="{}"))
+        self.assertTrue(hub.enviar_paso_react(3, "accion", "editar_archivo", argumentos="{}"))
         evento = hub.cola_eventos().get_nowait()
         self.assertEqual(evento["tipo"], "react_step")
         self.assertEqual(evento["iteracion"], 3)
 
 
-@unittest.skipUnless(tui_app.TEXTUAL_DISPONIBLE,
-                     "Textual no está instalado (grupo [tui])")
+@unittest.skipUnless(tui_app.TEXTUAL_DISPONIBLE, "Textual no está instalado (grupo [tui])")
 class TestTuiApp(unittest.TestCase):
     """La aplicación Textual: creación, bindings y drenaje de cola."""
 
@@ -92,37 +89,48 @@ class TestTuiApp(unittest.TestCase):
 
     def test_procesar_evento_log(self):
         llamados = []
-        with mock.patch.object(tui_app.SnapContextTUI, "_agregar_log",
-                               side_effect=lambda n, t: llamados.append((n, t))):
-            self._app()._procesar_evento({"tipo": "log", "nivel": "error",
-                                          "texto": "boom"})
+        with mock.patch.object(
+            tui_app.SnapContextTUI, "_agregar_log", side_effect=lambda n, t: llamados.append((n, t))
+        ):
+            self._app()._procesar_evento({"tipo": "log", "nivel": "error", "texto": "boom"})
         self.assertEqual(llamados, [("error", "boom")])
 
     def test_procesar_evento_react_step(self):
         llamados = []
         app = self._app()
-        with mock.patch.object(tui_app.SnapContextTUI, "_agregar_log",
-                               side_effect=lambda n, t: llamados.append((n, t))):
-            app._procesar_evento({"tipo": "react_step", "iteracion": 2,
-                                  "fase": "pensamiento", "contenido": "analizar"})
+        with mock.patch.object(
+            tui_app.SnapContextTUI, "_agregar_log", side_effect=lambda n, t: llamados.append((n, t))
+        ):
+            app._procesar_evento(
+                {
+                    "tipo": "react_step",
+                    "iteracion": 2,
+                    "fase": "pensamiento",
+                    "contenido": "analizar",
+                }
+            )
         self.assertEqual(len(llamados), 1)
         self.assertIn("pensamiento", llamados[0][1])
         self.assertEqual(app._pasos, 2)
 
     def test_procesar_evento_estado(self):
         with mock.patch.object(tui_app.SnapContextTUI, "_refrescar_estado") as re_:
-            self._app()._procesar_evento({"tipo": "estado",
-                                          "estado": "ejecutando",
-                                          "detalle": "editar_archivo"})
+            self._app()._procesar_evento(
+                {"tipo": "estado", "estado": "ejecutando", "detalle": "editar_archivo"}
+            )
             re_.assert_called_once_with("ejecutando", "editar_archivo")
 
     def test_procesar_evento_fin(self):
         llamados = []
-        with mock.patch.object(tui_app.SnapContextTUI, "_agregar_log",
-                               side_effect=lambda n, t: llamados.append((n, t))), \
-             mock.patch.object(tui_app.SnapContextTUI, "_refrescar_estado"):
-            self._app()._procesar_evento({"tipo": "fin", "ok": False,
-                                          "resultado": "abortado"})
+        with (
+            mock.patch.object(
+                tui_app.SnapContextTUI,
+                "_agregar_log",
+                side_effect=lambda n, t: llamados.append((n, t)),
+            ),
+            mock.patch.object(tui_app.SnapContextTUI, "_refrescar_estado"),
+        ):
+            self._app()._procesar_evento({"tipo": "fin", "ok": False, "resultado": "abortado"})
         self.assertEqual(llamados[0][0], "error")
         self.assertIn("finalizado", llamados[0][1])
 
@@ -132,8 +140,11 @@ class TestTuiApp(unittest.TestCase):
         hub.enviar_log("warning", "dos")
         llamados = []
         try:
-            with mock.patch.object(tui_app.SnapContextTUI, "_agregar_log",
-                                   side_effect=lambda n, t: llamados.append((n, t))):
+            with mock.patch.object(
+                tui_app.SnapContextTUI,
+                "_agregar_log",
+                side_effect=lambda n, t: llamados.append((n, t)),
+            ):
                 self._app().refrescar_cola()
         finally:
             hub.desactivar()
@@ -166,14 +177,16 @@ class TestIntegracionCLI(unittest.TestCase):
     def test_version_actualizada(self):
         # Dinámico: solo verifica coherencia entre snapcontext y pyproject.toml.
         self.assertIsInstance(sc.VERSION, str)
-        ruta = os.path.join(os.path.dirname(os.path.dirname(
-            os.path.abspath(__file__))), "pyproject.toml")
+        ruta = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pyproject.toml"
+        )
         with open(ruta, encoding="utf-8") as fh:
             self.assertIn('version = "%s"' % sc.VERSION, fh.read())
 
     def test_grupo_tui_en_pyproject(self):
-        ruta = os.path.join(os.path.dirname(os.path.dirname(
-            os.path.abspath(__file__))), "pyproject.toml")
+        ruta = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pyproject.toml"
+        )
         with open(ruta, encoding="utf-8") as fh:
             texto = fh.read()
         self.assertIn("tui = [", texto)
@@ -186,6 +199,7 @@ class TestIntegracionCLI(unittest.TestCase):
 
     def test_react_agent_no_usa_hub_si_inactivo(self):
         import react_agent as ra
+
         original = ra.ReactAgent.__init__
         capturado = {}
 
@@ -203,6 +217,7 @@ class TestIntegracionCLI(unittest.TestCase):
     def test_react_agent_usa_hub_si_activo(self):
         hub.activar()
         import react_agent as ra
+
         original = ra.ReactAgent.__init__
         capturado = {}
 
@@ -231,6 +246,7 @@ class TestIntegracionCLI(unittest.TestCase):
         """--tui muestra el mensaje de inicio cuando arranca la TUI."""
         import contextlib
         import io
+
         args = sc.crear_parser().parse_args(["--tui", "hola"])
         buf = io.StringIO()
         try:

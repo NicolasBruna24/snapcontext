@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la v1.3.0: validación de carpeta permisiva y --iniciar-proyecto."""
 
 import os
@@ -7,7 +6,7 @@ import shutil
 import tempfile
 import unittest
 
-from orquestador import Orquestador, VISTA_PREVIA
+from orquestador import VISTA_PREVIA, Orquestador
 
 
 class TestEsProyectoValido(unittest.TestCase):
@@ -29,37 +28,43 @@ class TestEsProyectoValido(unittest.TestCase):
     # --- casos que AHORA son válidos ---
     def test_carpeta_tipica_vacia(self):
         import snapcontext as sc
+
         os.makedirs(os.path.join(self.tmp, "lib"))
         self.assertTrue(sc._es_proyecto_valido(self.tmp))
 
     def test_archivo_codigo_vacio_en_raiz(self):
         import snapcontext as sc
+
         self._crear("main.py")
         self.assertTrue(sc._es_proyecto_valido(self.tmp))
 
     def test_config_vacio_en_raiz(self):
         import snapcontext as sc
+
         self._crear("pubspec.yaml")
         self.assertTrue(sc._es_proyecto_valido(self.tmp))
 
     def test_pyproject_toml_vacio(self):
         import snapcontext as sc
+
         self._crear("pyproject.toml")
         self.assertTrue(sc._es_proyecto_valido(sc.resolver_raiz(self.tmp)))
 
     def test_carpeta_completamente_vacia(self):
         import snapcontext as sc
+
         self.assertFalse(sc._es_proyecto_valido(self.tmp))
 
     def test_solo_archivo_no_codigo(self):
         import snapcontext as sc
+
         self._crear("leeme.txt")
         self.assertFalse(sc._es_proyecto_valido(self.tmp))
 
     def test_directorio_inexistente(self):
         import snapcontext as sc
-        self.assertFalse(
-            sc._es_proyecto_valido(os.path.join(self.tmp, "no_existe")))
+
+        self.assertFalse(sc._es_proyecto_valido(os.path.join(self.tmp, "no_existe")))
 
 
 class TestIniciarProyecto(unittest.TestCase):
@@ -76,6 +81,7 @@ class TestIniciarProyecto(unittest.TestCase):
 
     def _args(self, extra=None):
         import snapcontext as sc
+
         return sc.crear_parser().parse_args(["consulta"] + (extra or []))
 
     def test_flag_existe_en_parser(self):
@@ -87,17 +93,16 @@ class TestIniciarProyecto(unittest.TestCase):
 
     def _planificar_con_escaneo_simulado(self, args):
         import snapcontext as snap
+
         orch = Orquestador()
-        orch.agente_contexto.escanear_candidatos = (
-            lambda *a, **k: ["main.py"])
+        orch.agente_contexto.escanear_candidatos = lambda *a, **k: ["main.py"]
         return orch._planificar(args, snap)
 
     def test_directorio_vacio_bloquea_sin_flags(self):
         self.assertIsNone(self._planificar_con_escaneo_simulado(self._args()))
 
     def test_iniciar_proyecto_permite_carpeta_vacia(self):
-        plano = self._planificar_con_escaneo_simulado(
-            self._args(["--iniciar-proyecto"]))
+        plano = self._planificar_con_escaneo_simulado(self._args(["--iniciar-proyecto"]))
         self.assertIsNotNone(plano)
         consulta, raiz, carpetas, seleccion = plano
         self.assertEqual(seleccion, ["main.py"])
@@ -108,24 +113,24 @@ class TestIniciarProyecto(unittest.TestCase):
 
     def test_directorio_explicito_no_bloquea_en_carpeta_vacia(self):
         import snapcontext as snap
-        args = snap.crear_parser().parse_args(
-            ["consulta", "--directorio", self.tmp])
+
+        args = snap.crear_parser().parse_args(["consulta", "--directorio", self.tmp])
         plano = self._planificar_con_escaneo_simulado(args)
         self.assertIsNotNone(plano)
 
     def test_vista_previa_con_iniciar_proyecto(self):
         import snapcontext as snap
+
         orch = Orquestador()
-        orch.agente_contexto.escanear_candidatos = (
-            lambda *a, **k: ["main.py"])
-        args = snap.crear_parser().parse_args(
-            ["consulta", "--iniciar-proyecto", "--vista-previa"])
+        orch.agente_contexto.escanear_candidatos = lambda *a, **k: ["main.py"]
+        args = snap.crear_parser().parse_args(["consulta", "--iniciar-proyecto", "--vista-previa"])
         self.assertEqual(orch._planificar(args, snap), VISTA_PREVIA)
 
 
 class TestVersion(unittest.TestCase):
     def test_version_130_coherente(self):
         import snapcontext as sc
+
         self.assertEqual(sc.VERSION, "6.33.0")
 
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Motor de refactorización autónoma de skills (v5.0.0) — estilo Hermes.
 
@@ -23,38 +22,35 @@ Principios:
 from __future__ import annotations
 
 import datetime
-import json
 import os
-import subprocess
 import threading
-from typing import List, Optional
 
 __all__ = [
-    "UMBRAL_FALLOS",
-    "UMBRAL_TOKENS",
-    "MIN_USOS",
     "CLAVE_ACTIVO",
     "CLAVE_ULTIMA_PASADA",
+    "MIN_USOS",
+    "UMBRAL_FALLOS",
+    "UMBRAL_TOKENS",
     "activar_curador",
-    "desactivar_curador",
-    "esta_activo",
-    "intervalo_horas",
-    "evaluar_skills",
-    "refactorizar_skill",
-    "ejecutar_curador",
-    "estado_curador",
-    "notificar_mejora",
     "aprender_de_plan",
     "daemon_proactivo",
+    "desactivar_curador",
+    "ejecutar_curador",
+    "esta_activo",
+    "estado_curador",
+    "evaluar_skills",
     "iniciar_daemon_fondo",
+    "intervalo_horas",
+    "notificar_mejora",
+    "refactorizar_skill",
 ]
 
 # Los skills malos (muchos fallos, tokens altos) se consideran candidatos.
-UMBRAL_FALLOS = 0.20            # tasa de fallos > 20 %
-UMBRAL_TOKENS = 1500            # tokens promedio > umbral
-MIN_USOS = 3                    # un skill necesita usarse ≥ N veces
+UMBRAL_FALLOS = 0.20  # tasa de fallos > 20 %
+UMBRAL_TOKENS = 1500  # tokens promedio > umbral
+MIN_USOS = 3  # un skill necesita usarse ≥ N veces
 
-CLAVE_ACTIVO = "curador_proactivo_activo"            # "1"/"0" (contexto_kv)
+CLAVE_ACTIVO = "curador_proactivo_activo"  # "1"/"0" (contexto_kv)
 CLAVE_ULTIMA_PASADA = "curador_proactivo_ultima_pasada"
 CLAVE_INTERVALO = "curador_proactivo_intervalo_horas"
 
@@ -62,6 +58,7 @@ CLAVE_INTERVALO = "curador_proactivo_intervalo_horas"
 def _sc():
     """Importa (perezosamente) el módulo principal snapcontext."""
     import snapcontext as _sc
+
     return _sc
 
 
@@ -72,6 +69,7 @@ def _ahora() -> str:
 def intervalo_horas() -> int:
     """Intervalo del daemon en horas (env `CURADOR_INTERVALO_HORAS`, def 6)."""
     import os
+
     try:
         return max(1, int(os.environ.get("CURADOR_INTERVALO_HORAS", "6")))
     except (TypeError, ValueError):
@@ -82,9 +80,9 @@ def esta_activo() -> bool:
     """Estado persistente del motor (por defecto activo)."""
     try:
         sc = _sc()
-        valor = sc._kv_obtener(CLAVE_ACTIVO, "1")  # noqa: SLF001
+        valor = sc._kv_obtener(CLAVE_ACTIVO, "1")
         return valor != "0"
-    except Exception:               # pragma: no cover - blindaje
+    except Exception:  # pragma: no cover - blindaje
         return True
 
 
@@ -118,19 +116,22 @@ def _texto_prompt(skill: dict) -> str:
     return "\n".join(p for p in partes if p).strip()
 
 
-def evaluar_skills(umbral_fallos: float = UMBRAL_FALLOS,
-                   umbral_tokens: int = UMBRAL_TOKENS,
-                   min_usos: int = MIN_USOS) -> list:
+def evaluar_skills(
+    umbral_fallos: float = UMBRAL_FALLOS,
+    umbral_tokens: int = UMBRAL_TOKENS,
+    min_usos: int = MIN_USOS,
+) -> list:
     """Escanea la tabla `skills` y devuelve los candidatos a refactorizar.
 
     Candidatos = skills activos, no archivados, con >= ``min_usos`` usos y que
     superan el umbral de fallos o el de tokens promedio.
     """
     sc = _sc()
-    sc._db_init()                                        # noqa: SLF001
-    filas = sc._db_query(                                 # noqa: SLF001
-        "SELECT * FROM skills WHERE activo = 1 AND archivado = 0 "
-        "AND usos >= ? ORDER BY usos DESC", (min_usos,))
+    sc._db_init()
+    filas = sc._db_query(
+        "SELECT * FROM skills WHERE activo = 1 AND archivado = 0 AND usos >= ? ORDER BY usos DESC",
+        (min_usos,),
+    )
     candidatos = []
     for fila in filas:
         usos = int(fila["usos"] or 0)
@@ -149,12 +150,11 @@ def _proveedor_efectivo() -> str:
     try:
         cfg = sc.cargar_configuracion()
         return str(cfg.get("provider") or sc.PROVEEDOR_DEFECTO)
-    except Exception:                                       # pragma: no cover
+    except Exception:  # pragma: no cover
         return sc.PROVEEDOR_DEFECTO
 
 
-def _llm_reescribir(skill: dict, proveedor: Optional[str] = None,
-                    modelo: Optional[str] = None) -> str:
+def _llm_reescribir(skill: dict, proveedor: str | None = None, modelo: str | None = None) -> str:
     """Pide al LLM un prompt más eficiente/claro/robusto para el skill."""
     sc = _sc()
     proveedor = proveedor or _proveedor_efectivo()
@@ -164,7 +164,8 @@ def _llm_reescribir(skill: dict, proveedor: Optional[str] = None,
         "habilidades (skills). Escribe de nuevo el siguiente prompt para que sea "
         "más claro, conciso, eficiente (menos tokens) y robusto (sin ambigüedad). "
         "Conserva la intención y todos los pasos importantes. Devuelve SOLO el "
-        "nuevo prompt en texto plano, sin preámbulos.")
+        "nuevo prompt en texto plano, sin preámbulos."
+    )
     mensajes = [
         {"role": "user", "content": f"{sistema}\n\n---\n\n{original}"},
     ]
@@ -175,7 +176,8 @@ def _llm_reescribir(skill: dict, proveedor: Optional[str] = None,
 # Validación y prueba (sandbox) de prompts candidatos
 # ---------------------------------------------------------------------------
 
-def _validar_prompt(nuevo: str, original: str) -> Optional[str]:
+
+def _validar_prompt(nuevo: str, original: str) -> str | None:
     """Validación estructural del prompt candidato.
 
     Devuelve ``None`` si es válido; en caso contrario, una cadena con el
@@ -194,9 +196,9 @@ def _validar_prompt(nuevo: str, original: str) -> Optional[str]:
     return None
 
 
-def _probar_prompt(skill: dict, nuevo_prompt: str,
-                   comando_prueba: Optional[str] = None,
-                   timeout_seg: int = 600) -> bool:
+def _probar_prompt(
+    skill: dict, nuevo_prompt: str, comando_prueba: str | None = None, timeout_seg: int = 600
+) -> bool:
     """Prueba el nuevo prompt en el sandbox de v4.3.0.
 
     Ejecuta ``comando_prueba`` (por defecto la suite de tests del proyecto)
@@ -206,8 +208,8 @@ def _probar_prompt(skill: dict, nuevo_prompt: str,
     aporta el sandbox.
     """
     comando = comando_prueba or os.environ.get(
-        "CURADOR_COMANDO_PRUEBA",
-        "python -m unittest discover -s tests -q")
+        "CURADOR_COMANDO_PRUEBA", "python -m unittest discover -s tests -q"
+    )
     try:
         timeout_seg = int(os.environ.get("CURADOR_TIMEOUT_PRUEBA", timeout_seg))
     except (TypeError, ValueError):
@@ -216,23 +218,24 @@ def _probar_prompt(skill: dict, nuevo_prompt: str,
     raiz = os.getcwd()
     if getattr(sc, "_SANDBOX_ACTIVO", False):
         try:
-            comando = sc._envolver_sandbox(comando, raiz)  # noqa: SLF001
-        except Exception:                                   # pragma: no cover
+            comando = sc._envolver_sandbox(comando, raiz)
+        except Exception:  # pragma: no cover
             pass
     try:
         # seguridad: helper seguro. «python -m unittest ...» y otros
         # comandos simples se ejecutan con shell=False; los que usan pipes
         # mantienen shell=True tras validar el riesgo.
         from sandbox_utils import ejecutar_comando_con_politica
+
         proc = ejecutar_comando_con_politica(comando, cwd=raiz, timeout=timeout_seg)
         return proc.returncode == 0
-    except Exception:                                       # noqa: BLE001
+    except Exception:
         return False
 
 
-def refactorizar_skill(skill_id: int, auto: bool = True,
-                       proveedor: Optional[str] = None,
-                       modelo: Optional[str] = None) -> dict:
+def refactorizar_skill(
+    skill_id: int, auto: bool = True, proveedor: str | None = None, modelo: str | None = None
+) -> dict:
     """Refactoriza un skill de forma autónoma (flujo completo estilo Hermes).
 
     Pasos:
@@ -248,13 +251,17 @@ def refactorizar_skill(skill_id: int, auto: bool = True,
     "ahorro_pct"}.
     """
     sc = _sc()
-    sc._db_init()                                        # noqa: SLF001
-    filas = sc._db_query(                                # noqa: SLF001
-        "SELECT * FROM skills WHERE id = ?", (skill_id,))
+    sc._db_init()
+    filas = sc._db_query("SELECT * FROM skills WHERE id = ?", (skill_id,))
     if not filas:
-        return {"ok": False, "mejorado": False, "skill": f"#{skill_id}",
-                "motivo": "skill no encontrado", "version": None,
-                "ahorro_pct": 0.0}
+        return {
+            "ok": False,
+            "mejorado": False,
+            "skill": f"#{skill_id}",
+            "motivo": "skill no encontrado",
+            "version": None,
+            "ahorro_pct": 0.0,
+        }
     skill = dict(filas[0])
     nombre = str(skill.get("nombre") or f"#{skill_id}")
     version_actual = int(skill.get("version") or 1)
@@ -264,68 +271,95 @@ def refactorizar_skill(skill_id: int, auto: bool = True,
     # 2) Reescritura por el LLM.
     try:
         nuevo = _llm_reescribir(skill, proveedor, modelo)
-    except Exception as exc:                             # noqa: BLE001
+    except Exception as exc:
         motivo = f"error del LLM: {exc}"
         _registrar_error(skill_id, version_actual, motivo)
-        return {"ok": False, "mejorado": False, "skill": nombre,
-                "motivo": motivo, "version": version_actual,
-                "ahorro_pct": 0.0}
+        return {
+            "ok": False,
+            "mejorado": False,
+            "skill": nombre,
+            "motivo": motivo,
+            "version": version_actual,
+            "ahorro_pct": 0.0,
+        }
 
     # 3) Validación estructural.
     rechazo = _validar_prompt(nuevo, original)
     if rechazo:
         _registrar_error(skill_id, version_actual, rechazo)
-        return {"ok": False, "mejorado": False, "skill": nombre,
-                "motivo": rechazo, "version": version_actual,
-                "ahorro_pct": 0.0}
+        return {
+            "ok": False,
+            "mejorado": False,
+            "skill": nombre,
+            "motivo": rechazo,
+            "version": version_actual,
+            "ahorro_pct": 0.0,
+        }
 
     # 4) Prueba en sandbox.
     if not _probar_prompt(skill, nuevo):
         motivo = "el prompt candidato no pasó las pruebas del sandbox"
         _registrar_error(skill_id, version_actual, motivo)
-        return {"ok": False, "mejorado": False, "skill": nombre,
-                "motivo": motivo, "version": version_actual,
-                "ahorro_pct": 0.0}
+        return {
+            "ok": False,
+            "mejorado": False,
+            "skill": nombre,
+            "motivo": motivo,
+            "version": version_actual,
+            "ahorro_pct": 0.0,
+        }
 
     # 5) ¿Mejora las métricas? (menos tokens que el original).
     tokens_nuevo = _estimar_tokens(nuevo)
     if tokens_nuevo >= tokens_antes:
         motivo = f"sin mejora: {tokens_nuevo} tokens (original {tokens_antes})"
         _registrar_error(skill_id, version_actual, motivo)
-        return {"ok": True, "mejorado": False, "skill": nombre,
-                "motivo": motivo, "version": version_actual,
-                "ahorro_pct": 0.0}
+        return {
+            "ok": True,
+            "mejorado": False,
+            "skill": nombre,
+            "motivo": motivo,
+            "version": version_actual,
+            "ahorro_pct": 0.0,
+        }
 
     ahorro_pct = round((tokens_antes - tokens_nuevo) / tokens_antes * 100.0, 1)
 
     # 6) Persistir: archivar la versión previa y actualizar el skill.
     fecha = _ahora()
-    sc._db_ejecutar(                                     # noqa: SLF001
+    sc._db_ejecutar(
         "INSERT INTO historial_skills (skill_id, version, prompt, motivo, "
         "fecha) VALUES (?, ?, ?, ?, ?)",
-        (skill_id, version_actual, original, "refactorizado", fecha))
+        (skill_id, version_actual, original, "refactorizado", fecha),
+    )
     nueva_version = version_actual + 1
-    sc._db_ejecutar(                                     # noqa: SLF001
-        "UPDATE skills SET consulta = ?, version = ? WHERE id = ?",
-        (nuevo, nueva_version, skill_id))
+    sc._db_ejecutar(
+        "UPDATE skills SET consulta = ?, version = ? WHERE id = ?", (nuevo, nueva_version, skill_id)
+    )
 
     # Notificación best-effort (Telegram/Discord si están configurados).
     notificar_mejora(nombre, nueva_version, ahorro_pct)
-    return {"ok": True, "mejorado": True, "skill": nombre,
-            "motivo": "prompt refactorizado y validado",
-            "version": nueva_version, "ahorro_pct": ahorro_pct}
+    return {
+        "ok": True,
+        "mejorado": True,
+        "skill": nombre,
+        "motivo": "prompt refactorizado y validado",
+        "version": nueva_version,
+        "ahorro_pct": ahorro_pct,
+    }
 
 
 def _registrar_error(skill_id: int, version: int, motivo: str) -> None:
     """Registra intentos fallidos de refactorización (trazabilidad)."""
     try:
         sc = _sc()
-        sc._db_init()                                    # noqa: SLF001
-        sc._db_ejecutar(                                 # noqa: SLF001
+        sc._db_init()
+        sc._db_ejecutar(
             "INSERT INTO historial_skills (skill_id, version, prompt, "
             "motivo, fecha) VALUES (?, ?, '', ?, ?)",
-            (skill_id, version, f"error: {motivo}"[:400], _ahora()))
-    except Exception:                                    # pragma: no cover
+            (skill_id, version, f"error: {motivo}"[:400], _ahora()),
+        )
+    except Exception:  # pragma: no cover
         pass
 
 
@@ -333,8 +367,8 @@ def _registrar_error(skill_id: int, version: int, motivo: str) -> None:
 # Motor de alto nivel: ejecución, estado, notificaciones y daemon
 # ---------------------------------------------------------------------------
 
-def ejecutar_curador(auto: Optional[bool] = None,
-                     proveedor: Optional[str] = None) -> Optional[list]:
+
+def ejecutar_curador(auto: bool | None = None, proveedor: str | None = None) -> list | None:
     """Ejecuta una pasada completa del motor de refactorización.
 
     1. Comprueba que el curador esté activo (si no, devuelve ``None``).
@@ -356,28 +390,29 @@ def ejecutar_curador(auto: Optional[bool] = None,
         if not auto:
             # Modo interactivo: preguntar antes de aplicar (vía ui.py si existe).
             try:
-                from ui import preguntar_interactivo            # noqa: E402
+                from ui import preguntar_interactivo
+
                 opciones = ["[c] Continuar", "[a] Abortar", "[s] Saltar"]
                 respuesta = preguntar_interactivo(
-                    opciones, f"¿Refactorizar el skill '{skill['nombre']}'?")
+                    opciones, f"¿Refactorizar el skill '{skill['nombre']}'?"
+                )
                 if respuesta == "a":
                     break
                 if respuesta == "s":
                     continue
-            except Exception:                            # noqa: BLE001
-                pass                                     # sin ui: aplicar igual
-        resultados.append(
-            refactorizar_skill(int(skill["id"]), auto=auto,
-                               proveedor=proveedor))
-    sc._kv_fijar(CLAVE_ULTIMA_PASADA, _ahora())          # noqa: SLF001
+            except Exception:
+                pass  # sin ui: aplicar igual
+        resultados.append(refactorizar_skill(int(skill["id"]), auto=auto, proveedor=proveedor))
+    sc._kv_fijar(CLAVE_ULTIMA_PASADA, _ahora())
     return resultados
 
 
 # ---------------------------------------------------------------------------
 # Skills dinámicos (v6.6.0): reglas abstractas de planes exitosos
 # ---------------------------------------------------------------------------
-def aprender_de_plan(consulta: str, resultados: list, raiz: str = ".",
-                     auto: bool = True) -> Optional[dict]:
+def aprender_de_plan(
+    consulta: str, resultados: list, raiz: str = ".", auto: bool = True
+) -> dict | None:
     """Extrae y persiste una regla abstracta de un plan exitoso.
 
     Puente del curador hacia ``skill_abstraction``: extrae la regla (LLM con
@@ -388,17 +423,17 @@ def aprender_de_plan(consulta: str, resultados: list, raiz: str = ".",
     """
     try:
         import skill_abstraction as _sa
+
         sc = _sc()
         if not getattr(sc, "SKILLS_DINAMICOS", True):
             return None
         plan = {"tarea": consulta, "pasos": resultados}
         regla = _sa.extraer_regla(plan, {"directorio": raiz})
         regla = _sa.guardar_regla(regla, directorio=raiz)
-        if regla and auto and float(regla.get("confianza", 0)) > \
-                _sa.UMBRAL_CONFIANZA_INYECCION:
+        if regla and auto and float(regla.get("confianza", 0)) > _sa.UMBRAL_CONFIANZA_INYECCION:
             _sa.inyectar_en_claudemd(regla, raiz)
         return regla or None
-    except Exception:                    # noqa: BLE001 — nunca romper
+    except Exception:
         return None
 
 
@@ -409,26 +444,28 @@ def estado_curador() -> dict:
     ultima_pasada, reinado_lista (peor skill por fallos), mejoras totales.
     """
     sc = _sc()
-    sc._db_init()                                        # noqa: SLF001
-    total = sc._db_query("SELECT COUNT(*) AS n FROM skills")[0]["n"]  # noqa: SLF001
-    activos = sc._db_query(                              # noqa: SLF001
-        "SELECT COUNT(*) AS n FROM skills WHERE activo = 1 AND archivado = 0"
-    )[0]["n"]
+    sc._db_init()
+    total = sc._db_query("SELECT COUNT(*) AS n FROM skills")[0]["n"]
+    activos = sc._db_query("SELECT COUNT(*) AS n FROM skills WHERE activo = 1 AND archivado = 0")[
+        0
+    ]["n"]
     candidatos = evaluar_skills()
-    reinado = sc._db_query(                              # noqa: SLF001
+    reinado = sc._db_query(
         "SELECT id, nombre, usos, exitos, fallos, tokens_promedio FROM "
         "skills WHERE usos >= ? ORDER BY fallos DESC, tokens_promedio DESC "
-        "LIMIT 20", (MIN_USOS,))
-    mejoras = sc._db_query(                              # noqa: SLF001
-        "SELECT COUNT(*) AS n FROM historial_skills "
-        "WHERE motivo = 'refactorizado'")[0]["n"]
+        "LIMIT 20",
+        (MIN_USOS,),
+    )
+    mejoras = sc._db_query(
+        "SELECT COUNT(*) AS n FROM historial_skills WHERE motivo = 'refactorizado'"
+    )[0]["n"]
     return {
         "activo": esta_activo(),
         "intervalo_horas": intervalo_horas(),
         "total_skills": int(total),
         "activos": int(activos),
         "candidatos": len(candidatos),
-        "ultima_pasada": sc._kv_obtener(CLAVE_ULTIMA_PASADA, ""),  # noqa: SLF001
+        "ultima_pasada": sc._kv_obtener(CLAVE_ULTIMA_PASADA, ""),
         "mejoras_totales": int(mejoras),
         "reinado_lista": [dict(fila) for fila in reinado],
     }
@@ -440,23 +477,21 @@ def notificar_mejora(nombre: str, version: int, ahorro_pct: float) -> bool:
     Mensaje: *"🔧 Skill 'x' mejorado (v2). Tokens reducidos un 30 %."*
     Usa `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`, o `DISCORD_WEBHOOK_URL`.
     """
-    mensaje = (f"🔧 Skill '{nombre}' mejorado (v{version}). "
-               f"Tokens reducidos un {ahorro_pct:.0f}%.")
+    mensaje = f"🔧 Skill '{nombre}' mejorado (v{version}). Tokens reducidos un {ahorro_pct:.0f}%."
     token_tg = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     chat_tg = os.environ.get("TELEGRAM_CHAT_ID", "")
     webhook_dc = os.environ.get("DISCORD_WEBHOOK_URL", "")
     try:
-        import httpx                                     # noqa: F401,E402
+        import httpx
+
         if token_tg and chat_tg:
             url = "https://api.telegram.org/bot" + token_tg + "/sendMessage"
-            resp = httpx.post(url, json={
-                "chat_id": chat_tg, "text": mensaje}, timeout=10)
+            resp = httpx.post(url, json={"chat_id": chat_tg, "text": mensaje}, timeout=10)
             return resp.status_code == 200
         if webhook_dc:
-            resp = httpx.post(webhook_dc, json={
-                "content": mensaje}, timeout=10)
+            resp = httpx.post(webhook_dc, json={"content": mensaje}, timeout=10)
             return resp.status_code in (200, 204)
-    except Exception:                                    # noqa: BLE001
+    except Exception:
         return False
     return False
 
@@ -465,11 +500,11 @@ def notificar_mejora(nombre: str, version: int, ahorro_pct: float) -> bool:
 # Daemon en segundo plano (no bloquea el CLI principal)
 # ---------------------------------------------------------------------------
 
-_DAEMON_HILO: Optional[threading.Thread] = None
+_DAEMON_HILO: threading.Thread | None = None
 _DAEMON_PARAR = threading.Event()
 
 
-def daemon_proactivo(parar: Optional[threading.Event] = None) -> None:
+def daemon_proactivo(parar: threading.Event | None = None) -> None:
     """Bucle del daemon: `evaluar` + `refactorizar` cada X horas.
 
     El intervalo se configura con ``CURADOR_INTERVALO_HORAS`` (def. 6).
@@ -489,11 +524,11 @@ def daemon_proactivo(parar: Optional[threading.Event] = None) -> None:
         try:
             if esta_activo():
                 ejecutar_curador(auto=True)
-        except Exception:                                # noqa: BLE001
-            pass                                         # el daemon nunca muere
+        except Exception:
+            pass  # el daemon nunca muere
 
 
-def iniciar_daemon_fondo() -> Optional[threading.Thread]:
+def iniciar_daemon_fondo() -> threading.Thread | None:
     """Arranca el daemon en un hilo demonio (si no estaba ya corriendo)."""
     global _DAEMON_HILO
     if not esta_activo():
@@ -501,8 +536,7 @@ def iniciar_daemon_fondo() -> Optional[threading.Thread]:
     if _DAEMON_HILO is not None and _DAEMON_HILO.is_alive():
         return _DAEMON_HILO
     _DAEMON_PARAR.clear()
-    _DAEMON_HILO = threading.Thread(
-        target=daemon_proactivo, name="curador-proactivo", daemon=True)
+    _DAEMON_HILO = threading.Thread(target=daemon_proactivo, name="curador-proactivo", daemon=True)
     _DAEMON_HILO.start()
     return _DAEMON_HILO
 

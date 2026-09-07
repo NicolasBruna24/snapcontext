@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Interfaz web de SnapContext (FastAPI + WebSockets), v1.2.0.
 
 Sirve ``static/index.html`` y expone el endpoint ``/ws``. La UI envía mensajes
@@ -30,14 +29,13 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Dict, List, Optional
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, \
-    Request, WebSocket
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket
 from fastapi.responses import FileResponse
 
-_ESTATICO = Path(getattr(sys, "_MEIPASS",
-                         Path(__file__).resolve().parent.parent)) / "web" / "static"
+_ESTATICO = (
+    Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent)) / "web" / "static"
+)
 # En el ejecutable PyInstaller (v1.5.0), ``web/static`` va a ``_MEIPASS``;
 # en desarrollo, ``__file__`` es ``web/app.py`` y el estático queda al lado.
 # ``directorio`` por defecto si la UI no lo indica (directorio de trabajo).
@@ -47,15 +45,15 @@ _DIRECTORIO_DEFECTO = "."
 # --------------------------------------------------------------------------
 # API pública (v3.6.0): estado de tareas asíncronas y control del daemon.
 # --------------------------------------------------------------------------
-_TAREAS_API: Dict[str, dict] = {}
+_TAREAS_API: dict[str, dict] = {}
 _CANDADO_TAREAS_API = threading.Lock()
-_DAEMON_HILO: Optional[threading.Thread] = None
+_DAEMON_HILO: threading.Thread | None = None
 _DAEMON_PARAR = threading.Event()
 
 API_PREFIJO = "/api/v1"
 
 
-def _clave_api_efectiva(token: Optional[str]) -> str:
+def _clave_api_efectiva(token: str | None) -> str:
     """Resuelve la clave API: explícita → config.json → generar y guardar."""
     if token:
         return token
@@ -66,10 +64,12 @@ def _clave_api_efectiva(token: Optional[str]) -> str:
             if clave:
                 return clave
             clave = sc._generar_clave_api()
-            print("⚠ No había API key configurada; se generó una nueva y "
-                  "se guardó en ~/.snapcontext/config.json ('api_key').")
+            print(
+                "⚠ No había API key configurada; se generó una nueva y "
+                "se guardó en ~/.snapcontext/config.json ('api_key')."
+            )
             return clave
-        except Exception:      # noqa: BLE001 — nunca romper el arranque
+        except Exception:
             pass
     return ""
 
@@ -101,9 +101,9 @@ def _ejecutar_tarea_api(task_id: str, tipo: str, cuerpo: dict) -> None:
         ok = codigo == 0
         with _CANDADO_TAREAS_API:
             registro.update(
-                estado="completada" if ok else "fallida",
-                resultado={"codigo_salida": codigo})
-    except Exception as exc:   # noqa: BLE001 — se reporta en la tarea
+                estado="completada" if ok else "fallida", resultado={"codigo_salida": codigo}
+            )
+    except Exception as exc:
         with _CANDADO_TAREAS_API:
             registro.update(estado="error", error=str(exc))
 
@@ -113,17 +113,20 @@ def _lanzar_tarea_api(tipo: str, cuerpo: dict) -> dict:
     task_id = uuid.uuid4().hex
     with _CANDADO_TAREAS_API:
         _TAREAS_API[task_id] = {
-            "task_id": task_id, "tipo": tipo, "estado": "pendiente",
-            "creado": time.time(), "resultado": None, "error": None}
-    threading.Thread(target=_ejecutar_tarea_api,
-                     args=(task_id, tipo, dict(cuerpo)),
-                     daemon=True).start()
-    return {"task_id": task_id, "estado": "pendiente",
-            "url": f"{API_PREFIJO}/tasks/{task_id}"}
+            "task_id": task_id,
+            "tipo": tipo,
+            "estado": "pendiente",
+            "creado": time.time(),
+            "resultado": None,
+            "error": None,
+        }
+    threading.Thread(
+        target=_ejecutar_tarea_api, args=(task_id, tipo, dict(cuerpo)), daemon=True
+    ).start()
+    return {"task_id": task_id, "estado": "pendiente", "url": f"{API_PREFIJO}/tasks/{task_id}"}
 
 
-def crear_app(api_token: Optional[str] = None,
-              interactiva: bool = False) -> FastAPI:
+def crear_app(api_token: str | None = None, interactiva: bool = False) -> FastAPI:
     """Construye y devuelve la app FastAPI (rutas + WebSocket + API v3.6.0).
 
     ``api_token`` fija la clave exigida en los endpoints ``/api/v1/*``; si se
@@ -137,34 +140,38 @@ def crear_app(api_token: Optional[str] = None,
     app = FastAPI(title="SnapContext Web", version="3.6.0")
 
     # ---- Modo interactivo (v6.5.0) ---------------------------------------
-    _clientes_interactivos: "Dict[int, queue.Queue]" = {}
-    _tarea_difusor: Optional[asyncio.Task] = None
+    _clientes_interactivos: dict[int, queue.Queue] = {}
+    _tarea_difusor: asyncio.Task | None = None
     if interactiva:
-        import web.interactive as wi            # noqa: E402
-        wi.activar()                            # cola compartida del hub
+        import web.interactive as wi
+
+        wi.activar()  # cola compartida del hub
 
     # ---- Autenticación de la API (v3.6.0) -------------------------------
     _clave_api = _clave_api_efectiva(api_token)
 
-    def _autorizar(x_api_key: Optional[str] = Header(default=None),
-                   api_key: Optional[str] = Query(default=None)) -> None:
+    def _autorizar(
+        x_api_key: str | None = Header(default=None), api_key: str | None = Query(default=None)
+    ) -> None:
         """Exige la API key en el header ``X-API-Key`` (o query param)."""
         if not _clave_api:
-            return                      # sin clave configurada: sin auth
+            return  # sin clave configurada: sin auth
         if x_api_key != _clave_api and api_key != _clave_api:
-            raise HTTPException(
-                status_code=401, detail="API key inválida o ausente.")
+            raise HTTPException(status_code=401, detail="API key inválida o ausente.")
 
     @app.get(f"{API_PREFIJO}/health")
     async def api_health():
         """Estado del servidor (endpoint público)."""
         sc = _importar_snapcontext()
-        return {"estado": "ok", "servicio": "snapcontext",
-                "version": getattr(sc, "VERSION", "?") if sc else "?",
-                "docs": "/docs", "redoc": "/redoc"}
+        return {
+            "estado": "ok",
+            "servicio": "snapcontext",
+            "version": getattr(sc, "VERSION", "?") if sc else "?",
+            "docs": "/docs",
+            "redoc": "/redoc",
+        }
 
-    @app.post(f"{API_PREFIJO}/query", status_code=202,
-              dependencies=[Depends(_autorizar)])
+    @app.post(f"{API_PREFIJO}/query", status_code=202, dependencies=[Depends(_autorizar)])
     async def api_query(cuerpo: dict = Body(...)):
         """Ejecuta una consulta (equivale a ``snapcontext "consulta"``).
 
@@ -172,17 +179,14 @@ def crear_app(api_token: Optional[str] = None,
         ``/api/v1/tasks/{task_id}``.
         """
         if not (cuerpo.get("consulta") or "").strip():
-            raise HTTPException(status_code=400,
-                                detail="Falta el campo 'consulta'.")
+            raise HTTPException(status_code=400, detail="Falta el campo 'consulta'.")
         return _lanzar_tarea_api("query", cuerpo)
 
-    @app.post(f"{API_PREFIJO}/plan", status_code=202,
-              dependencies=[Depends(_autorizar)])
+    @app.post(f"{API_PREFIJO}/plan", status_code=202, dependencies=[Depends(_autorizar)])
     async def api_plan(cuerpo: dict = Body(...)):
         """Ejecuta un plan (equivale a ``snapcontext --plan "consulta"``)."""
         if not (cuerpo.get("consulta") or "").strip():
-            raise HTTPException(status_code=400,
-                                detail="Falta el campo 'consulta'.")
+            raise HTTPException(status_code=400, detail="Falta el campo 'consulta'.")
         return _lanzar_tarea_api("plan", cuerpo)
 
     @app.post(f"{API_PREFIJO}/chat", dependencies=[Depends(_autorizar)])
@@ -194,21 +198,16 @@ def crear_app(api_token: Optional[str] = None,
         """
         sc = _importar_snapcontext()
         if sc is None:
-            raise HTTPException(status_code=500,
-                                detail="snapcontext no disponible.")
+            raise HTTPException(status_code=500, detail="snapcontext no disponible.")
         mensaje = (cuerpo.get("mensaje") or "").strip()
         if not mensaje:
-            raise HTTPException(status_code=400,
-                                detail="Falta el campo 'mensaje'.")
+            raise HTTPException(status_code=400, detail="Falta el campo 'mensaje'.")
         preferencias = sc.cargar_configuracion()
-        proveedor = (cuerpo.get("proveedor")
-                     or preferencias.get("provider")
-                     or sc.PROVEEDOR_DEFECTO)
+        proveedor = cuerpo.get("proveedor") or preferencias.get("provider") or sc.PROVEEDOR_DEFECTO
         historial = list(cuerpo.get("historial") or [])[-20:]
         mensajes = historial + [{"role": "user", "content": mensaje}]
         try:
-            respuesta = sc._enviar_al_proveedor(
-                proveedor, cuerpo.get("modelo"), mensajes)
+            respuesta = sc._enviar_al_proveedor(proveedor, cuerpo.get("modelo"), mensajes)
         except RuntimeError as exc:
             raise HTTPException(status_code=502, detail=str(exc))
         return {"respuesta": respuesta, "proveedor": proveedor}
@@ -217,8 +216,7 @@ def crear_app(api_token: Optional[str] = None,
     async def api_skills(archivados: bool = Query(default=False)):
         """Lista las skills aprendidas por la memoria persistente."""
         sc = _importar_snapcontext()
-        filas = (sc._skill_listar(incluir_archivados=bool(archivados))
-                 if sc else [])
+        filas = sc._skill_listar(incluir_archivados=bool(archivados)) if sc else []
         return {"total": len(filas), "skills": filas}
 
     @app.post(f"{API_PREFIJO}/daemon", dependencies=[Depends(_autorizar)])
@@ -231,15 +229,17 @@ def crear_app(api_token: Optional[str] = None,
             return {"accion": "estado", "activo": vivo}
         sc = _importar_snapcontext()
         if sc is None:
-            raise HTTPException(status_code=500,
-                                detail="snapcontext no disponible.")
+            raise HTTPException(status_code=500, detail="snapcontext no disponible.")
         if accion == "iniciar":
             if vivo:
-                return {"accion": "iniciar", "activo": True,
-                        "detalle": "El daemon ya estaba en ejecución."}
-            intervalo = int(cuerpo.get("intervalo_horas")
-                            or getattr(sc, "DAEMON_INTERVALO_HORAS_DEFECTO",
-                                       6))
+                return {
+                    "accion": "iniciar",
+                    "activo": True,
+                    "detalle": "El daemon ya estaba en ejecución.",
+                }
+            intervalo = int(
+                cuerpo.get("intervalo_horas") or getattr(sc, "DAEMON_INTERVALO_HORAS_DEFECTO", 6)
+            )
             pausa = int(getattr(sc, "DAEMON_PAUSA_SEGUNDOS", 3600))
             _DAEMON_PARAR.clear()
 
@@ -247,23 +247,21 @@ def crear_app(api_token: Optional[str] = None,
                 while not _DAEMON_PARAR.is_set():
                     try:
                         sc._daemon_tick(intervalo_horas=intervalo)
-                    except Exception:   # noqa: BLE001 — el daemon continúa
+                    except Exception:
                         pass
                     _DAEMON_PARAR.wait(timeout=max(1, pausa))
 
-            _DAEMON_HILO = threading.Thread(target=_bucle_daemon,
-                                            daemon=True)
+            _DAEMON_HILO = threading.Thread(target=_bucle_daemon, daemon=True)
             _DAEMON_HILO.start()
-            return {"accion": "iniciar", "activo": True,
-                    "intervalo_horas": intervalo}
+            return {"accion": "iniciar", "activo": True, "intervalo_horas": intervalo}
         if accion == "detener":
             _DAEMON_PARAR.set()
             if _DAEMON_HILO is not None:
                 _DAEMON_HILO.join(timeout=5)
-            return {"accion": "detener",
-                    "activo": bool(_DAEMON_HILO and _DAEMON_HILO.is_alive())}
-        raise HTTPException(status_code=400, detail=(
-            "Acción inválida; usa 'estado', 'iniciar' o 'detener'."))
+            return {"accion": "detener", "activo": bool(_DAEMON_HILO and _DAEMON_HILO.is_alive())}
+        raise HTTPException(
+            status_code=400, detail=("Acción inválida; usa 'estado', 'iniciar' o 'detener'.")
+        )
 
     @app.post("/webhook/telegram")
     async def webhook_telegram(update_data: dict = Body(...)):
@@ -277,13 +275,14 @@ def crear_app(api_token: Optional[str] = None,
             import telegram_gateway as tg
         except ImportError:
             raise HTTPException(
-                status_code=503,
-                detail="Gateway de Telegram no disponible (instala httpx).")
+                status_code=503, detail="Gateway de Telegram no disponible (instala httpx)."
+            )
         if not tg.obtener_token():
             raise HTTPException(
                 status_code=503,
                 detail="TELEGRAM_BOT_TOKEN no configurado. Usa "
-                       "`snapcontext telegram setup --token <TOKEN>`.")
+                "`snapcontext telegram setup --token <TOKEN>`.",
+            )
         await tg.handle_telegram_update(update_data)
         return {"ok": True}
 
@@ -302,21 +301,21 @@ def crear_app(api_token: Optional[str] = None,
         except ImportError:
             raise HTTPException(
                 status_code=503,
-                detail="Gateway de Discord no disponible "
-                       "(instala httpx y cryptography).")
+                detail="Gateway de Discord no disponible (instala httpx y cryptography).",
+            )
         if not dg.obtener_public_key():
             raise HTTPException(
                 status_code=503,
                 detail="DISCORD_PUBLIC_KEY no configurada. Usa "
-                       "`snapcontext discord setup --public-key <KEY>`.")
+                "`snapcontext discord setup --public-key <KEY>`.",
+            )
         firma = request.headers.get("X-Signature-Ed25519") or ""
         marca = request.headers.get("X-Signature-Timestamp") or ""
         cuerpo = await request.body()
         try:
             dg.verify_signature(cuerpo, firma, marca)
         except ValueError as exc:
-            raise HTTPException(status_code=401,
-                                detail=f"Firma inválida: {exc}")
+            raise HTTPException(status_code=401, detail=f"Firma inválida: {exc}")
         interaction_data = json.loads(cuerpo.decode("utf-8") or "{}")
         respuesta = await dg.handle_discord_interaction(interaction_data)
         if respuesta is None:
@@ -330,13 +329,15 @@ def crear_app(api_token: Optional[str] = None,
         try:
             import github_gateway as gh
         except ImportError:
-            raise HTTPException(
-                status_code=503,
-                detail="Gateway de GitHub no disponible.")
+            raise HTTPException(status_code=503, detail="Gateway de GitHub no disponible.")
 
         secreto = gh.obtener_webhook_secreto()
         cuerpo = await request.body()
-        firma = request.headers.get("X-Hub-Signature-256") or request.headers.get("X-Hub-Signature") or ""
+        firma = (
+            request.headers.get("X-Hub-Signature-256")
+            or request.headers.get("X-Hub-Signature")
+            or ""
+        )
 
         if secreto and not gh.validar_firma(cuerpo, firma, secreto):
             raise HTTPException(status_code=401, detail="Firma de GitHub inválida.")
@@ -351,8 +352,7 @@ def crear_app(api_token: Optional[str] = None,
         tarea_id = gh.procesar_evento(evento_parseado)
         return {"ok": True, "evento": tipo_evento, "tarea_id": tarea_id}
 
-    @app.get(f"{API_PREFIJO}/tasks/{{task_id}}",
-             dependencies=[Depends(_autorizar)])
+    @app.get(f"{API_PREFIJO}/tasks/{{task_id}}", dependencies=[Depends(_autorizar)])
     async def api_task(task_id: str):
         """Devuelve el estado de una tarea asíncrona."""
         with _CANDADO_TAREAS_API:
@@ -368,7 +368,8 @@ def crear_app(api_token: Optional[str] = None,
 
     # ---- UI interactiva (v6.5.0) -----------------------------------------
     if interactiva:
-        from fastapi.staticfiles import StaticFiles    # noqa: E402
+        from fastapi.staticfiles import StaticFiles
+
         app.mount("/static", StaticFiles(directory=str(_ESTATICO)))
 
         @app.get("/interactive")
@@ -389,14 +390,13 @@ def crear_app(api_token: Optional[str] = None,
             reenvía sus respuestas (``diff_respuesta``) al hub.
             """
             await websocket.accept()
-            cola_cliente: "queue.Queue[dict]" = queue.Queue()
+            cola_cliente: queue.Queue[dict] = queue.Queue()
             _clientes_interactivos[id(cola_cliente)] = cola_cliente
 
             async def _difundir():
                 while True:
                     try:
-                        evento = await asyncio.to_thread(
-                            cola_cliente.get, True, 0.5)
+                        evento = await asyncio.to_thread(cola_cliente.get, True, 0.5)
                     except queue.Empty:
                         continue
                     try:
@@ -412,18 +412,23 @@ def crear_app(api_token: Optional[str] = None,
                         mensaje = dict(json.loads(datos))
                     except (json.JSONDecodeError, ValueError):
                         await websocket.send_json(
-                            {"tipo": "log_interactivo", "nivel": "error",
-                             "texto": "✖ Mensaje JSON inválido."})
+                            {
+                                "tipo": "log_interactivo",
+                                "nivel": "error",
+                                "texto": "✖ Mensaje JSON inválido.",
+                            }
+                        )
                         continue
-                    if isinstance(mensaje.get("contenido"), str) and \
-                            len(mensaje["contenido"]) > 400_000:
-                        mensaje["contenido"] = \
-                            mensaje["contenido"][:400_000]
+                    if (
+                        isinstance(mensaje.get("contenido"), str)
+                        and len(mensaje["contenido"]) > 400_000
+                    ):
+                        mensaje["contenido"] = mensaje["contenido"][:400_000]
                     try:
                         await asyncio.to_thread(wi._recibir_mensaje, mensaje)
-                    except Exception:        # noqa: BLE001 — blindaje
+                    except Exception:
                         pass
-            except Exception:                # noqa: BLE001 — conexión cerrada
+            except Exception:
                 pass
             finally:
                 tarea_difusion.cancel()
@@ -438,18 +443,15 @@ def crear_app(api_token: Optional[str] = None,
                 cola_hub = wi.cola_eventos()
                 while cola_hub is not None:
                     try:
-                        evento = await asyncio.to_thread(
-                            cola_hub.get, True, 0.5)
+                        evento = await asyncio.to_thread(cola_hub.get, True, 0.5)
                     except queue.Empty:
                         continue
-                    except Exception:        # noqa: BLE001 — hub cerrado
+                    except Exception:
                         return
-                    for cola_cliente in list(
-                            _clientes_interactivos.values()):
+                    for cola_cliente in list(_clientes_interactivos.values()):
                         cola_cliente.put(evento)
 
             _tarea_difusor = asyncio.create_task(_bucle())
-
 
     @app.get("/health")
     async def salud():
@@ -458,7 +460,7 @@ def crear_app(api_token: Optional[str] = None,
     @app.websocket("/ws")
     async def _ws_punto(websocket: WebSocket):
         await websocket.accept()
-        cola: "queue.Queue[dict]" = queue.Queue()
+        cola: queue.Queue[dict] = queue.Queue()
         try:
             while True:
                 datos = await websocket.receive_text()
@@ -466,53 +468,56 @@ def crear_app(api_token: Optional[str] = None,
                     mensaje = json.loads(datos)
                 except json.JSONDecodeError:
                     await websocket.send_json(
-                        {"tipo": "log", "nivel": "error",
-                         "texto": "✖ Mensaje JSON inválido."})
+                        {"tipo": "log", "nivel": "error", "texto": "✖ Mensaje JSON inválido."}
+                    )
                     continue
                 tipo = (mensaje.get("tipo") or "").strip()
                 if not tipo and (mensaje.get("consulta") or "").strip():
-                    tipo = "tarea"        # compat. con el viejo protocolo
+                    tipo = "tarea"  # compat. con el viejo protocolo
                 if not tipo:
                     continue
 
                 if tipo in ("tarea", "accion"):
                     hilo = threading.Thread(
-                        target=(_ejecutar_tarea if tipo == "tarea"
-                                else _ejecutar_accion),
-                        args=((_construir_args(mensaje), cola)
-                              if tipo == "tarea" else (mensaje, cola)),
-                        daemon=True)
+                        target=(_ejecutar_tarea if tipo == "tarea" else _ejecutar_accion),
+                        args=(
+                            (_construir_args(mensaje), cola) if tipo == "tarea" else (mensaje, cola)
+                        ),
+                        daemon=True,
+                    )
                     hilo.start()
                     await _reenviar_hasta(websocket, cola, hilo)
                 elif tipo == "leer_archivo":
                     await websocket.send_json(
-                        {"tipo": "archivo_seleccionado",
-                         **_leer_archivo_web(mensaje)})
+                        {"tipo": "archivo_seleccionado", **_leer_archivo_web(mensaje)}
+                    )
                 elif tipo == "guardar_archivo":
                     await websocket.send_json(
-                        {"tipo": "archivo_guardado",
-                         **_guardar_archivo_web(mensaje)})
+                        {"tipo": "archivo_guardado", **_guardar_archivo_web(mensaje)}
+                    )
                 elif tipo == "dependencias":
                     await websocket.send_json(
-                        {"tipo": "dependencias_actualizadas",
-                         **_dependencias_web(mensaje)})
+                        {"tipo": "dependencias_actualizadas", **_dependencias_web(mensaje)}
+                    )
                 elif tipo == "semantica":
                     await websocket.send_json(
-                        {"tipo": "semanticos",
-                         "resultados": _semantica_web(mensaje)})
+                        {"tipo": "semanticos", "resultados": _semantica_web(mensaje)}
+                    )
                 elif tipo == "explorar":
                     await websocket.send_json(
-                        {"tipo": "exploracion",
-                         "lineas": _explorar_web(mensaje)})
+                        {"tipo": "exploracion", "lineas": _explorar_web(mensaje)}
+                    )
                 elif tipo == "ping":
                     await websocket.send_json({"tipo": "pong"})
         except Exception:
-            pass                     # conexión cerrada o mensaje inválido
+            pass  # conexión cerrada o mensaje inválido
         finally:
             sc = _importar_snapcontext()
             if sc is not None:
                 sc.fijar_evento_callback(None)
+
     return app
+
 
 async def _reenviar_hasta(websocket: WebSocket, cola, hilo: threading.Thread):
     """Reenvía los eventos de la cola al WebSocket hasta que ``hilo`` termina."""
@@ -534,6 +539,7 @@ def _importar_snapcontext():
     """Devuelve el módulo snapcontext (import diferido) o None si no se puede."""
     try:
         import snapcontext
+
         return snapcontext
     except Exception:
         return None
@@ -560,10 +566,16 @@ def _ejecutar_tarea(args, cola) -> None:
         from orquestador import Orquestador
 
         Orquestador(evento_callback=_on_evento).ejecutar_flujo(args)
-    except Exception as exc:  # noqa: BLE001  → se reporta a la UI
+    except Exception as exc:
         cola.put({"tipo": "log", "nivel": "error", "texto": f"✖ {exc}"})
-        cola.put({"tipo": "final", "ok": False, "error": str(exc),
-                  "tiempo": round(time.monotonic() - t0, 1)})
+        cola.put(
+            {
+                "tipo": "final",
+                "ok": False,
+                "error": str(exc),
+                "tiempo": round(time.monotonic() - t0, 1),
+            }
+        )
     finally:
         sc = _importar_snapcontext()
         if sc is not None:
@@ -575,7 +587,7 @@ def _construir_args(mensaje: dict):
     import snapcontext as sc
 
     consulta = (mensaje.get("consulta") or "").strip()
-    argv: List[str] = [consulta]
+    argv: list[str] = [consulta]
 
     if mensaje.get("directorio"):
         argv += ["--directorio", str(mensaje["directorio"])]
@@ -596,6 +608,7 @@ def _construir_args(mensaje: dict):
             argv += ["--max-iteraciones", str(int(mensaje["max_iteraciones"]))]
 
     return sc.crear_parser().parse_args(argv)
+
 
 # --------------------------------------------------------------------------
 # Acciones rápidas (Fix / Review / Plan / Run / Search / Explorar) — v1.2.0
@@ -620,21 +633,30 @@ def _ejecutar_accion(mensaje: dict, cola) -> None:
         if accion == "run":
             objetivo = comando or consulta
             if not objetivo:
-                ev({"tipo": "log", "nivel": "error",
-                    "texto": "✖ La acción Run necesita un comando o consulta."})
+                ev(
+                    {
+                        "tipo": "log",
+                        "nivel": "error",
+                        "texto": "✖ La acción Run necesita un comando o consulta.",
+                    }
+                )
                 ev({"tipo": "accion_ejecutada", "accion": accion, "ok": False})
                 return
-            codigo, stdout, stderr = sc._ejecutar_comando(
-                objetivo, directorio, timeout=180)
+            codigo, stdout, stderr = sc._ejecutar_comando(objetivo, directorio, timeout=180)
             ok = codigo == 0
             resumen = (stdout or stderr or f"código {codigo}")[:300]
             ev({"tipo": "log", "nivel": "info", "texto": resumen})
-            ev({"tipo": "accion_ejecutada", "accion": accion, "ok": ok,
-                "resumen": resumen})
+            ev({"tipo": "accion_ejecutada", "accion": accion, "ok": ok, "resumen": resumen})
         elif accion == "search":
             resultados = _semantica_web(mensaje)
-            ev({"tipo": "accion_ejecutada", "accion": accion, "ok": True,
-                "resumen": f"{len(resultados)} resultado(s) semántico(s)."})
+            ev(
+                {
+                    "tipo": "accion_ejecutada",
+                    "accion": accion,
+                    "ok": True,
+                    "resumen": f"{len(resultados)} resultado(s) semántico(s).",
+                }
+            )
             if resultados:
                 ev({"tipo": "semanticos", "resultados": resultados})
         elif accion == "explorar":
@@ -642,45 +664,59 @@ def _ejecutar_accion(mensaje: dict, cola) -> None:
             mensaje2 = dict(mensaje)
             mensaje2["tema"] = tema or "."
             lineas = _explorar_web(mensaje2)
-            ev({"tipo": "accion_ejecutada", "accion": accion, "ok": True,
-                "resumen": f"{len(lineas)} coincidencia(s)."})
+            ev(
+                {
+                    "tipo": "accion_ejecutada",
+                    "accion": accion,
+                    "ok": True,
+                    "resumen": f"{len(lineas)} coincidencia(s).",
+                }
+            )
             if lineas:
                 ev({"tipo": "exploracion", "lineas": lineas[:50]})
         elif accion == "asesor":
             # v3.5.0: asesor de código proactivo → panel de sugerencias.
-            sugerencias = sc._asesor_analizar(
-                mensaje.get("directorio") or _DIRECTORIO_DEFECTO)
+            sugerencias = sc._asesor_analizar(mensaje.get("directorio") or _DIRECTORIO_DEFECTO)
             ev({"tipo": "asesor", "sugerencias": sugerencias})
-            ev({"tipo": "accion_ejecutada", "accion": accion, "ok": True,
-                "resumen": f"{len(sugerencias)} sugerencia(s) de mejora."})
+            ev(
+                {
+                    "tipo": "accion_ejecutada",
+                    "accion": accion,
+                    "ok": True,
+                    "resumen": f"{len(sugerencias)} sugerencia(s) de mejora.",
+                }
+            )
         elif accion in ("plugins", "plugin_install", "plugin_remove"):
             # v4.0.0: ecosistema de plugins → panel de plugins.
             try:
                 if accion == "plugin_install":
-                    origen = (mensaje.get("origen")
-                              or mensaje.get("consulta") or "").strip()
-                    codigo = sc._plugin_instalar(origen, auto=True) \
-                        if origen else 1
+                    origen = (mensaje.get("origen") or mensaje.get("consulta") or "").strip()
+                    codigo = sc._plugin_instalar(origen, auto=True) if origen else 1
                 elif accion == "plugin_remove":
-                    nombre = (mensaje.get("nombre")
-                              or mensaje.get("consulta") or "").strip()
+                    nombre = (mensaje.get("nombre") or mensaje.get("consulta") or "").strip()
                     # Desde la web no hay TTY: se omite la confirmación.
-                    codigo = sc._plugin_remove(nombre, confirmar=False) \
-                        if nombre else 1
+                    codigo = sc._plugin_remove(nombre, confirmar=False) if nombre else 1
                 else:
                     codigo = 0
                 plugins = list(sc._plugins_instalados().values())
                 for p in plugins:
                     p.pop("ruta", None)
                 ev({"tipo": "plugins", "plugins": plugins})
-                resumen = {0: "OK"}.get(codigo,
-                                        "fallo en la operación del plugin") \
-                    if accion != "plugins" else f"{len(plugins)} plugin(s)."
-                ev({"tipo": "accion_ejecutada", "accion": accion,
-                    "ok": codigo == 0, "resumen": resumen})
-            except Exception as exc:   # noqa: BLE001 — reportado a la UI
-                ev({"tipo": "accion_ejecutada", "accion": accion, "ok": False,
-                    "error": str(exc)})
+                resumen = (
+                    {0: "OK"}.get(codigo, "fallo en la operación del plugin")
+                    if accion != "plugins"
+                    else f"{len(plugins)} plugin(s)."
+                )
+                ev(
+                    {
+                        "tipo": "accion_ejecutada",
+                        "accion": accion,
+                        "ok": codigo == 0,
+                        "resumen": resumen,
+                    }
+                )
+            except Exception as exc:
+                ev({"tipo": "accion_ejecutada", "accion": accion, "ok": False, "error": str(exc)})
         else:
             # fix / review / plan → pipeline o planificador de snapcontext.
             sc.fijar_evento_callback(ev)
@@ -690,14 +726,19 @@ def _ejecutar_accion(mensaje: dict, cola) -> None:
                     codigo = sc._ejecutar_planificador(args)
                 else:
                     codigo = sc.flujo_principal(args)
-                ev({"tipo": "accion_ejecutada", "accion": accion,
-                    "ok": codigo == 0, "resumen": f"{accion} finalizado."})
+                ev(
+                    {
+                        "tipo": "accion_ejecutada",
+                        "accion": accion,
+                        "ok": codigo == 0,
+                        "resumen": f"{accion} finalizado.",
+                    }
+                )
             finally:
                 sc.fijar_evento_callback(None)
-    except Exception as exc:  # noqa: BLE001  → se reporta a la UI
+    except Exception as exc:
         ev({"tipo": "log", "nivel": "error", "texto": f"✖ {exc}"})
-        ev({"tipo": "accion_ejecutada", "accion": accion, "ok": False,
-            "error": str(exc)})
+        ev({"tipo": "accion_ejecutada", "accion": accion, "ok": False, "error": str(exc)})
 
 
 def _construir_args_accion(accion: str, consulta: str, directorio: str):
@@ -722,6 +763,7 @@ def _construir_args_accion(accion: str, consulta: str, directorio: str):
     args.depurar = False
     return args
 
+
 # --------------------------------------------------------------------------
 # Editor web (leer / guardar archivos) — v1.2.0
 # --------------------------------------------------------------------------
@@ -741,15 +783,26 @@ def _leer_archivo_web(mensaje: dict) -> dict:
     ruta = (mensaje.get("ruta") or "").strip()
     directorio = (mensaje.get("directorio") or _DIRECTORIO_DEFECTO).strip()
     if not ruta:
-        return {"ruta": ruta, "contenido": None, "lenguaje": None,
-                "error": "Falta la ruta del archivo."}
+        return {
+            "ruta": ruta,
+            "contenido": None,
+            "lenguaje": None,
+            "error": "Falta la ruta del archivo.",
+        }
     camino = _resolver_camino(ruta, directorio)
     contenido = sc._leer_archivo(camino)
     if contenido is None:
-        return {"ruta": str(camino), "contenido": None,
-                "lenguaje": None, "error": "No se pudo leer el archivo."}
-    return {"ruta": str(camino), "contenido": contenido,
-            "lenguaje": sc._comando_para_monaco(ruta.split("/")[-1])}
+        return {
+            "ruta": str(camino),
+            "contenido": None,
+            "lenguaje": None,
+            "error": "No se pudo leer el archivo.",
+        }
+    return {
+        "ruta": str(camino),
+        "contenido": contenido,
+        "lenguaje": sc._comando_para_monaco(ruta.split("/")[-1]),
+    }
 
 
 def _guardar_archivo_web(mensaje: dict) -> dict:
@@ -770,6 +823,7 @@ def _guardar_archivo_web(mensaje: dict) -> dict:
     except OSError as exc:
         return {"ruta": str(camino), "ok": False, "error": str(exc)}
 
+
 # --------------------------------------------------------------------------
 # Dependencias / búsqueda / exploración — v1.2.0
 # --------------------------------------------------------------------------
@@ -782,9 +836,13 @@ def _dependencias_web(mensaje: dict) -> dict:
         grafo = sc._grafo_dependencias(directorio)
         grafo["ruta"] = (mensaje.get("ruta") or "").strip()
         return grafo
-    except Exception as exc:  # noqa: BLE001
-        return {"nodos": [], "enlaces": [],
-                "ruta": (mensaje.get("ruta") or "").strip(), "error": str(exc)}
+    except Exception as exc:
+        return {
+            "nodos": [],
+            "enlaces": [],
+            "ruta": (mensaje.get("ruta") or "").strip(),
+            "error": str(exc),
+        }
 
 
 def _semantica_web(mensaje: dict) -> list:
@@ -796,9 +854,8 @@ def _semantica_web(mensaje: dict) -> list:
     if not consulta or not sc._embeddings_disponibles():
         return []
     try:
-        return sc._buscar_semanticamente(consulta, directorio,
-                                         max_resultados=20)
-    except Exception:  # noqa: BLE001
+        return sc._buscar_semanticamente(consulta, directorio, max_resultados=20)
+    except Exception:
         return []
 
 
@@ -810,7 +867,7 @@ def _explorar_web(mensaje: dict) -> list:
     directorio = (mensaje.get("directorio") or _DIRECTORIO_DEFECTO).strip()
     try:
         return sc._buscar_en_codigo(tema, directorio)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return []
 
 
@@ -830,8 +887,7 @@ def arrancar_servidor(puerto: int = 8000, interactiva: bool = False) -> None:
     )
 
 
-def arrancar_api(puerto: int = 8001, host: str = "127.0.0.1",
-                 token: Optional[str] = None) -> None:
+def arrancar_api(puerto: int = 8001, host: str = "127.0.0.1", token: str | None = None) -> None:
     """Arranca la API pública v3.6.0 (bloquea hasta detenerse).
 
     ``token`` fija la API key; si es ``None``, se usa (o genera) la guardada
@@ -847,4 +903,4 @@ def arrancar_api(puerto: int = 8001, host: str = "127.0.0.1",
     )
 
 
-__all__ = ["crear_app", "arrancar_servidor", "arrancar_api"]
+__all__ = ["arrancar_api", "arrancar_servidor", "crear_app"]

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests para task_queue.py — Cola de Tareas Asíncronas y Worker (v6.8.0).
 
 Ejecuta con:
@@ -9,7 +8,7 @@ Ejecuta con:
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import task_queue as tq
 
@@ -26,7 +25,9 @@ class TestTaskQueueOperaciones(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_encolar_tarea(self):
-        tid = tq.encolar_tarea("tests", {"rama": "develop"}, chat_id="123", canal="telegram", db_path=self.db_path)
+        tid = tq.encolar_tarea(
+            "tests", {"rama": "develop"}, chat_id="123", canal="telegram", db_path=self.db_path
+        )
         self.assertIsInstance(tid, int)
         self.assertGreater(tid, 0)
 
@@ -44,14 +45,18 @@ class TestTaskQueueOperaciones(unittest.TestCase):
 
     def test_actualizar_estado_tarea(self):
         tid = tq.encolar_tarea("plan", {"consulta": "refactor"}, db_path=self.db_path)
-        ok = tq.actualizar_estado_tarea(tid, "completada", resultado={"ok": True}, db_path=self.db_path)
+        ok = tq.actualizar_estado_tarea(
+            tid, "completada", resultado={"ok": True}, db_path=self.db_path
+        )
         self.assertTrue(ok)
         tarea = tq.obtener_tarea(tid, db_path=self.db_path)
         self.assertEqual(tarea["estado"], "completada")
         self.assertEqual(tarea["resultado"], {"ok": True})
 
     def test_obtener_tarea(self):
-        tid = tq.encolar_tarea("tests", {"rama": "main"}, chat_id="chat99", canal="discord", db_path=self.db_path)
+        tid = tq.encolar_tarea(
+            "tests", {"rama": "main"}, chat_id="chat99", canal="discord", db_path=self.db_path
+        )
         tarea = tq.obtener_tarea(tid, db_path=self.db_path)
         self.assertIsNotNone(tarea)
         self.assertEqual(tarea["chat_id"], "chat99")
@@ -133,7 +138,9 @@ class TestTaskExecution(unittest.TestCase):
         mock_ejecutar.return_value = {"ok": True, "mensaje": "Completado con éxito"}
         mock_notificar.return_value = True
 
-        tid = tq.encolar_tarea("tests", {"rama": "main"}, chat_id="user123", canal="telegram", db_path=self.db_path)
+        tid = tq.encolar_tarea(
+            "tests", {"rama": "main"}, chat_id="user123", canal="telegram", db_path=self.db_path
+        )
         res = tq.procesar_siguiente_tarea(db_path=self.db_path)
         self.assertIsNotNone(res)
         self.assertEqual(res["id"], tid)

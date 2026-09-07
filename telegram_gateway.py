@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Gateway de omnicanalidad: Telegram para SnapContext (v4.4.0).
 
 Recibe mensajes de Telegram (vía webhook HTTP servido por ``web/app.py``),
@@ -27,7 +26,6 @@ import io
 import json
 import os
 from pathlib import Path
-from typing import Optional
 
 import httpx
 
@@ -43,7 +41,7 @@ def _ruta_config() -> Path:
     return Path.home() / ".snapcontext" / "config.json"
 
 
-def obtener_token() -> Optional[str]:
+def obtener_token() -> str | None:
     """Token del bot: ``TELEGRAM_BOT_TOKEN`` > config.json > None."""
     token = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
     if token:
@@ -52,11 +50,11 @@ def obtener_token() -> Optional[str]:
         cfg = json.loads(_ruta_config().read_text(encoding="utf-8"))
         token = ((cfg.get("telegram") or {}).get("bot_token") or "").strip()
         return token or None
-    except Exception:                      # noqa: BLE001 — config ausente/corrupta
+    except Exception:
         return None
 
 
-def obtener_webhook_url() -> Optional[str]:
+def obtener_webhook_url() -> str | None:
     """URL pública del webhook: ``TELEGRAM_WEBHOOK_URL`` > config.json > None."""
     url = (os.environ.get("TELEGRAM_WEBHOOK_URL") or "").strip()
     if url:
@@ -65,17 +63,16 @@ def obtener_webhook_url() -> Optional[str]:
         cfg = json.loads(_ruta_config().read_text(encoding="utf-8"))
         url = ((cfg.get("telegram") or {}).get("webhook_url") or "").strip()
         return url or None
-    except Exception:                      # noqa: BLE001
+    except Exception:
         return None
 
 
-def guardar_configuracion_telegram(token: Optional[str],
-                                   webhook_url: Optional[str]) -> dict:
+def guardar_configuracion_telegram(token: str | None, webhook_url: str | None) -> dict:
     """Persiste token/webhook en ``~/.snapcontext/config.json`` → ``"telegram"``."""
     ruta = _ruta_config()
     try:
         cfg = json.loads(ruta.read_text(encoding="utf-8"))
-    except Exception:                      # noqa: BLE001 — no existe o corrupto
+    except Exception:
         cfg = {}
     seccion = cfg.setdefault("telegram", {})
     if token is not None:
@@ -83,20 +80,18 @@ def guardar_configuracion_telegram(token: Optional[str],
     if webhook_url is not None:
         seccion["webhook_url"] = webhook_url.strip()
     ruta.parent.mkdir(parents=True, exist_ok=True)
-    ruta.write_text(json.dumps(cfg, indent=2, ensure_ascii=False),
-                    encoding="utf-8")
+    ruta.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
     return dict(seccion)
 
 
-def registrar_webhook(url: Optional[str] = None) -> tuple:
+def registrar_webhook(url: str | None = None) -> tuple:
     """Llama a ``setWebhook`` en la API de Telegram. Devuelve (ok, detalle)."""
     token = obtener_token()
     if not token:
         return (False, "No hay TELEGRAM_BOT_TOKEN configurado.")
     destino = (url or obtener_webhook_url() or "").rstrip("/")
     if not destino:
-        return (False, "Falta la URL del webhook (--webhook-url o "
-                       "TELEGRAM_WEBHOOK_URL).")
+        return (False, "Falta la URL del webhook (--webhook-url o TELEGRAM_WEBHOOK_URL).")
     try:
         resp = httpx.post(
             f"{API_TELEGRAM}/bot{token}/setWebhook",
@@ -104,17 +99,18 @@ def registrar_webhook(url: Optional[str] = None) -> tuple:
             timeout=30,
         )
         datos = resp.json()
-        return (bool(datos.get("ok")), datos.get("description")
-                or datos.get("result") or str(datos))
-    except Exception as exc:               # noqa: BLE001 — red/timeout
+        return (
+            bool(datos.get("ok")),
+            datos.get("description") or datos.get("result") or str(datos),
+        )
+    except Exception as exc:
         return (False, f"Error llamando a setWebhook: {exc}")
 
 
 # ---------------------------------------------------------------------------
 # Envío de mensajes
 # ---------------------------------------------------------------------------
-async def send_telegram_message(chat_id, text: str,
-                                parse_mode: str = "Markdown") -> bool:
+async def send_telegram_message(chat_id, text: str, parse_mode: str = "Markdown") -> bool:
     """Envía ``text`` al chat ``chat_id`` con ``httpx.AsyncClient``.
 
     - Mensajes > 4096 caracteres: se envía un avance truncado y la salida
@@ -129,22 +125,26 @@ async def send_telegram_message(chat_id, text: str,
     try:
         async with httpx.AsyncClient(timeout=60) as cliente:
             if len(text) <= TELEGRAM_MAX_MENSAJE:
-                resp = await cliente.post(f"{base}/sendMessage", json={
-                    "chat_id": chat_id, "text": text,
-                    "parse_mode": parse_mode})
+                resp = await cliente.post(
+                    f"{base}/sendMessage",
+                    json={"chat_id": chat_id, "text": text, "parse_mode": parse_mode},
+                )
                 return bool(resp.json().get("ok"))
             cabeza = text[:TELEGRAM_MAX_MENSAJE]
-            await cliente.post(f"{base}/sendMessage", json={
-                "chat_id": chat_id,
-                "text": cabeza + "\n\n… (salida completa adjunta)",
-                "parse_mode": parse_mode})
-            archivos = {"document": ("snapcontext_salida.txt",
-                                     text.encode("utf-8"), "text/plain")}
+            await cliente.post(
+                f"{base}/sendMessage",
+                json={
+                    "chat_id": chat_id,
+                    "text": cabeza + "\n\n… (salida completa adjunta)",
+                    "parse_mode": parse_mode,
+                },
+            )
+            archivos = {"document": ("snapcontext_salida.txt", text.encode("utf-8"), "text/plain")}
             resp = await cliente.post(
-                f"{base}/sendDocument",
-                data={"chat_id": str(chat_id)}, files=archivos)
+                f"{base}/sendDocument", data={"chat_id": str(chat_id)}, files=archivos
+            )
             return bool(resp.json().get("ok"))
-    except Exception as exc:               # noqa: BLE001 — red/timeout/API
+    except Exception as exc:
         print(f"✖ [telegram] Error enviando mensaje: {exc}")
         return False
 
@@ -224,7 +224,7 @@ def _ejecutar_pipeline(consulta: str, argv_extra: list) -> str:
     argv = ([consulta] + list(argv_extra)) if consulta else []
     try:
         args = sc.crear_parser().parse_args(sc._preparar_argv_aliases(argv))
-        args.auto = True                      # Telegram nunca es interactivo
+        args.auto = True  # Telegram nunca es interactivo
         args.no_confirmar = True
         args.depurar = False
         if hasattr(args, "confirmar"):
@@ -235,13 +235,12 @@ def _ejecutar_pipeline(consulta: str, argv_extra: list) -> str:
             else:
                 codigo = sc.flujo_principal(args)
     except SystemExit:
-        codigo = 0                            # argparse cortó el flujo
-    except Exception as exc:                  # noqa: BLE001 — reportar al chat
+        codigo = 0  # argparse cortó el flujo
+    except Exception as exc:
         return f"✖ Error ejecutando la tarea: {exc}"
     salida = buffer.getvalue().strip()
     estado = "✅" if codigo == 0 else "⚠️"
-    resumen = (salida[-(TELEGRAM_MAX_MENSAJE - 200):] if salida
-               else "(sin salida capturada)")
+    resumen = salida[-(TELEGRAM_MAX_MENSAJE - 200) :] if salida else "(sin salida capturada)"
     return f"{estado} Tarea terminada (código {codigo}).\n\n{resumen}"
 
 
@@ -257,6 +256,7 @@ async def run_agent_async(query: str, chat_id=None) -> str:
         if comando == "pr":
             try:
                 import task_queue as tq
+
                 num = int(argumento) if argumento.isdigit() else 0
                 tid = tq.encolar_tarea(
                     tipo="pr_review",
@@ -271,6 +271,7 @@ async def run_agent_async(query: str, chat_id=None) -> str:
         elif comando in ("tests", "test"):
             try:
                 import task_queue as tq
+
                 tid = tq.encolar_tarea(
                     tipo="tests",
                     datos={"rama": argumento or "main"},
@@ -284,12 +285,17 @@ async def run_agent_async(query: str, chat_id=None) -> str:
         elif comando == "status":
             try:
                 import task_queue as tq
+
                 tareas = tq.listar_tareas(limite=5)
                 if not tareas:
                     return "📋 No hay tareas registradas en la cola."
                 lineas = ["📋 *Estado de Tareas Recientes:*"]
                 for t in tareas:
-                    simbolo = "⏳" if t["estado"] in ("pendiente", "ejecutando") else ("✅" if t["estado"] == "completada" else "❌")
+                    simbolo = (
+                        "⏳"
+                        if t["estado"] in ("pendiente", "ejecutando")
+                        else ("✅" if t["estado"] == "completada" else "❌")
+                    )
                     lineas.append(f"{simbolo} `#{t['id']}` [{t['tipo']}] — *{t['estado']}*")
                 return "\n".join(lineas)
             except Exception as exc:
@@ -298,6 +304,7 @@ async def run_agent_async(query: str, chat_id=None) -> str:
         elif comando == "cancel":
             try:
                 import task_queue as tq
+
                 tid = int(argumento) if argumento.isdigit() else 0
                 ok = tq.cancelar_tarea(tid)
                 if ok:
@@ -308,8 +315,7 @@ async def run_agent_async(query: str, chat_id=None) -> str:
 
     consulta, argv_extra = _limpiar_consulta(query)
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        None, _ejecutar_pipeline, consulta or query, argv_extra)
+    return await loop.run_in_executor(None, _ejecutar_pipeline, consulta or query, argv_extra)
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +335,7 @@ async def handle_telegram_update(update_data: dict) -> None:
     chat_id = chat.get("chat_id") or chat.get("id")
     texto = (mensaje.get("text") or "").strip()
     if not chat_id or not texto:
-        return                                  # update no soportado
+        return  # update no soportado
 
     if texto.lower().startswith("/start"):
         await send_telegram_message(chat_id, _MENSAJE_BIENVENIDA)
@@ -345,12 +351,9 @@ async def _procesar_y_responder(chat_id, texto: str) -> None:
     """Ejecuta el agente y envía el resultado al chat."""
     cmd_directo = texto.strip().split()[0].lower().lstrip("/") if texto.startswith("/") else ""
     if cmd_directo not in ("pr", "tests", "test", "status", "cancel"):
-        await send_telegram_message(
-            chat_id, "⏳ Procesando tu solicitud con SnapContext…")
+        await send_telegram_message(chat_id, "⏳ Procesando tu solicitud con SnapContext…")
     try:
         respuesta = await run_agent_async(texto, chat_id=chat_id)
-    except Exception as exc:                    # noqa: BLE001 — siempre responder
+    except Exception as exc:
         respuesta = f"✖ Error inesperado: {exc}"
     await send_telegram_message(chat_id, respuesta)
-
-

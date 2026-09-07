@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests para session_manager (v6.28.0) — Agente Fantasma."""
 
 import os
@@ -14,6 +13,7 @@ class TestSession(unittest.TestCase):
 
     def test_creacion_session(self):
         from session_manager import Session
+
         s = Session(consulta_inicial="test")
         self.assertIsNotNone(s.id)
         self.assertEqual(s.consulta_inicial, "test")
@@ -21,6 +21,7 @@ class TestSession(unittest.TestCase):
 
     def test_añadir_mensaje(self):
         from session_manager import Session
+
         s = Session()
         s.añadir_mensaje("user", "hola")
         self.assertEqual(len(s.historial), 1)
@@ -28,12 +29,14 @@ class TestSession(unittest.TestCase):
 
     def test_actualizar_estado(self):
         from session_manager import Session
+
         s = Session()
         s.actualizar_estado({"fase": "pensando", "detalle": "analizando"})
         self.assertEqual(s.estado["fase"], "pensando")
 
     def test_guardar_plan(self):
         from session_manager import Session
+
         s = Session()
         plan = [{"descripcion": "Paso 1"}, {"descripcion": "Paso 2"}]
         s.guardar_plan(plan)
@@ -41,6 +44,7 @@ class TestSession(unittest.TestCase):
 
     def test_añadir_archivo_modificado(self):
         from session_manager import Session
+
         s = Session()
         s.añadir_archivo_modificado("app.py")
         s.añadir_archivo_modificado("app.py")  # No duplicar
@@ -48,6 +52,7 @@ class TestSession(unittest.TestCase):
 
     def test_to_dict(self):
         from session_manager import Session
+
         s = Session(consulta_inicial="test")
         d = s.to_dict()
         self.assertIn("id", d)
@@ -56,6 +61,7 @@ class TestSession(unittest.TestCase):
 
     def test_expirado(self):
         from session_manager import Session
+
         s = Session()
         self.assertFalse(s.expirado(timeout=3600))
         # Simular inactividad
@@ -68,6 +74,7 @@ class TestSessionManager(unittest.TestCase):
 
     def setUp(self):
         from session_manager import SessionManager
+
         self.mgr = SessionManager(timeout=3600)
 
     def test_crear_sesion(self):
@@ -101,6 +108,7 @@ class TestSessionManager(unittest.TestCase):
         self.mgr.persistir_sesion(id)
         # Crear nuevo manager y cargar
         from session_manager import SessionManager
+
         mgr2 = SessionManager(timeout=3600)
         s = mgr2.cargar_sesion(id)
         self.assertIsNotNone(s)
@@ -129,24 +137,28 @@ class TestSessionFlags(unittest.TestCase):
 
     def test_flag_new_session_existe(self):
         import snapcontext as sc
+
         parser = sc.crear_parser()
         args = parser.parse_args(["--new-session", "test"])
         self.assertTrue(hasattr(args, "new_session"))
 
     def test_flag_attach_existe(self):
         import snapcontext as sc
+
         parser = sc.crear_parser()
         args = parser.parse_args(["--attach", "abc12345", "test"])
         self.assertEqual(args.attach, "abc12345")
 
     def test_flag_session_timeout(self):
         import snapcontext as sc
+
         parser = sc.crear_parser()
         args = parser.parse_args(["--session-timeout", "1800", "test"])
         self.assertEqual(args.session_timeout, 1800)
 
     def test_flag_list_sessions(self):
         import snapcontext as sc
+
         parser = sc.crear_parser()
         args = parser.parse_args(["--list-sessions"])
         self.assertTrue(args.list_sessions)

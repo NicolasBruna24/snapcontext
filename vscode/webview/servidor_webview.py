@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Lanzador del chat web de SnapContext para la extensión VS Code.
 
@@ -24,18 +23,19 @@ if str(RAIZ) not in sys.path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Servidor web de SnapContext para la webview de VS Code.")
+        description="Servidor web de SnapContext para la webview de VS Code."
+    )
     parser.add_argument("--puerto", type=int, default=8765)
-    parser.add_argument("--directorio", default=".",
-                        help="Directorio del proyecto a servir.")
+    parser.add_argument("--directorio", default=".", help="Directorio del proyecto a servir.")
     argumentos = parser.parse_args()
 
     import os
+
     os.chdir(argumentos.directorio)
 
     from web.app import arrancar_servidor  # import diferido
-    print(f"[snapcontext-webview] http://localhost:{argumentos.puerto}",
-          flush=True)
+
+    print(f"[snapcontext-webview] http://localhost:{argumentos.puerto}", flush=True)
     arrancar_servidor(puerto=argumentos.puerto)
     return 0
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la v5.3.0: detección automática de pruebas (detector_tests.py).
 
 Cubre ``detectar_lenguaje``, ``detectar_comando_test``,
@@ -12,17 +11,17 @@ Se ejecuta con:
     python -m pytest tests -v
     python -m unittest tests.test_detector_tests -v
 """
+
 import os
 import shutil
 import tempfile
 import unittest
-from pathlib import Path
 
 sys_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if sys_dir not in __import__("sys").path:
     __import__("sys").path.insert(0, sys_dir)
 
-import detector_tests as det           # noqa: E402
+import detector_tests as det  # noqa: E402
 
 
 def _crear_directorio(archivos):
@@ -76,47 +75,41 @@ class TestDetectarLenguaje(BaseDetector):
         self.assertEqual(self._detectar({"build.gradle": ""}), "java-gradle")
 
     def test_flutter(self):
-        self.assertEqual(self._detectar({"pubspec.yaml": "name: demo"}),
-                         "flutter")
+        self.assertEqual(self._detectar({"pubspec.yaml": "name: demo"}), "flutter")
 
     def test_ruby(self):
-        self.assertEqual(self._detectar({"Gemfile": "source :rubygems"}),
-                         "ruby")
+        self.assertEqual(self._detectar({"Gemfile": "source :rubygems"}), "ruby")
 
     def test_elixir(self):
-        self.assertEqual(self._detectar({"mix.exs": "defmodule Demo"}),
-                         "elixir")
+        self.assertEqual(self._detectar({"mix.exs": "defmodule Demo"}), "elixir")
 
     def test_dotnet_csproj(self):
-        self.assertEqual(self._detectar({"App.csproj": "<Project/>"}),
-                         "dotnet")
+        self.assertEqual(self._detectar({"App.csproj": "<Project/>"}), "dotnet")
 
     def test_requirements_txt_pytest(self):
-        self.assertEqual(self._detectar({"requirements.txt": "requests"}),
-                         "python-pytest")
+        self.assertEqual(self._detectar({"requirements.txt": "requests"}), "python-pytest")
 
     def test_pyproject_con_pytest(self):
         self.assertEqual(
-            self._detectar({"pyproject.toml":
-                            "[project]\nname='x'\n[tool.pytest.ini_options]"}),
-            "python-pytest")
+            self._detectar({"pyproject.toml": "[project]\nname='x'\n[tool.pytest.ini_options]"}),
+            "python-pytest",
+        )
 
     def test_pyproject_sin_pytest_unittest(self):
         self.assertEqual(
-            self._detectar({"pyproject.toml": "[project]\nname='x'"}),
-            "python-unittest")
+            self._detectar({"pyproject.toml": "[project]\nname='x'"}), "python-unittest"
+        )
 
     def test_setup_py_unittest(self):
-        self.assertEqual(self._detectar({"setup.py": "from setuptools import"
-                                                        " setup"}),
-                         "python-unittest")
+        self.assertEqual(
+            self._detectar({"setup.py": "from setuptools import setup"}), "python-unittest"
+        )
 
     def test_node_npm(self):
         self.assertEqual(self._detectar({"package.json": "{}"}), "node-npm")
 
     def test_node_yarn(self):
-        self.assertEqual(self._detectar({"package.json": "{}",
-                                         "yarn.lock": ""}), "node-yarn")
+        self.assertEqual(self._detectar({"package.json": "{}", "yarn.lock": ""}), "node-yarn")
 
 
 class TestDetectarComando(BaseDetector):
@@ -186,8 +179,7 @@ class TestCasosLimite(BaseDetector):
         self.assertEqual(res["estructura"], {})
 
     def test_directorio_inexistente(self):
-        self.assertIsNone(det.detectar_lenguaje(
-            os.path.join(os.getcwd(), "_no_existe_xyz")))
+        self.assertIsNone(det.detectar_lenguaje(os.path.join(os.getcwd(), "_no_existe_xyz")))
 
     def test_multiples_lenguajes_prioriza(self):
         # go.mod gana sobre package.json (prioridad de archivos identificadores).
@@ -212,17 +204,16 @@ class TestEstructuraYResolver(BaseDetector):
         self.assertEqual(estructura.get("carpeta"), "tests/")
 
     def test_estructura_vacia_sin_lenguaje(self):
-        self.assertEqual(det.detectar_estructura_tests(
-            os.path.join(os.getcwd(), "_no_existe_xyz")), {})
+        self.assertEqual(
+            det.detectar_estructura_tests(os.path.join(os.getcwd(), "_no_existe_xyz")), {}
+        )
 
     def test_resolver_explicito_gana(self):
-        self.assertEqual(det.resolver_comando_test(".", "mi test"),
-                         "mi test")
+        self.assertEqual(det.resolver_comando_test(".", "mi test"), "mi test")
 
     def test_resolver_detecta(self):
         self._tmp = _crear_directorio({"go.mod": ""})
-        self.assertEqual(det.resolver_comando_test(self._tmp),
-                         "go test ./...")
+        self.assertEqual(det.resolver_comando_test(self._tmp), "go test ./...")
 
     def test_resolver_sin_deteccion_es_none(self):
         self._tmp = _crear_directorio({"_vacio.txt": ""})

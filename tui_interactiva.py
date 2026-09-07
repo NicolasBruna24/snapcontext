@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """TUI interactiva extendida (v6.27.0) — centro de control con edicion de plan
 y visualizacion del grafo de dependencias.
 
@@ -16,21 +15,19 @@ y la TUI basica (tui_app.py) sigue funcionando sin estas mejoras.
 
 from __future__ import annotations
 
-import json
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 __all__ = [
     "esquema_pasos_a_texto",
-    "texto_a_esquema_pasos",
     "grafo_a_texto",
+    "texto_a_esquema_pasos",
     "validar_paso",
 ]
 
 # Dependencias opcionales
 try:
-    from textual.widgets import DataTable, ListView, Tree
-    from textual.containers import Vertical, Horizontal
-    from textual.widgets import Button, Input, Label, Static
+    from textual.widgets import Label, ListView, Tree
+
     TEXTUAL_DISPONIBLE = True
 except Exception:  # pragma: no cover
     TEXTUAL_DISPONIBLE = False
@@ -40,7 +37,8 @@ except Exception:  # pragma: no cover
 # Utilidades de formato (no requieren Textual)
 # ---------------------------------------------------------------------------
 
-def esquema_pasos_a_texto(pasos: List[Dict[str, Any]]) -> str:
+
+def esquema_pasos_a_texto(pasos: list[dict[str, Any]]) -> str:
     """Convierte una lista de pasos a texto formateado para mostrar en TUI."""
     lineas = []
     for i, paso in enumerate(pasos, 1):
@@ -51,7 +49,7 @@ def esquema_pasos_a_texto(pasos: List[Dict[str, Any]]) -> str:
     return "\n".join(lineas)
 
 
-def texto_a_esquema_pasos(texto: str) -> List[Dict[str, Any]]:
+def texto_a_esquema_pasos(texto: str) -> list[dict[str, Any]]:
     """Parsea texto formateado de pasos a lista de dicts."""
     pasos = []
     for linea in texto.strip().splitlines():
@@ -69,7 +67,7 @@ def texto_a_esquema_pasos(texto: str) -> List[Dict[str, Any]]:
         if resto.startswith("[") and "]" in resto:
             fin = resto.index("]")
             marcador = resto[1:fin].strip()
-            desc = resto[fin+1:].strip()
+            desc = resto[fin + 1 :].strip()
             if marcador in ("✓", "completado"):
                 estado = "completado"
             elif marcador in ("◉", "en_progreso"):
@@ -79,7 +77,7 @@ def texto_a_esquema_pasos(texto: str) -> List[Dict[str, Any]]:
     return pasos
 
 
-def grafo_a_texto(grafo: Dict[str, Any], expandir: bool = True) -> str:
+def grafo_a_texto(grafo: dict[str, Any], expandir: bool = True) -> str:
     """Convierte un grafo (GraphRAG) a representacion textual."""
     if not grafo:
         return "(grafo vacio)"
@@ -91,7 +89,7 @@ def grafo_a_texto(grafo: Dict[str, Any], expandir: bool = True) -> str:
         return "(grafo vacio)"
 
     lineas = []
-    archivos: Dict[str, List[str]] = {}
+    archivos: dict[str, list[str]] = {}
     for nodo_id, info in nodos.items():
         archivo = nodo_id.split("::")[0] if "::" in nodo_id else "general"
         archivos.setdefault(archivo, []).append(nodo_id)
@@ -110,14 +108,18 @@ def grafo_a_texto(grafo: Dict[str, Any], expandir: bool = True) -> str:
         if expandir:
             for nodo in sorted(nodos_archivo):
                 nombre = nodo.split("::")[-1] if "::" in nodo else nodo
-                tipo = nodos.get(nodo, {}).get("tipo", "desconocido") if isinstance(nodos.get(nodo), dict) else "nodo"
+                tipo = (
+                    nodos.get(nodo, {}).get("tipo", "desconocido")
+                    if isinstance(nodos.get(nodo), dict)
+                    else "nodo"
+                )
                 icono = {"funcion": "f", "clase": "C", "archivo": ""}.get(tipo, "?")
                 lineas.append(f"  {icono} {nombre}")
 
     return "\n".join(lineas)
 
 
-def validar_paso(paso: Dict[str, Any]) -> tuple:
+def validar_paso(paso: dict[str, Any]) -> tuple:
     """Valida que un paso tenga la estructura minima requerida."""
     if not isinstance(paso, dict):
         return False, "El paso debe ser un diccionario"
@@ -133,7 +135,6 @@ def validar_paso(paso: Dict[str, Any]) -> tuple:
 # ---------------------------------------------------------------------------
 
 if TEXTUAL_DISPONIBLE:
-    from textual.widget import Widget
     from textual.message import Message
     from textual.reactive import reactive
 
@@ -147,16 +148,16 @@ if TEXTUAL_DISPONIBLE:
             e       : editar descripcion del paso seleccionado
         """
 
-        pasos: reactive[List[Dict[str, Any]]] = reactive(list, always_update=True)
+        pasos: reactive[list[dict[str, Any]]] = reactive(list, always_update=True)
 
         class PasosModificados(Message):
             """Se envia cuando el usuario modifica la lista de pasos."""
-            def __init__(self, pasos: List[Dict[str, Any]]) -> None:
+
+            def __init__(self, pasos: list[dict[str, Any]]) -> None:
                 super().__init__()
                 self.pasos = pasos
 
-        def __init__(self, pasos: Optional[List[Dict[str, Any]]] = None,
-                     **kwargs: Any) -> None:
+        def __init__(self, pasos: list[dict[str, Any]] | None = None, **kwargs: Any) -> None:
             super().__init__(**kwargs)
             self.pasos = list(pasos or [])
             self._indice = 0
@@ -168,7 +169,7 @@ if TEXTUAL_DISPONIBLE:
                 estado = paso.get("estado", "pendiente")
                 desc = paso.get("descripcion", "Sin descripcion")
                 icono = {"pendiente": "○", "en_progreso": "◉", "completado": "✓"}.get(estado, "?")
-                yield Label(f"{i+1}. [{icono}] {desc}", id=f"paso-{i}")
+                yield Label(f"{i + 1}. [{icono}] {desc}", id=f"paso-{i}")
 
         def on_key(self, event: Any) -> None:
             key = event.key
@@ -195,12 +196,10 @@ if TEXTUAL_DISPONIBLE:
             self.refresh()
             self.post_message(self.PasosModificados(self.pasos))
 
-
     class VistaGrafo(Tree):
         """Visualizacion del grafo de dependencias con expansion/colapso."""
 
-        def __init__(self, grafo: Optional[Dict[str, Any]] = None,
-                     **kwargs: Any) -> None:
+        def __init__(self, grafo: dict[str, Any] | None = None, **kwargs: Any) -> None:
             super().__init__("Grafo", **kwargs)
             self.grafo = grafo or {}
             self._cargar_grafo()
@@ -225,7 +224,7 @@ if TEXTUAL_DISPONIBLE:
                     except Exception:
                         pass
 
-        def actualizar(self, grafo: Dict[str, Any]) -> None:
+        def actualizar(self, grafo: dict[str, Any]) -> None:
             self.grafo = grafo
             self.root.remove_children()
             self._cargar_grafo()

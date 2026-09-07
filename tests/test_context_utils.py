@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests v6.1.0: manejo de contexto inteligente (context_utils.py).
 
 Cubre:
@@ -33,13 +32,7 @@ def _contenido_grande(num_funcs: int = 120, lineas_por_func: int = 10) -> str:
     return "\n".join(partes) + "\n"
 
 
-CODIGO_PEQUEÑO = (
-    "def funcion_a():\n"
-    "    return 1\n"
-    "\n"
-    "def funcion_b():\n"
-    "    return 2\n"
-)
+CODIGO_PEQUEÑO = "def funcion_a():\n    return 1\n\ndef funcion_b():\n    return 2\n"
 
 
 class TestEstimacionTokens(unittest.TestCase):
@@ -77,8 +70,9 @@ class TestEstimacionTokens(unittest.TestCase):
         try:
             destino = tmp / "modulo.py"
             destino.write_text(CODIGO_PEQUEÑO, encoding="utf-8")
-            self.assertEqual(ctx.estimar_tokens_de_archivo(str(destino)),
-                             ctx.estimar_tokens(CODIGO_PEQUEÑO))
+            self.assertEqual(
+                ctx.estimar_tokens_de_archivo(str(destino)), ctx.estimar_tokens(CODIGO_PEQUEÑO)
+            )
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -90,8 +84,7 @@ class TestExtraerBloques(unittest.TestCase):
     """Extracción de bloques (tree-sitter → ast → regex)."""
 
     def test_extraer_bloques_python(self):
-        resumen, bloques = ctx.extraer_bloques_relevantes(CODIGO_PEQUEÑO,
-                                                          "python")
+        resumen, bloques = ctx.extraer_bloques_relevantes(CODIGO_PEQUEÑO, "python")
         self.assertIn("funcion_a", resumen)
         self.assertIn("funcion_b", resumen)
         self.assertEqual(len(bloques), 2)
@@ -100,7 +93,8 @@ class TestExtraerBloques(unittest.TestCase):
 
     def test_objetivo_se_coloca_primero(self):
         _resumen, bloques = ctx.extraer_bloques_relevantes(
-            CODIGO_PEQUEÑO, "python", objetivo="funcion_b")
+            CODIGO_PEQUEÑO, "python", objetivo="funcion_b"
+        )
         self.assertEqual(len(bloques), 2)
         self.assertTrue(bloques[0].startswith("def funcion_b():"))
 
@@ -120,10 +114,8 @@ class TestExtraerBloques(unittest.TestCase):
         try:
             metas = ctx._extraer_metadatos(CODIGO_PEQUEÑO, "python")
             self.assertEqual(len(metas), 2)
-            self.assertEqual([m["nombre"] for m in metas],
-                             ["funcion_a", "funcion_b"])
-            resumen, bloques = ctx.extraer_bloques_relevantes(
-                CODIGO_PEQUEÑO, "python")
+            self.assertEqual([m["nombre"] for m in metas], ["funcion_a", "funcion_b"])
+            resumen, bloques = ctx.extraer_bloques_relevantes(CODIGO_PEQUEÑO, "python")
             self.assertEqual(len(bloques), 2)
             self.assertTrue(bloques[1].startswith("def funcion_b():"))
         finally:
@@ -131,11 +123,11 @@ class TestExtraerBloques(unittest.TestCase):
             ctx._metadatos_ast = original_ast
 
     def test_objetivo_en_mensaje(self):
-        objetivo = ctx.objetivo_en_mensaje(CODIGO_PEQUEÑO, "python",
-                                           "mejora la función funcion_b")
+        objetivo = ctx.objetivo_en_mensaje(CODIGO_PEQUEÑO, "python", "mejora la función funcion_b")
         self.assertEqual(objetivo, "funcion_b")
-        self.assertIsNone(ctx.objetivo_en_mensaje(
-            CODIGO_PEQUEÑO, "python", "no hay bloque mencionado"))
+        self.assertIsNone(
+            ctx.objetivo_en_mensaje(CODIGO_PEQUEÑO, "python", "no hay bloque mencionado")
+        )
         self.assertIsNone(ctx.objetivo_en_mensaje(CODIGO_PEQUEÑO, "python", ""))
 
 
@@ -143,22 +135,18 @@ class TestSeleccionarContexto(unittest.TestCase):
     """Selección de contexto: pequeño → completo; grande → fragmento."""
 
     def test_archivo_pequeno_devuelve_contenido_completo(self):
-        self.assertEqual(
-            ctx.seleccionar_contexto(CODIGO_PEQUEÑO, "python"),
-            CODIGO_PEQUEÑO)
+        self.assertEqual(ctx.seleccionar_contexto(CODIGO_PEQUEÑO, "python"), CODIGO_PEQUEÑO)
         # También con un presupuesto explícito holgado.
         self.assertEqual(
-            ctx.seleccionar_contexto(CODIGO_PEQUEÑO, "python",
-                                     max_tokens=3000),
-            CODIGO_PEQUEÑO)
+            ctx.seleccionar_contexto(CODIGO_PEQUEÑO, "python", max_tokens=3000), CODIGO_PEQUEÑO
+        )
 
     def test_contenido_vacio(self):
         self.assertEqual(ctx.seleccionar_contexto("", "python"), "")
 
     def test_archivo_grande_devuelve_fragmento(self):
         grande = _contenido_grande()
-        fragmento = ctx.seleccionar_contexto(grande, "python",
-                                             max_tokens=200)
+        fragmento = ctx.seleccionar_contexto(grande, "python", max_tokens=200)
         self.assertLess(len(fragmento), len(grande))
         self.assertIn("RESTRICCIÓN", fragmento)
         self.assertIn("[CÓDIGO RELEVANTE A EDITAR]", fragmento)
@@ -166,22 +154,21 @@ class TestSeleccionarContexto(unittest.TestCase):
     def test_objetivo_incluido_en_fragmento(self):
         grande = _contenido_grande()
         fragmento = ctx.seleccionar_contexto(
-            grande, "python", objetivo="funcion_060", max_tokens=200)
+            grande, "python", objetivo="funcion_060", max_tokens=200
+        )
         # El bloque objetivo se incluye completo (cabecera + cuerpo).
         self.assertIn("def funcion_060():", fragmento)
         self.assertIn("MARCA_060 = 60", fragmento)
 
     def test_fragmento_respeta_el_presupuesto(self):
         grande = _contenido_grande()
-        fragmento = ctx.seleccionar_contexto(grande, "python",
-                                             max_tokens=300)
+        fragmento = ctx.seleccionar_contexto(grande, "python", max_tokens=300)
         # Margen para la cabecera de restricción (texto fijo tras el recorte).
         self.assertLessEqual(ctx.estimar_tokens(fragmento), 300 + 120)
 
     def test_sin_bloques_detectados_usa_cabecera(self):
         texto_sin_bloques = "\n".join(f"x = {i}" for i in range(600))
-        fragmento = ctx.seleccionar_contexto(texto_sin_bloques, "python",
-                                             max_tokens=100)
+        fragmento = ctx.seleccionar_contexto(texto_sin_bloques, "python", max_tokens=100)
         self.assertIn("RESTRICCIÓN", fragmento)
         self.assertLess(len(fragmento), len(texto_sin_bloques))
 
@@ -209,12 +196,18 @@ class TestIntegracionEditorPropio(unittest.TestCase):
             prompts.append(mensajes[0]["content"])
             return self._parche_bloque("MARCA_001 = 1", "    MARCA_001 = 111")
 
-        with mock.patch.object(sc, "_enviar_al_proveedor",
-                               side_effect=fake_proveedor):
+        with mock.patch.object(sc, "_enviar_al_proveedor", side_effect=fake_proveedor):
             ok = ag.AgenteEditorPropio()._aplicar_modo_sobrescribir(
-                "grande.py", "mejora la función funcion_001", self.contenido,
-                None, self.tmp, validar=False, max_intentos_validacion=1,
-                conciso=False, max_context_tokens=250)
+                "grande.py",
+                "mejora la función funcion_001",
+                self.contenido,
+                None,
+                self.tmp,
+                validar=False,
+                max_intentos_validacion=1,
+                conciso=False,
+                max_context_tokens=250,
+            )
         self.assertTrue(ok)
         self.assertEqual(len(prompts), 1)
         # El prompt enviado era el fragmento, no el archivo completo.
@@ -223,7 +216,7 @@ class TestIntegracionEditorPropio(unittest.TestCase):
         # El cambio del bloque quedó aplicado sobre el archivo real.
         resultado = self.archivo.read_text(encoding="utf-8")
         self.assertIn("MARCA_001 = 111", resultado)
-        self.assertIn("funcion_119", resultado)   # el resto no se perdió
+        self.assertIn("funcion_119", resultado)  # el resto no se perdió
 
     def test_reintento_con_archivo_completo_tras_error_contexto(self):
         """Si el proveedor falla por contexto se reintenta con el archivo entero."""
@@ -234,23 +227,26 @@ class TestIntegracionEditorPropio(unittest.TestCase):
             prompts.append(mensajes[0]["content"])
             llamadas["n"] += 1
             if llamadas["n"] == 1:
-                raise RuntimeError(
-                    "maximum context length: 4096 tokens exceeded")
-            return self.contenido.replace("    MARCA_002 = 2\n",
-                                          "    MARCA_002 = 222\n")
+                raise RuntimeError("maximum context length: 4096 tokens exceeded")
+            return self.contenido.replace("    MARCA_002 = 2\n", "    MARCA_002 = 222\n")
 
-        with mock.patch.object(sc, "_enviar_al_proveedor",
-                               side_effect=fake_proveedor):
+        with mock.patch.object(sc, "_enviar_al_proveedor", side_effect=fake_proveedor):
             ok = ag.AgenteEditorPropio()._aplicar_modo_sobrescribir(
-                "grande.py", "mejora la función funcion_002", self.contenido,
-                None, self.tmp, validar=False, max_intentos_validacion=1,
-                conciso=False, max_context_tokens=250)
+                "grande.py",
+                "mejora la función funcion_002",
+                self.contenido,
+                None,
+                self.tmp,
+                validar=False,
+                max_intentos_validacion=1,
+                conciso=False,
+                max_context_tokens=250,
+            )
         self.assertTrue(ok)
         self.assertEqual(llamadas["n"], 2)
         # La segunda llamada incluyó el archivo completo (cola del archivo).
         self.assertIn("funcion_119", prompts[1])
-        self.assertIn("MARCA_002 = 222",
-                      self.archivo.read_text(encoding="utf-8"))
+        self.assertIn("MARCA_002 = 222", self.archivo.read_text(encoding="utf-8"))
 
 
 class TestEditorAstYFlags(unittest.TestCase):
@@ -274,10 +270,13 @@ class TestEditorAstYFlags(unittest.TestCase):
             prompts.append(mensajes[0]["content"])
             return '[{"tipo": "renombrar", "nombre": "vieja", "nuevo": "nueva"}]'
 
-        with mock.patch.object(sc, "_enviar_al_proveedor",
-                               side_effect=fake_proveedor):
-            ok = sc._editor_ast("grande.py", "renombra la función vieja",
-                                directorio=self.tmp, max_context_tokens=250)
+        with mock.patch.object(sc, "_enviar_al_proveedor", side_effect=fake_proveedor):
+            ok = sc._editor_ast(
+                "grande.py",
+                "renombra la función vieja",
+                directorio=self.tmp,
+                max_context_tokens=250,
+            )
         self.assertTrue(ok)
         self.assertEqual(len(prompts), 1)
         self.assertIn("RESTRICCIÓN", prompts[0])
@@ -291,22 +290,22 @@ class TestEditorAstYFlags(unittest.TestCase):
         agente = ag.AgenteEditorPropio()
         # Archivo pequeño: se envía completo y sin truncar.
         contenido, truncado, objetivo, _n = agente._preparar_contenido_envio(
-            "grande.py", "tarea", CODIGO_PEQUEÑO, 3000)
+            "grande.py", "tarea", CODIGO_PEQUEÑO, 3000
+        )
         self.assertEqual(contenido, CODIGO_PEQUEÑO)
         self.assertFalse(truncado)
         self.assertIsNone(objetivo)
         # Archivo grande: se trunca y detecta el objetivo del mensaje.
         contenido, truncado, objetivo, n = agente._preparar_contenido_envio(
-            "grande.py", "mejora la función funcion_050",
-            _contenido_grande(), 250)
+            "grande.py", "mejora la función funcion_050", _contenido_grande(), 250
+        )
         self.assertTrue(truncado)
         self.assertEqual(objetivo, "funcion_050")
         self.assertIn("funcion_050", contenido)
         self.assertGreater(n, 250)
 
     def test_flag_max_context_tokens(self):
-        args = sc.crear_parser().parse_args(
-            ["consulta", "--max-context-tokens", "1500"])
+        args = sc.crear_parser().parse_args(["consulta", "--max-context-tokens", "1500"])
         self.assertEqual(args.max_context_tokens, 1500)
         # Por defecto: 3000 (compatibilidad hacia atrás).
         args_def = sc.crear_parser().parse_args(["consulta"])
@@ -325,16 +324,16 @@ class TestEditorAstYFlags(unittest.TestCase):
         self.assertEqual(ag.MAX_CONTEXT_TOKENS, ctx.MAX_CONTEXT_TOKENS)
 
     def test_es_error_contexto(self):
-        self.assertTrue(ctx.es_error_contexto(
-            RuntimeError("exceed_context_size_error: prompt too long")))
-        self.assertTrue(ctx.es_error_contexto(
-            RuntimeError("maximum context length: 4096 tokens exceeded")))
-        self.assertFalse(ctx.es_error_contexto(
-            RuntimeError("conexión rechazada por el servidor")))
+        self.assertTrue(
+            ctx.es_error_contexto(RuntimeError("exceed_context_size_error: prompt too long"))
+        )
+        self.assertTrue(
+            ctx.es_error_contexto(RuntimeError("maximum context length: 4096 tokens exceeded"))
+        )
+        self.assertFalse(ctx.es_error_contexto(RuntimeError("conexión rechazada por el servidor")))
         # La versión de agentes.py delega en context_utils (implementación única).
         exc = RuntimeError("context length exceeded")
-        self.assertEqual(ag._es_error_contexto(exc),
-                         ctx.es_error_contexto(exc))
+        self.assertEqual(ag._es_error_contexto(exc), ctx.es_error_contexto(exc))
 
 
 if __name__ == "__main__":

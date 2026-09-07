@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Backend de inferencia para GPUs Intel XPU (v6.34.0).
 
 Permite ejecutar modelos de Hugging Face en tarjetas Intel Arc usando
@@ -24,17 +23,17 @@ Dependencias (instalar con ``pip install snapcontext[xpu]``):
 
 from __future__ import annotations
 
-import os
 import logging
-from typing import Any, Dict, Optional
+import os
+from typing import Any
 
 __all__ = [
+    "MAX_TOKENS_DEFECTO",
+    "MODELO_XPU_DEFECTO",
+    "TEMPERATURE_DEFECTO",
     "XPUInference",
     "cargar_modelo_xpu",
     "xpu_disponible",
-    "MODELO_XPU_DEFECTO",
-    "MAX_TOKENS_DEFECTO",
-    "TEMPERATURE_DEFECTO",
 ]
 
 logger = logging.getLogger(__name__)
@@ -45,13 +44,14 @@ TEMPERATURE_DEFECTO: float = 0.7
 DEVICE_DEFECTO: str = "xpu"
 
 # Caché global de modelos cargados: {modelo_id: XPUInference}
-_MODELOS_CACHE: Dict[str, "XPUInference"] = {}
+_MODELOS_CACHE: dict[str, XPUInference] = {}
 
 
 def xpu_disponible() -> bool:
     """Comprueba si hay una Intel XPU disponible (v6.34.0)."""
     try:
         import torch
+
         return hasattr(torch, "xpu") and torch.xpu.is_available()
     except Exception:
         return False
@@ -61,6 +61,7 @@ def _nombre_gpu() -> str:
     """Devuelve el nombre de la GPU Intel (o 'Intel XPU' genérico)."""
     try:
         import torch
+
         if hasattr(torch.xpu, "get_device_name"):
             return torch.xpu.get_device_name(0)
     except Exception:
@@ -95,8 +96,8 @@ class XPUInference:
         if self._cargado:
             return
         try:
-            import torch
             import ipex
+            import torch
             from transformers import AutoModelForCausalLM, AutoTokenizer
         except ImportError as exc:
             raise RuntimeError(
@@ -104,14 +105,10 @@ class XPUInference:
             ) from exc
 
         if not torch.xpu.is_available():
-            raise RuntimeError(
-                "Intel XPU no detectado. Revisa la instalación de IPEX y drivers."
-            )
+            raise RuntimeError("Intel XPU no detectado. Revisa la instalación de IPEX y drivers.")
 
         logger.info("Cargando tokenizador de %s ...", self.model_name)
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            self.model_name, trust_remote_code=True
-        )
+        self._tokenizer = AutoTokenizer.from_pretrained(self.model_name, trust_remote_code=True)
         logger.info("Cargando modelo %s en %s ...", self.model_name, self.device)
         self._model = AutoModelForCausalLM.from_pretrained(
             self.model_name,
@@ -139,7 +136,7 @@ class XPUInference:
                 do_sample=self.temperature > 0,
                 pad_token_id=self._tokenizer.eos_token_id,
             )
-        generados = salida[0][entradas["input_ids"].shape[1]:]
+        generados = salida[0][entradas["input_ids"].shape[1] :]
         return self._tokenizer.decode(generados, skip_special_tokens=True)
 
     @property
@@ -149,8 +146,8 @@ class XPUInference:
 
 
 def cargar_modelo_xpu(
-    model_name: Optional[str] = None,
-    config: Optional[Dict[str, Any]] = None,
+    model_name: str | None = None,
+    config: dict[str, Any] | None = None,
 ) -> XPUInference:
     """Carga (o reutiliza) un modelo XPU desde la caché global (v6.34.0).
 

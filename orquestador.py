@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Orquestador de SnapContext.
 
@@ -18,11 +17,16 @@ módulo solo aporta la capa de orquestación.
 
 import shlex
 import sys
-from typing import List, Optional, Tuple
 
-from agentes import (AgenteContexto, AgenteEditor, AgenteEditorAST,
-                     AgenteEditorPropio, AgenteAprendizaje, AgenteTester,
-                     AgenteAsesor)
+from agentes import (
+    AgenteAprendizaje,
+    AgenteAsesor,
+    AgenteContexto,
+    AgenteEditor,
+    AgenteEditorAST,
+    AgenteEditorPropio,
+    AgenteTester,
+)
 
 # Centinela diferenciado del None de "aborto": _planificar lo devuelve cuando
 # el pipeline termina de forma exitosa y temprana (p. ej. --vista-previa).
@@ -51,13 +55,16 @@ class Orquestador:
         # sistema MCP (ver _cargar_herramientas_mcp); aquí solo se informa.
         try:
             import snapcontext as _sc
+
             herramientas_plugin = _sc._plugins_herramientas()
             self.herramientas_plugins = sorted(herramientas_plugin)
             if herramientas_plugin:
-                _sc.info(f"🧩 Plugins cargados: "
-                         f"{len(self.herramientas_plugins)} "
-                         "herramienta(s) MCP disponible(s).")
-        except Exception:      # noqa: BLE001 — los plugins nunca rompen nada
+                _sc.info(
+                    f"🧩 Plugins cargados: "
+                    f"{len(self.herramientas_plugins)} "
+                    "herramienta(s) MCP disponible(s)."
+                )
+        except Exception:
             self.herramientas_plugins = []
 
     def _on_evento(self, evento: dict) -> None:
@@ -79,10 +86,10 @@ class Orquestador:
     def _bucle_test(
         self,
         consulta: str,
-        archivos: List[str],
+        archivos: list[str],
         directorio: str,
         opciones_aider: str,
-        comando_test: List[str],
+        comando_test: list[str],
         max_iteraciones: int,
     ) -> bool:
         """Bucle de pruebas con la arquitectura de agentes.
@@ -100,12 +107,14 @@ class Orquestador:
             raise RuntimeError("El comando de pruebas está vacío (--comando-test).")
 
         ultimo_error = ""
-        self._emitir_tipo("test_inicio", comando=" ".join(comando_test),
-                          max_iteraciones=max_iteraciones)
+        self._emitir_tipo(
+            "test_inicio", comando=" ".join(comando_test), max_iteraciones=max_iteraciones
+        )
         for iteracion in range(1, max_iteraciones + 1):
             sc.info(f"Iteración {iteracion} de {max_iteraciones} — Aider...")
-            self._emitir_tipo("test", iteracion=iteracion, accion="aider",
-                              comando=" ".join(comando_test))
+            self._emitir_tipo(
+                "test", iteracion=iteracion, accion="aider", comando=" ".join(comando_test)
+            )
             if iteracion == 1 or not ultimo_error:
                 mensaje = consulta
             else:
@@ -118,15 +127,18 @@ class Orquestador:
                     "Corrige esos errores sin cambiar el alcance de la tarea original."
                 )
 
-            self.agente_editor.ejecutar_aider(
-                archivos, mensaje, directorio, opciones_aider
-            )
+            self.agente_editor.ejecutar_aider(archivos, mensaje, directorio, opciones_aider)
 
             sc.info(f"Ejecutando pruebas: {' '.join(comando_test)}")
             resultado = self.agente_tester.ejecutar_pruebas(comando_test, directorio)
             superado = resultado.returncode == 0
-            self._emitir_tipo("test", iteracion=iteracion, accion="prueba",
-                              ok=superado, comando=" ".join(comando_test))
+            self._emitir_tipo(
+                "test",
+                iteracion=iteracion,
+                accion="prueba",
+                ok=superado,
+                comando=" ".join(comando_test),
+            )
             if superado:
                 sc.exito(f"¡Pruebas superadas en la iteración {iteracion}!")
                 self._emitir_tipo("test_fin", ok=True, iteracion=iteracion)
@@ -138,13 +150,11 @@ class Orquestador:
                 "Se envía el error a Aider para que lo corrija..."
             )
 
-        sc.error(
-            f"No se consiguió que las pruebas pasaran tras {max_iteraciones} iteraciones."
-        )
+        sc.error(f"No se consiguió que las pruebas pasaran tras {max_iteraciones} iteraciones.")
         self._emitir_tipo("test_fin", ok=False, iteracion=max_iteraciones)
         return False
 
-# __M2__
+    # __M2__
     # ------------------------------------------------------------------
     # Pipeline principal
     # ------------------------------------------------------------------
@@ -162,10 +172,16 @@ class Orquestador:
         # v6.22.0: hook `session_start` — inicio de sesión del orquestador.
         try:
             import hooks as _hooks
-            _hooks.ejecutar_hook("session_start", {
-                "modo": "orquestador", "consulta": getattr(args, "consulta", None),
-                "directorio": getattr(args, "directorio", None)})
-        except Exception:                                # noqa: BLE001
+
+            _hooks.ejecutar_hook(
+                "session_start",
+                {
+                    "modo": "orquestador",
+                    "consulta": getattr(args, "consulta", None),
+                    "directorio": getattr(args, "directorio", None),
+                },
+            )
+        except Exception:
             pass
 
         if self.evento_callback is not None:
@@ -181,20 +197,21 @@ class Orquestador:
                 return 1
 
             consulta, raiz, carpeta, seleccion = plan
-            sc.depurar(
-                f"[Orquestador] Plan listo: {len(seleccion)} archivo(s) a usar."
-            )
+            sc.depurar(f"[Orquestador] Plan listo: {len(seleccion)} archivo(s) a usar.")
 
             # 3) Ejecución (Aider directo, pruebas o bucle con servidor Flutter)
             sc._emitir(sys.stdout, "")
             if args.server_loop or args.manual_loop:
                 sc.depurar("[Orquestador] Modo bucle con servidor (flutter run).")
                 ok = sc.ejecutar_bucle_agente(
-                    consulta, seleccion,
+                    consulta,
+                    seleccion,
                     modo="auto" if args.server_loop else "manual",
                     max_intentos=args.max_intentos,
-                    directorio=str(raiz), opciones_aider=args.aider_opciones,
-                    dispositivo=args.dispositivo, url_defecto=args.url_defecto,
+                    directorio=str(raiz),
+                    opciones_aider=args.aider_opciones,
+                    dispositivo=args.dispositivo,
+                    url_defecto=args.url_defecto,
                 )
             elif args.test_loop:
                 sc.depurar("[Orquestador] Modo bucle de pruebas (Editor + Tester).")
@@ -202,7 +219,9 @@ class Orquestador:
                 if args.comando_test:
                     _comando_test = shlex.split(args.comando_test)
                 ok = self._bucle_test(
-                    consulta, seleccion, str(raiz),
+                    consulta,
+                    seleccion,
+                    str(raiz),
                     opciones_aider=args.aider_opciones,
                     comando_test=_comando_test,
                     max_iteraciones=max(args.max_iteraciones, 1),
@@ -220,13 +239,11 @@ class Orquestador:
                         modo_edicion=modo_ed,
                         modelo=getattr(args, "modelo", None),
                         validar=getattr(args, "validar", True),
-                        max_intentos_validacion=getattr(
-                            args, "max_intentos_validacion", 3),
+                        max_intentos_validacion=getattr(args, "max_intentos_validacion", 3),
                         proveedor=getattr(args, "provider", None),
                         modelo_ligero=getattr(args, "modelo_ligero", False),
                         auto=getattr(args, "auto", False),
-                        max_context_tokens=getattr(
-                            args, "max_context_tokens", None),
+                        max_context_tokens=getattr(args, "max_context_tokens", None),
                         editor_fallback=getattr(args, "editor_fallback", False),
                         mostrar_diff=getattr(args, "mostrar_diff", False),
                     )
@@ -235,7 +252,9 @@ class Orquestador:
                     sc.depurar("[Orquestador] Modo edición directa (AgenteEditor).")
                     self._emitir_tipo("aider", accion="iniciar", archivos=seleccion)
                     ok = self.agente_editor.ejecutar_aider(
-                        seleccion, consulta, str(raiz),
+                        seleccion,
+                        consulta,
+                        str(raiz),
                         opciones_aider=args.aider_opciones,
                     )
                     self._emitir_tipo("aider", accion="fin", ok=ok)
@@ -245,10 +264,11 @@ class Orquestador:
             try:
                 if not getattr(args, "sin_aprendizaje", False):
                     self.agente_aprendizaje.aprender_de_tarea(
-                        consulta, bool(ok),
-                        [{"descripcion": consulta, "accion": "editar",
-                          "archivos": seleccion}],
-                        raiz=str(raiz))
+                        consulta,
+                        bool(ok),
+                        [{"descripcion": consulta, "accion": "editar", "archivos": seleccion}],
+                        raiz=str(raiz),
+                    )
             except Exception as exc:
                 sc.aviso(f"[aprendizaje] No se pudo registrar ({exc})")
             return 0 if ok else 1
@@ -256,20 +276,26 @@ class Orquestador:
             # v6.22.0: hook `session_end` — cierre de sesión del orquestador.
             try:
                 import hooks as _hooks
-                _hooks.ejecutar_hook("session_end", {
-                    "modo": "orquestador", "consulta": getattr(args, "consulta", None),
-                    "resultado": "éxito" if ok else "fallo"})
-            except Exception:                            # noqa: BLE001
+
+                _hooks.ejecutar_hook(
+                    "session_end",
+                    {
+                        "modo": "orquestador",
+                        "consulta": getattr(args, "consulta", None),
+                        "resultado": "éxito" if ok else "fallo",
+                    },
+                )
+            except Exception:
                 pass
             # Si este orquestador fue quien registró el callback global, lo limpia.
             if self.evento_callback is not None:
                 sc.fijar_evento_callback(None)
 
-# __M3__
+    # __M3__
     # ------------------------------------------------------------------
     # Planificación: validación + escaneo/selección con AgenteContexto
     # ------------------------------------------------------------------
-    def _planificar(self, args, sc) -> Optional[Tuple]:
+    def _planificar(self, args, sc) -> tuple | None:
         """Valida argumentos y ejecuta el escaneo/selección con agentes.
 
         Devuelve ``(consulta, raiz, carpetas, seleccion)`` o ``None`` si hay que
@@ -302,8 +328,7 @@ class Orquestador:
                 sc.aviso(
                     "No se detectó una carpeta de proyecto típica "
                     "(lib/, src/, supabase/, etc.), pero se continúa por "
-                    + ("usar --local." if args.local
-                       else f"haber indicado --directorio ({raiz}).")
+                    + ("usar --local." if args.local else f"haber indicado --directorio ({raiz}).")
                 )
             elif not valido:
                 sc.error(
@@ -330,11 +355,14 @@ class Orquestador:
 
         # 2) Escaneo del repositorio (Agente de Contexto)
         sc.info("Escaneando el repositorio para encontrar candidatos...")
-        self._emitir_tipo("escaneo_inicio", directorio=str(raiz),
-                          carpetas=carpetas, extensiones=extensiones)
+        self._emitir_tipo(
+            "escaneo_inicio", directorio=str(raiz), carpetas=carpetas, extensiones=extensiones
+        )
         candidatos = self.agente_contexto.escanear_candidatos(
-            consulta, str(raiz),
-            carpetas=carpetas, extensiones=extensiones,
+            consulta,
+            str(raiz),
+            carpetas=carpetas,
+            extensiones=extensiones,
             max_candidatos=max(args.candidatos, 1),
         )
         self._emitir_tipo("escaneo_fin", total=len(candidatos))
@@ -350,20 +378,26 @@ class Orquestador:
         # reordenan los candidatos poniendo primero los archivos más similares
         # a la consulta. Si falla o no hay librería, se continúa como siempre.
         try:
-            if (not args.local and sc._embeddings_disponibles()
-                    and len(candidatos) > args.max_archivos):
+            if (
+                not args.local
+                and sc._embeddings_disponibles()
+                and len(candidatos) > args.max_archivos
+            ):
                 relevantes = sc._seleccionar_archivos_con_embeddings(
-                    consulta, str(raiz),
-                    max_archivos=max(len(candidatos), args.max_archivos))
+                    consulta, str(raiz), max_archivos=max(len(candidatos), args.max_archivos)
+                )
                 if relevantes:
                     conjunto = set(relevantes)
-                    ordenados = ([c for c in candidatos if c in conjunto]
-                                 + [c for c in candidatos if c not in conjunto])
-                    sc.info(f"🧠 Pre-filtro semántico: {len(relevantes)} "
-                            f"archivo(s) priorizado(s) por embeddings.")
+                    ordenados = [c for c in candidatos if c in conjunto] + [
+                        c for c in candidatos if c not in conjunto
+                    ]
+                    sc.info(
+                        f"🧠 Pre-filtro semántico: {len(relevantes)} "
+                        f"archivo(s) priorizado(s) por embeddings."
+                    )
                     sc.depurar(f"[embeddings] Orden semántico: {relevantes}")
                     candidatos = ordenados
-        except Exception as exc:            # nunca romper el pipeline clásico
+        except Exception as exc:  # nunca romper el pipeline clásico
             sc.aviso(f"[embeddings] Pre-filtro omitido ({exc})")
 
         # Graph RAG (v5.5.0): con --graph-rag (o SNAPCONTEXT_GRAPH_RAG=1),
@@ -371,37 +405,45 @@ class Orquestador:
         # de dependencias (imports/llamadas/herencia). Best-effort.
         try:
             if getattr(args, "graph_rag", False) or (
-                    sc.__dict__.get("_graph_rag_activo")
-                    and sc._graph_rag_activo(args)):
-                import graph_rag as gr                     # noqa: E402
+                sc.__dict__.get("_graph_rag_activo") and sc._graph_rag_activo(args)
+            ):
+                import graph_rag as gr
+
                 grafo = gr.construir_grafo(str(raiz))
-                ampliados = gr.expandir_contexto(candidatos, grafo,
-                                                 max_adicionales=3)
+                ampliados = gr.expandir_contexto(candidatos, grafo, max_adicionales=3)
                 nuevos = [a for a in ampliados if a not in candidatos]
                 if nuevos:
-                    sc.info(f"🔗 Grafo de conocimiento: expandiendo contexto "
-                            f"con {len(nuevos)} archivo(s) relacionado(s).")
+                    sc.info(
+                        f"🔗 Grafo de conocimiento: expandiendo contexto "
+                        f"con {len(nuevos)} archivo(s) relacionado(s)."
+                    )
                     sc.depurar(f"[graph-rag] Añadidos: {nuevos}")
                     candidatos = ampliados
-        except Exception as exc:            # nunca romper el pipeline clásico
+        except Exception as exc:  # nunca romper el pipeline clásico
             sc.depurar(f"[graph-rag] Expansión omitida ({exc})")
 
         # 3) Selección final (Agente de Contexto)
-        self._emitir_tipo("seleccion_inicio", max_archivos=args.max_archivos,
-                          directorio=str(raiz), carpetas=carpetas)
+        self._emitir_tipo(
+            "seleccion_inicio",
+            max_archivos=args.max_archivos,
+            directorio=str(raiz),
+            carpetas=carpetas,
+        )
         if args.local:
             sc.aviso("Modo --local: selección por heurística, sin proveedor de IA.")
             seleccion = candidatos[: args.max_archivos]
         elif len(candidatos) <= args.max_archivos:
-            sc.aviso(
-                "Hay pocos candidatos; se usan todos sin consultar al selector IA."
-            )
+            sc.aviso("Hay pocos candidatos; se usan todos sin consultar al selector IA.")
             seleccion = candidatos
         else:
             pref = sc._determinar_proveedor(args)
             seleccion = self.agente_contexto.seleccionar_archivos(
-                consulta, str(raiz), carpetas, args.max_archivos,
-                provider=pref["provider"], modelo=pref["model"],
+                consulta,
+                str(raiz),
+                carpetas,
+                args.max_archivos,
+                provider=pref["provider"],
+                modelo=pref["model"],
                 extensiones=extensiones,
             )
             if not seleccion:
@@ -411,8 +453,9 @@ class Orquestador:
                 )
                 seleccion = candidatos[: args.max_archivos]
 
-        self._emitir_tipo("seleccion_fin", cantidad=len(seleccion),
-                          archivos=seleccion, directorio=str(raiz))
+        self._emitir_tipo(
+            "seleccion_fin", cantidad=len(seleccion), archivos=seleccion, directorio=str(raiz)
+        )
 
         sc._emitir(sys.stdout, "")
         sc.exito(f"Archivos seleccionados ({len(seleccion)}):")

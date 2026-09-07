@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la v6.33.0: Pruning proactivo de contexto.
 
 Cubre:
@@ -19,8 +18,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import context_pruner as cp  # noqa: E402
-import snapcontext as sc     # noqa: E402
+import context_pruner as cp
+import snapcontext as sc
 
 
 # 1) Detección de resultados extensos
@@ -60,10 +59,12 @@ class TestEsResultadoExtenso(unittest.TestCase):
 
     def test_tipos_podables_personalizados(self):
         resultado = {"stdout": "a\n" * 20, "otro": "b\n" * 3}
-        self.assertTrue(cp.es_resultado_extenso(
-            resultado, umbral_lineas=10, tipos_podables=["stdout"]))
-        self.assertFalse(cp.es_resultado_extenso(
-            resultado, umbral_lineas=10, tipos_podables=["otro"]))
+        self.assertTrue(
+            cp.es_resultado_extenso(resultado, umbral_lineas=10, tipos_podables=["stdout"])
+        )
+        self.assertFalse(
+            cp.es_resultado_extenso(resultado, umbral_lineas=10, tipos_podables=["otro"])
+        )
 
 
 # 2) Resumen de una línea
@@ -88,16 +89,16 @@ class TestResumirLinea(unittest.TestCase):
     def test_usar_llm(self):
         def fake_llm(pedido):
             return "Resumen generado por LLM"
-        resultado = cp.resumir_linea("a\nb\nc\nd\ne", usar_llm=True,
-                                     proveedor_llm=fake_llm)
+
+        resultado = cp.resumir_linea("a\nb\nc\nd\ne", usar_llm=True, proveedor_llm=fake_llm)
         self.assertEqual(resultado, "Resumen generado por LLM")
 
     def test_llm_falla_degradacion_heuristica(self):
         def fake_llm_fallo(pedido):
             raise RuntimeError("API caída")
+
         texto = "primera\nsegunda\ntercera"
-        resultado = cp.resumir_linea(texto, usar_llm=True,
-                                     proveedor_llm=fake_llm_fallo)
+        resultado = cp.resumir_linea(texto, usar_llm=True, proveedor_llm=fake_llm_fallo)
         self.assertIn("primera", resultado)
 
     def test_max_lineas_1(self):
@@ -167,9 +168,11 @@ class TestPruneResultado(unittest.TestCase):
     def test_prune_con_llm(self):
         def fake_llm(pedido):
             return "Error de sintaxis en línea 42"
+
         resultado = {"stdout": "SyntaxError\n  File 'main.py', line 42\n" + "..\n" * 20}
-        podado = cp.prune_resultado(resultado, umbral_lineas=10,
-                                    usar_llm=True, proveedor_llm=fake_llm)
+        podado = cp.prune_resultado(
+            resultado, umbral_lineas=10, usar_llm=True, proveedor_llm=fake_llm
+        )
         self.assertTrue(podado.get("_pruned"))
         self.assertEqual(podado["stdout"], "Error de sintaxis en línea 42")
 
@@ -205,9 +208,7 @@ class TestConfiguracionPruning(unittest.TestCase):
         self.assertTrue(cfg["usar_llm"])
 
     def test_config_personalizada(self):
-        cfg = cp.configuracion_pruning({
-            "pruning": {"umbral_lineas": 25, "usar_llm": False}
-        })
+        cfg = cp.configuracion_pruning({"pruning": {"umbral_lineas": 25, "usar_llm": False}})
         self.assertEqual(cfg["umbral_lineas"], 25)
         self.assertFalse(cfg["usar_llm"])
 
@@ -224,9 +225,7 @@ class TestConfiguracionPruning(unittest.TestCase):
         self.assertEqual(cfg["umbral_lineas"], 10)
 
     def test_config_tipos_podables_personalizados(self):
-        cfg = cp.configuracion_pruning({
-            "pruning": {"tipos_podables": ["stdout"]}
-        })
+        cfg = cp.configuracion_pruning({"pruning": {"tipos_podables": ["stdout"]}})
         self.assertEqual(cfg["tipos_podables"], ["stdout"])
 
 

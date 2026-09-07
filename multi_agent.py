@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Sistema multi-agente de SnapContext — v6.0.0.
 
 Un **Supervisor** coordina a un equipo de agentes especializados que trabajan
@@ -30,12 +29,13 @@ import os
 import queue
 import re
 import threading
-import ui
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+import ui
 
 
-def multi_agent_activo(flag: Optional[bool] = None) -> bool:
+def multi_agent_activo(flag: bool | None = None) -> bool:
     """True si el modo multi-agente debe activarse.
 
     Prioridad: flag explícito (``--multi-agent``) > ``SNAPCONTEXT_MULTI_AGENT=1``.
@@ -45,26 +45,30 @@ def multi_agent_activo(flag: Optional[bool] = None) -> bool:
     return os.environ.get("SNAPCONTEXT_MULTI_AGENT", "").strip() == "1"
 
 
-def _proveedor_efectivo(proveedor: Optional[str] = None) -> str:
+def _proveedor_efectivo(proveedor: str | None = None) -> str:
     """Proveedor por defecto de SnapContext (config > env > PROVEEDOR_DEFECTO)."""
     import snapcontext as sc
+
     try:
         cfg = sc.cargar_configuracion()
-    except Exception:                                    # noqa: BLE001
+    except Exception:
         cfg = {}
-    return (proveedor or cfg.get("provider")
-            or os.environ.get("SNAPCONTEXT_PROVIDER")
-            or getattr(sc, "PROVEEDOR_DEFECTO", "gemini"))
+    return (
+        proveedor
+        or cfg.get("provider")
+        or os.environ.get("SNAPCONTEXT_PROVIDER")
+        or getattr(sc, "PROVEEDOR_DEFECTO", "gemini")
+    )
 
 
-def _llamar_llm(proveedor: str, modelo: Optional[str],
-                mensajes: List[Dict[str, str]]) -> str:
+def _llamar_llm(proveedor: str, modelo: str | None, mensajes: list[dict[str, str]]) -> str:
     """Envía ``mensajes`` al proveedor de IA y devuelve el texto de respuesta."""
     import snapcontext as sc
+
     return str(sc._enviar_al_proveedor(proveedor, modelo, mensajes))
 
 
-def _extraer_json_objeto(texto: Optional[str]) -> Optional[dict]:
+def _extraer_json_objeto(texto: str | None) -> dict | None:
     """Extrae el primer objeto JSON válido de ``texto`` (tolera ```json```)."""
     if not texto:
         return None
@@ -74,7 +78,7 @@ def _extraer_json_objeto(texto: Optional[str]) -> Optional[dict]:
     if inicio == -1 or fin == -1 or fin <= inicio:
         return None
     try:
-        datos = json.loads(limpio[inicio:fin + 1])
+        datos = json.loads(limpio[inicio : fin + 1])
     except json.JSONDecodeError:
         return None
     return datos if isinstance(datos, dict) else None
@@ -88,9 +92,9 @@ class Buzon:
     """
 
     def __init__(self) -> None:
-        self._cola: "queue.Queue[dict]" = queue.Queue()
+        self._cola: queue.Queue[dict] = queue.Queue()
         self._mutex = threading.Lock()
-        self._historial: List[dict] = []
+        self._historial: list[dict] = []
 
     def publicar(self, remitente: str, tipo: str, contenido: Any) -> None:
         """Publica un mensaje ``(remitente, tipo, contenido)`` en el buzón."""
@@ -99,16 +103,16 @@ class Buzon:
             self._historial.append(dict(mensaje))
         self._cola.put(mensaje)
 
-    def recibir(self) -> Optional[dict]:
+    def recibir(self) -> dict | None:
         """Extrae el mensaje más antiguo (o ``None`` si el buzón está vacío)."""
         try:
             return self._cola.get_nowait()
-        except queue.Empty:                              # noqa: PERF203
+        except queue.Empty:
             return None
 
-    def vaciar(self) -> List[dict]:
+    def vaciar(self) -> list[dict]:
         """Vacía el buzón y devuelve los mensajes pendientes."""
-        pendientes: List[dict] = []
+        pendientes: list[dict] = []
         while True:
             mensaje = self.recibir()
             if mensaje is None:
@@ -116,7 +120,7 @@ class Buzon:
             pendientes.append(mensaje)
         return pendientes
 
-    def historial(self) -> List[dict]:
+    def historial(self) -> list[dict]:
         """Todos los mensajes publicados hasta ahora (solo lectura)."""
         with self._mutex:
             return list(self._historial)
@@ -127,14 +131,14 @@ class Arquitecto:
 
     ROL = "arquitecto"
 
-    def __init__(self, proveedor: Optional[str] = None,
-                 modelo: Optional[str] = None,
-                 buzon: Optional[Buzon] = None) -> None:
+    def __init__(
+        self, proveedor: str | None = None, modelo: str | None = None, buzon: Buzon | None = None
+    ) -> None:
         self.proveedor = proveedor or _proveedor_efectivo(proveedor)
         self.modelo = modelo
         self.buzon = buzon
 
-    def generar_plan(self, tarea: str, directorio: str = ".") -> Dict[str, Any]:
+    def generar_plan(self, tarea: str, directorio: str = ".") -> dict[str, Any]:
         """Genera un plan detallado (dict) a partir de la tarea.
 
         Estructura del plan: ``{objetivo, descripcion, modulos, archivos,
@@ -143,26 +147,31 @@ class Arquitecto:
         Publica el plan en el buzón (si existe) y lo devuelve.
         """
         import snapcontext as sc
+
         sc.info("🧠 Arquitecto: generando plan...")
         mensajes = [
-            {"role": "system",
-             "content": (
-                 "Eres el Arquitecto de un equipo de desarrollo multi-agente. "
-                 "Diseñas la solución de alto nivel de la tarea. Devuelve SOLO "
-                 "un objeto JSON válido (sin texto fuera) con esta estructura:\n"
-                 "{\n"
-                 '  "objetivo": "meta principal",\n'
-                 '  "descripcion": "explicación breve del enfoque",\n'
-                 '  "modulos": ["módulo1", "módulo2"],\n'
-                 '  "archivos": ["ruta/a/archivo1.ext", "ruta/a/archivo2.ext"],\n'
-                 '  "pasos": [{"descripcion": "...", "accion": '
-                 '"editar|crear|ejecutar", "archivos": ["..."]}],\n'
-                 '  "dependencias": ["archivo que debe existir antes"]\n'
-                 "}\n"
-                 "La clave 'archivos' debe listar las rutas concretas a tocar.")},
-            {"role": "user",
-             "content": f"TAREA: {tarea}\nDIRECTORIO: {directorio}\n\n"
-                        "Genera el plan."},
+            {
+                "role": "system",
+                "content": (
+                    "Eres el Arquitecto de un equipo de desarrollo multi-agente. "
+                    "Diseñas la solución de alto nivel de la tarea. Devuelve SOLO "
+                    "un objeto JSON válido (sin texto fuera) con esta estructura:\n"
+                    "{\n"
+                    '  "objetivo": "meta principal",\n'
+                    '  "descripcion": "explicación breve del enfoque",\n'
+                    '  "modulos": ["módulo1", "módulo2"],\n'
+                    '  "archivos": ["ruta/a/archivo1.ext", "ruta/a/archivo2.ext"],\n'
+                    '  "pasos": [{"descripcion": "...", "accion": '
+                    '"editar|crear|ejecutar", "archivos": ["..."]}],\n'
+                    '  "dependencias": ["archivo que debe existir antes"]\n'
+                    "}\n"
+                    "La clave 'archivos' debe listar las rutas concretas a tocar."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"TAREA: {tarea}\nDIRECTORIO: {directorio}\n\nGenera el plan.",
+            },
         ]
         texto = _llamar_llm(self.proveedor, self.modelo, mensajes)
         datos = _extraer_json_objeto(texto)
@@ -172,8 +181,7 @@ class Arquitecto:
                 "descripcion": (str(texto)[:400] if texto else tarea),
                 "modulos": [],
                 "archivos": [],
-                "pasos": [{"descripcion": tarea, "accion": "editar",
-                           "archivos": []}],
+                "pasos": [{"descripcion": tarea, "accion": "editar", "archivos": []}],
                 "dependencias": [],
             }
         datos.setdefault("objetivo", tarea)
@@ -192,31 +200,37 @@ class Programador:
 
     ROL = "programador"
 
-    def __init__(self, buzon: Optional[Buzon] = None,
-                 modelo: Optional[str] = None,
-                 proveedor: Optional[str] = None) -> None:
+    def __init__(
+        self, buzon: Buzon | None = None, modelo: str | None = None, proveedor: str | None = None
+    ) -> None:
         self.buzon = buzon
         self.modelo = modelo
         self.proveedor = proveedor
 
     @staticmethod
-    def _mensaje_implementacion(tarea: str, plan: Dict[str, Any],
-                                intento: int, error_msj: str = "") -> str:
+    def _mensaje_implementacion(
+        tarea: str, plan: dict[str, Any], intento: int, error_msj: str = ""
+    ) -> str:
         """Crea el mensaje que recibe el editor propio (tarea + plan + error)."""
         partes = [
             f"TAREA ORIGINAL: {tarea}\n",
             f"PLAN DEL ARQUITECTO: {json.dumps(plan, ensure_ascii=False)}",
         ]
         if intento > 1:
-            partes.append(f"\nIntento #{intento}: corrige el código para que "
-                          "pasen las pruebas.")
+            partes.append(f"\nIntento #{intento}: corrige el código para que pasen las pruebas.")
         if error_msj:
             partes.append(f"\nERROR A CORREGIR:\n{error_msj}")
         return "\n".join(partes)
 
-    def implementar(self, tarea: str, plan: Dict[str, Any],
-                    archivos: List[str], directorio: str = ".",
-                    intento: int = 1, error_msj: str = "") -> Dict[str, Any]:
+    def implementar(
+        self,
+        tarea: str,
+        plan: dict[str, Any],
+        archivos: list[str],
+        directorio: str = ".",
+        intento: int = 1,
+        error_msj: str = "",
+    ) -> dict[str, Any]:
         """Aplica los cambios con ``agentes.AgenteEditorPropio``.
 
         Devuelve ``{"ok": bool, "archivos": [...], "intento": n}`` y publica el
@@ -224,26 +238,34 @@ class Programador:
         se pasan, se considera un no-op exitoso (nada que editar).
         """
         import snapcontext as sc
+
         sc.info("💻 Programador: escribiendo código...")
-        archivos = [a for a in (archivos or list(plan.get("archivos") or []))
-                    if a]
+        archivos = [a for a in (archivos or list(plan.get("archivos") or [])) if a]
         mensaje = self._mensaje_implementacion(tarea, plan, intento, error_msj)
         if not archivos:
-            resultado = {"ok": True, "archivos": [], "intento": intento,
-                         "sin_archivos": True}
+            resultado = {"ok": True, "archivos": [], "intento": intento, "sin_archivos": True}
         else:
             try:
                 import agentes as ag
+
                 editor = ag.AgenteEditorPropio()
                 aplicado = editor.ejecutar(
-                    archivos, mensaje, directorio=directorio,
-                    modo_edicion="auto", modelo=self.modelo,
-                    proveedor=self.proveedor, auto=True)
-                resultado = {"ok": bool(aplicado), "archivos": archivos,
-                             "intento": intento}
-            except Exception as exc:                       # noqa: BLE001
-                resultado = {"ok": False, "archivos": archivos,
-                             "intento": intento, "error": str(exc)}
+                    archivos,
+                    mensaje,
+                    directorio=directorio,
+                    modo_edicion="auto",
+                    modelo=self.modelo,
+                    proveedor=self.proveedor,
+                    auto=True,
+                )
+                resultado = {"ok": bool(aplicado), "archivos": archivos, "intento": intento}
+            except Exception as exc:
+                resultado = {
+                    "ok": False,
+                    "archivos": archivos,
+                    "intento": intento,
+                    "error": str(exc),
+                }
         if self.buzon is not None:
             self.buzon.publicar(self.ROL, "resultado_edicion", resultado)
         return resultado
@@ -254,13 +276,13 @@ class Tester:
 
     ROL = "tester"
 
-    def __init__(self, buzon: Optional[Buzon] = None) -> None:
+    def __init__(self, buzon: Buzon | None = None) -> None:
         self.buzon = buzon
 
-    def _resolver_comando(self, directorio: str,
-                          comando: Optional[str] = None) -> Optional[str]:
+    def _resolver_comando(self, directorio: str, comando: str | None = None) -> str | None:
         """Comando de test: explícito > env > detección automática (v5.3.0)."""
         import detector_tests as det
+
         if comando and str(comando).strip():
             return str(comando).strip()
         env = os.environ.get("SNAPCONTEXT_COMANDO_TEST", "").strip()
@@ -268,9 +290,9 @@ class Tester:
             return env
         return det.resolver_comando_test(directorio)
 
-    def ejecutar(self, directorio: str = ".",
-                 archivos: Optional[List[str]] = None,
-                 comando: Optional[str] = None) -> Dict[str, Any]:
+    def ejecutar(
+        self, directorio: str = ".", archivos: list[str] | None = None, comando: str | None = None
+    ) -> dict[str, Any]:
         """Ejecuta la suite de pruebas y devuelve el resumen.
 
         Devuelve ``{"ok", "codigo", "comando", "stdout", "stderr",
@@ -279,39 +301,56 @@ class Tester:
         como "no hay pruebas en el proyecto").
         """
         import snapcontext as sc
+
         sc.info("🧪 Tester: ejecutando pruebas...")
         comando_resuelto = self._resolver_comando(directorio, comando)
         if not comando_resuelto:
-            resultado = {"ok": False, "codigo": -1, "comando": None,
-                         "stdout": "",
-                         "stderr": "No se pudo detectar el comando de test "
-                                   "en este proyecto.",
-                         "detectado": False}
+            resultado = {
+                "ok": False,
+                "codigo": -1,
+                "comando": None,
+                "stdout": "",
+                "stderr": "No se pudo detectar el comando de test en este proyecto.",
+                "detectado": False,
+            }
             if self.buzon is not None:
                 self.buzon.publicar(self.ROL, "resultado_pruebas", resultado)
             return resultado
-        codigo, stdout, stderr = sc._ejecutar_comando(
-            comando_resuelto, directorio, timeout=600)
-        resultado = {"ok": codigo == 0, "codigo": codigo,
-                     "comando": comando_resuelto, "stdout": stdout,
-                     "stderr": stderr, "detectado": True}
+        codigo, stdout, stderr = sc._ejecutar_comando(comando_resuelto, directorio, timeout=600)
+        resultado = {
+            "ok": codigo == 0,
+            "codigo": codigo,
+            "comando": comando_resuelto,
+            "stdout": stdout,
+            "stderr": stderr,
+            "detectado": True,
+        }
         if self.buzon is not None:
             self.buzon.publicar(self.ROL, "resultado_pruebas", resultado)
         return resultado
+
+
 class Supervisor:
     """🤖 Coordina el equipo multi-agente (pipeline con realimentación)."""
 
-    def __init__(self, directorio: str = ".", tarea: str = "",
-                 auto: bool = False, proveedor: Optional[str] = None,
-                 modelo: Optional[str] = None, max_reintentos: int = 3,
-                 buzon: Optional[Buzon] = None,
-                 archivos: Optional[List[str]] = None,
-                 comando_test: Optional[str] = None,
-                 sub_agents: bool = False, max_parallel: int = 3,
-                 lsp: bool = False,
-                 qa_tester_activo: bool = True,
-                 qa_iteraciones_max: int = 2,
-                 qa_severidad: str = "media") -> None:
+    def __init__(
+        self,
+        directorio: str = ".",
+        tarea: str = "",
+        auto: bool = False,
+        proveedor: str | None = None,
+        modelo: str | None = None,
+        max_reintentos: int = 3,
+        buzon: Buzon | None = None,
+        archivos: list[str] | None = None,
+        comando_test: str | None = None,
+        sub_agents: bool = False,
+        max_parallel: int = 3,
+        lsp: bool = False,
+        qa_tester_activo: bool = True,
+        qa_iteraciones_max: int = 2,
+        qa_severidad: str = "media",
+    ) -> None:
         self.directorio = str(Path(directorio).resolve())
         self.tarea = tarea
         self.auto = bool(auto)
@@ -325,27 +364,34 @@ class Supervisor:
         self.sub_agents = bool(sub_agents)
         self.max_parallel = max(1, int(max_parallel))
         self.lsp = bool(lsp)
-        self.sub_agentes: List[Any] = []
+        self.sub_agentes: list[Any] = []
         # v6.25.0: QA Tester adversarial.
         self.qa_tester_activo = bool(qa_tester_activo)
         self.qa_iteraciones_max = max(1, int(qa_iteraciones_max))
         self.qa_severidad = qa_severidad
         # v6.18.0: registro de sub-agentes (scout, debugger, reviewer, ...).
-        from sub_agent import REGISTRO_SUB_AGENTES as _REG     # noqa: E402
+        from sub_agent import REGISTRO_SUB_AGENTES as _REG
+
         self.registro = _REG
 
     # ------------------------------------------------------------------
     # Sub-agentes dinámicos (v6.13.0)
     # ------------------------------------------------------------------
-    def crear_sub_agente(self, rol: str, consulta: str = "",
-                         browser: bool = False) -> Any:
+    def crear_sub_agente(self, rol: str, consulta: str = "", browser: bool = False) -> Any:
         """Instancia un ``SubAgente`` del rol solicitado y lo registra."""
-        import snapcontext as sc                       # noqa: E402
-        from sub_agent import SubAgente                # noqa: E402
-        sub = SubAgente(rol, directorio=self.directorio,
-                        proveedor=self.proveedor, modelo=self.modelo,
-                        buzon=self.buzon, auto=self.auto, browser=browser,
-                        lsp=self.lsp)
+        import snapcontext as sc
+        from sub_agent import SubAgente
+
+        sub = SubAgente(
+            rol,
+            directorio=self.directorio,
+            proveedor=self.proveedor,
+            modelo=self.modelo,
+            buzon=self.buzon,
+            auto=self.auto,
+            browser=browser,
+            lsp=self.lsp,
+        )
         self.sub_agentes.append(sub)
         if consulta:
             sub.enviar_mensaje(consulta)
@@ -353,8 +399,7 @@ class Supervisor:
         return sub
 
     # v6.18.0: invocación bajo demanda desde el Supervisor.
-    def invocar_sub_agente(self, nombre: str, consulta: str = "",
-                           browser: bool = False) -> dict:
+    def invocar_sub_agente(self, nombre: str, consulta: str = "", browser: bool = False) -> dict:
         """Instancia y ejecuta un sub-agente registrado (contexto aislado).
 
         ``nombre`` es la clave del registro (scout, debugger, reviewer,
@@ -362,31 +407,39 @@ class Supervisor:
         El sub-agente se ejecuta con su PROPIO historial y su resultado se
         publica en el ``buzon`` como ``resultado_sub_agente``.
         """
-        import snapcontext as sc                       # noqa: E402
-        from sub_agent import SubAgente                # noqa: E402
+        import snapcontext as sc
+        from sub_agent import SubAgente
+
         if self.registro is None:
             raise ValueError("El Supervisor no tiene registro de sub-agentes.")
-        cfg = self.registro.obtener(nombre)             # KeyError si no existe
-        sub = SubAgente(cfg.get("rol", nombre), nombre=nombre,
-                        config=cfg, directorio=self.directorio,
-                        proveedor=self.proveedor, modelo=self.modelo,
-                        buzon=self.buzon, auto=self.auto, browser=browser,
-                        lsp=self.lsp)
+        cfg = self.registro.obtener(nombre)  # KeyError si no existe
+        sub = SubAgente(
+            cfg.get("rol", nombre),
+            nombre=nombre,
+            config=cfg,
+            directorio=self.directorio,
+            proveedor=self.proveedor,
+            modelo=self.modelo,
+            buzon=self.buzon,
+            auto=self.auto,
+            browser=browser,
+            lsp=self.lsp,
+        )
         self.sub_agentes.append(sub)
         if consulta:
             sub.enviar_mensaje(consulta)
         resultado = sub.ejecutar(str(consulta))
-        sc.info(f"Supervisor: sub-agente '{nombre}' devolvió "
-                f"{bool(resultado.get('ok'))}.")
+        sc.info(f"Supervisor: sub-agente '{nombre}' devolvió {bool(resultado.get('ok'))}.")
         return resultado
 
-    def _revisar_con_qa_tester(self, archivos: List[str]) -> Dict[str, Any]:
+    def _revisar_con_qa_tester(self, archivos: list[str]) -> dict[str, Any]:
         """Invoca al QA Tester para revisar el código generado.
 
         Returns:
             dict con ``aprobado``, ``hallazgos``, ``sugerencias``.
         """
         import snapcontext as sc
+
         if not self.qa_tester_activo:
             return {"aprobado": True, "hallazgos": [], "sugerencias": []}
 
@@ -402,8 +455,8 @@ class Supervisor:
             max_iteraciones=self.qa_iteraciones_max,
         )
 
-        todos_hallazgos: List[dict] = []
-        todas_sugerencias: List[str] = []
+        todos_hallazgos: list[dict] = []
+        todas_sugerencias: list[str] = []
         aprobado_global = True
 
         for archivo in archivos:
@@ -412,7 +465,7 @@ class Supervisor:
                 continue
             try:
                 codigo = ruta.read_text(encoding="utf-8")
-            except Exception:  # noqa: BLE001
+            except Exception:
                 continue
 
             sc.info(f"🧪 QA Tester: revisando {archivo}...")
@@ -423,9 +476,7 @@ class Supervisor:
                 hallazgos = resultado.get("hallazgos", [])
                 todos_hallazgos.extend(hallazgos)
                 todas_sugerencias.extend(resultado.get("sugerencias", []))
-                sc.aviso(
-                    f"❌ QA Tester: {len(hallazgos)} hallazgo(s) en {archivo}."
-                )
+                sc.aviso(f"❌ QA Tester: {len(hallazgos)} hallazgo(s) en {archivo}.")
             else:
                 sc.exito(f"✅ QA Tester: {archivo} aprobado.")
 
@@ -436,37 +487,40 @@ class Supervisor:
         }
 
     @staticmethod
-    def _detectar_sub_tareas(plan: Dict[str, Any]) -> List[dict]:
+    def _detectar_sub_tareas(plan: dict[str, Any]) -> list[dict]:
         """Detecta pasos del plan delegables a roles de sub-agente.
 
         Heurística por palabras clave sobre la descripción de cada paso del
         plan (y del objetivo). Devuelve especificaciones ``{rol, consulta}``
         sin duplicados, en orden de aparición.
         """
-        from sub_agent import ROLES                    # noqa: E402
-        claves: Dict[str, tuple] = {
-            "scout": ("documentaci", "investiga", "busca", "explora",
-                      "revisa la api", "leer", "estudia"),
-            "debugger": ("error", "fallo", "bug", "excepci", "depura",
-                         "corrige el error"),
-            "frontender": ("css", "html", "interfaz", "ui", "estilo",
-                           "dise\u00f1o", "frontend"),
+        claves: dict[str, tuple] = {
+            "scout": (
+                "documentaci",
+                "investiga",
+                "busca",
+                "explora",
+                "revisa la api",
+                "leer",
+                "estudia",
+            ),
+            "debugger": ("error", "fallo", "bug", "excepci", "depura", "corrige el error"),
+            "frontender": ("css", "html", "interfaz", "ui", "estilo", "dise\u00f1o", "frontend"),
             "tester": ("prueba", "test", "verifica"),
-            "documentador": ("documenta", "readme", "claude.md",
-                             "comenta", "docstring"),
+            "documentador": ("documenta", "readme", "claude.md", "comenta", "docstring"),
         }
-        textos: List[str] = []
+        textos: list[str] = []
         objetivo = str(plan.get("objetivo") or "")
         if objetivo:
             textos.append(objetivo.lower())
-        for paso in (plan.get("pasos") or []):
+        for paso in plan.get("pasos") or []:
             if isinstance(paso, dict):
                 desc = str(paso.get("descripcion") or "").lower()
             else:
                 desc = str(paso).lower()
             if desc:
                 textos.append(desc)
-        especificaciones: List[dict] = []
+        especificaciones: list[dict] = []
         vistos = set()
         for texto in textos:
             for rol, palabras in claves.items():
@@ -477,14 +531,15 @@ class Supervisor:
                     vistos.add(rol)
         return especificaciones
 
-    def ejecutar_sub_tareas(self, plan: Dict[str, Any]) -> List[dict]:
+    def ejecutar_sub_tareas(self, plan: dict[str, Any]) -> list[dict]:
         """Detecta y ejecuta en paralelo las sub-tareas delegables del plan.
 
         Solo actúa con ``--sub-agents``; en caso contrario devuelve ``[]``
         y el pipeline se comporta exactamente como antes. Los resultados se
         publican en el buzón como ``resultado_sub_agente``.
         """
-        import snapcontext as sc                       # noqa: E402
+        import snapcontext as sc
+
         if not self.sub_agents:
             return []
         especificaciones = self._detectar_sub_tareas(plan)
@@ -496,16 +551,17 @@ class Supervisor:
             espec.setdefault("proveedor", self.proveedor)
             espec.setdefault("modelo", self.modelo)
             espec.setdefault("lsp", self.lsp)
-        from sub_agent import ejecutar_sub_agentes_paralelo  # noqa: E402
+        from sub_agent import ejecutar_sub_agentes_paralelo
+
         resultados = ejecutar_sub_agentes_paralelo(
-            especificaciones, max_parallel=self.max_parallel,
-            buzon=self.buzon)
+            especificaciones, max_parallel=self.max_parallel, buzon=self.buzon
+        )
         for r in resultados:
             self.buzon.publicar("supervisor", "sub_tarea_completada", r)
         return resultados
 
     # v6.20.0: ejecutor genérico en paralelo (ParallelExecutor).
-    def ejecutar_tareas_paralelo(self, tareas: List[dict]) -> List[dict]:
+    def ejecutar_tareas_paralelo(self, tareas: list[dict]) -> list[dict]:
         """Ejecuta tareas arbitrarias (con dependencias) en paralelo.
 
         Cada tarea: ``{"nombre", "funcion", "args", "kwargs",
@@ -515,20 +571,26 @@ class Supervisor:
         Nunca lanza: los fallos van reportados en cada resultado.
         """
         try:
-            from parallel_executor import ParallelExecutor  # noqa: E402
-        except Exception as exc:                         # noqa: BLE001
+            from parallel_executor import ParallelExecutor
+        except Exception as exc:
             ui.mostrar_error(f"No se pudo importar parallel_executor: {exc}")
-            return [{"nombre": str(t.get("nombre") or "tarea"), "ok": False,
-                     "resultado": None, "error": str(exc)}
-                    for t in tareas]
-        return ParallelExecutor(
-            max_workers=self.max_parallel).ejecutar_paralelo(tareas)
+            return [
+                {
+                    "nombre": str(t.get("nombre") or "tarea"),
+                    "ok": False,
+                    "resultado": None,
+                    "error": str(exc),
+                }
+                for t in tareas
+            ]
+        return ParallelExecutor(max_workers=self.max_parallel).ejecutar_paralelo(tareas)
 
     # ------------------------------------------------------------------
     # Mostrar plan y confirmación
     # ------------------------------------------------------------------
-    def _mostrar_plan(self, plan: Dict[str, Any]) -> None:
+    def _mostrar_plan(self, plan: dict[str, Any]) -> None:
         import snapcontext as sc
+
         sc.exito("📋 Plan del Arquitecto:")
         ob = str(plan.get("objetivo") or "")
         sc.info("  Objetivo: " + ob)
@@ -543,118 +605,166 @@ class Supervisor:
         """Pide confirmación del plan en modo interactivo (--auto lo omite)."""
         if self.auto:
             return True
-# ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
     # Pipeline principal
     # ------------------------------------------------------------------
-    def ejecutar(self) -> Dict[str, Any]:
+    def ejecutar(self) -> dict[str, Any]:
         """Pipeline Arquitecto → Programador → Tester (con realimentación).
 
         Devuelve ``{"ok", "plan", "reintentos", "resultados", "error"}``.
         """
         import snapcontext as sc
+
         if not self.tarea:
-            return {"ok": False, "error": "La tarea está vacía.", "plan": {},
-                    "reintentos": 0, "resultados": []}
+            return {
+                "ok": False,
+                "error": "La tarea está vacía.",
+                "plan": {},
+                "reintentos": 0,
+                "resultados": [],
+            }
 
         # 1) Arquitecto: plan de alto nivel.
-        arquitecto = Arquitecto(proveedor=self.proveedor,
-                                modelo=self.modelo, buzon=self.buzon)
+        arquitecto = Arquitecto(proveedor=self.proveedor, modelo=self.modelo, buzon=self.buzon)
         try:
             plan = arquitecto.generar_plan(self.tarea, self.directorio)
-        except Exception as exc:                          # noqa: BLE001
-            return {"ok": False, "error": f"El Arquitecto falló: {exc}",
-                    "plan": {}, "reintentos": 0, "resultados": []}
+        except Exception as exc:
+            return {
+                "ok": False,
+                "error": f"El Arquitecto falló: {exc}",
+                "plan": {},
+                "reintentos": 0,
+                "resultados": [],
+            }
         self._mostrar_plan(plan)
 
         # 2) Confirmación del plan (omita en --auto).
         if not self._confirmar_plan():
             sc.aviso("Plan cancelado por el usuario.")
-            return {"ok": False, "error": "cancelado por el usuario",
-                    "plan": plan, "reintentos": 0, "resultados": []}
+            return {
+                "ok": False,
+                "error": "cancelado por el usuario",
+                "plan": plan,
+                "reintentos": 0,
+                "resultados": [],
+            }
 
         # 3) v6.13.0: sub-agentes dinámicos (solo con --sub-agents).
         self.resultados_sub_tareas = self.ejecutar_sub_tareas(plan)
 
         # 4) Bucle Programador → Tester con realimentación.
-        resultados: List[Dict[str, Any]] = []
+        resultados: list[dict[str, Any]] = []
         archivos = list(self.archivos) or list(plan.get("archivos") or [])
         error_msj = ""
         for intento in range(1, self.max_reintentos + 1):
-            programador = Programador(buzon=self.buzon, modelo=self.modelo,
-                                      proveedor=self.proveedor)
+            programador = Programador(
+                buzon=self.buzon, modelo=self.modelo, proveedor=self.proveedor
+            )
             r_prog = programador.implementar(
-                self.tarea, plan, archivos, self.directorio,
-                intento=intento, error_msj=error_msj)
-            resultados.append({"fase": "programador", "intento": intento,
-                               "ok": bool(r_prog.get("ok"))})
+                self.tarea, plan, archivos, self.directorio, intento=intento, error_msj=error_msj
+            )
+            resultados.append(
+                {"fase": "programador", "intento": intento, "ok": bool(r_prog.get("ok"))}
+            )
             if not r_prog.get("ok"):
-                error_msj = "El Programador no pudo aplicar los cambios según " \
-                            "el plan."
+                error_msj = "El Programador no pudo aplicar los cambios según el plan."
                 detalle = str(r_prog.get("error") or "")
                 if detalle:
                     error_msj += " Detalle: " + detalle
-                sc.aviso(f"💻 Programador: falló la edición (intento "
-                         f"{intento}/{self.max_reintentos}).")
+                sc.aviso(
+                    f"💻 Programador: falló la edición (intento {intento}/{self.max_reintentos})."
+                )
                 continue
 
             tester = Tester(buzon=self.buzon)
-            r_test = tester.ejecutar(self.directorio, archivos,
-                                     self.comando_test)
+            r_test = tester.ejecutar(self.directorio, archivos, self.comando_test)
             test_ok = bool(r_test.get("ok"))
-            resultados.append({"fase": "tester", "intento": intento,
-                               "ok": test_ok,
-                               "comando": r_test.get("comando"),
-                               "codigo": r_test.get("codigo")})
+            resultados.append(
+                {
+                    "fase": "tester",
+                    "intento": intento,
+                    "ok": test_ok,
+                    "comando": r_test.get("comando"),
+                    "codigo": r_test.get("codigo"),
+                }
+            )
             if test_ok:
                 sc.exito("🧪 Tester: pruebas en verde ✅")
                 # v6.25.0: revisión adversarial con QA Tester.
                 r_qa = self._revisar_con_qa_tester(archivos)
-                resultados.append({"fase": "qa_tester", "intento": intento,
-                                   "ok": r_qa.get("aprobado", True),
-                                   "hallazgos": r_qa.get("hallazgos", [])})
+                resultados.append(
+                    {
+                        "fase": "qa_tester",
+                        "intento": intento,
+                        "ok": r_qa.get("aprobado", True),
+                        "hallazgos": r_qa.get("hallazgos", []),
+                    }
+                )
                 if r_qa.get("aprobado", True):
-                    return {"ok": True, "plan": plan,
-                            "reintentos": intento, "resultados": resultados,
-                            "archivos": archivos}
+                    return {
+                        "ok": True,
+                        "plan": plan,
+                        "reintentos": intento,
+                        "resultados": resultados,
+                        "archivos": archivos,
+                    }
                 # QA Tester encontró problemas → realimentar al Programador.
                 sugerencias = r_qa.get("sugerencias", [])
                 if sugerencias:
-                    error_msj = "QA Tester encontró problemas: " + \
-                                "; ".join(str(s) for s in sugerencias[:3])
-                    sc.aviso(f"🧪 QA Tester: problemas encontrados. "
-                             f"Realimentando al Programador...")
+                    error_msj = "QA Tester encontró problemas: " + "; ".join(
+                        str(s) for s in sugerencias[:3]
+                    )
+                    sc.aviso("🧪 QA Tester: problemas encontrados. Realimentando al Programador...")
                     continue
-                return {"ok": True, "plan": plan,
-                        "reintentos": intento, "resultados": resultados,
-                        "archivos": archivos,
-                        "qa_hallazgos": r_qa.get("hallazgos", [])}
+                return {
+                    "ok": True,
+                    "plan": plan,
+                    "reintentos": intento,
+                    "resultados": resultados,
+                    "archivos": archivos,
+                    "qa_hallazgos": r_qa.get("hallazgos", []),
+                }
             if r_test.get("detectado") is False:
                 # No hay pruebas en el proyecto → se da por completado.
-                sc.exito("🧪 Tester: sin pruebas detectadas; se da por "
-                         "completado.")
+                sc.exito("🧪 Tester: sin pruebas detectadas; se da por completado.")
                 # v6.25.0: revisión QA incluso sin pruebas.
                 r_qa = self._revisar_con_qa_tester(archivos)
-                resultados.append({"fase": "qa_tester", "intento": intento,
-                                   "ok": r_qa.get("aprobado", True)})
-                return {"ok": True, "plan": plan,
-                        "reintentos": intento, "resultados": resultados,
-                        "archivos": archivos, "sin_pruebas": True}
-            error_msj = (str(r_test.get("stderr") or "")
-                         or str(r_test.get("stdout") or "")
-                         or f"Las pruebas fallaron (código "
-                            f"{r_test.get('codigo')}).")
-            sc.aviso(f"🧪 Tester: pruebas fallidas (intento "
-                     f"{intento}/{self.max_reintentos}). Realimentando al "
-                     "Programador...")
+                resultados.append(
+                    {"fase": "qa_tester", "intento": intento, "ok": r_qa.get("aprobado", True)}
+                )
+                return {
+                    "ok": True,
+                    "plan": plan,
+                    "reintentos": intento,
+                    "resultados": resultados,
+                    "archivos": archivos,
+                    "sin_pruebas": True,
+                }
+            error_msj = (
+                str(r_test.get("stderr") or "")
+                or str(r_test.get("stdout") or "")
+                or f"Las pruebas fallaron (código {r_test.get('codigo')})."
+            )
+            sc.aviso(
+                f"🧪 Tester: pruebas fallidas (intento "
+                f"{intento}/{self.max_reintentos}). Realimentando al "
+                "Programador..."
+            )
 
-        return {"ok": False,
-                "error": f"Las pruebas no pasaron tras "
-                         f"{self.max_reintentos} reintento(s).",
-                "plan": plan, "reintentos": self.max_reintentos,
-                "resultados": resultados, "archivos": archivos,
-                "detalle_test": error_msj}
+        return {
+            "ok": False,
+            "error": f"Las pruebas no pasaron tras {self.max_reintentos} reintento(s).",
+            "plan": plan,
+            "reintentos": self.max_reintentos,
+            "resultados": resultados,
+            "archivos": archivos,
+            "detalle_test": error_msj,
+        }
         import ui
+
         opciones = [("e", "Ejecutar el plan"), ("c", "Cancelar")]
         eleccion = ui.preguntar_interactivo(
-            opciones, "¿Quieres que el equipo ejecute este plan?", defecto="e")
+            opciones, "¿Quieres que el equipo ejecute este plan?", defecto="e"
+        )
         return eleccion == "e"

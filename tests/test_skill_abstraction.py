@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de skills dinámicos (v6.6.0): skill_abstraction + integración.
 
 Cubre: extracción (LLM mockeado y heurística), aplicación de reglas,
@@ -18,9 +17,9 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import snapcontext as sc                          # noqa: E402
-import skill_abstraction as sa                    # noqa: E402
-import curador_proactivo as cp                    # noqa: E402
+import curador_proactivo as cp
+import skill_abstraction as sa
+import snapcontext as sc
 
 PLAN_EXITOSO = {
     "tarea": "añadir endpoint de pagos con autenticación",
@@ -43,7 +42,7 @@ class BaseReglas(unittest.TestCase):
     """Base: BD temporal aislada por test."""
 
     def setUp(self):
-        sc._db_cerrar()                     # libera cualquier BD anterior
+        sc._db_cerrar()  # libera cualquier BD anterior
         self._tmp = tempfile.TemporaryDirectory()
         self.raiz = Path(self._tmp.name)
         p1 = mock.patch.object(sc, "DB_PATH", self.raiz / "memoria.db")
@@ -57,7 +56,6 @@ class BaseReglas(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.addCleanup(sc._db_cerrar)
 
-
     def tearDown(self):
         sc.SKILLS_DINAMICOS = True
 
@@ -66,16 +64,14 @@ class TestExtraccion(BaseReglas):
     """Extracción de reglas: LLM (mockeado) y heurística."""
 
     def test_extraccion_con_llm_mockeado(self):
-        with mock.patch.object(sc, "_enviar_al_proveedor",
-                               return_value=json.dumps(REGLA_LLM)):
+        with mock.patch.object(sc, "_enviar_al_proveedor", return_value=json.dumps(REGLA_LLM)):
             regla = sa.extraer_regla(PLAN_EXITOSO, {"directorio": "."})
         self.assertEqual(regla["patron"], "añadir endpoint de pagos")
         self.assertIn("pago_service.dart", regla["archivos_afectados"])
         self.assertEqual(regla["dependencias"], ["auth_middleware"])
 
     def test_extraccion_fallback_heuristica_si_llm_falla(self):
-        with mock.patch.object(sc, "_enviar_al_proveedor",
-                               side_effect=RuntimeError("sin API")):
+        with mock.patch.object(sc, "_enviar_al_proveedor", side_effect=RuntimeError("sin API")):
             regla = sa.extraer_regla(PLAN_EXITOSO, {})
         self.assertTrue(regla["patron"])
         archivos = set(regla["archivos_afectados"])
@@ -83,15 +79,15 @@ class TestExtraccion(BaseReglas):
         self.assertIn("middleware/auth.dart", archivos)
 
     def test_extraccion_heuristica_con_llm_respuesta_invalida(self):
-        with mock.patch.object(sc, "_enviar_al_proveedor",
-                               return_value="no soy json"):
+        with mock.patch.object(sc, "_enviar_al_proveedor", return_value="no soy json"):
             regla = sa.extraer_regla(PLAN_EXITOSO, {})
         self.assertIn("pago_service.dart", regla["archivos_afectados"])
-        self.assertEqual(regla["confianza"], 0.6)   # heurística
+        self.assertEqual(regla["confianza"], 0.6)  # heurística
 
     def test_extraccion_llm_json_parcial(self):
-        with mock.patch.object(sc, "_enviar_al_proveedor",
-                               return_value='{"patron": "solo patron"}'):
+        with mock.patch.object(
+            sc, "_enviar_al_proveedor", return_value='{"patron": "solo patron"}'
+        ):
             regla = sa.extraer_regla(PLAN_EXITOSO, {})
         self.assertEqual(regla["patron"], "solo patron")
         self.assertIsInstance(regla["archivos_afectados"], list)
@@ -106,15 +102,12 @@ class TestAplicacionReglas(BaseReglas):
     """aplicar_regla: coincidencia y no coincidencia."""
 
     def test_aplicar_regla_tarea_similar(self):
-        pasos = sa.aplicar_regla(
-            REGLA_LLM, "añadir endpoint de pagos para facturas")
+        pasos = sa.aplicar_regla(REGLA_LLM, "añadir endpoint de pagos para facturas")
         self.assertIsNotNone(pasos)
-        self.assertIn("pago_service.dart",
-                      json.dumps(pasos, ensure_ascii=False))
+        self.assertIn("pago_service.dart", json.dumps(pasos, ensure_ascii=False))
 
     def test_aplicar_regla_tarea_diferente_devuelve_none(self):
-        self.assertIsNone(
-            sa.aplicar_regla(REGLA_LLM, "migrar la base de datos a postgres"))
+        self.assertIsNone(sa.aplicar_regla(REGLA_LLM, "migrar la base de datos a postgres"))
 
     def test_aplicar_regla_tarea_vacia(self):
         self.assertIsNone(sa.aplicar_regla(REGLA_LLM, ""))
@@ -144,10 +137,13 @@ class TestInyeccionClaudeMd(BaseReglas):
         self.assertNotIn("```", texto)
 
     def test_inyectar_todas_las_reglas(self):
-        sa.guardar_regla(dict(REGLA_LLM, patron="regla A distinta",
-                              confianza=0.5), directorio=str(self.raiz))
-        sa.guardar_regla(dict(REGLA_LLM, patron="regla B muy diferente",
-                              confianza=0.5), directorio=str(self.raiz))
+        sa.guardar_regla(
+            dict(REGLA_LLM, patron="regla A distinta", confianza=0.5), directorio=str(self.raiz)
+        )
+        sa.guardar_regla(
+            dict(REGLA_LLM, patron="regla B muy diferente", confianza=0.5),
+            directorio=str(self.raiz),
+        )
         self.assertEqual(sa.inyectar_todas_las_reglas(str(self.raiz)), 2)
         texto = (self.raiz / "CLAUDE.md").read_text(encoding="utf-8")
         self.assertIn("regla A distinta", texto)
@@ -161,11 +157,18 @@ class TestBaseDatos(BaseReglas):
 
     def test_migracion_crea_tabla_reglas(self):
         sc._db_init()
-        info = sc._DB_CONEXION.execute(
-            "PRAGMA table_info(reglas)").fetchall()
+        info = sc._DB_CONEXION.execute("PRAGMA table_info(reglas)").fetchall()
         columnas = {fila[1] for fila in info}
-        esperadas = {"id", "patron", "accion", "archivos_afectados",
-                     "dependencias", "confianza", "usos", "creado"}
+        esperadas = {
+            "id",
+            "patron",
+            "accion",
+            "archivos_afectados",
+            "dependencias",
+            "confianza",
+            "usos",
+            "creado",
+        }
         self.assertTrue(esperadas.issubset(columnas))
 
     def test_guardar_regla_nueva_y_refuerzo(self):
@@ -175,17 +178,19 @@ class TestBaseDatos(BaseReglas):
         self.assertFalse(r2["nueva"])
         self.assertGreater(r2["confianza"], 0.6)
         filas = sc._db_query("SELECT COUNT(*) AS n FROM reglas")
-        self.assertEqual(filas[0]["n"], 1)   # no duplica
+        self.assertEqual(filas[0]["n"], 1)  # no duplica
 
     def test_buscar_reglas_prioriza_confianza(self):
-        sa.guardar_regla(dict(REGLA_LLM, patron="endpoint de pagos",
-                              confianza=0.5), directorio=str(self.raiz))
-        sa.guardar_regla(dict(REGLA_LLM, patron="añadir endpoint de pagos",
-                              confianza=0.9), directorio=str(self.raiz))
+        sa.guardar_regla(
+            dict(REGLA_LLM, patron="endpoint de pagos", confianza=0.5), directorio=str(self.raiz)
+        )
+        sa.guardar_regla(
+            dict(REGLA_LLM, patron="añadir endpoint de pagos", confianza=0.9),
+            directorio=str(self.raiz),
+        )
         reglas = sa.buscar_reglas("añadir endpoint de pagos")
         self.assertTrue(reglas)
-        self.assertGreaterEqual(reglas[0]["confianza"],
-                                reglas[-1]["confianza"])
+        self.assertGreaterEqual(reglas[0]["confianza"], reglas[-1]["confianza"])
 
     def test_sql_reglas_in_memory(self):
         """El esquema de la tabla funciona de forma aislada en SQLite."""
@@ -202,10 +207,8 @@ class TestBaseDatos(BaseReglas):
               usos INTEGER DEFAULT 0,
               creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )""")
-        con.execute("INSERT INTO reglas (patron, accion) VALUES (?, ?)",
-                    ("patron x", "accion y"))
-        fila = dict(con.execute(
-            "SELECT patron, confianza, usos FROM reglas").fetchone())
+        con.execute("INSERT INTO reglas (patron, accion) VALUES (?, ?)", ("patron x", "accion y"))
+        fila = dict(con.execute("SELECT patron, confianza, usos FROM reglas").fetchone())
         self.assertEqual(fila["patron"], "patron x")
         self.assertEqual(fila["confianza"], 1.0)
         self.assertEqual(fila["usos"], 0)
@@ -216,11 +219,10 @@ class TestCuradorYPlanificador(BaseReglas):
     """Integración con el curador y el planificador."""
 
     def test_curador_aprende_de_plan_exitoso(self):
-        with mock.patch.object(sc, "_enviar_al_proveedor",
-                               return_value=json.dumps(REGLA_LLM)):
+        with mock.patch.object(sc, "_enviar_al_proveedor", return_value=json.dumps(REGLA_LLM)):
             regla = cp.aprender_de_plan(
-                PLAN_EXITOSO["tarea"], PLAN_EXITOSO["pasos"],
-                raiz=str(self.raiz))
+                PLAN_EXITOSO["tarea"], PLAN_EXITOSO["pasos"], raiz=str(self.raiz)
+            )
         self.assertIsNotNone(regla)
         filas = sc._db_query("SELECT patron FROM reglas")
         self.assertEqual(len(filas), 1)
@@ -229,12 +231,12 @@ class TestCuradorYPlanificador(BaseReglas):
         sc.SKILLS_DINAMICOS = False
         regla = cp.aprender_de_plan("tarea", PLAN_EXITOSO["pasos"])
         self.assertIsNone(regla)
-        self.assertEqual(
-            sc._db_query("SELECT COUNT(*) AS n FROM reglas")[0]["n"], 0)
+        self.assertEqual(sc._db_query("SELECT COUNT(*) AS n FROM reglas")[0]["n"], 0)
 
     def test_planificador_enriquece_prompt_con_regla(self):
-        sa.guardar_regla(dict(REGLA_LLM, patron="endpoint de pagos",
-                              confianza=0.9), directorio=str(self.raiz))
+        sa.guardar_regla(
+            dict(REGLA_LLM, patron="endpoint de pagos", confianza=0.9), directorio=str(self.raiz)
+        )
         prompt = "Crea el endpoint de pagos."
         enriquecido = sc._enriquecer_prompt_con_reglas(prompt, prompt)
         self.assertIn("REGLAS APRENDIDAS", enriquecido)
@@ -243,16 +245,13 @@ class TestCuradorYPlanificador(BaseReglas):
 
     def test_planificador_sin_reglas_devuelve_prompt_intacto(self):
         prompt = "Tarea sin reglas asociadas."
-        self.assertEqual(
-            sc._enriquecer_prompt_con_reglas(prompt, prompt), prompt)
+        self.assertEqual(sc._enriquecer_prompt_con_reglas(prompt, prompt), prompt)
 
     def test_planificador_respeta_flag_deshabilitado(self):
-        sa.guardar_regla(dict(REGLA_LLM, patron="endpoint de pagos"),
-                         directorio=str(self.raiz))
+        sa.guardar_regla(dict(REGLA_LLM, patron="endpoint de pagos"), directorio=str(self.raiz))
         sc.SKILLS_DINAMICOS = False
         prompt = "Crea el endpoint de pagos."
-        self.assertEqual(
-            sc._enriquecer_prompt_con_reglas(prompt, prompt), prompt)
+        self.assertEqual(sc._enriquecer_prompt_con_reglas(prompt, prompt), prompt)
 
 
 class TestFlagsCli(unittest.TestCase):
@@ -264,8 +263,7 @@ class TestFlagsCli(unittest.TestCase):
         self.assertFalse(args.inyectar_reglas)
 
     def test_flag_deshabilitar(self):
-        args = sc.crear_parser().parse_args(
-            ["--sin-skills-dinamicos", "hola"])
+        args = sc.crear_parser().parse_args(["--sin-skills-dinamicos", "hola"])
         self.assertFalse(args.skills_dinamicos)
 
     def test_flag_inyectar_reglas(self):
@@ -278,5 +276,3 @@ class TestFlagsCli(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-

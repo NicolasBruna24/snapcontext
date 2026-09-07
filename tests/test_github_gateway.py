@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests para github_gateway.py — Webhooks y API de GitHub (v6.8.0).
 
 Ejecuta con:
@@ -8,7 +7,6 @@ Ejecuta con:
 
 import hashlib
 import hmac
-import json
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -21,16 +19,22 @@ class TestValidarFirma(unittest.TestCase):
     def setUp(self):
         self.secreto = "secreto-super-seguro-123"
         self.payload = b'{"action":"opened","number":42}'
-        mac256 = hmac.new(self.secreto.encode("utf-8"), msg=self.payload, digestmod=hashlib.sha256).hexdigest()
+        mac256 = hmac.new(
+            self.secreto.encode("utf-8"), msg=self.payload, digestmod=hashlib.sha256
+        ).hexdigest()
         self.firma_sha256 = f"sha256={mac256}"
-        mac1 = hmac.new(self.secreto.encode("utf-8"), msg=self.payload, digestmod=hashlib.sha1).hexdigest()
+        mac1 = hmac.new(
+            self.secreto.encode("utf-8"), msg=self.payload, digestmod=hashlib.sha1
+        ).hexdigest()
         self.firma_sha1 = f"sha1={mac1}"
 
     def test_firma_sha256_valida(self):
         self.assertTrue(gh.validar_firma(self.payload, self.firma_sha256, self.secreto))
 
     def test_firma_sha256_con_payload_str(self):
-        self.assertTrue(gh.validar_firma(self.payload.decode("utf-8"), self.firma_sha256, self.secreto))
+        self.assertTrue(
+            gh.validar_firma(self.payload.decode("utf-8"), self.firma_sha256, self.secreto)
+        )
 
     def test_firma_sha1_valida(self):
         self.assertTrue(gh.validar_firma(self.payload, self.firma_sha1, self.secreto))

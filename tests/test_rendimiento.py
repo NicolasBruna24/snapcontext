@@ -1,5 +1,4 @@
-﻿#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 """Tests de rendimiento para SnapContext v6.9.0 - Mejora de rendimiento.
 
 Cubre las mejoras de rendimiento implementadas en v6.9.0:
@@ -25,9 +24,9 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import snapcontext as sc          # noqa: E402
-import task_queue as tq           # noqa: E402
-import graph_rag as gr            # noqa: E402
+import graph_rag as gr  # noqa: E402
+import snapcontext as sc  # noqa: E402
+import task_queue as tq  # noqa: E402
 
 LETRAS = "abcedefgh"
 
@@ -55,8 +54,7 @@ class TestCacheEmbeddings(unittest.TestCase):
         parches = [
             mock.patch.object(sc, "CONFIG_DIR", self.tmp_path / "config"),
             mock.patch.object(sc, "INDICE_DIR", self.tmp_path / "index"),
-            mock.patch.object(sc, "EMBEDDINGS_DB",
-                              self.tmp_path / "embeddings.db"),
+            mock.patch.object(sc, "EMBEDDINGS_DB", self.tmp_path / "embeddings.db"),
             mock.patch.object(sc, "_MODELO_EMBEDDINGS", ModeloFalso()),
         ]
         for p in parches:
@@ -86,9 +84,9 @@ class TestCacheEmbeddings(unittest.TestCase):
         hsh = sc._hash_texto(texto)
         vector = [0.5, 0.5, 0.5]
         sc._guardar_embedding_cache(hsh, "archivo.py", vector)
-        with mock.patch.object(sc, "_calcular_embeddings",
-                               side_effect=AssertionError(
-                                   "no debe recalcular")):
+        with mock.patch.object(
+            sc, "_calcular_embeddings", side_effect=AssertionError("no debe recalcular")
+        ):
             vectores = sc._calcular_embeddings_con_cache([texto])
         self.assertEqual(len(vectores), 1)
         self.assertEqual(vectores[0], vector)
@@ -106,11 +104,10 @@ class TestCacheGraphRag(unittest.TestCase):
         raiz = Path(self.tmp)
         (raiz / "servicios").mkdir()
         (raiz / "servicios" / "__init__.py").write_text("", encoding="utf-8")
-        (raiz / "servicios" / "modelo.py").write_text(
-            "class Base:\n    pass\n", encoding="utf-8")
+        (raiz / "servicios" / "modelo.py").write_text("class Base:\n    pass\n", encoding="utf-8")
         (raiz / "main.py").write_text(
-            "from servicios.modelo import Base\nx = Base()\n",
-            encoding="utf-8")
+            "from servicios.modelo import Base\nx = Base()\n", encoding="utf-8"
+        )
 
     def test_construir_grafo_crea_cache_incremental(self):
         """La primera llamada persiste el cache con la clave 'por_archivo'."""
@@ -118,6 +115,7 @@ class TestCacheGraphRag(unittest.TestCase):
         self.assertIn("nodos", g1)
         self.assertTrue(Path(self.cache).is_file())
         import pickle
+
         with open(self.cache, "rb") as f:
             cache = pickle.load(f)
         self.assertIn("por_archivo", cache)
@@ -127,10 +125,11 @@ class TestCacheGraphRag(unittest.TestCase):
         """Sin cambios, la segunda llamada no reconstruye el grafo."""
         gr.construir_grafo(self.tmp, ruta_cache=self.cache)
         llamadas = []
-        with mock.patch.object(gr, "_extraer_nodos_y_aristas",
-                               side_effect=lambda d: (
-                                   llamadas.append(d),
-                                   {"nodos": {}, "aristas": []})[1]):
+        with mock.patch.object(
+            gr,
+            "_extraer_nodos_y_aristas",
+            side_effect=lambda d: (llamadas.append(d), {"nodos": {}, "aristas": []})[1],
+        ):
             g2 = gr.construir_grafo(self.tmp, ruta_cache=self.cache)
         self.assertEqual(len(llamadas), 0)
         self.assertIn("main.py", g2["nodos"])
@@ -139,19 +138,24 @@ class TestCacheGraphRag(unittest.TestCase):
         """_grafo_incremental reparsea solo archivos modificados."""
         gr.construir_grafo(self.tmp, ruta_cache=self.cache)
         import pickle
+
         with open(self.cache, "rb") as f:
             data = pickle.load(f)
         huella = dict(data["fingerprint"])
         huella_mod = dict(huella)
-        huella_mod["main.py"] = (data["fingerprint"]["main.py"][0] + 99999,
-                                 999)
+        huella_mod["main.py"] = (data["fingerprint"]["main.py"][0] + 99999, 999)
         grafo, por = gr._grafo_incremental(
-            self.tmp, {"version": gr._VERSION_CACHE,
-                        "fingerprint": huella_mod,
-                        "por_archivo": data["por_archivo"]})
+            self.tmp,
+            {
+                "version": gr._VERSION_CACHE,
+                "fingerprint": huella_mod,
+                "por_archivo": data["por_archivo"],
+            },
+        )
         self.assertIn("nodos", grafo)
         self.assertIn("aristas", grafo)
         self.assertIn("main.py", por)
+
 
 # ===========================================================================
 # 3. Fuzzy matching optimizado (editor de parches)
@@ -168,12 +172,16 @@ class TestFuzzyMatchingOptimizado(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         raiz = Path(tmp.name)
-        contenido = ("def f():\n" + "    return a\n" * 50 + "    fin = True\n")
+        contenido = "def f():\n" + "    return a\n" * 50 + "    fin = True\n"
         (raiz / "m.py").write_text(contenido, encoding="utf-8")
-        parche = ("--- a/m.py\n+++ b/m.py\n@@ -1,55 +1,55 @@\n def f():\n"
-                  + "     return a\n" * 52 + "-    fin = True\n+    fin = False\n")
-        with mock.patch.object(sc.difflib, "SequenceMatcher",
-                               wraps=sc.difflib.SequenceMatcher) as spy:
+        parche = (
+            "--- a/m.py\n+++ b/m.py\n@@ -1,55 +1,55 @@\n def f():\n"
+            + "     return a\n" * 52
+            + "-    fin = True\n+    fin = False\n"
+        )
+        with mock.patch.object(
+            sc.difflib, "SequenceMatcher", wraps=sc.difflib.SequenceMatcher
+        ) as spy:
             sc._aplicar_hunks_incremental(parche, str(raiz))
         # Con el lÃ­mite de contexto a 20 lÃ­neas, las comparaciones difusas
         # quedan acotadas (sin el lÃ­mite serÃ­an >= 50 contextos x 52 candidatos).
@@ -187,6 +195,7 @@ class TestFuzzyMatchingOptimizado(unittest.TestCase):
         (raiz / "m.py").write_text("a = 1\nb = 2\nc = 3\n", encoding="utf-8")
         # Hunk con posiciÃ³n errÃ³nea; el bloque solo encaja vÃ­a resincronizaciÃ³n.
 
+
 # ===========================================================================
 # 4. Worker de la cola de tareas sin polling
 # ===========================================================================
@@ -196,6 +205,7 @@ class TestWorkerSinPolling(unittest.TestCase):
     def test_existe_evento_despertar(self):
         """El mÃ³dulo define _WORKER_DESPERTAR (threading.Event)."""
         import threading
+
         self.assertIsInstance(tq._WORKER_DESPERTAR, threading.Event)
 
     def test_encolar_tarea_despierta_al_worker(self):
@@ -203,7 +213,7 @@ class TestWorkerSinPolling(unittest.TestCase):
         with mock.patch.object(tq._WORKER_DESPERTAR, "set") as spy:
             try:
                 tq.encolar_tarea("chat", "prueba despertar")
-            except Exception:                             # noqa: BLE001
+            except Exception:
                 pass  # solo interesa que el evento se haya seteado
             self.assertTrue(spy.called)
 
@@ -217,6 +227,7 @@ class TestLimiteHistorialReAct(unittest.TestCase):
     def test_max_historial_default_y_env(self):
         """_max_historial() devuelve 20 por defecto y respeta REACT_MAX_HISTORIAL."""
         import react_agent as ra
+
         self.assertEqual(ra.MAX_HISTORIAL_DEFAULT, 20)
         with mock.patch.dict(os.environ, {"REACT_MAX_HISTORIAL": "7"}):
             self.assertEqual(ra._max_historial(), 7)
@@ -225,10 +236,10 @@ class TestLimiteHistorialReAct(unittest.TestCase):
 
     def test_resumir_por_longitud_dispara_compresion(self):
         """Al superar max_historial iteraciones, el historial se comprime."""
-        import react_agent as ra
 
         class AgenteFalso:
             historial = [{"role": "system", "content": "sys"}]
+
 
 # ===========================================================================
 # 6. Flag --benchmark
@@ -244,11 +255,11 @@ class TestFlagBenchmark(unittest.TestCase):
 
     def test_ejecutar_benchmark_emite_tabla(self):
         """_ejecutar_benchmark mide fases y llama a _mostrar_tabla_benchmark."""
-        args = argparse.Namespace(benchmark=True, directorio=".",
-                                  carpetas=None, extensiones=None)
+        args = argparse.Namespace(benchmark=True, directorio=".", carpetas=None, extensiones=None)
         llamadas = []
-        with mock.patch.object(sc, "_mostrar_tabla_benchmark",
-                               side_effect=lambda f: llamadas.append(f)):
+        with mock.patch.object(
+            sc, "_mostrar_tabla_benchmark", side_effect=lambda f: llamadas.append(f)
+        ):
             rc = sc._ejecutar_benchmark(args)
         self.assertEqual(rc, 0)
         self.assertEqual(len(llamadas), 1)
@@ -260,4 +271,3 @@ class TestFlagBenchmark(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

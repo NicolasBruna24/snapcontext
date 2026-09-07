@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests del parser universal multi-lenguaje (v5.6.0) — Tree-sitter.
 
 Cubre: detección de lenguaje por extensión/contenido, parseo de JS/TS/Go/Rust/
@@ -19,37 +18,44 @@ import parser_universal as pu
 
 try:
     import snapcontext as sc
-except Exception:                                   # pragma: no cover
+except Exception:  # pragma: no cover
     sc = None
 
 
 def _tiene_backend() -> bool:
     try:
         return pu.backend_disponible()
-    except Exception:                               # noqa: BLE001
+    except Exception:
         return False
 
 
 # --- muestras de código -----------------------------------------------------
 PY = "def hola():\n    return 1\n\n\nclass Saludo:\n    def chao(self):\n        return 2\n"
-JS = ("import { a } from './mod.js';\n"
-      "function sumar(x, y) {\n  return x + y;\n}\n"
-      "class Punto {\n  mover(dx) {\n    this.x += dx;\n  }\n}\n")
-TS = ("interface Punto { x: number; }\n"
-      "export function distancia(p: Punto): number {\n"
-      "  return Math.abs(p.x);\n}\n")
-GO = ("package main\n\n"
-      "import \"fmt\"\n\n"
-      "func main() {\n"
-      "\tfmt.Println(\"hola\")\n"
-      "}\n\n"
-      "type Rect struct {\n\tAncho int\n}\n")
-RUST = ("fn main() {\n    let x = 1;\n    println!(\"{}\", x);\n}\n\n"
-        "struct Punto {\n    x: i32,\n}\n")
-JAVA = ("public class Hola {\n"
-        "    public static void main(String[] args) {\n"
-        "        System.out.println(\"hola\");\n"
-        "    }\n}\n")
+JS = (
+    "import { a } from './mod.js';\n"
+    "function sumar(x, y) {\n  return x + y;\n}\n"
+    "class Punto {\n  mover(dx) {\n    this.x += dx;\n  }\n}\n"
+)
+TS = (
+    "interface Punto { x: number; }\n"
+    "export function distancia(p: Punto): number {\n"
+    "  return Math.abs(p.x);\n}\n"
+)
+GO = (
+    "package main\n\n"
+    'import "fmt"\n\n'
+    "func main() {\n"
+    '\tfmt.Println("hola")\n'
+    "}\n\n"
+    "type Rect struct {\n\tAncho int\n}\n"
+)
+RUST = 'fn main() {\n    let x = 1;\n    println!("{}", x);\n}\n\nstruct Punto {\n    x: i32,\n}\n'
+JAVA = (
+    "public class Hola {\n"
+    "    public static void main(String[] args) {\n"
+    '        System.out.println("hola");\n'
+    "    }\n}\n"
+)
 
 
 class TestDeteccionLenguaje(unittest.TestCase):
@@ -57,14 +63,19 @@ class TestDeteccionLenguaje(unittest.TestCase):
 
     def test_extensiones_basicas(self):
         casos = {
-            "a.py": "python", "b.js": "javascript", "c.ts": "typescript",
-            "d.go": "go", "e.rs": "rust", "f.java": "java",
-            "g.cpp": "cpp", "h.cs": "c_sharp", "i.rb": "ruby",
+            "a.py": "python",
+            "b.js": "javascript",
+            "c.ts": "typescript",
+            "d.go": "go",
+            "e.rs": "rust",
+            "f.java": "java",
+            "g.cpp": "cpp",
+            "h.cs": "c_sharp",
+            "i.rb": "ruby",
             "j.dart": "dart",
         }
         for archivo, esperado in casos.items():
-            self.assertEqual(pu.detectar_lenguaje_por_extension(archivo),
-                             esperado, archivo)
+            self.assertEqual(pu.detectar_lenguaje_por_extension(archivo), esperado, archivo)
 
     def test_extension_desconocida_y_vacia(self):
         self.assertIsNone(pu.detectar_lenguaje_por_extension("a.xyz"))
@@ -72,21 +83,17 @@ class TestDeteccionLenguaje(unittest.TestCase):
         self.assertIsNone(pu.detectar_lenguaje_por_extension(None))
 
     def test_deteccion_por_contenido_shebang(self):
-        self.assertEqual(pu.detectar_lenguaje("#!/usr/bin/env python3\nx=1"),
-                         "python")
-        self.assertEqual(pu.detectar_lenguaje("#!/bin/bash\necho hola"),
-                         "bash")
+        self.assertEqual(pu.detectar_lenguaje("#!/usr/bin/env python3\nx=1"), "python")
+        self.assertEqual(pu.detectar_lenguaje("#!/bin/bash\necho hola"), "bash")
 
     def test_deteccion_por_contenido_marcadores(self):
         self.assertEqual(pu.detectar_lenguaje("func main() {}"), "go")
         self.assertEqual(pu.detectar_lenguaje("fn main() {}"), "rust")
-        self.assertEqual(pu.detectar_lenguaje("function f() {}"),
-                         "javascript")
+        self.assertEqual(pu.detectar_lenguaje("function f() {}"), "javascript")
 
     def test_extension_tiene_prioridad_sobre_contenido(self):
         # Contenido de Go con extensión .py → python.
-        self.assertEqual(pu.detectar_lenguaje("func main() {}", "a.py"),
-                         "python")
+        self.assertEqual(pu.detectar_lenguaje("func main() {}", "a.py"), "python")
 
 
 class TestParseo(unittest.TestCase):
@@ -98,13 +105,17 @@ class TestParseo(unittest.TestCase):
 
     def test_backend_disponible(self):
         self.assertTrue(pu.backend_disponible())
-        self.assertIn(pu.backend_activo(),
-                      ("tree_sitter_language_pack", "tree_sitter_languages"))
+        self.assertIn(pu.backend_activo(), ("tree_sitter_language_pack", "tree_sitter_languages"))
 
     def test_parseo_lenguajes(self):
-        for codigo, lenguaje in ((PY, "python"), (JS, "javascript"),
-                                 (TS, "typescript"), (GO, "go"),
-                                 (RUST, "rust"), (JAVA, "java")):
+        for codigo, lenguaje in (
+            (PY, "python"),
+            (JS, "javascript"),
+            (TS, "typescript"),
+            (GO, "go"),
+            (RUST, "rust"),
+            (JAVA, "java"),
+        ):
             arbol = pu.parsear_archivo(codigo, lenguaje)
             self.assertIsNotNone(arbol, lenguaje)
             self.assertFalse(arbol.root_node.has_error, lenguaje)
@@ -193,21 +204,22 @@ class TestBloquesYParches(unittest.TestCase):
 
     def test_parche_reemplaza_nodo(self):
         nuevo = pu.aplicar_parche_arbol(
-            PY, "def hola():\n    return 1", "def hola():\n    return 42",
-            archivo="m.py")
+            PY, "def hola():\n    return 1", "def hola():\n    return 42", archivo="m.py"
+        )
         self.assertIsNotNone(nuevo)
         self.assertIn("return 42", nuevo)
         self.assertNotIn("return 1\n", nuevo)
 
     def test_parche_nodo_inexistente_devuelve_none(self):
-        self.assertIsNone(pu.aplicar_parche_arbol(
-            PY, "def no_existe(): pass", "x", archivo="m.py"))
+        self.assertIsNone(pu.aplicar_parche_arbol(PY, "def no_existe(): pass", "x", archivo="m.py"))
 
     def test_parche_nuevo_invalido_devuelve_none(self):
         # El reemplazo no parsea → la operación no es válida (transacción).
-        self.assertIsNone(pu.aplicar_parche_arbol(
-            PY, "def hola():\n    return 1", "def hola(:\n  break",
-            archivo="m.py"))
+        self.assertIsNone(
+            pu.aplicar_parche_arbol(
+                PY, "def hola():\n    return 1", "def hola(:\n  break", archivo="m.py"
+            )
+        )
 
     def test_validar_sintaxis(self):
         self.assertTrue(pu.validar_sintaxis("m.py", PY))
@@ -248,17 +260,18 @@ class TestIntegracionEditor(unittest.TestCase):
 
     def test_cadena_estrategias_con_tree_sitter(self):
         import agentes as ag
+
         editor = ag.AgenteEditorPropio()
         # Go es estructural con tree-sitter → AST disponible en 'auto'.
         self.assertEqual(
-            editor._cadena_modos("main.go", "añade un campo al struct",
-                                 "auto"),
-            ["ast", "parche", "sobrescribir"])
+            editor._cadena_modos("main.go", "añade un campo al struct", "auto"),
+            ["ast", "parche", "sobrescribir"],
+        )
         # Tarea no estructural → parche primero.
         self.assertEqual(
-            editor._cadena_modos("main.go", "cambia el texto del log",
-                                 "auto"),
-            ["parche", "sobrescribir"])
+            editor._cadena_modos("main.go", "cambia el texto del log", "auto"),
+            ["parche", "sobrescribir"],
+        )
 
     def test_contexto_selectivo_sin_backend_no_rompe(self):
         with mock.patch.object(pu, "extraer_nodos", return_value=None):
@@ -273,9 +286,12 @@ class TestEnvVersion(unittest.TestCase):
         self.assertEqual(sc.VERSION, "6.33.0")
 
     def test_pyproject_incluye_tree_sitter(self):
-        texto = open(os.path.join(os.path.dirname(os.path.dirname(
-            os.path.abspath(__file__))), "pyproject.toml"),
-            encoding="utf-8").read()
+        texto = open(
+            os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pyproject.toml"
+            ),
+            encoding="utf-8",
+        ).read()
         self.assertIn("tree-sitter", texto)
         self.assertIn("parser_universal", texto)
 

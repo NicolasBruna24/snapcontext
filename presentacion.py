@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Capa de presentación de SnapContext (extraída en la Fase 3 del refactor).
 
 Contiene la salida por consola: colores ANSI con soporte Windows/NO_COLOR,
@@ -13,6 +12,7 @@ definición sombrea a la primera y se conserva el orden para no alterar el
 comportamiento. Los mutadores externos sincronizan los flags globales
 ``DEPURAR``, ``_TUI_HUB`` y ``_AYUDA_CON_COLOR`` vía el módulo.
 """
+
 import os
 import sys
 
@@ -22,13 +22,13 @@ DEPURAR = False
 # Salida por consola (colores ANSI con soporte Windows y NO_COLOR)
 # ---------------------------------------------------------------------------
 _GLIFOS_ASCII = {
-    "\u2139": "[i]",           # ℹ
-    "\u2714": "[OK]",          # ✔
-    "\u26a0": "[!]",           # ⚠
-    "\u2716": "[ERROR]",       # ✖
-    "\u2022": "-",             # •
-    "\u2192": "->",            # →
-    "\u2014": "-",            # — (em dash)
+    "\u2139": "[i]",  # ℹ
+    "\u2714": "[OK]",  # ✔
+    "\u26a0": "[!]",  # ⚠
+    "\u2716": "[ERROR]",  # ✖
+    "\u2022": "-",  # •
+    "\u2192": "->",  # →
+    "\u2014": "-",  # — (em dash)
 }
 
 
@@ -80,11 +80,13 @@ def _emitir(stream, texto: str) -> None:
     # tiempo real junto con su nivel, para que la UI lo muestre mientras corre.
     if EVENTO_CALLBACK is not None:
         try:
-            EVENTO_CALLBACK({
-                "tipo": "log",
-                "nivel": "error" if stream is sys.stderr else "info",
-                "texto": seguro,
-            })
+            EVENTO_CALLBACK(
+                {
+                    "tipo": "log",
+                    "nivel": "error" if stream is sys.stderr else "info",
+                    "texto": seguro,
+                }
+            )
         except Exception:
             pass
 
@@ -103,7 +105,12 @@ def _soporta_color() -> bool:
 
 if _soporta_color():
     _VERDE, _AMARILLO, _ROJO, _CYAN, _GRIS, _REINICIO = (
-        "\033[92m", "\033[93m", "\033[91m", "\033[96m", "\033[90m", "\033[0m",
+        "\033[92m",
+        "\033[93m",
+        "\033[91m",
+        "\033[96m",
+        "\033[90m",
+        "\033[0m",
     )
 else:
     _VERDE = _AMARILLO = _ROJO = _CYAN = _GRIS = _REINICIO = ""
@@ -129,13 +136,14 @@ def _tui_log(nivel: str, msg: str) -> None:
     if _TUI_HUB is False:
         try:
             import tui_hub as _hub
+
             _TUI_HUB = _hub
-        except Exception:                        # noqa: BLE001
+        except Exception:
             _TUI_HUB = None
     if _TUI_HUB and getattr(_TUI_HUB, "esta_activo", lambda: False)():
         try:
             _TUI_HUB.enviar_log(nivel, str(msg))
-        except Exception:                        # noqa: BLE001 — nunca romper
+        except Exception:
             pass
 
 
@@ -171,10 +179,14 @@ def depurar(msg: str) -> None:
 # degradan a texto plano. `colorama` se usa solo para inicializar en Windows
 # si está disponible; nunca es obligatorio.
 _ANSI = {
-    "negrita": "\033[1m", "cian": "\033[96m", "amarillo": "\033[93m",
-    "verde": "\033[92m", "gris": "\033[90m", "reset": "\033[0m",
+    "negrita": "\033[1m",
+    "cian": "\033[96m",
+    "amarillo": "\033[93m",
+    "verde": "\033[92m",
+    "gris": "\033[90m",
+    "reset": "\033[0m",
 }
-_AYUDA_CON_COLOR = False   # se calcula una sola vez al mostrar --help
+_AYUDA_CON_COLOR = False  # se calcula una sola vez al mostrar --help
 
 
 def _colores_activos() -> bool:
@@ -190,16 +202,18 @@ def _colores_activos() -> bool:
         return False
     try:
         import colorama  # opcional; solo inicializa Windows
+
         colorama.just_fix_windows_console()
     except Exception:
         pass
     if os.name == "nt":
         try:
             import ctypes
-            kernel32 = ctypes.windll.kernel32          # type: ignore[attr-defined]
+
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
             kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
         except Exception:
-            pass                                       # sin VT → texto plano
+            pass  # sin VT → texto plano
     return True
 
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Prompt Caching por Capas (v6.31.0) — prompt estructurado en capas inmutables.
 
@@ -46,20 +45,25 @@ Sin configuración se usan los valores por defecto anteriores. Sin este módulo
 v6.16.0 sin cambios de comportamiento.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 __all__ = [
-    "CAPAS_DEFECTO", "MARCA_EFEMERAL",
-    "es_capa_estatica", "es_capa_semi_estatica", "es_capa_volatil",
-    "clasificar_mensajes", "ensamblar_prompt_estructurado",
-    "metricas_capas", "contar_tokens",
+    "CAPAS_DEFECTO",
+    "MARCA_EFEMERAL",
+    "clasificar_mensajes",
+    "contar_tokens",
+    "ensamblar_prompt_estructurado",
+    "es_capa_estatica",
+    "es_capa_semi_estatica",
+    "es_capa_volatil",
+    "metricas_capas",
 ]
 
 # Marca estándar de Anthropic/DeepSeek para mensajes cacheables.
-MARCA_EFEMERAL: Dict[str, str] = {"type": "ephemeral"}
+MARCA_EFEMERAL: dict[str, str] = {"type": "ephemeral"}
 
 # Composición por defecto de cada capa (sobrescribible en config.json).
-CAPAS_DEFECTO: Dict[str, List[str]] = {
+CAPAS_DEFECTO: dict[str, list[str]] = {
     "estatica": ["system", "tools"],
     "semi_estatica": ["claude_md", "graph_rag", "reglas"],
     "volatil": ["user_messages", "tool_results", "diffs"],
@@ -67,29 +71,37 @@ CAPAS_DEFECTO: Dict[str, List[str]] = {
 
 # Registro de marcadores por "nombre de parte" (roles y contenido).
 # Ligero (solo `in` sobre el contenido): no afecta al prompt, no añade latencia.
-_MARCADORES_CAPA: Dict[str, Dict[str, Any]] = {
+_MARCADORES_CAPA: dict[str, dict[str, Any]] = {
     # -- capa estática ------------------------------------------------------
     "system": {"roles": ("system",), "marcadores": ()},
-    "tools": {"roles": (), "marcadores": (
-        "HERRAMIENTAS", "herramienta", "MCP", "editar_archivo",
-        "ejecutar_comando")},
+    "tools": {
+        "roles": (),
+        "marcadores": ("HERRAMIENTAS", "herramienta", "MCP", "editar_archivo", "ejecutar_comando"),
+    },
     # -- capa semi-estática -------------------------------------------------
     "claude_md": {"roles": (), "marcadores": ("CLAUDE.md", "SNAPCONTEXT.md")},
-    "graph_rag": {"roles": (), "marcadores": (
-        "GRAFO DE DEPENDENCIAS", "grafo de dependencias",
-        "dependencias inversas", "GRAPH_RAG", "mapa de dependencias")},
-    "reglas": {"roles": (), "marcadores": (
-        "reglas del repositorio", "REGLAS DEL REPOSITORIO", "permisos.json")},
+    "graph_rag": {
+        "roles": (),
+        "marcadores": (
+            "GRAFO DE DEPENDENCIAS",
+            "grafo de dependencias",
+            "dependencias inversas",
+            "GRAPH_RAG",
+            "mapa de dependencias",
+        ),
+    },
+    "reglas": {
+        "roles": (),
+        "marcadores": ("reglas del repositorio", "REGLAS DEL REPOSITORIO", "permisos.json"),
+    },
     # -- capa volátil -------------------------------------------------------
     "user_messages": {"roles": ("user", "assistant"), "marcadores": ()},
-    "tool_results": {"roles": ("tool",), "marcadores": (
-        "resultado de herramienta")},
-    "diffs": {"roles": (), "marcadores": (
-        "parche unificado", "unified diff", "diff --git")},
+    "tool_results": {"roles": ("tool",), "marcadores": ("resultado de herramienta")},
+    "diffs": {"roles": (), "marcadores": ("parche unificado", "unified diff", "diff --git")},
 }
 
 
-def _seccion_capas(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def _seccion_capas(config: dict[str, Any] | None) -> dict[str, Any]:
     """Extrae ``prompt_caching.capas`` de ``config`` (tolerante a errores).
 
     ``config`` acepta el dict completo de ``config.json`` o directamente la
@@ -104,7 +116,7 @@ def _seccion_capas(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return capas if isinstance(capas, dict) else {}
 
 
-def _nombres_capa(config: Optional[Dict[str, Any]], clave: str) -> List[str]:
+def _nombres_capa(config: dict[str, Any] | None, clave: str) -> list[str]:
     """Nombres de partes que componen la capa ``clave`` (con defectos)."""
     nombres = _seccion_capas(config).get(clave)
     if not isinstance(nombres, (list, tuple)) or not nombres:
@@ -125,23 +137,22 @@ def _mensaje_pertenece(mensaje: Any, nombre: str) -> bool:
     contenido = str(mensaje.get("content") or "")
     if not contenido:
         return False
-    return any(marcador in contenido or marcador.lower() in contenido.lower()
-               for marcador in regla["marcadores"])
+    return any(
+        marcador in contenido or marcador.lower() in contenido.lower()
+        for marcador in regla["marcadores"]
+    )
 
 
-def es_capa_estatica(mensaje: Any,
-                     config: Optional[Dict[str, Any]] = None) -> bool:
+def es_capa_estatica(mensaje: Any, config: dict[str, Any] | None = None) -> bool:
     """¿Pertenece ``mensaje`` a la capa estática (v6.31.0)?
 
     Capa estática = system prompt + definiciones de herramientas (por defecto:
     ``["system", "tools"]``; configurable en ``prompt_caching.capas``).
     """
-    return any(_mensaje_pertenece(mensaje, nombre)
-               for nombre in _nombres_capa(config, "estatica"))
+    return any(_mensaje_pertenece(mensaje, nombre) for nombre in _nombres_capa(config, "estatica"))
 
 
-def es_capa_semi_estatica(mensaje: Any,
-                          config: Optional[Dict[str, Any]] = None) -> bool:
+def es_capa_semi_estatica(mensaje: Any, config: dict[str, Any] | None = None) -> bool:
     """¿Pertenece ``mensaje`` a la capa semi-estática (v6.31.0)?
 
     Capa semi-estática = GraphRAG (mapa de dependencias), memoria del
@@ -149,27 +160,24 @@ def es_capa_semi_estatica(mensaje: Any,
     ``["claude_md", "graph_rag", "reglas"]``). Un mensaje que también encaje
     con la capa estática se considera estático (prioridad estática > semi).
     """
-    return (any(_mensaje_pertenece(mensaje, nombre)
-                for nombre in _nombres_capa(config, "semi_estatica"))
-            and not es_capa_estatica(mensaje, config))
+    return any(
+        _mensaje_pertenece(mensaje, nombre) for nombre in _nombres_capa(config, "semi_estatica")
+    ) and not es_capa_estatica(mensaje, config)
 
 
-def es_capa_volatil(mensaje: Any,
-                    config: Optional[Dict[str, Any]] = None) -> bool:
+def es_capa_volatil(mensaje: Any, config: dict[str, Any] | None = None) -> bool:
     """¿Pertenece ``mensaje`` a la capa volátil (v6.31.0)?
 
     Capa volátil = mensajes de usuario/asistente, resultados de herramientas,
     diffs de git y estado del sandbox: todo lo que NO es estático ni
     semi-estático (cambia en cada turno, no se cachea).
     """
-    return (not es_capa_estatica(mensaje, config)
-            and not es_capa_semi_estatica(mensaje, config))
+    return not es_capa_estatica(mensaje, config) and not es_capa_semi_estatica(mensaje, config)
 
 
 def clasificar_mensajes(
-        mensajes: List[Dict[str, Any]],
-        config: Optional[Dict[str, Any]] = None
-) -> Dict[str, List[Dict[str, Any]]]:
+    mensajes: list[dict[str, Any]], config: dict[str, Any] | None = None
+) -> dict[str, list[dict[str, Any]]]:
     """Reparte ``mensajes`` (lista plana) en las 3 capas (v6.31.0).
 
     Devuelve ``{"estatica": [...], "semi_estatica": [...], "volatil": [...]}``
@@ -179,14 +187,16 @@ def clasificar_mensajes(
     misma heurística que ``snapcontext._aplicar_cache_control``). Nunca muta
     ``mensajes``.
     """
-    resultado: Dict[str, List[Dict[str, Any]]] = {
-        "estatica": [], "semi_estatica": [], "volatil": []}
+    resultado: dict[str, list[dict[str, Any]]] = {
+        "estatica": [],
+        "semi_estatica": [],
+        "volatil": [],
+    }
     for indice, mensaje in enumerate(mensajes or []):
         copia = dict(mensaje) if isinstance(mensaje, dict) else mensaje
         if not isinstance(copia, dict):
-            continue                       # entradas no-dict: se ignoran
-        es_estatica = (es_capa_estatica(copia, config)
-                       or (indice == 0 and not copia.get("role")))
+            continue  # entradas no-dict: se ignoran
+        es_estatica = es_capa_estatica(copia, config) or (indice == 0 and not copia.get("role"))
         if es_estatica:
             resultado["estatica"].append(copia)
         elif es_capa_semi_estatica(copia, config):
@@ -205,7 +215,7 @@ def contar_tokens(texto: str) -> int:
     return max(len(texto) // 4, 0)
 
 
-def _normalizar_entrada(entrada: Any) -> List[Dict[str, Any]]:
+def _normalizar_entrada(entrada: Any) -> list[dict[str, Any]]:
     """Normaliza una entrada a lista de mensajes-dict (v6.31.0).
 
     Acepta:
@@ -227,11 +237,12 @@ def _normalizar_entrada(entrada: Any) -> List[Dict[str, Any]]:
 
 
 def ensamblar_prompt_estructurado(
-        sistema: Any,
-        contexto_estatico: Any,
-        contexto_semi_estatico: Any,
-        mensajes_recientes: Any,
-        config: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    sistema: Any,
+    contexto_estatico: Any,
+    contexto_semi_estatico: Any,
+    mensajes_recientes: Any,
+    config: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """Ensambla el prompt en orden estricto por capas (v6.31.0).
 
     Orden garantizado (prefijo idéntico entre peticiones → caché de la API):
@@ -250,12 +261,11 @@ def ensamblar_prompt_estructurado(
     devuelve una lista nueva. ``config`` (opcional) permite ajustar las capas
     vía ``prompt_caching.capas``.
     """
-    estatica = _normalizar_entrada(sistema) + _normalizar_entrada(
-        contexto_estatico)
+    estatica = _normalizar_entrada(sistema) + _normalizar_entrada(contexto_estatico)
     semi = _normalizar_entrada(contexto_semi_estatico)
     volatil = _normalizar_entrada(mensajes_recientes)
 
-    salida: List[Dict[str, Any]] = []
+    salida: list[dict[str, Any]] = []
     for mensaje in estatica:
         copia = dict(mensaje)
         copia["cache_control"] = dict(MARCA_EFEMERAL)
@@ -270,17 +280,17 @@ def ensamblar_prompt_estructurado(
 
 
 def metricas_capas(
-        mensajes: List[Dict[str, Any]],
-        config: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
+    mensajes: list[dict[str, Any]], config: dict[str, Any] | None = None
+) -> dict[str, int]:
     """Tokens estimados por capa (v6.31.0), para el modo ``--depurar``.
 
     Devuelve ``{"estatica": X, "semi_estatica": Y, "volatil": Z}`` usando la
     heurística 1 token ≈ 4 caracteres (misma de ``snapcontext._contar_tokens``).
     """
-    tokens: Dict[str, int] = {"estatica": 0, "semi_estatica": 0, "volatil": 0}
+    tokens: dict[str, int] = {"estatica": 0, "semi_estatica": 0, "volatil": 0}
     clasificados = clasificar_mensajes(mensajes, config)
     for clave, lista in clasificados.items():
         tokens[clave] = sum(
-            contar_tokens(str(m.get("content") or ""))
-            for m in lista if isinstance(m, dict))
+            contar_tokens(str(m.get("content") or "")) for m in lista if isinstance(m, dict)
+        )
     return tokens

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Pruning proactivo de contexto (v6.32.0) — edición quirúrgica del historial.
 
@@ -29,31 +28,42 @@ Sin configuración se usan los valores por defecto. Sin este módulo (el fichero
 no existe o falla) ``snapcontext`` mantiene el comportamiento actual sin poda.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 __all__ = [
-    "UMBRAL_LINEAS_DEFECTO",
     "TIPOS_PODABLES_DEFECTO",
+    "UMBRAL_LINEAS_DEFECTO",
+    "configuracion_pruning",
     "es_resultado_extenso",
-    "resumir_linea",
     "obtener_metadatos_clave",
     "prune_resultado",
-    "configuracion_pruning",
+    "resumir_linea",
 ]
 
 # Valores por defecto (sobrescribibles en config.json).
 UMBRAL_LINEAS_DEFECTO: int = 10
-TIPOS_PODABLES_DEFECTO: List[str] = [
-    "stdout", "stderr", "contenido", "diff", "texto",
+TIPOS_PODABLES_DEFECTO: list[str] = [
+    "stdout",
+    "stderr",
+    "contenido",
+    "diff",
+    "texto",
 ]
 
 # Metadatos que siempre se preservan (información crítica para el agente).
-METADATOS_CLAVE: List[str] = [
-    "ok", "codigo", "ruta", "comando", "error", "url", "total", "lineas",
+METADATOS_CLAVE: list[str] = [
+    "ok",
+    "codigo",
+    "ruta",
+    "comando",
+    "error",
+    "url",
+    "total",
+    "lineas",
 ]
 
 
-def configuracion_pruning(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def configuracion_pruning(config: dict[str, Any] | None = None) -> dict[str, Any]:
     """Devuelve la configuración efectiva de pruning (v6.32.0).
 
     Fusiona los valores por defecto con ``config["pruning"]`` si existe.
@@ -96,9 +106,10 @@ def _contar_lineas(valor: Any) -> int:
 
 
 def es_resultado_extenso(
-        resultado: Any,
-        umbral_lineas: int = UMBRAL_LINEAS_DEFECTO,
-        tipos_podables: Optional[List[str]] = None) -> bool:
+    resultado: Any,
+    umbral_lineas: int = UMBRAL_LINEAS_DEFECTO,
+    tipos_podables: list[str] | None = None,
+) -> bool:
     """Determina si un resultado de herramienta es extenso (v6.32.0).
 
     Evalúa los campos ``tipos_podables`` (por defecto: stdout, stderr,
@@ -109,16 +120,18 @@ def es_resultado_extenso(
         return False
     if not isinstance(umbral_lineas, int) or umbral_lineas < 1:
         umbral_lineas = UMBRAL_LINEAS_DEFECTO
-    tipos = tipos_podables if isinstance(tipos_podables, (list, tuple)) else list(TIPOS_PODABLES_DEFECTO)
+    tipos = (
+        tipos_podables
+        if isinstance(tipos_podables, (list, tuple))
+        else list(TIPOS_PODABLES_DEFECTO)
+    )
     for tipo in tipos:
         if tipo in resultado and _contar_lineas(resultado[tipo]) > umbral_lineas:
             return True
     return False
 
 
-def obtener_metadatos_clave(
-        resultado: dict,
-        tipo_herramienta: str = "") -> Dict[str, Any]:
+def obtener_metadatos_clave(resultado: dict, tipo_herramienta: str = "") -> dict[str, Any]:
     """Extrae los metadatos críticos de un resultado (v6.32.0).
 
     Preserva información esencial para la toma de decisiones del agente:
@@ -126,7 +139,7 @@ def obtener_metadatos_clave(
     """
     if not isinstance(resultado, dict):
         return {}
-    metadatos: Dict[str, Any] = {}
+    metadatos: dict[str, Any] = {}
     for clave in METADATOS_CLAVE:
         if clave in resultado:
             metadatos[clave] = resultado[clave]
@@ -138,10 +151,8 @@ def obtener_metadatos_clave(
 
 
 def resumir_linea(
-        texto: str,
-        max_lineas: int = 1,
-        usar_llm: bool = False,
-        proveedor_llm: Optional[Any] = None) -> str:
+    texto: str, max_lineas: int = 1, usar_llm: bool = False, proveedor_llm: Any | None = None
+) -> str:
     """Genera un resumen de una línea (v6.32.0).
 
     Si ``usar_llm`` es ``True`` y ``proveedor_llm`` está disponible, delega
@@ -167,7 +178,7 @@ def resumir_linea(
     return f"{primera} (y {restantes} líneas más)"
 
 
-def _resumir_con_llm(texto: str, proveedor_llm: Any) -> Optional[str]:
+def _resumir_con_llm(texto: str, proveedor_llm: Any) -> str | None:
     """Genera un resumen de una línea vía LLM (v6.32.0)."""
     if proveedor_llm is None:
         return None
@@ -183,8 +194,7 @@ def _resumir_con_llm(texto: str, proveedor_llm: Any) -> Optional[str]:
         return str(resultado) if resultado else None
     if hasattr(proveedor_llm, "_llamar_llm"):
         try:
-            resultado = proveedor_llm._llamar_llm(
-                [{"role": "user", "content": pedido}], timeout=60)
+            resultado = proveedor_llm._llamar_llm([{"role": "user", "content": pedido}], timeout=60)
             return str(resultado) if resultado else None
         except Exception:
             return None
@@ -192,12 +202,13 @@ def _resumir_con_llm(texto: str, proveedor_llm: Any) -> Optional[str]:
 
 
 def prune_resultado(
-        resultado: dict,
-        tipo_herramienta: str = "",
-        umbral_lineas: int = UMBRAL_LINEAS_DEFECTO,
-        usar_llm: bool = False,
-        proveedor_llm: Optional[Any] = None,
-        tipos_podables: Optional[List[str]] = None) -> dict:
+    resultado: dict,
+    tipo_herramienta: str = "",
+    umbral_lineas: int = UMBRAL_LINEAS_DEFECTO,
+    usar_llm: bool = False,
+    proveedor_llm: Any | None = None,
+    tipos_podables: list[str] | None = None,
+) -> dict:
     """Poda un resultado de herramienta (v6.32.0).
 
     Si el resultado es extenso, reemplaza cada campo podable por un resumen
@@ -207,12 +218,16 @@ def prune_resultado(
     """
     if not isinstance(resultado, dict):
         return resultado
-    tipos = tipos_podables if isinstance(tipos_podables, (list, tuple)) else list(TIPOS_PODABLES_DEFECTO)
+    tipos = (
+        tipos_podables
+        if isinstance(tipos_podables, (list, tuple))
+        else list(TIPOS_PODABLES_DEFECTO)
+    )
     if not es_resultado_extenso(resultado, umbral_lineas, tipos):
         return resultado
     podado = dict(resultado)
     metadatos = obtener_metadatos_clave(podado, tipo_herramienta)
-    lineas_resumen: List[str] = []
+    lineas_resumen: list[str] = []
     for tipo in tipos:
         valor = podado.get(tipo)
         if valor is None:
@@ -224,9 +239,9 @@ def prune_resultado(
             texto_valor = "\n".join(str(v) for v in valor)
         else:
             texto_valor = str(valor)
-        resumen = resumir_linea(texto_valor, max_lineas=1,
-                                usar_llm=usar_llm,
-                                proveedor_llm=proveedor_llm)
+        resumen = resumir_linea(
+            texto_valor, max_lineas=1, usar_llm=usar_llm, proveedor_llm=proveedor_llm
+        )
         podado[tipo] = resumen if resumen else f"(salida de {n_lineas} líneas podada)"
         lineas_resumen.append(f"{tipo}: {podado[tipo]}")
     podado["_pruned"] = True

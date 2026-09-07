@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la v1.6.0: mejoras de la interfaz web (Monaco, D3, UX)."""
 
 import sys
@@ -61,7 +60,7 @@ class TestFrontendV160(unittest.TestCase):
         self.assertIn("classed('atenuado'", self.html)
 
     def test_resultados_con_boton_abrir(self):
-        self.assertIn("Abrir", self.html)          # botón por archivo
+        self.assertIn("Abrir", self.html)  # botón por archivo
         self.assertIn("className='ruta'", self.html)
 
     def test_accion_generar_tests(self):
@@ -70,7 +69,7 @@ class TestFrontendV160(unittest.TestCase):
 
     def test_descripciones_en_acciones(self):
         # Cada botón de acción rápida lleva tooltip descriptivo (title=).
-        self.assertGreaterEqual(self.html.count("<button class=\"accion\" title=\""), 7)
+        self.assertGreaterEqual(self.html.count('<button class="accion" title="'), 7)
 
 
 class TestGrafoParaFiltros(unittest.TestCase):
@@ -83,8 +82,7 @@ class TestGrafoParaFiltros(unittest.TestCase):
             py.write_text("from utils import h\n", encoding="utf-8")
             js.write_text("import './cliente.js';\n", encoding="utf-8")
             (Path(tmp) / "utils.py").write_text("# u\n", encoding="utf-8")
-            (Path(tmp) / "cliente.js").write_text("export default {};\n",
-                                                  encoding="utf-8")
+            (Path(tmp) / "cliente.js").write_text("export default {};\n", encoding="utf-8")
             grafo = sc._grafo_dependencias(tmp)
             lenguajes = {n["id"]: n.get("lenguaje") for n in grafo["nodos"]}
             self.assertEqual(lenguajes["app.py"], "python")

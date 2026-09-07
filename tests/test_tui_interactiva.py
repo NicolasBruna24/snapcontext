@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests para TUI interactiva (v6.27.0)."""
 
 import os
@@ -14,11 +13,13 @@ class TestFormatoPasos(unittest.TestCase):
 
     def test_esquema_pasos_a_texto_vacio(self):
         import tui_interactiva as ti
+
         resultado = ti.esquema_pasos_a_texto([])
         self.assertEqual(resultado, "")
 
     def test_esquema_pasos_a_texto_un_paso(self):
         import tui_interactiva as ti
+
         pasos = [{"descripcion": "Paso 1", "estado": "pendiente"}]
         resultado = ti.esquema_pasos_a_texto(pasos)
         self.assertIn("Paso 1", resultado)
@@ -26,6 +27,7 @@ class TestFormatoPasos(unittest.TestCase):
 
     def test_esquema_pasos_a_texto_varios_pasos(self):
         import tui_interactiva as ti
+
         pasos = [
             {"descripcion": "Paso A", "estado": "completado"},
             {"descripcion": "Paso B", "estado": "en_progreso"},
@@ -38,11 +40,13 @@ class TestFormatoPasos(unittest.TestCase):
 
     def test_texto_a_esquema_pasos_vacio(self):
         import tui_interactiva as ti
+
         resultado = ti.texto_a_esquema_pasos("")
         self.assertEqual(resultado, [])
 
     def test_texto_a_esquema_pasos_una_linea(self):
         import tui_interactiva as ti
+
         texto = "1. [pendiente] Hacer algo"
         resultado = ti.texto_a_esquema_pasos(texto)
         self.assertEqual(len(resultado), 1)
@@ -50,12 +54,14 @@ class TestFormatoPasos(unittest.TestCase):
 
     def test_texto_a_esquema_pasos_completado(self):
         import tui_interactiva as ti
+
         texto = "1. [completado] Tarea hecha"
         resultado = ti.texto_a_esquema_pasos(texto)
         self.assertEqual(resultado[0]["estado"], "completado")
 
     def test_texto_a_esquema_pasos_en_progreso(self):
         import tui_interactiva as ti
+
         texto = "1. [en_progreso] Tarea en curso"
         resultado = ti.texto_a_esquema_pasos(texto)
         self.assertEqual(resultado[0]["estado"], "en_progreso")
@@ -66,11 +72,13 @@ class TestFormatoGrafo(unittest.TestCase):
 
     def test_grafo_a_texto_vacio(self):
         import tui_interactiva as ti
+
         resultado = ti.grafo_a_texto({})
         self.assertEqual(resultado, "(grafo vacio)")
 
     def test_grafo_a_texto_con_nodos(self):
         import tui_interactiva as ti
+
         grafo = {
             "nodos": {
                 "archivo.py::funcion_a": {"tipo": "funcion"},
@@ -83,6 +91,7 @@ class TestFormatoGrafo(unittest.TestCase):
 
     def test_grafo_a_texto_con_aristas(self):
         import tui_interactiva as ti
+
         grafo = {
             "aristas": [
                 {"origen": "a.py::f", "destino": "b.py::g"},
@@ -94,6 +103,7 @@ class TestFormatoGrafo(unittest.TestCase):
 
     def test_grafo_a_texto_sin_expandir(self):
         import tui_interactiva as ti
+
         grafo = {
             "nodos": {
                 "archivo.py::funcion_a": {"tipo": "funcion"},
@@ -108,23 +118,27 @@ class TestValidarPaso(unittest.TestCase):
 
     def test_paso_valido(self):
         import tui_interactiva as ti
+
         valido, error = ti.validar_paso({"descripcion": "Hacer algo"})
         self.assertTrue(valido)
         self.assertEqual(error, "")
 
     def test_paso_sin_descripcion(self):
         import tui_interactiva as ti
+
         valido, error = ti.validar_paso({"estado": "pendiente"})
         self.assertFalse(valido)
         self.assertIn("descripcion", error.lower())
 
     def test_paso_no_es_dict(self):
         import tui_interactiva as ti
+
         valido, error = ti.validar_paso("no es dict")
         self.assertFalse(valido)
 
     def test_paso_descripcion_larga(self):
         import tui_interactiva as ti
+
         valido, error = ti.validar_paso({"descripcion": "x" * 501})
         self.assertFalse(valido)
         self.assertIn("larga", error.lower())
@@ -135,6 +149,7 @@ class TestTUIFlags(unittest.TestCase):
 
     def test_flag_tui_plan_editor_existe(self):
         import snapcontext as sc
+
         parser = sc.crear_parser()
         args = parser.parse_args(["--tui", "test"])
         self.assertTrue(hasattr(args, "tui_plan_editor"))
@@ -142,12 +157,14 @@ class TestTUIFlags(unittest.TestCase):
 
     def test_flag_no_tui_plan_editor(self):
         import snapcontext as sc
+
         parser = sc.crear_parser()
         args = parser.parse_args(["--tui", "--no-tui-plan-editor", "test"])
         self.assertFalse(args.tui_plan_editor)
 
     def test_flag_tui_grafo_existe(self):
         import snapcontext as sc
+
         parser = sc.crear_parser()
         args = parser.parse_args(["--tui", "test"])
         self.assertTrue(hasattr(args, "tui_grafo"))
@@ -155,6 +172,7 @@ class TestTUIFlags(unittest.TestCase):
 
     def test_flag_no_tui_grafo(self):
         import snapcontext as sc
+
         parser = sc.crear_parser()
         args = parser.parse_args(["--tui", "--no-tui-grafo", "test"])
         self.assertFalse(args.tui_grafo)

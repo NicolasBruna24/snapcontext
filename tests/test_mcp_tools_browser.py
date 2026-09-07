@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests para mcp_tools_browser.py — navegador MCP (v6.10.0).
 
 Ejecuta con:
@@ -44,10 +43,10 @@ class BaseBrowserTest(unittest.TestCase):
 
     def _con_pagina(self):
         """Parchea el arranque para devolver la página simulada."""
-        return (patch.object(btool, "_asegurar_navegador",
-                             return_value=self._pagina),
-                patch.object(btool, "_importar_playwright",
-                             return_value=True))
+        return (
+            patch.object(btool, "_asegurar_navegador", return_value=self._pagina),
+            patch.object(btool, "_importar_playwright", return_value=True),
+        )
 
 
 class TestGestionSesion(BaseBrowserTest):
@@ -74,9 +73,11 @@ class TestGestionSesion(BaseBrowserTest):
         navegador = MagicMock()
         contexto = MagicMock()
         pw = MagicMock()
-        with patch.object(btool, "_NAVEGADOR", navegador, create=True), \
-             patch.object(btool, "_CONTEXTO", contexto, create=True), \
-             patch.object(btool, "_PLAYWRIGHT", pw, create=True):
+        with (
+            patch.object(btool, "_NAVEGADOR", navegador, create=True),
+            patch.object(btool, "_CONTEXTO", contexto, create=True),
+            patch.object(btool, "_PLAYWRIGHT", pw, create=True),
+        ):
             btool.browser_cerrar()
         navegador.close.assert_called_once()
         contexto.close.assert_called_once()
@@ -85,8 +86,10 @@ class TestGestionSesion(BaseBrowserTest):
         self.assertIsNone(btool._PAGINA)
 
     def test_navegador_vivo_false_sin_pagina(self):
-        with patch.object(btool, "_PAGINA", None, create=True), \
-             patch.object(btool, "_NAVEGADOR", None, create=True):
+        with (
+            patch.object(btool, "_PAGINA", None, create=True),
+            patch.object(btool, "_NAVEGADOR", None, create=True),
+        ):
             self.assertFalse(btool._navegador_vivo())
 
 
@@ -102,8 +105,7 @@ class TestBrowserAbrir(BaseBrowserTest):
     def test_abrir_con_wait_for(self):
         p1, p2 = self._con_pagina()
         with p1, p2:
-            r = btool.browser_abrir("http://localhost:3000",
-                                    wait_for="#app")
+            r = btool.browser_abrir("http://localhost:3000", wait_for="#app")
         self.assertTrue(r["ok"])
         self._pagina.wait_for_selector.assert_called_once()
 
@@ -155,8 +157,7 @@ class TestBrowserScreenshot(BaseBrowserTest):
         self.assertIn("no encontrado", r["error"])
 
     def test_screenshot_navega_primero(self):
-        with patch.object(btool, "browser_abrir",
-                          return_value={"ok": False, "error": "x"}) as m:
+        with patch.object(btool, "browser_abrir", return_value={"ok": False, "error": "x"}) as m:
             r = btool.browser_screenshot(url="http://malo")
         m.assert_called_once()
         self.assertFalse(r["ok"])
@@ -191,8 +192,7 @@ class TestBrowserInteraccion(BaseBrowserTest):
         p1, p2 = self._con_pagina()
         with p1, p2:
             r = btool.browser_type("#usuario", "ana")
-        self._pagina.fill.assert_called_once_with("#usuario", "ana",
-                                                  timeout=10000)
+        self._pagina.fill.assert_called_once_with("#usuario", "ana", timeout=10000)
         self.assertTrue(r["ok"])
         self.assertEqual(r["texto"], "ana")
 
@@ -218,37 +218,37 @@ class TestMultimodalidad(BaseBrowserTest):
     def test_sin_vision_error_claro(self):
         p1, p2 = self._con_pagina()
         with p1, p2:
-            with patch.object(btool, "modelo_soporta_vision",
-                              return_value=False):
+            with patch.object(btool, "modelo_soporta_vision", return_value=False):
                 r = btool.browser_analizar_imagen("aG9sYQ==", "¿qué ves?")
         self.assertFalse(r["ok"])
         self.assertIn("visión", r["error"])
 
     def test_imagen_vacia(self):
-        with patch.object(btool, "modelo_soporta_vision",
-                          return_value=True):
+        with patch.object(btool, "modelo_soporta_vision", return_value=True):
             r = btool.browser_analizar_imagen("", "¿qué ves?")
         self.assertFalse(r["ok"])
 
     def test_soporta_vision_gemini(self):
-        self.assertTrue(btool.modelo_soporta_vision("gemini",
-                                                    "gemini-2.5-pro"))
+        self.assertTrue(btool.modelo_soporta_vision("gemini", "gemini-2.5-pro"))
 
     def test_soporta_vision_claude(self):
-        self.assertTrue(btool.modelo_soporta_vision("anthropic",
-                                                    "claude-3-7-sonnet"))
+        self.assertTrue(btool.modelo_soporta_vision("anthropic", "claude-3-7-sonnet"))
 
     def test_no_soporta_vision_otros(self):
-        self.assertFalse(btool.modelo_soporta_vision("deepseek",
-                                                     "deepseek-chat"))
+        self.assertFalse(btool.modelo_soporta_vision("deepseek", "deepseek-chat"))
 
     def test_registro_en_mcp(self):
         herramientas: dict = {}
         btool.registrar_en(herramientas)
-        for esperada in ("browser_abrir", "browser_screenshot",
-                         "browser_click", "browser_type",
-                         "browser_get_text", "browser_analizar_imagen",
-                         "browser_cerrar"):
+        for esperada in (
+            "browser_abrir",
+            "browser_screenshot",
+            "browser_click",
+            "browser_type",
+            "browser_get_text",
+            "browser_analizar_imagen",
+            "browser_cerrar",
+        ):
             self.assertIn(esperada, herramientas)
 
 
@@ -257,17 +257,24 @@ class TestIntegracionReAct(BaseBrowserTest):
 
     def _agente(self):
         import react_agent as ra
+
         with patch.object(ra.ReactAgent, "_pedir_decision", lambda *a: None):
-            return ra.ReactAgent(directorio=".", auto=True, max_iter=1,
-                                 proveedor="gemini",
-                                 modelo="gemini-2.5-pro")
+            return ra.ReactAgent(
+                directorio=".", auto=True, max_iter=1, proveedor="gemini", modelo="gemini-2.5-pro"
+            )
 
     def test_herramientas_browser_registradas(self):
         agente = self._agente()
         import react_agent as ra
-        for accion in ("browser_abrir", "browser_screenshot",
-                       "browser_click", "browser_type",
-                       "browser_get_text", "browser_analizar_imagen"):
+
+        for accion in (
+            "browser_abrir",
+            "browser_screenshot",
+            "browser_click",
+            "browser_type",
+            "browser_get_text",
+            "browser_analizar_imagen",
+        ):
             self.assertIn(accion, agente.herramientas)
             self.assertIn(accion, ra.ReactAgent.ACCIONES_VALIDAS)
 
@@ -275,8 +282,7 @@ class TestIntegracionReAct(BaseBrowserTest):
         agente = self._agente()
         p1, p2 = self._con_pagina()
         with p1, p2:
-            r = agente._ejecutar_accion("browser_abrir",
-                                        {"url": "http://localhost:3000"})
+            r = agente._ejecutar_accion("browser_abrir", {"url": "http://localhost:3000"})
         self.assertTrue(r["ok"])
         self.assertEqual(r["titulo"], "Mi App")
 
@@ -290,9 +296,7 @@ class TestIntegracionReAct(BaseBrowserTest):
         agente.proveedor = "deepseek"
         p1, p2 = self._con_pagina()
         with p1, p2:
-            with patch.object(btool, "modelo_soporta_vision",
-                              return_value=False):
+            with patch.object(btool, "modelo_soporta_vision", return_value=False):
                 r = agente._ejecutar_accion("browser_screenshot", {})
         self.assertTrue(r["ok"])
         self.assertNotIn("analisis", r)
-

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests del ejecutor genérico en paralelo (v6.20.0)."""
 
 import argparse
@@ -14,9 +13,9 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import parallel_executor as pe            # noqa: E402
-import snapcontext as sc                  # noqa: E402
-import ui                                 # noqa: E402
+import parallel_executor as pe
+import snapcontext as sc
+import ui
 
 
 def _silencio():
@@ -24,8 +23,12 @@ def _silencio():
 
 
 def _tarea(nombre, funcion=None, dependencias=None, **kwargs):
-    return {"nombre": nombre, "funcion": funcion or (lambda: "ok"),
-            "dependencias": dependencias or [], **kwargs}
+    return {
+        "nombre": nombre,
+        "funcion": funcion or (lambda: "ok"),
+        "dependencias": dependencias or [],
+        **kwargs,
+    }
 
 
 class TestResolverWorkers(unittest.TestCase):
@@ -54,26 +57,24 @@ class TestEjecutarTarea(unittest.TestCase):
     def test_excepcion_capturada(self):
         def explota():
             raise ValueError("boom")
+
         res = pe._ejecutar_tarea(_tarea("a", explota))
         self.assertFalse(res["ok"])
         self.assertIn("boom", res["error"])
 
     def test_args_y_kwargs(self):
-        res = pe._ejecutar_tarea(
-            _tarea("a", lambda x, y=0: x + y, args=(2,), kwargs={"y": 3}))
+        res = pe._ejecutar_tarea(_tarea("a", lambda x, y=0: x + y, args=(2,), kwargs={"y": 3}))
         self.assertEqual(res["resultado"], 5)
 
 
 class TestParaleloSimple(unittest.TestCase):
     def test_lista_vacia(self):
-        self.assertEqual(
-            pe.ParallelExecutor(4).ejecutar_paralelo([]), [])
+        self.assertEqual(pe.ParallelExecutor(4).ejecutar_paralelo([]), [])
 
     def test_orden_de_resultados_preservado(self):
         tareas = [_tarea(f"t{i}", lambda i=i: i) for i in range(6)]
         res = pe.ParallelExecutor(4).ejecutar_paralelo(tareas)
-        self.assertEqual([r["nombre"] for r in res],
-                         [f"t{i}" for i in range(6)])
+        self.assertEqual([r["nombre"] for r in res], [f"t{i}" for i in range(6)])
         self.assertEqual([r["resultado"] for r in res], list(range(6)))
 
     def test_un_solo_trabajador_es_secuencial(self):
@@ -85,6 +86,7 @@ class TestParaleloSimple(unittest.TestCase):
     def test_excepcion_no_aborta_al_resto(self):
         def explota():
             raise RuntimeError("kaboom")
+
         tareas = [_tarea("mala", explota), _tarea("buena", lambda: 1)]
         res = pe.ParallelExecutor(4).ejecutar_paralelo(tareas)
         self.assertFalse(res[0]["ok"])
@@ -97,8 +99,7 @@ class TestParaleloSimple(unittest.TestCase):
         def trabajoso():
             with candado:
                 en_ejecucion["actual"] += 1
-                en_ejecucion["max"] = max(en_ejecucion["max"],
-                                          en_ejecucion["actual"])
+                en_ejecucion["max"] = max(en_ejecucion["max"], en_ejecucion["actual"])
             time.sleep(0.05)
             with candado:
                 en_ejecucion["actual"] -= 1
@@ -112,12 +113,13 @@ class TestParaleloSimple(unittest.TestCase):
         def lento():
             time.sleep(0.15)
             return True
+
         tareas = [_tarea(f"t{i}", lento) for i in range(4)]
         inicio = time.monotonic()
         res = pe.ParallelExecutor(4).ejecutar_paralelo(tareas)
         duracion = time.monotonic() - inicio
         self.assertTrue(all(r["ok"] for r in res))
-        self.assertLess(duracion, 0.55)   # secuencial sería ~0.6
+        self.assertLess(duracion, 0.55)  # secuencial sería ~0.6
 
 
 class TestDependencias(unittest.TestCase):
@@ -125,8 +127,7 @@ class TestDependencias(unittest.TestCase):
         orden = []
         tareas = [
             _tarea("primera", lambda: orden.append("a") or "A"),
-            _tarea("segunda", lambda: orden.append("b") or "B",
-                   dependencias=["primera"]),
+            _tarea("segunda", lambda: orden.append("b") or "B", dependencias=["primera"]),
         ]
         res = pe.ParallelExecutor(4).ejecutar_paralelo(tareas)
         self.assertEqual(orden, ["a", "b"])
@@ -135,11 +136,11 @@ class TestDependencias(unittest.TestCase):
     def test_dependencia_fallida_omite_dependiente(self):
         def explota():
             raise RuntimeError("fallo base")
+
         ejecutada = []
         tareas = [
             _tarea("base", explota),
-            _tarea("dependiente", lambda: ejecutada.append(1),
-                   dependencias=["base"]),
+            _tarea("dependiente", lambda: ejecutada.append(1), dependencias=["base"]),
         ]
         res = pe.ParallelExecutor(4).ejecutar_paralelo(tareas)
         self.assertEqual(ejecutada, [])
@@ -150,6 +151,7 @@ class TestDependencias(unittest.TestCase):
     def test_fallo_transitivo_omite_nietos(self):
         def explota():
             raise RuntimeError("raiz")
+
         tareas = [
             _tarea("raiz", explota),
             _tarea("media", lambda: "ok", dependencias=["raiz"]),
@@ -181,16 +183,13 @@ class TestDependencias(unittest.TestCase):
 class TestMensajesUsuario(unittest.TestCase):
     def test_mensaje_inicio_paralelo(self):
         buf = io.StringIO()
-        with mock.patch.object(ui, "mostrar_estado",
-                               side_effect=lambda m, emoji="": buf.write(m)):
-            pe.ParallelExecutor(4).ejecutar_paralelo(
-                [_tarea("a"), _tarea("b")])
+        with mock.patch.object(ui, "mostrar_estado", side_effect=lambda m, emoji="": buf.write(m)):
+            pe.ParallelExecutor(4).ejecutar_paralelo([_tarea("a"), _tarea("b")])
         self.assertIn("🚀 Ejecutando 2 tareas en paralelo", buf.getvalue())
 
     def test_mensaje_tarea_completada(self):
         buf = io.StringIO()
-        with mock.patch.object(ui, "mostrar_estado",
-                               side_effect=lambda m, emoji="": buf.write(m)):
+        with mock.patch.object(ui, "mostrar_estado", side_effect=lambda m, emoji="": buf.write(m)):
             pe.ParallelExecutor(4).ejecutar_paralelo([_tarea("scout")])
         self.assertIn("✅ Tarea scout completada", buf.getvalue())
 
@@ -199,16 +198,14 @@ class TestMensajesUsuario(unittest.TestCase):
 
         def explota():
             raise RuntimeError("boom")
-        with mock.patch.object(ui, "mostrar_error",
-                               side_effect=lambda m: buf.write(m)):
-            pe.ParallelExecutor(4).ejecutar_paralelo(
-                [_tarea("debugger", explota)])
+
+        with mock.patch.object(ui, "mostrar_error", side_effect=lambda m: buf.write(m)):
+            pe.ParallelExecutor(4).ejecutar_paralelo([_tarea("debugger", explota)])
         self.assertIn("❌ Tarea debugger falló", buf.getvalue())
 
     def test_modo_secuencial_anuncia_tarea_a_tarea(self):
         buf = io.StringIO()
-        with mock.patch.object(ui, "mostrar_estado",
-                               side_effect=lambda m, emoji="": buf.write(m)):
+        with mock.patch.object(ui, "mostrar_estado", side_effect=lambda m, emoji="": buf.write(m)):
             pe.ParallelExecutor(1).ejecutar_paralelo([_tarea("a")])
         self.assertIn("✅ Tarea a completada", buf.getvalue())
 
@@ -216,24 +213,22 @@ class TestMensajesUsuario(unittest.TestCase):
 class TestIntegracionSupervisorYCLI(unittest.TestCase):
     def _supervisor(self, max_parallel):
         import multi_agent as ma
-        with mock.patch.object(sc, "cargar_configuracion",
-                               return_value={"provider": "mock"}):
-            return ma.Supervisor(tarea="t", auto=True,
-                                 max_parallel=max_parallel)
+
+        with mock.patch.object(sc, "cargar_configuracion", return_value={"provider": "mock"}):
+            return ma.Supervisor(tarea="t", auto=True, max_parallel=max_parallel)
 
     def test_supervisor_delega_en_parallel_executor(self):
         sup = self._supervisor(max_parallel=3)
-        with mock.patch.object(pe.ParallelExecutor, "ejecutar_paralelo",
-                               return_value=[{"nombre": "x", "ok": True}]) \
-                as llamado:
+        with mock.patch.object(
+            pe.ParallelExecutor, "ejecutar_paralelo", return_value=[{"nombre": "x", "ok": True}]
+        ) as llamado:
             res = sup.ejecutar_tareas_paralelo([_tarea("x")])
         llamado.assert_called_once()
         self.assertEqual(res[0]["nombre"], "x")
 
     def test_supervisor_respeta_max_parallel(self):
         sup = self._supervisor(max_parallel=2)
-        with mock.patch.object(pe, "ParallelExecutor",
-                               wraps=pe.ParallelExecutor) as cls:
+        with mock.patch.object(pe, "ParallelExecutor", wraps=pe.ParallelExecutor) as cls:
             sup.ejecutar_tareas_paralelo([_tarea("x")])
             cls.assert_called_once_with(max_workers=2)
 
@@ -253,30 +248,43 @@ class TestIntegracionSupervisorYCLI(unittest.TestCase):
 
     def test_plan_paralelo_cero_resuelve_a_nucleos(self):
         args = argparse.Namespace(
-            paralelo=0, auto=True, git_commit=False, git_mensaje=None,
-            react=False, tui=False, consulta="tarea", mostrar_razonamiento=False,
-            sandbox_session=False, web_interactive=False, browser=False,
-            browser_headed=False, lsp=False, branch=None, directorio=".",
-            provider=None, modelo=None, plan_confirmar=False, sub_agents=False)
+            paralelo=0,
+            auto=True,
+            git_commit=False,
+            git_mensaje=None,
+            react=False,
+            tui=False,
+            consulta="tarea",
+            mostrar_razonamiento=False,
+            sandbox_session=False,
+            web_interactive=False,
+            browser=False,
+            browser_headed=False,
+            lsp=False,
+            branch=None,
+            directorio=".",
+            provider=None,
+            modelo=None,
+            plan_confirmar=False,
+            sub_agents=False,
+        )
         captured = {}
 
         def falso_plan(pasos, args_, raiz, max_hilos):
             captured["max_hilos"] = max_hilos
             return []
 
-        pasos = [{"paso": 1, "descripcion": "x", "accion": "leer",
-                  "argumentos": {"ruta": "a"}}]
-        with mock.patch.object(sc, "_generar_plan", return_value=pasos), \
-                mock.patch.object(sc, "_ejecutar_plan_en_paralelo",
-                                  side_effect=falso_plan), \
-                mock.patch.object(sc, "_destruir_sesion_si_aplica"), \
-                mock.patch.object(sc, "_graph_rag_activo",
-                                  return_value=False), \
-                mock.patch.object(sc, "_contexto_plan_reiniciar"):
+        pasos = [{"paso": 1, "descripcion": "x", "accion": "leer", "argumentos": {"ruta": "a"}}]
+        with (
+            mock.patch.object(sc, "_generar_plan", return_value=pasos),
+            mock.patch.object(sc, "_ejecutar_plan_en_paralelo", side_effect=falso_plan),
+            mock.patch.object(sc, "_destruir_sesion_si_aplica"),
+            mock.patch.object(sc, "_graph_rag_activo", return_value=False),
+            mock.patch.object(sc, "_contexto_plan_reiniciar"),
+        ):
             sc._ejecutar_planificador(args)
         self.assertGreaterEqual(captured.get("max_hilos", 0), 2)
 
 
 if __name__ == "__main__":
     unittest.main()
-

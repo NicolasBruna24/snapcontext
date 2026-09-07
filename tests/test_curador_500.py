@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la v5.0.0: curador proactivo (motor de refactorización autónoma).
 
 Cubre: migración de BD, registro de métricas, evaluación de candidatos,
@@ -17,8 +16,8 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import snapcontext as sc          # noqa: E402
-import curador_proactivo as cp    # noqa: E402
+import curador_proactivo as cp
+import snapcontext as sc
 
 
 class BaseCurador500(unittest.TestCase):
@@ -29,8 +28,7 @@ class BaseCurador500(unittest.TestCase):
         self.dir_tmp = self.tmp.name
         self.parches = [
             mock.patch.object(sc, "CONFIG_DIR", self.dir_tmp),
-            mock.patch.object(sc, "DB_PATH",
-                              os.path.join(self.dir_tmp, "memoria.db")),
+            mock.patch.object(sc, "DB_PATH", os.path.join(self.dir_tmp, "memoria.db")),
         ]
         for p in self.parches:
             p.start()
@@ -43,16 +41,33 @@ class BaseCurador500(unittest.TestCase):
     def tearDown(self):
         sc._db_cerrar()
 
-    def _sembrar(self, nombre="skill_pesado", consulta="Hacer una tarea "
-                 "compleja paso a paso con muchos detalles",
-                 usos=10, exitos=2, fallos=8, tokens=2000,
-                 tiempo_ms=900, version=1):
+    def _sembrar(
+        self,
+        nombre="skill_pesado",
+        consulta="Hacer una tarea compleja paso a paso con muchos detalles",
+        usos=10,
+        exitos=2,
+        fallos=8,
+        tokens=2000,
+        tiempo_ms=900,
+        version=1,
+    ):
         sid = sc._db_insert(
             "INSERT INTO skills (nombre, consulta, creado, usos, exitos, "
             "fallos, tokens_promedio, tiempo_promedio_ms, version, activo) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
-            (nombre, consulta, "2026-08-26T00:00:00", usos, exitos, fallos,
-             tokens, tiempo_ms, version))
+            (
+                nombre,
+                consulta,
+                "2026-08-26T00:00:00",
+                usos,
+                exitos,
+                fallos,
+                tokens,
+                tiempo_ms,
+                version,
+            ),
+        )
         return sid
 
     def _salida(self, funcion, *args, **kwargs):
@@ -65,11 +80,19 @@ class BaseCurador500(unittest.TestCase):
 class TestMigracion(BaseCurador500):
     def test_migracion_crea_columnas_y_historial(self):
         columnas = {f["name"] for f in sc._db_query("PRAGMA table_info(skills)")}
-        esperadas = {"exitos", "fallos", "tokens_promedio",
-                     "tiempo_promedio_ms", "ultimo_uso", "version", "activo"}
+        esperadas = {
+            "exitos",
+            "fallos",
+            "tokens_promedio",
+            "tiempo_promedio_ms",
+            "ultimo_uso",
+            "version",
+            "activo",
+        }
         self.assertLessEqual(esperadas, columnas)
-        tablas = {f["name"] for f in sc._db_query(
-            "SELECT name FROM sqlite_master WHERE type = 'table'")}
+        tablas = {
+            f["name"] for f in sc._db_query("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
         self.assertIn("historial_skills", tablas)
 
     def test_migracion_es_idempotente(self):
@@ -83,8 +106,7 @@ class TestMigracion(BaseCurador500):
 
 class TestMetricas(BaseCurador500):
     def test_registro_exito_actualiza_medias(self):
-        sid = self._sembrar(usos=9, exitos=9, fallos=0, tokens=100,
-                            tiempo_ms=100)
+        sid = self._sembrar(usos=9, exitos=9, fallos=0, tokens=100, tiempo_ms=100)
         nueva_conf = sc._skill_registrar_exito(sid, tokens=200, tiempo_ms=300)
         fila = sc._db_query("SELECT * FROM skills WHERE id = ?", (sid,))[0]
         self.assertEqual(fila["usos"], 10)
@@ -96,11 +118,10 @@ class TestMetricas(BaseCurador500):
         self.assertGreaterEqual(nueva_conf, 0.6)
 
     def test_registro_fallo_penaliza(self):
-        sid = self._sembrar(usos=4, exitos=4, fallos=0, tokens=100,
-                            tiempo_ms=100)
-        conf_antes = sc._db_query(
-            "SELECT confiabilidad FROM skills WHERE id = ?",
-            (sid,))[0]["confiabilidad"]
+        sid = self._sembrar(usos=4, exitos=4, fallos=0, tokens=100, tiempo_ms=100)
+        conf_antes = sc._db_query("SELECT confiabilidad FROM skills WHERE id = ?", (sid,))[0][
+            "confiabilidad"
+        ]
         sc._skill_registrar_fallo(sid, tokens=100, tiempo_ms=100)
         fila = sc._db_query("SELECT * FROM skills WHERE id = ?", (sid,))[0]
         self.assertEqual(fila["usos"], 5)
@@ -132,55 +153,59 @@ class TestRefactorizacion(BaseCurador500):
 
     def test_prompt_identico_se_rechaza(self):
         sid = self._sembrar(usos=10, fallos=5)
-        consulta = sc._db_query("SELECT consulta FROM skills WHERE id = ?",
-                                (sid,))[0]["consulta"]
+        consulta = sc._db_query("SELECT consulta FROM skills WHERE id = ?", (sid,))[0]["consulta"]
         with mock.patch.object(cp, "_llm_reescribir", return_value=consulta):
             r = cp.refactorizar_skill(sid)
-        self.assertFalse(r["ok"])                 # sin cambios → no guarda
-        self.assertEqual(sc._db_query(
-            "SELECT version FROM skills WHERE id = ?", (sid,))[0]["version"], 1)
+        self.assertFalse(r["ok"])  # sin cambios → no guarda
+        self.assertEqual(
+            sc._db_query("SELECT version FROM skills WHERE id = ?", (sid,))[0]["version"], 1
+        )
 
     def test_error_del_llm_registra_motivo(self):
         sid = self._sembrar(usos=10, fallos=5)
-        with mock.patch.object(cp, "_llm_reescribir",
-                               side_effect=RuntimeError("API caída")):
+        with mock.patch.object(cp, "_llm_reescribir", side_effect=RuntimeError("API caída")):
             r = cp.refactorizar_skill(sid)
         self.assertFalse(r["ok"])
         self.assertIn("error del LLM", r["motivo"])
-        historial = sc._db_query(
-            "SELECT motivo FROM historial_skills WHERE skill_id = ?", (sid,))
+        historial = sc._db_query("SELECT motivo FROM historial_skills WHERE skill_id = ?", (sid,))
         self.assertTrue(any("error:" in h["motivo"] for h in historial))
 
     def test_sandbox_fallido_no_guarda_nada(self):
         sid = self._sembrar(usos=10, fallos=5)
-        with mock.patch.object(cp, "_llm_reescribir",
-                               return_value="Tarea simple"), \
-             mock.patch.object(cp, "_probar_prompt", return_value=False):
+        with (
+            mock.patch.object(cp, "_llm_reescribir", return_value="Tarea simple"),
+            mock.patch.object(cp, "_probar_prompt", return_value=False),
+        ):
             r = cp.refactorizar_skill(sid)
         self.assertFalse(r["ok"])
         self.assertIn("sandbox", r["motivo"])
-        fila = sc._db_query("SELECT version, consulta FROM skills WHERE id = ?",
-                            (sid,))[0]
+        fila = sc._db_query("SELECT version, consulta FROM skills WHERE id = ?", (sid,))[0]
         self.assertEqual(fila["version"], 1)
         self.assertNotIn("Tarea simple", fila["consulta"])
 
     def test_sin_mejora_de_tokens_no_adquiere(self):
         sid = self._sembrar(usos=10, fallos=5)
         largo = "x" * 9999
-        with mock.patch.object(cp, "_llm_reescribir", return_value=largo), \
-             mock.patch.object(cp, "_probar_prompt", return_value=True):
+        with (
+            mock.patch.object(cp, "_llm_reescribir", return_value=largo),
+            mock.patch.object(cp, "_probar_prompt", return_value=True),
+        ):
             r = cp.refactorizar_skill(sid)
         self.assertTrue(r["ok"])
         self.assertFalse(r["mejorado"])
 
     def test_refactorizacion_exitosa(self):
-        sid = self._sembrar(consulta="Por favor, podrias hacer la tarea "
-                            "grande completando todos los detallitos",
-                            usos=10, fallos=5)
+        sid = self._sembrar(
+            consulta="Por favor, podrias hacer la tarea grande completando todos los detallitos",
+            usos=10,
+            fallos=5,
+        )
         nuevo = "Tarea concisa"
-        with mock.patch.object(cp, "_llm_reescribir", return_value=nuevo), \
-             mock.patch.object(cp, "_probar_prompt", return_value=True), \
-             mock.patch.object(cp, "notificar_mejora") as notif:
+        with (
+            mock.patch.object(cp, "_llm_reescribir", return_value=nuevo),
+            mock.patch.object(cp, "_probar_prompt", return_value=True),
+            mock.patch.object(cp, "notificar_mejora") as notif,
+        ):
             r = cp.refactorizar_skill(sid)
         self.assertTrue(r["ok"])
         self.assertTrue(r["mejorado"])
@@ -190,8 +215,8 @@ class TestRefactorizacion(BaseCurador500):
         self.assertEqual(fila["consulta"], nuevo)
         self.assertEqual(fila["version"], 2)
         previa = sc._db_query(
-            "SELECT * FROM historial_skills WHERE skill_id = ? "
-            "AND motivo = 'refactorizado'", (sid,))
+            "SELECT * FROM historial_skills WHERE skill_id = ? AND motivo = 'refactorizado'", (sid,)
+        )
         self.assertEqual(len(previa), 1)
         self.assertIn("detallitos", previa[0]["prompt"])
         notif.assert_called_once()
@@ -199,7 +224,7 @@ class TestRefactorizacion(BaseCurador500):
 
 class TestMotorYPersistencia(BaseCurador500):
     def test_desactivar_y_activar(self):
-        self.assertTrue(cp.esta_activo())         # por defecto activo
+        self.assertTrue(cp.esta_activo())  # por defecto activo
         cp.desactivar_curador()
         self.assertFalse(cp.esta_activo())
         cp.activar_curador()
@@ -211,10 +236,11 @@ class TestMotorYPersistencia(BaseCurador500):
 
     def test_ejecutar_refactoriza_candidatos_y_marca_pasada(self):
         self._sembrar(nombre="candidato", usos=10, fallos=5)
-        with mock.patch.object(cp, "_llm_reescribir",
-                               return_value="Prompt corto"), \
-             mock.patch.object(cp, "_probar_prompt", return_value=True), \
-             mock.patch.object(cp, "notificar_mejora"):
+        with (
+            mock.patch.object(cp, "_llm_reescribir", return_value="Prompt corto"),
+            mock.patch.object(cp, "_probar_prompt", return_value=True),
+            mock.patch.object(cp, "notificar_mejora"),
+        ):
             resultados = cp.ejecutar_curador(auto=True)
         self.assertEqual(len(resultados), 1)
         self.assertTrue(resultados[0]["mejorado"])
@@ -223,9 +249,16 @@ class TestMotorYPersistencia(BaseCurador500):
     def test_estado_curador_devuelve_resumen(self):
         self._sembrar(nombre="x", usos=10, fallos=5)
         resumen = cp.estado_curador()
-        for clave in ("activo", "intervalo_horas", "total_skills", "activos",
-                      "candidatos", "ultima_pasada", "mejoras_totales",
-                      "reinado_lista"):
+        for clave in (
+            "activo",
+            "intervalo_horas",
+            "total_skills",
+            "activos",
+            "candidatos",
+            "ultima_pasada",
+            "mejoras_totales",
+            "reinado_lista",
+        ):
             self.assertIn(clave, resumen)
         self.assertEqual(resumen["total_skills"], 1)
         self.assertEqual(resumen["candidatos"], 1)
@@ -235,27 +268,29 @@ class TestNotificaciones(BaseCurador500):
     def test_telegram_envia_cuando_esta_configurado(self):
         fake_resp = mock.Mock(status_code=200)
         ent = {"TELEGRAM_BOT_TOKEN": "tk", "TELEGRAM_CHAT_ID": "42"}
-        with mock.patch.dict(os.environ, ent), \
-                mock.patch("httpx.post", return_value=fake_resp) as post:
+        with (
+            mock.patch.dict(os.environ, ent),
+            mock.patch("httpx.post", return_value=fake_resp) as post,
+        ):
             ok = cp.notificar_mejora("refactorizar_api", 2, 30.0)
         self.assertTrue(ok)
         url = post.call_args[0][0]
         self.assertIn("/sendMessage", url)
-        self.assertIn("Skill 'refactorizar_api' mejorado (v2)",
-                      post.call_args[1]["json"]["text"])
+        self.assertIn("Skill 'refactorizar_api' mejorado (v2)", post.call_args[1]["json"]["text"])
 
     def test_discord_webhook_alternativo(self):
         fake_resp = mock.Mock(status_code=204)
         ent = {"DISCORD_WEBHOOK_URL": "https://discord/hook"}
-        with mock.patch.dict(os.environ, ent), \
-                mock.patch("httpx.post", return_value=fake_resp) as post:
+        with (
+            mock.patch.dict(os.environ, ent),
+            mock.patch("httpx.post", return_value=fake_resp) as post,
+        ):
             ok = cp.notificar_mejora("s", 3, 12.0)
         self.assertTrue(ok)
         self.assertEqual(post.call_args[0][0], "https://discord/hook")
 
     def test_sin_credenciales_es_silencioso(self):
-        with mock.patch.dict(os.environ), \
-                mock.patch("httpx.post") as post:
+        with mock.patch.dict(os.environ), mock.patch("httpx.post") as post:
             os.environ.pop("TELEGRAM_BOT_TOKEN", None)
             os.environ.pop("TELEGRAM_CHAT_ID", None)
             os.environ.pop("DISCORD_WEBHOOK_URL", None)
@@ -265,8 +300,7 @@ class TestNotificaciones(BaseCurador500):
 
     def test_fallo_de_red_no_propaga(self):
         ent = {"TELEGRAM_BOT_TOKEN": "tk", "TELEGRAM_CHAT_ID": "42"}
-        with mock.patch.dict(os.environ, ent), \
-                mock.patch("httpx.post", side_effect=OSError("red")):
+        with mock.patch.dict(os.environ, ent), mock.patch("httpx.post", side_effect=OSError("red")):
             self.assertFalse(cp.notificar_mejora("s", 2, 10.0))
 
 
@@ -287,8 +321,7 @@ class TestCLI(BaseCurador500):
 
     def test_comando_ejecutar_avisa_si_esta_desactivado(self):
         cp.desactivar_curador()
-        codigo, salida = self._salida(sc._ejecutar_comando_curador,
-                                      ["ejecutar"])
+        codigo, salida = self._salida(sc._ejecutar_comando_curador, ["ejecutar"])
         self.assertEqual(codigo, 0)
         self.assertIn("desactivado", salida.lower())
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Gestion de permisos y confirmaciones de usuario de SnapContext.
 
@@ -18,9 +17,8 @@ Diseno de dependencias (sin ciclos):
 import json
 import sys
 from pathlib import Path
-from typing import Optional
 
-from presentacion import (  # noqa: E402
+from presentacion import (
     _AMARILLO,
     _emitir,
     _pintar,
@@ -38,11 +36,13 @@ CONFIRMAR_ACCIONES = True
 
 def _obtener_config_dir() -> Path:
     import snapcontext
+
     return snapcontext.CONFIG_DIR
 
 
 def _ruta_permisos() -> Path:
     import snapcontext
+
     parchado = getattr(snapcontext, "PERMISOS_PATH", None)
     if parchado is not None:
         return Path(parchado)
@@ -73,15 +73,14 @@ def _guardar_permiso(tipo: str, valor: str) -> bool:
         permisos = _cargar_permisos()
         permisos[tipo] = valor
         _obtener_config_dir().mkdir(parents=True, exist_ok=True)
-        ruta.write_text(
-            json.dumps(permisos, ensure_ascii=False, indent=2), encoding="utf-8")
+        ruta.write_text(json.dumps(permisos, ensure_ascii=False, indent=2), encoding="utf-8")
         return True
     except OSError as exc:
         aviso(f"No se pudo guardar el permiso ({ruta}): {exc}")
         return False
 
 
-def _permiso_recordado(tipo: str) -> Optional[bool]:
+def _permiso_recordado(tipo: str) -> bool | None:
     """Devuelve la preferencia guardada para ``tipo`` sin preguntar.
 
     True → "siempre" permitido · False → "nunca" · None → sin preferencia.
@@ -111,9 +110,12 @@ def _limpiar_permisos() -> bool:
         return False
 
 
-def _confirmar_accion(descripcion: str, tipo: str = "editar",
-                      detalles: Optional[str] = None,
-                      confirmar: Optional[bool] = None) -> bool:
+def _confirmar_accion(
+    descripcion: str,
+    tipo: str = "editar",
+    detalles: str | None = None,
+    confirmar: bool | None = None,
+) -> bool:
     """Pide permiso al usuario antes de una acción sensible.
 
     - Muestra un resumen (tipo, descripción y detalles opcionales).
@@ -128,6 +130,7 @@ def _confirmar_accion(descripcion: str, tipo: str = "editar",
     (``--no-confirmar`` o ``confirmar=False``) devuelve True siempre.
     """
     import snapcontext
+
     activo = snapcontext.CONFIRMAR_ACCIONES if confirmar is None else confirmar
     if not activo:
         return True
@@ -150,10 +153,17 @@ def _confirmar_accion(descripcion: str, tipo: str = "editar",
     ruta = _ruta_permisos()
     while True:
         try:
-            eleccion = input(_pintar(
-                "¿Permitir esta acción? "
-                "[s]í · [n]o · [t]odos este tipo · [a]nular todas (s/n/t/a): ",
-                _AMARILLO)).strip().lower()
+            eleccion = (
+                input(
+                    _pintar(
+                        "¿Permitir esta acción? "
+                        "[s]í · [n]o · [t]odos este tipo · [a]nular todas (s/n/t/a): ",
+                        _AMARILLO,
+                    )
+                )
+                .strip()
+                .lower()
+            )
         except EOFError:
             aviso("Sin entrada disponible; acción denegada por seguridad.")
             return False
@@ -164,9 +174,11 @@ def _confirmar_accion(descripcion: str, tipo: str = "editar",
             return False
         if eleccion in ("t", "todos", "todo"):
             _guardar_permiso(tipo, "siempre")
-            exito(f"Se recordará: '{tipo}' siempre permitido "
-                  f"({ruta}). Usa --init o borra el archivo para "
-                  "restaurar las preguntas.")
+            exito(
+                f"Se recordará: '{tipo}' siempre permitido "
+                f"({ruta}). Usa --init o borra el archivo para "
+                "restaurar las preguntas."
+            )
             return True
         if eleccion in ("a", "anular", "nunca"):
             _guardar_permiso(tipo, "nunca")

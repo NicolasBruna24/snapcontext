@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Prompts de sistema por defecto de los sub-agentes dinámicos — v6.18.0.
 
 Fuente canónica de los prompts de cada rol especializado. ``sub_agent.py``
@@ -12,12 +11,10 @@ Este módulo NO depende de nada: importarlo es inofensivo en cualquier entorno.
 
 from __future__ import annotations
 
-from typing import Dict
-
 # Prompts por defecto de los roles de sub-agente. Cada uno identifica el rol
 # (mayúscula en el nombre) para que el prompt de sistema (que además añade el
 # sufijo ``[ROL SUB-AGENTE: <rol>]``) sea inequívocamente atribuible.
-PROMPTS: Dict[str, str] = {
+PROMPTS: dict[str, str] = {
     "scout": (
         "Eres Scout, un sub-agente explorador. Tu tarea es leer documentación, "
         "buscar información en la web o en los archivos del proyecto y devolver "

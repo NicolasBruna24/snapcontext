@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de las funcionalidades de SnapContext v2.0.0 (Editor propio y optimizaciones)."""
 
-import os
 import shutil
 import tempfile
 import unittest

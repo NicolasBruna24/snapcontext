@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests para mcp_tools_api.py — herramientas MCP de APIs externas (v6.7.0).
 
 Ejecuta con:
@@ -7,18 +6,22 @@ Ejecuta con:
 """
 
 import unittest
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import mcp_tools_api as apit
 
-
 # ── Helpers ────────────────────────────────────────────────────────────
 
 
-def _mock_response(status_code=200, text="OK", json_data=None,
-                   headers=None, url="https://api.example.com",
-                   content=b"OK", history=None):
+def _mock_response(
+    status_code=200,
+    text="OK",
+    json_data=None,
+    headers=None,
+    url="https://api.example.com",
+    content=b"OK",
+    history=None,
+):
     """Crea un objeto respuesta mock compatible con httpx.Response."""
     resp = MagicMock()
     resp.status_code = status_code
@@ -27,8 +30,7 @@ def _mock_response(status_code=200, text="OK", json_data=None,
     resp.url = url
     resp.history = history or []
     _headers = {
-        "content-type": "application/json" if json_data is not None
-        else "text/plain",
+        "content-type": "application/json" if json_data is not None else "text/plain",
         "server": "MockServer/1.0",
     }
     if headers:
@@ -39,6 +41,7 @@ def _mock_response(status_code=200, text="OK", json_data=None,
         if json_data is not None:
             return json_data
         raise ValueError("No JSON")
+
     resp.json = _json
     return resp
 
@@ -48,13 +51,11 @@ class TestValidarUrl(unittest.TestCase):
 
     def test_url_https_valida(self):
         self.assertEqual(
-            apit._validar_url("https://api.example.com/v1"),
-            "https://api.example.com/v1")
+            apit._validar_url("https://api.example.com/v1"), "https://api.example.com/v1"
+        )
 
     def test_url_http_valida(self):
-        self.assertEqual(
-            apit._validar_url("http://localhost:8080"),
-            "http://localhost:8080")
+        self.assertEqual(apit._validar_url("http://localhost:8080"), "http://localhost:8080")
 
     def test_url_vacia(self):
         with self.assertRaises(ValueError):
@@ -73,17 +74,21 @@ class TestFiltrarCabeceras(unittest.TestCase):
     """Filtrado de cabeceras sensibles."""
 
     def test_oculta_authorization(self):
-        resultado = apit._filtrar_cabeceras({
-            "Authorization": "Bearer token123",
-            "Content-Type": "application/json",
-        })
+        resultado = apit._filtrar_cabeceras(
+            {
+                "Authorization": "Bearer token123",
+                "Content-Type": "application/json",
+            }
+        )
         self.assertEqual(resultado["Authorization"], "***")
         self.assertEqual(resultado["Content-Type"], "application/json")
 
     def test_oculta_cookie(self):
-        resultado = apit._filtrar_cabeceras({
-            "Cookie": "session=abc123",
-        })
+        resultado = apit._filtrar_cabeceras(
+            {
+                "Cookie": "session=abc123",
+            }
+        )
         self.assertEqual(resultado["Cookie"], "***")
 
     def test_cabeceras_vacias(self):
@@ -99,13 +104,11 @@ class TestApiRequest(unittest.TestCase):
         mock_httpx = MagicMock()
         mock_httpx_fn.return_value = mock_httpx
         mock_client = MagicMock()
-        mock_httpx.Client.return_value.__enter__ = MagicMock(
-            return_value=mock_client)
-        mock_httpx.Client.return_value.__exit__ = MagicMock(
-            return_value=False)
+        mock_httpx.Client.return_value.__enter__ = MagicMock(return_value=mock_client)
+        mock_httpx.Client.return_value.__exit__ = MagicMock(return_value=False)
         mock_client.request.return_value = _mock_response(
-            200, '{"status":"ok"}',
-            json_data={"status": "ok"})
+            200, '{"status":"ok"}', json_data={"status": "ok"}
+        )
 
         resultado = apit.api_request("https://api.example.com/v1")
         self.assertTrue(resultado["ok"])
@@ -117,22 +120,18 @@ class TestApiRequest(unittest.TestCase):
         mock_httpx = MagicMock()
         mock_httpx_fn.return_value = mock_httpx
         mock_client = MagicMock()
-        mock_httpx.Client.return_value.__enter__ = MagicMock(
-            return_value=mock_client)
-        mock_httpx.Client.return_value.__exit__ = MagicMock(
-            return_value=False)
-        mock_client.request.return_value = _mock_response(
-            201, '{"id":42}', json_data={"id": 42})
+        mock_httpx.Client.return_value.__enter__ = MagicMock(return_value=mock_client)
+        mock_httpx.Client.return_value.__exit__ = MagicMock(return_value=False)
+        mock_client.request.return_value = _mock_response(201, '{"id":42}', json_data={"id": 42})
 
         resultado = apit.api_request(
-            "https://api.example.com/items", metodo="POST",
-            body='{"nombre":"test"}')
+            "https://api.example.com/items", metodo="POST", body='{"nombre":"test"}'
+        )
         self.assertTrue(resultado["ok"])
         self.assertEqual(resultado["status"], 201)
 
     def test_metodo_invalido(self):
-        resultado = apit.api_request(
-            "https://api.example.com", metodo="TRACE")
+        resultado = apit.api_request("https://api.example.com", metodo="TRACE")
         self.assertFalse(resultado["ok"])
         self.assertIn("no soportado", resultado["error"].lower())
 
@@ -145,10 +144,8 @@ class TestApiRequest(unittest.TestCase):
         mock_httpx = MagicMock()
         mock_httpx_fn.return_value = mock_httpx
         # Simular TimeoutException como una Exception genérica del mock
-        mock_httpx.Client.return_value.__enter__ = MagicMock(
-            side_effect=Exception("Timeout"))
-        mock_httpx.Client.return_value.__exit__ = MagicMock(
-            return_value=False)
+        mock_httpx.Client.return_value.__enter__ = MagicMock(side_effect=Exception("Timeout"))
+        mock_httpx.Client.return_value.__exit__ = MagicMock(return_value=False)
 
         resultado = apit.api_request("https://api.example.com", timeout=1)
         self.assertFalse(resultado["ok"])
@@ -158,13 +155,12 @@ class TestApiRequest(unittest.TestCase):
         mock_httpx = MagicMock()
         mock_httpx_fn.return_value = mock_httpx
         mock_client = MagicMock()
-        mock_httpx.Client.return_value.__enter__ = MagicMock(
-            return_value=mock_client)
-        mock_httpx.Client.return_value.__exit__ = MagicMock(
-            return_value=False)
+        mock_httpx.Client.return_value.__enter__ = MagicMock(return_value=mock_client)
+        mock_httpx.Client.return_value.__exit__ = MagicMock(return_value=False)
         data = {"items": [1, 2, 3], "total": 3}
         mock_client.request.return_value = _mock_response(
-            200, '{"items":[1,2,3],"total":3}', json_data=data)
+            200, '{"items":[1,2,3],"total":3}', json_data=data
+        )
 
         resultado = apit.api_request("https://api.example.com/items")
         self.assertTrue(resultado["ok"])
@@ -178,7 +174,9 @@ class TestApiInspect(unittest.TestCase):
     @patch.object(apit, "api_request")
     def test_inspect_ok(self, mock_req):
         mock_req.return_value = {
-            "ok": True, "status": 200, "tiempo": 0.123,
+            "ok": True,
+            "status": 200,
+            "tiempo": 0.123,
             "body": "respuesta de ejemplo",
             "headers": {
                 "content-type": "text/html",
@@ -196,7 +194,8 @@ class TestApiInspect(unittest.TestCase):
     @patch.object(apit, "api_request")
     def test_inspect_error_propagado(self, mock_req):
         mock_req.return_value = {
-            "ok": False, "error": "Error de conexión",
+            "ok": False,
+            "error": "Error de conexión",
         }
         resultado = apit.api_inspect("https://down.example.com")
         self.assertFalse(resultado["ok"])

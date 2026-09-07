@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la auto-detección de tipo de proyecto (snapcontext.py).
 
 Cubre ``_detectar_tipo_proyecto``, ``_ajustar_parametros_por_tipo``, el filtro
@@ -9,6 +8,7 @@ Se ejecuta con:
     python -m pytest tests -v
     python -m unittest tests.test_deteccion -v
 """
+
 import argparse
 import os
 import shutil
@@ -73,8 +73,7 @@ class TestDetectarTipoProyecto(unittest.TestCase):
         self.assertEqual(self._detectar({"lib": None}), "flutter")
 
     def test_directorio_inexistente(self):
-        self.assertIsNone(sc._detectar_tipo_proyecto(
-            os.path.join(os.getcwd(), "_no_existe_xyz")))
+        self.assertIsNone(sc._detectar_tipo_proyecto(os.path.join(os.getcwd(), "_no_existe_xyz")))
 
 
 class TestAjustarParametrosPorTipo(unittest.TestCase):
@@ -102,26 +101,22 @@ class TestFiltroExtensionesEscaneo(unittest.TestCase):
         shutil.rmtree(self._tmp, ignore_errors=True)
 
     def test_solo_extension_filtrada(self):
-        self._tmp = _crear_directorio({"lib/a.dart": "void main(){}",
-                                       "lib/b.js": "console.log(1)"})
-        candidatos = sc.listar_archivos_candidatos(
-            Path(self._tmp), ["lib"], extensiones=[".dart"]
-        )
+        self._tmp = _crear_directorio({"lib/a.dart": "void main(){}", "lib/b.js": "console.log(1)"})
+        candidatos = sc.listar_archivos_candidatos(Path(self._tmp), ["lib"], extensiones=[".dart"])
         self.assertEqual(candidatos, ["lib/a.dart"])
 
 
 class TestAliases(unittest.TestCase):
     def test_fix(self):
-        self.assertEqual(sc._preparar_argv_aliases(["fix", "hola"]),
-                         ["--test-loop", "hola"])
+        self.assertEqual(sc._preparar_argv_aliases(["fix", "hola"]), ["--test-loop", "hola"])
 
     def test_review(self):
-        self.assertEqual(sc._preparar_argv_aliases(["review", "hola"]),
-                         ["--vista-previa", "--experto", "hola"])
+        self.assertEqual(
+            sc._preparar_argv_aliases(["review", "hola"]), ["--vista-previa", "--experto", "hola"]
+        )
 
     def test_server(self):
-        self.assertEqual(sc._preparar_argv_aliases(["server", "hola"]),
-                         ["--server-loop", "hola"])
+        self.assertEqual(sc._preparar_argv_aliases(["server", "hola"]), ["--server-loop", "hola"])
 
     def test_interactive(self):
         self.assertEqual(sc._preparar_argv_aliases(["interactive"]), ["--web"])
@@ -150,8 +145,9 @@ class TestModoDemo(unittest.TestCase):
             self.assertTrue((tmp / "src" / "main.py").is_file())
             self.assertTrue((tmp / "tests" / "test_main.py").is_file())
             # El archivo tiene el bug de la demo.
-            self.assertIn("return f\"Hola, {name}\"",
-                          (tmp / "src" / "main.py").read_text(encoding="utf-8"))
+            self.assertIn(
+                'return f"Hola, {name}"', (tmp / "src" / "main.py").read_text(encoding="utf-8")
+            )
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

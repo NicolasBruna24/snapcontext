@@ -1,6 +1,6 @@
 """Planificador: gestión de contexto y visualización de planes (Fase 5)."""
+
 from threading import Lock
-from typing import List, Optional
 
 # --- Contexto dinámico del plan (v6.30.0) ---------------------------------
 _CONTEXTO_PLAN = {"variables": {}, "pasos": {}}
@@ -23,18 +23,18 @@ def _contexto_plan_variable(nombre: str, valor) -> None:
         _CONTEXTO_PLAN["variables"]["resultado"] = valor
 
 
-def _registrar_resultado_plan(numero: int, ok: bool, detalle: str,
-                              estado: str = "") -> None:
+def _registrar_resultado_plan(numero: int, ok: bool, detalle: str, estado: str = "") -> None:
     """Registra el resultado de un paso (base 1) para condiciones dinámicas."""
     with _CANDADO_CONTEXTO_PLAN:
         _CONTEXTO_PLAN["pasos"][str(numero)] = {
             "resultado": estado or ("ok" if ok else "fallo"),
-            "ok": ok, "detalle": detalle}
-
+            "ok": ok,
+            "detalle": detalle,
+        }
 
 
 # --- Visualización resumida del plan (v6.23.0) ----------------------------
-def _mostrar_plan_resumido(plan: Optional[list]) -> str:
+def _mostrar_plan_resumido(plan: list | None) -> str:
     """Devuelve un resumen legible del plan en 3-5 líneas (v6.23.0).
 
     En lugar de listar el plan completo, genera una frase compacta
@@ -44,7 +44,7 @@ def _mostrar_plan_resumido(plan: Optional[list]) -> str:
     if not plan:
         return ""
     pasos = list(plan)[:5]
-    trozos: List[str] = []
+    trozos: list[str] = []
     for i, paso in enumerate(pasos, start=1):
         if isinstance(paso, dict):
             desc = paso.get("descripcion") or paso.get("comando") or ""
@@ -66,8 +66,14 @@ def _mostrar_plan_resumido(plan: Optional[list]) -> str:
 # resuelven de forma perezosa vía ``import snapcontext as _sc`` dentro de
 # cada función, preservando el comportamiento y el monkey-patching.
 # ===========================================================================
+import argparse
 import concurrent.futures
-import argparse, json, os, re, shlex, sys, threading
+import json
+import os
+import re
+import shlex
+import sys
+import threading
 from pathlib import Path
 
 PROMPT_PLAN = (
@@ -90,18 +96,17 @@ PROMPT_PLAN = (
     ' - "ejecutar": lanzar un comando (tests, build, migraciones...).\n'
     ' - "consultar": aclarar una duda sobre el proyecto sin cambiar nada.\n'
     ' - "mcp": ejecutar una herramienta MCP (campos "herramienta" y "args") y\n'
-    '   usar su resultado en pasos posteriores con {{{{resultado}}}} o {{{{mi_variable}}}}.\n'
+    "   usar su resultado en pasos posteriores con {{{{resultado}}}} o {{{{mi_variable}}}}.\n"
     "Condiciones admitidas (el paso se salta si son falsas):\n"
-    ' - archivo_existe(ruta), archivo_contiene(ruta, texto), comando_exito(cmd),\n'
+    " - archivo_existe(ruta), archivo_contiene(ruta, texto), comando_exito(cmd),\n"
     "   variable_existe(nombre) o comparaciones como\n"
     "   \"pasos[0].resultado == 'ok'\"  ·  \"resultados.mi_variable != ''\".\n"
 )
 
-ACCIONES_VALIDAS = {"editar", "ejecutar", "consultar", "mcp", "asesor",
-                    "seguridad", "rendimiento"}
+ACCIONES_VALIDAS = {"editar", "ejecutar", "consultar", "mcp", "asesor", "seguridad", "rendimiento"}
 
 
-def _normalizar_pasos(datos) -> List[dict]:
+def _normalizar_pasos(datos) -> list[dict]:
     """Normaliza la respuesta del proveedor a una lista de pasos válidos.
 
     Acepta ``{"pasos": [...]}``, una lista directa o un único paso suelto.
@@ -109,13 +114,14 @@ def _normalizar_pasos(datos) -> List[dict]:
     """
 
     import snapcontext as _sc  # perezoso: evita import circular
+
     if isinstance(datos, dict):
         datos = datos.get("pasos", [])
     if isinstance(datos, dict):
         datos = [datos]
     if not isinstance(datos, list):
         return []
-    pasos: List[dict] = []
+    pasos: list[dict] = []
     for crudo in datos:
         if not isinstance(crudo, dict):
             continue
@@ -136,15 +142,14 @@ def _normalizar_pasos(datos) -> List[dict]:
             "condicion": str(crudo.get("condicion") or "").strip(),
             # v2.3.0: pasos de tipo "mcp".
             "herramienta": str(crudo.get("herramienta") or "").strip(),
-            "args": crudo.get("args") if isinstance(
-                crudo.get("args"), dict) else {},
+            "args": crudo.get("args") if isinstance(crudo.get("args"), dict) else {},
             "variable": str(crudo.get("variable") or "").strip(),
         }
         pasos.append(paso)
     return pasos
 
 
-def _normalizar_dependencias(valor) -> List[int]:
+def _normalizar_dependencias(valor) -> list[int]:
     """Convierte el campo ``dependencias`` de un paso en una lista de índices.
 
     Acepta lista de enteros/strings numéricos o un único valor. Se descartan
@@ -152,12 +157,11 @@ def _normalizar_dependencias(valor) -> List[int]:
     ejecución, aquí solo se normaliza el tipo).
     """
 
-    import snapcontext as _sc  # perezoso: evita import circular
     if valor is None or valor == "":
         return []
     if not isinstance(valor, list):
         valor = [valor]
-    indices: List[int] = []
+    indices: list[int] = []
     for item in valor:
         try:
             indice = int(item)
@@ -169,8 +173,9 @@ def _normalizar_dependencias(valor) -> List[int]:
     return sorted(set(indices))
 
 
-def _generar_plan(consulta: str, proveedor: Optional[str] = None,
-                  modelo: Optional[str] = None) -> List[dict]:
+def _generar_plan(
+    consulta: str, proveedor: str | None = None, modelo: str | None = None
+) -> list[dict]:
     """Pide al proveedor de IA un plan en JSON para la ``consulta``.
 
     Devuelve la lista de pasos normalizada (vacía si el proveedor no devolvió
@@ -178,6 +183,7 @@ def _generar_plan(consulta: str, proveedor: Optional[str] = None,
     """
 
     import snapcontext as _sc  # perezoso: evita import circular
+
     preferencias = _sc.cargar_configuracion()
     proveedor = proveedor or preferencias.get("provider") or _sc.PROVEEDOR_DEFECTO
     cfg = _sc.PROVEEDORES[proveedor]
@@ -188,23 +194,23 @@ def _generar_plan(consulta: str, proveedor: Optional[str] = None,
     # MCP (v0.14.0): explora el proyecto con herramientas de solo lectura para
     # generar pasos más precisos (best-effort: nunca rompe la planificación).
     try:
-        contexto_proyecto: List[str] = []
-        estado = _sc._ejecutar_herramienta_mcp("git_status", {},
-                                           confirmar=False)
+        contexto_proyecto: list[str] = []
+        estado = _sc._ejecutar_herramienta_mcp("git_status", {}, confirmar=False)
         if estado.get("ok"):
             res = estado["resultado"]
             contexto_proyecto.append(
-                f"Rama git: {res.get('rama')} · cambios sin commitear: "
-                f"{res.get('total_cambios')}")
-        listado = _sc._ejecutar_herramienta_mcp(
-            "list_files", {"max_archivos": 30}, confirmar=False)
+                f"Rama git: {res.get('rama')} · cambios sin commitear: {res.get('total_cambios')}"
+            )
+        listado = _sc._ejecutar_herramienta_mcp("list_files", {"max_archivos": 30}, confirmar=False)
         if listado.get("ok"):
             contexto_proyecto.append(
                 "Archivos del proyecto (muestra): "
-                + ", ".join(listado["resultado"]["archivos"][:30]))
+                + ", ".join(listado["resultado"]["archivos"][:30])
+            )
         if contexto_proyecto:
-            prompt += "\n\nCONTEXTO DEL PROYECTO (obtenido con herramientas " \
-                      "MCP):\n" + "\n".join(contexto_proyecto)
+            prompt += "\n\nCONTEXTO DEL PROYECTO (obtenido con herramientas MCP):\n" + "\n".join(
+                contexto_proyecto
+            )
             _sc.info("🗺 Contexto MCP del proyecto añadido al planificador.")
     except Exception as exc:
         _sc.depurar(f"[mcp] contexto de planificación falló: {exc}")
@@ -215,19 +221,22 @@ def _generar_plan(consulta: str, proveedor: Optional[str] = None,
         # contexto selectivo (antes: recorte bruto a 3000 caracteres).
         try:
             import context_utils as _ctxm
+
             memoria_ctx = _ctxm.seleccionar_contexto(
-                _sc.MEMORIA_PROYECTO, "markdown", max_tokens=750)
-        except Exception as _exc:       # noqa: BLE001 — best-effort
+                _sc.MEMORIA_PROYECTO, "markdown", max_tokens=750
+            )
+        except Exception as _exc:
             _sc.depurar(f"[plan] contexto selectivo de CLAUDE.md falló: {_exc}")
             memoria_ctx = _sc.MEMORIA_PROYECTO[:3000]
-        prompt += ("\n\nMEMORIA DEL PROYECTO (CLAUDE.md, respeta sus "
-                   "convenciones al proponer pasos):\n" + memoria_ctx)
+        prompt += (
+            "\n\nMEMORIA DEL PROYECTO (CLAUDE.md, respeta sus "
+            "convenciones al proponer pasos):\n" + memoria_ctx
+        )
         _sc.info("🗜 Memoria del proyecto (CLAUDE.md) incluida en la planificación.")
 
     # Skills dinámicos (v6.6.0): reglas abstractas aprendidas de planes
     # exitosos enriquecen el prompt (máx. 3, priorizadas por confianza).
     prompt = _sc._enriquecer_prompt_con_reglas(prompt, consulta)
-
 
     tipo = cfg["tipo"]
     if tipo == "gemini":
@@ -239,7 +248,8 @@ def _generar_plan(consulta: str, proveedor: Optional[str] = None,
         _sc.genai.configure(api_key=api_key)
         generador = _sc.genai.GenerativeModel(model_name=modelo)
         config = _sc.genai.types.GenerationConfig(
-            temperature=0.2, response_mime_type="application/json")
+            temperature=0.2, response_mime_type="application/json"
+        )
         try:
             respuesta = generador.generate_content(prompt, generation_config=config)
             texto = respuesta.text or ""
@@ -255,16 +265,18 @@ def _generar_plan(consulta: str, proveedor: Optional[str] = None,
         cliente = _sc.anthropic.Anthropic(api_key=api_key)
         try:
             respuesta = cliente.messages.create(
-                model=modelo, max_tokens=2048,
+                model=modelo,
+                max_tokens=2048,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
             )
             texto = "".join(
-                bloque.text for bloque in respuesta.content
-                if getattr(bloque, "type", None) == "text")
+                bloque.text
+                for bloque in respuesta.content
+                if getattr(bloque, "type", None) == "text"
+            )
         except Exception as exc:
-            raise RuntimeError(
-                f"Error al generar el plan con Claude: {exc}") from exc
+            raise RuntimeError(f"Error al generar el plan con Claude: {exc}") from exc
 
     else:  # tipo "_sc.openai"
         if _sc._importar_openai() is None:
@@ -273,34 +285,33 @@ def _generar_plan(consulta: str, proveedor: Optional[str] = None,
         if cfg["requiere_clave"] and not api_key:
             raise RuntimeError(_sc._mensaje_clave_faltante(proveedor, cfg))
         cliente = _sc.openai.OpenAI(
-            api_key=api_key or "ollama-local",
-            base_url=_sc._resolver_url_openai(cfg), timeout=120)
+            api_key=api_key or "ollama-local", base_url=_sc._resolver_url_openai(cfg), timeout=120
+        )
         mensajes = [{"role": "user", "content": prompt}]
         try:
             try:
                 respuesta = cliente.chat.completions.create(
-                    model=modelo, messages=mensajes, temperature=0.2,
-                    response_format={"type": "json_object"})
+                    model=modelo,
+                    messages=mensajes,
+                    temperature=0.2,
+                    response_format={"type": "json_object"},
+                )
             except Exception:
                 respuesta = cliente.chat.completions.create(
-                    model=modelo, messages=mensajes, temperature=0.2)
+                    model=modelo, messages=mensajes, temperature=0.2
+                )
             texto = respuesta.choices[0].message.content or ""
         except Exception as exc:
-            raise RuntimeError(
-                f"Error al generar el plan con {cfg['nombre']}: {exc}") from exc
+            raise RuntimeError(f"Error al generar el plan con {cfg['nombre']}: {exc}") from exc
 
     # v6.2.0: muestra el razonamiento (chain-of-thought) si está activado y
     # limpia los bloques <think> antes de parsear el JSON del plan.
-    texto, _raz_plan = _sc._procesar_razonamiento(texto,
-                                              activo=_sc._razonamiento_activo())
+    texto, _raz_plan = _sc._procesar_razonamiento(texto, activo=_sc._razonamiento_activo())
     _sc.depurar(f"Plan recibido ({len(texto)} caracteres): {texto[:200]}")
     return _sc._normalizar_pasos(_sc.parsear_json(texto))
 
 
-
-
-def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
-                        raiz: str) -> tuple:
+def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace, raiz: str) -> tuple:
     """Ejecuta un paso del plan. Devuelve (ok: bool, detalle: str).
 
     - "editar": usa el orquestador actual — ``_planificar`` para elegir los
@@ -317,8 +328,7 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
     from orquestador import Orquestador
 
     # v6.22.0: hook before_plan_step — puede modificar el paso o abortarlo.
-    _ctx_hook = {"paso": paso, "accion": paso.get("accion"),
-                 "descripcion": paso.get("descripcion")}
+    _ctx_hook = {"paso": paso, "accion": paso.get("accion"), "descripcion": paso.get("descripcion")}
     _abortado, _ctx_hook = _sc._hooks.ejecutar_hook("before_plan_step", _ctx_hook)
     if _abortado:
         _sc.aviso(f"Paso abortado por hook: {paso.get('descripcion', '')!s:.60}")
@@ -352,18 +362,17 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
         detalles_paso = None
     if getattr(args, "auto", False):
         if _sc._permiso_recordado(accion) is False:
-            _sc.aviso(f"[auto] Paso '{accion}' denegado por permisos guardados "
-                  f"(permisos.json).")
+            _sc.aviso(f"[auto] Paso '{accion}' denegado por permisos guardados (permisos.json).")
             return (False, "denegado por permisos guardados")
     elif not _sc._confirmar_accion(
-            descripcion, tipo=accion, detalles=detalles_paso,
-            confirmar=getattr(args, "confirmar", True)):
+        descripcion, tipo=accion, detalles=detalles_paso, confirmar=getattr(args, "confirmar", True)
+    ):
         return (False, "denegado por el usuario")
 
     if accion == "ejecutar":
         if not paso.get("comando"):
             return (False, 'el paso no indica "comando"')
-        _sc.info(f'$ {paso["comando"]}')
+        _sc.info(f"$ {paso['comando']}")
         codigo, stdout, stderr = _sc._ejecutar_comando(paso["comando"], raiz)
         if stdout.strip():
             _sc._emitir(sys.stdout, _sc._pintar(stdout.rstrip(), _sc._VERDE))
@@ -389,26 +398,30 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
             muestra = muestra[:400] + "…"
         if llamada.get("ok"):
             _sc.exito("[mcp] resultado: " + muestra)
-            _contexto_plan_variable(str(paso.get("variable") or herramienta),
-                                    res)
+            _contexto_plan_variable(str(paso.get("variable") or herramienta), res)
             return (True, herramienta + ": ok")
         _sc.error("[mcp] falló: " + muestra)
-        return (False, herramienta + ": "
-                + str(res.get("_sc.error", "fallo")))
+        return (False, herramienta + ": " + str(res.get("_sc.error", "fallo")))
 
     if accion == "consultar":
         preferencias = _sc.cargar_configuracion()
         proveedor = preferencias.get("provider") or _sc.PROVEEDOR_DEFECTO
         try:
             respuesta = _sc._enviar_al_proveedor(
-                proveedor, getattr(args, "modelo", None),
-                [{"role": "user",
-                  "content": f"Tarea general: {getattr(args, 'consulta', '')}\n"
-                             f"Paso a aclarar: {descripcion}\n"
-                             "Responde de forma breve y útil."}],
+                proveedor,
+                getattr(args, "modelo", None),
+                [
+                    {
+                        "role": "user",
+                        "content": f"Tarea general: {getattr(args, 'consulta', '')}\n"
+                        f"Paso a aclarar: {descripcion}\n"
+                        "Responde de forma breve y útil.",
+                    }
+                ],
             )
             respuesta, _raz = _sc._procesar_razonamiento(
-                respuesta, activo=_sc._razonamiento_activo(args))
+                respuesta, activo=_sc._razonamiento_activo(args)
+            )
             _sc._emitir(sys.stdout, _sc._pintar(respuesta, _sc._VERDE))
             return (True, "respuesta mostrada")
         except RuntimeError as exc:
@@ -418,21 +431,22 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
     # accion == "seguridad" / "rendimiento" (v4.2.0): análisis enfocado;
     # en --auto se ejecutan solos y las sugerencias solo se muestran.
     if accion in ("seguridad", "rendimiento"):
-        tipos = ("vulnerabilidad",) if accion == "seguridad" \
-            else ("rendimiento",)
+        tipos = ("vulnerabilidad",) if accion == "seguridad" else ("rendimiento",)
         encontradas = _sc._asesor_analizar_por_tipo(raiz, tipos)
         if not encontradas:
             _sc.exito(f"[{accion}] Sin hallazgos: sin problemas detectados.")
             return (True, "sin hallazgos")
         for sugg in encontradas:
-            texto = (f"[{accion}] {sugg['descripcion']} "
-                     f"({sugg['archivo']}:{sugg['linea']})")
+            texto = f"[{accion}] {sugg['descripcion']} ({sugg['archivo']}:{sugg['linea']})"
             if getattr(args, "auto", False):
                 _sc.aviso(texto + f" → {sugg['solucion']}")
                 continue
-            if _sc._confirmar_accion(texto, tipo=accion,
-                                 detalles=sugg.get("solucion"),
-                                 confirmar=getattr(args, "confirmar", True)):
+            if _sc._confirmar_accion(
+                texto,
+                tipo=accion,
+                detalles=sugg.get("solucion"),
+                confirmar=getattr(args, "confirmar", True),
+            ):
                 _sc.exito(f"Anotada: {sugg['solucion']}")
         return (True, f"{len(encontradas)} hallazgo(s) de {accion}")
 
@@ -446,20 +460,21 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
             return (True, "sin sugerencias")
         aceptadas = 0
         for sugg in sugerencias_paso:
-            texto = (f"[asesor] {sugg['descripcion']} "
-                     f"({sugg['archivo']}:{sugg['linea']})")
+            texto = f"[asesor] {sugg['descripcion']} ({sugg['archivo']}:{sugg['linea']})"
             if getattr(args, "auto", False):
                 _sc.aviso(texto + f" → {sugg['solucion']}")
                 continue
-            if _sc._confirmar_accion(texto, tipo="asesor",
-                                 detalles=sugg.get("solucion"),
-                                 confirmar=getattr(args, "confirmar", True)):
+            if _sc._confirmar_accion(
+                texto,
+                tipo="asesor",
+                detalles=sugg.get("solucion"),
+                confirmar=getattr(args, "confirmar", True),
+            ):
                 aceptadas += 1
                 _sc.exito(f"Sugerencia aceptada: {sugg['solucion']}")
             else:
                 _sc.info("Sugerencia descartada.")
-        return (True, f"{len(sugerencias_paso)} sugerencia(s), "
-                      f"{aceptadas} aceptada(s)")
+        return (True, f"{len(sugerencias_paso)} sugerencia(s), {aceptadas} aceptada(s)")
 
     # accion == "editar": reutiliza el pipeline existente o usa el editor propio
     editor_elegido = getattr(args, "editor", "aider") or "aider"
@@ -492,7 +507,8 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
             modelo=getattr(args, "modelo", None),
             validar=getattr(args, "validar", True),
             max_intentos_validacion=getattr(
-                args, "max_intentos_validacion", _sc.MAX_INTENTOS_VALIDACION),
+                args, "max_intentos_validacion", _sc.MAX_INTENTOS_VALIDACION
+            ),
             proveedor=getattr(args, "provider", None),
             modelo_ligero=getattr(args, "modelo_ligero", False),
             auto=getattr(args, "auto", False),
@@ -507,28 +523,33 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace,
         if getattr(args, "comando_test", None):
             _comando_test = shlex.split(args.comando_test)
         ok = orch._bucle_test(
-            descripcion, seleccion, str(ruta_raiz),
+            descripcion,
+            seleccion,
+            str(ruta_raiz),
             opciones_aider=getattr(args, "aider_opciones", ""),
             comando_test=_comando_test,
             max_iteraciones=max(getattr(args, "max_iteraciones", 1), 1),
         )
         return (ok, "bucle de pruebas")
     ok = orch.agente_editor.ejecutar_aider(
-        seleccion, descripcion, str(ruta_raiz),
+        seleccion,
+        descripcion,
+        str(ruta_raiz),
         opciones_aider=getattr(args, "aider_opciones", ""),
     )
     # v6.22.0: hook `after_plan_step` — observabilidad post-ejecución del paso.
     try:
-        _sc._hooks.ejecutar_hook("after_plan_step", {
-            "paso": paso, "ok": ok, "detalle": f"Aider sobre {len(seleccion)} archivo(s)"})
-    except Exception:                                # noqa: BLE001 — nunca romper
+        _sc._hooks.ejecutar_hook(
+            "after_plan_step",
+            {"paso": paso, "ok": ok, "detalle": f"Aider sobre {len(seleccion)} archivo(s)"},
+        )
+    except Exception:
         pass
     return (ok, f"Aider sobre {len(seleccion)} archivo(s)")
 
 
 # --- Condiciones y paralelismo del planificador (v1.4.0) --------------------
-def _evaluar_condicion(condicion: str, raiz: str = ".",
-                      contexto: Optional[dict] = None) -> bool:
+def _evaluar_condicion(condicion: str, raiz: str = ".", contexto: dict | None = None) -> bool:
     """Evalúa la condición de un paso del plan. Devuelve True si se cumple.
 
     Formatos soportados:
@@ -552,6 +573,7 @@ def _evaluar_condicion(condicion: str, raiz: str = ".",
     """
 
     import snapcontext as _sc  # perezoso: evita import circular
+
     if contexto is None:
         contexto = _CONTEXTO_PLAN
     condicion = (condicion or "").strip()
@@ -561,28 +583,22 @@ def _evaluar_condicion(condicion: str, raiz: str = ".",
     # 1) Comparaciones dinámicas (== / !=).
     comparacion = re.match(r"^(.+?)\s*(==|!=)\s*(.+)$", condicion, re.S)
     if comparacion and "(" not in condicion.split("==")[0].split("!=")[0]:
-        izquierdo = _sc._resolver_operando_condicion(
-            comparacion.group(1).strip(), contexto)
-        derecho = _sc._resolver_operando_condicion(
-            comparacion.group(3).strip(), contexto)
+        izquierdo = _sc._resolver_operando_condicion(comparacion.group(1).strip(), contexto)
+        derecho = _sc._resolver_operando_condicion(comparacion.group(3).strip(), contexto)
         if izquierdo is _DESCONOCIDO or derecho is _DESCONOCIDO:
             _sc.aviso(f"Condición con referencia desconocida: '{condicion}'.")
             return False
-        iguales = (_sc._normalizar_comparacion(izquierdo)
-                   == _sc._normalizar_comparacion(derecho))
+        iguales = _sc._normalizar_comparacion(izquierdo) == _sc._normalizar_comparacion(derecho)
         return iguales if comparacion.group(2) == "==" else not iguales
 
     # 2) Formas funcionales clásicas.
-    coincidencia = re.match(r"^([a-zA-Z_]\w*)\s*\((.*)\)\s*$",
-                            condicion, re.S)
+    coincidencia = re.match(r"^([a-zA-Z_]\w*)\s*\((.*)\)\s*$", condicion, re.S)
     if not coincidencia:
-        _sc.aviso(f"Condición de paso mal formada: '{condicion}'. Se interpreta "
-              f"como no cumplida.")
+        _sc.aviso(f"Condición de paso mal formada: '{condicion}'. Se interpreta como no cumplida.")
         return False
     funcion, crudo_args = coincidencia.group(1), coincidencia.group(2)
     try:
-        argumentos = [a.strip()
-                      for a in _sc._partir_argumentos(crudo_args)]
+        argumentos = [a.strip() for a in _sc._partir_argumentos(crudo_args)]
     except ValueError as exc:
         _sc.aviso(f"Condición inválida '{condicion}': {exc}")
         return False
@@ -604,9 +620,11 @@ def _evaluar_condicion(condicion: str, raiz: str = ".",
             variables = dict(contexto.get("variables", {}))
         return bool(argumentos) and argumentos[0] in variables
 
-    _sc.aviso(f"Función de condición desconocida: '{funcion}'. Soportadas: "
-          f"archivo_existe, archivo_contiene, comando_exito, "
-          f"variable_existe.")
+    _sc.aviso(
+        f"Función de condición desconocida: '{funcion}'. Soportadas: "
+        f"archivo_existe, archivo_contiene, comando_exito, "
+        f"variable_existe."
+    )
     return False
 
 
@@ -622,10 +640,8 @@ def _resolver_operando_condicion(operando: str, contexto: dict):
     Devuelve _DESCONOCIDO si no se puede resolver.
     """
 
-    import snapcontext as _sc  # perezoso: evita import circular
     operando = operando.strip()
-    if len(operando) >= 2 and operando[0] in "'\"" \
-            and operando[-1] == operando[0]:
+    if len(operando) >= 2 and operando[0] in "'\"" and operando[-1] == operando[0]:
         return operando[1:-1]
     if operando.lower() in ("true", "verdad"):
         return True
@@ -668,7 +684,6 @@ def _resolver_operando_condicion(operando: str, contexto: dict):
 def _normalizar_comparacion(valor):
     """Normaliza valores para poder compararlos entre sí."""
 
-    import snapcontext as _sc  # perezoso: evita import circular
     if isinstance(valor, bool):
         return "ok" if valor else "fallo"
     if isinstance(valor, (int, float)):
@@ -676,16 +691,16 @@ def _normalizar_comparacion(valor):
     if isinstance(valor, (dict, list)):
         try:
             import json as _json
+
             return _json.dumps(valor, sort_keys=True, ensure_ascii=False)
         except Exception:
             return str(valor)
     return str(valor)
 
 
-def _partir_argumentos(texto: str) -> List[str]:
+def _partir_argumentos(texto: str) -> list[str]:
     """Separa los argumentos de una condición respetando comillas."""
 
-    import snapcontext as _sc  # perezoso: evita import circular
     partes, actual, comilla = [], "", None
     for caracter in texto:
         if comilla:
@@ -713,6 +728,7 @@ def _partir_argumentos(texto: str) -> List[str]:
 # y los pasos posteriores los consumen con {{resultado}}, {{mi_variable}} o
 # condiciones como "pasos[0].resultado == 'ok'" / "resultados.mi_var == 'x'".
 
+
 def _resolver_marcadores(texto: str):
     """Sustituye la marca de doble llave {{clave}} por el valor que
     tenga esa clave en el contexto dinámico del plan. Si la clave
@@ -722,10 +738,10 @@ def _resolver_marcadores(texto: str):
     se dejan sin sustituir (fallo elegante).
     """
 
-    import snapcontext as _sc  # perezoso: evita import circular
     if not isinstance(texto, str) or "{{" not in texto:
         return texto
     import json as _json
+
     with _CANDADO_CONTEXTO_PLAN:
         variables = dict(_CONTEXTO_PLAN["variables"])
 
@@ -747,7 +763,6 @@ def _resolver_marcadores(texto: str):
 def _refs_de_condicion(condicion: str) -> tuple:
     """Extrae los índices de pasos y nombres de variables que usa una condición."""
 
-    import snapcontext as _sc  # perezoso: evita import circular
     condicion = condicion or ""
     indices = set()
     for m in re.findall(r"pasos\[(\d+)\]", condicion):
@@ -756,8 +771,11 @@ def _refs_de_condicion(condicion: str) -> tuple:
         except ValueError:
             continue
     nombres = set(re.findall(r"resultados?\.(\w+)", condicion))
-    for m in re.findall(r"(?:^|\(|&&|\|)\s*([a-z_][\w]*)"
-                        r"\s*(?:==|!=)", condicion):
+    for m in re.findall(
+        r"(?:^|\(|&&|\|)\s*([a-z_][\w]*)"
+        r"\s*(?:==|!=)",
+        condicion,
+    ):
         nombre = m[1] if isinstance(m, tuple) else m
         if nombre not in ("true", "false", "none", "ok"):
             nombres.add(nombre)
@@ -768,6 +786,7 @@ def _resolver_marcadores_args(argumentos: dict) -> dict:
     """Aplica la sustitución de marcadores a los valores string de un dict."""
 
     import snapcontext as _sc  # perezoso: evita import circular
+
     resuelto = {}
     for clave, valor in (argumentos or {}).items():
         if isinstance(valor, str):
@@ -779,26 +798,31 @@ def _resolver_marcadores_args(argumentos: dict) -> dict:
     return resuelto
 
 
-_CANDADO_GIT_PLAN = threading.Lock()   # serializa commits en modo --paralelo
+_CANDADO_GIT_PLAN = threading.Lock()  # serializa commits en modo --paralelo
 
 
-def _ejecutar_paso_paralelo(paso: dict, args: argparse.Namespace,
-                            raiz: str, numero: int) -> dict:
+def _ejecutar_paso_paralelo(paso: dict, args: argparse.Namespace, raiz: str, numero: int) -> dict:
     """Ejecuta un paso en modo --paralelo (hilo secundario). Devuelve registro."""
 
     import snapcontext as _sc  # perezoso: evita import circular
+
     prefijo = f"[paso {numero}]"
     _sc.exito(f"{prefijo} [{paso['accion']}]: {paso['descripcion']}")
 
     condicion = paso.get("condicion")
     if condicion and not _sc._evaluar_condicion(condicion, raiz):
         _sc.aviso(f"{prefijo} condición no cumplida ({condicion}); se salta.")
-        return {"paso": numero, "descripcion": paso["descripcion"],
-                "accion": paso["accion"], "resultado": "saltado",
-                "detalle": f"condición no cumplida: {condicion}", "intentos": 0}
+        return {
+            "paso": numero,
+            "descripcion": paso["descripcion"],
+            "accion": paso["accion"],
+            "resultado": "saltado",
+            "detalle": f"condición no cumplida: {condicion}",
+            "intentos": 0,
+        }
     try:
         ok, detalle = _sc._ejecutar_paso_plan(paso, args, raiz)
-    except Exception as exc:                     # blindaje del hilo
+    except Exception as exc:  # blindaje del hilo
         ok, detalle = False, f"excepción: {exc}"
     _registrar_resultado_plan(numero, ok, detalle)
     marca = "✔" if ok else "✖"
@@ -806,13 +830,19 @@ def _ejecutar_paso_paralelo(paso: dict, args: argparse.Namespace,
     if ok and getattr(args, "git_commit", True):
         with _CANDADO_GIT_PLAN:
             _sc._commit_paso(paso, args, raiz)
-    return {"paso": numero, "descripcion": paso["descripcion"],
-            "accion": paso["accion"], "resultado": "éxito" if ok else "fallo",
-            "detalle": detalle, "intentos": 1}
+    return {
+        "paso": numero,
+        "descripcion": paso["descripcion"],
+        "accion": paso["accion"],
+        "resultado": "éxito" if ok else "fallo",
+        "detalle": detalle,
+        "intentos": 1,
+    }
 
 
-def _ejecutar_plan_en_paralelo(pasos: List[dict], args: argparse.Namespace,
-                               raiz: str, max_hilos: int) -> List[dict]:
+def _ejecutar_plan_en_paralelo(
+    pasos: list[dict], args: argparse.Namespace, raiz: str, max_hilos: int
+) -> list[dict]:
     """Ejecuta el plan con ``--paralelo N`` (modo --auto).
 
     Rondas de ejecución: en cada ronda se lanzan todos los pasos cuyas
@@ -822,8 +852,9 @@ def _ejecutar_plan_en_paralelo(pasos: List[dict], args: argparse.Namespace,
     """
 
     import snapcontext as _sc  # perezoso: evita import circular
-    estado: dict = {}                            # índice → resultado terminal
-    resultados: List[dict] = []
+
+    estado: dict = {}  # índice → resultado terminal
+    resultados: list[dict] = []
     pendientes = set(range(len(pasos)))
     MALOS_TERMINALES = ("fallo", "saltado")
 
@@ -834,13 +865,21 @@ def _ejecutar_plan_en_paralelo(pasos: List[dict], args: argparse.Namespace,
                 deps = [d - 1 for d in (pasos[i].get("dependencias") or [])]
                 if any(estado.get(d) in MALOS_TERMINALES for d in deps):
                     numero = i + 1
-                    _sc.aviso(f"[paso {numero}] saltado: dependencia(s) sin éxito "
-                          f"({[d + 1 for d in deps]}).")
+                    _sc.aviso(
+                        f"[paso {numero}] saltado: dependencia(s) sin éxito "
+                        f"({[d + 1 for d in deps]})."
+                    )
                     estado[i] = "saltado"
                     resultados.append(
-                        {"paso": numero, "descripcion": pasos[i]["descripcion"],
-                         "accion": pasos[i]["accion"], "resultado": "saltado",
-                         "detalle": "dependencia sin éxito", "intentos": 0})
+                        {
+                            "paso": numero,
+                            "descripcion": pasos[i]["descripcion"],
+                            "accion": pasos[i]["accion"],
+                            "resultado": "saltado",
+                            "detalle": "dependencia sin éxito",
+                            "intentos": 0,
+                        }
+                    )
                     pendientes.discard(i)
 
             # v2.3.0: además de las dependencias explícitas, un paso queda
@@ -852,16 +891,14 @@ def _ejecutar_plan_en_paralelo(pasos: List[dict], args: argparse.Namespace,
                 _ri, _rv = _sc._refs_de_condicion(_pj.get("condicion") or "")
                 producibles |= _rv
                 if _pj.get("accion") == "mcp":
-                    producibles.add(str(_pj.get("variable")
-                                        or _pj.get("herramienta") or ""))
+                    producibles.add(str(_pj.get("variable") or _pj.get("herramienta") or ""))
                     producibles.add("resultado")
 
             def _listo(i):
                 deps = [d - 1 for d in (pasos[i].get("dependencias") or [])]
                 if any(estado.get(d) != "éxito" for d in deps):
                     return False
-                ref_i, ref_v = _sc._refs_de_condicion(
-                    pasos[i].get("condicion") or "")
+                ref_i, ref_v = _sc._refs_de_condicion(pasos[i].get("condicion") or "")
                 if any(estado.get(d) != "éxito" for d in ref_i):
                     return False
                 with _CANDADO_CONTEXTO_PLAN:
@@ -869,7 +906,7 @@ def _ejecutar_plan_en_paralelo(pasos: List[dict], args: argparse.Namespace,
                     registrados = set(_CONTEXTO_PLAN["pasos"])
                 for v in ref_v:
                     if v not in disponibles and v in producibles:
-                        return False       # esperar a que se produzca
+                        return False  # esperar a que se produzca
                 for d in ref_i:
                     if str(d + 1) not in registrados:
                         return False
@@ -877,21 +914,26 @@ def _ejecutar_plan_en_paralelo(pasos: List[dict], args: argparse.Namespace,
 
             lanzables = [i for i in sorted(pendientes) if _listo(i)]
             if not lanzables:
-                if pendientes:                   # nada ejecutable → evitar bloqueo
+                if pendientes:  # nada ejecutable → evitar bloqueo
                     for i in sorted(pendientes):
                         estado[i] = "saltado"
                         resultados.append(
-                            {"paso": i + 1,
-                             "descripcion": pasos[i]["descripcion"],
-                             "accion": pasos[i]["accion"],
-                             "resultado": "saltado",
-                             "detalle": "dependencias insatisfechas",
-                             "intentos": 0})
+                            {
+                                "paso": i + 1,
+                                "descripcion": pasos[i]["descripcion"],
+                                "accion": pasos[i]["accion"],
+                                "resultado": "saltado",
+                                "detalle": "dependencias insatisfechas",
+                                "intentos": 0,
+                            }
+                        )
                     pendientes.clear()
                 continue
 
-            futuros = {pool.submit(_sc._ejecutar_paso_paralelo, pasos[i], args,
-                                   raiz, i + 1): i for i in lanzables}
+            futuros = {
+                pool.submit(_sc._ejecutar_paso_paralelo, pasos[i], args, raiz, i + 1): i
+                for i in lanzables
+            }
             for i in lanzables:
                 pendientes.discard(i)
             for futuro in concurrent.futures.as_completed(futuros):

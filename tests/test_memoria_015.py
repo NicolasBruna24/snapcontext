@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la memoria de proyecto (CLAUDE.md) — v0.15.0."""
 
 import sys
@@ -17,14 +16,13 @@ class BaseMemoria(unittest.TestCase):
 
     def setUp(self):
         import tempfile
+
         self.tmp = tempfile.TemporaryDirectory()
         self.dir_tmp = Path(self.tmp.name)
         parches = [
             mock.patch.object(sc, "CONFIG_DIR", self.dir_tmp),
-            mock.patch.object(sc, "PERMISOS_PATH",
-                              self.dir_tmp / "permisos.json"),
-            mock.patch.object(sc, "MCP_TOOLS_PATH",
-                              self.dir_tmp / "mcp_tools.json"),
+            mock.patch.object(sc, "PERMISOS_PATH", self.dir_tmp / "permisos.json"),
+            mock.patch.object(sc, "MCP_TOOLS_PATH", self.dir_tmp / "mcp_tools.json"),
             mock.patch.object(sc, "CONFIRMAR_ACCIONES", True),
         ]
         for p in parches:
@@ -32,14 +30,13 @@ class BaseMemoria(unittest.TestCase):
             self.addCleanup(p.stop)
         self.addCleanup(self.tmp.cleanup)
 
-    def _proyecto(self, con_memoria: bool = True,
-                  nombre: str = "CLAUDE.md") -> Path:
+    def _proyecto(self, con_memoria: bool = True, nombre: str = "CLAUDE.md") -> Path:
         proyecto = self.dir_tmp / "proy"
         proyecto.mkdir(exist_ok=True)
         if con_memoria:
             (proyecto / nombre).write_text(
-                "# Proyecto demo\n\n## Convenciones\n- Commits en español\n",
-                encoding="utf-8")
+                "# Proyecto demo\n\n## Convenciones\n- Commits en español\n", encoding="utf-8"
+            )
         return proyecto
 
 
@@ -79,17 +76,23 @@ class TestPlantillaBasica(BaseMemoria):
         proyecto = self._proyecto(con_memoria=False)
         (proyecto / "app.py").write_text("print('hola')", encoding="utf-8")
         plantilla = sc._plantilla_claude_md_basica(str(proyecto))
-        for seccion in ("## Objetivo", "## Tecnologías", "## Estructura",
-                        "## Convenciones", "## Comandos útiles"):
+        for seccion in (
+            "## Objetivo",
+            "## Tecnologías",
+            "## Estructura",
+            "## Convenciones",
+            "## Comandos útiles",
+        ):
             self.assertIn(seccion, plantilla)
 
 
 class TestGenerarClaudeMd(BaseMemoria):
     def test_fallback_sin_proveedor_crea_archivo(self):
         """Sin clave de API, --init-claude cae a la plantilla offline."""
-        with mock.patch.dict("os.environ", {}, clear=True), \
-             mock.patch.object(sc, "_enviar_al_proveedor",
-                               side_effect=RuntimeError("sin conexión")):
+        with (
+            mock.patch.dict("os.environ", {}, clear=True),
+            mock.patch.object(sc, "_enviar_al_proveedor", side_effect=RuntimeError("sin conexión")),
+        ):
             destino = sc._generar_claude_md(directorio=str(self.dir_tmp))
         self.assertTrue(destino.exists())
         contenido = destino.read_text(encoding="utf-8")
@@ -97,8 +100,8 @@ class TestGenerarClaudeMd(BaseMemoria):
 
     def test_generacion_con_proveedor_mock(self):
         with mock.patch.object(
-                sc, "_enviar_al_proveedor",
-                return_value="# Proyecto\n## Objetivo\nAutomatizar.") as enviar:
+            sc, "_enviar_al_proveedor", return_value="# Proyecto\n## Objetivo\nAutomatizar."
+        ) as enviar:
             destino = sc._generar_claude_md(directorio=str(self.dir_tmp))
         self.assertIn("Automatizar.", destino.read_text(encoding="utf-8"))
         enviar.assert_called_once()
@@ -106,40 +109,42 @@ class TestGenerarClaudeMd(BaseMemoria):
     def test_sobreescribe_solo_con_confirmacion(self):
         destino = self.dir_tmp / "CLAUDE.md"
         destino.write_text("original", encoding="utf-8")
-        with mock.patch.object(sc, "_enviar_al_proveedor",
-                               return_value="nuevo contenido"), \
-             mock.patch.object(sc, "_confirmar_accion", return_value=False):
+        with (
+            mock.patch.object(sc, "_enviar_al_proveedor", return_value="nuevo contenido"),
+            mock.patch.object(sc, "_confirmar_accion", return_value=False),
+        ):
             sc._generar_claude_md(directorio=str(self.dir_tmp))
         self.assertEqual(destino.read_text(encoding="utf-8"), "original")
-        with mock.patch.object(sc, "_enviar_al_proveedor",
-                               return_value="nuevo contenido"), \
-             mock.patch.object(sc, "_confirmar_accion", return_value=True):
+        with (
+            mock.patch.object(sc, "_enviar_al_proveedor", return_value="nuevo contenido"),
+            mock.patch.object(sc, "_confirmar_accion", return_value=True),
+        ):
             sc._generar_claude_md(directorio=str(self.dir_tmp))
         self.assertIn("nuevo contenido", destino.read_text(encoding="utf-8"))
 
 
 class TestActualizarAutomatico(BaseMemoria):
     def test_sin_memoria_no_hace_nada(self):
-        self.assertFalse(sc._actualizar_claude_md_automatico(
-            "resumen", str(self.dir_tmp)))
+        self.assertFalse(sc._actualizar_claude_md_automatico("resumen", str(self.dir_tmp)))
 
     def test_denegado_no_modifica(self):
         proyecto = self._proyecto()
         original = (proyecto / "CLAUDE.md").read_text(encoding="utf-8")
-        with mock.patch.object(sc, "_confirmar_accion", return_value=False), \
-             mock.patch.object(sc, "_enviar_al_proveedor") as enviar:
-            self.assertFalse(sc._actualizar_claude_md_automatico(
-                "aprendimos X", str(proyecto)))
+        with (
+            mock.patch.object(sc, "_confirmar_accion", return_value=False),
+            mock.patch.object(sc, "_enviar_al_proveedor") as enviar,
+        ):
+            self.assertFalse(sc._actualizar_claude_md_automatico("aprendimos X", str(proyecto)))
         enviar.assert_not_called()
         self.assertEqual((proyecto / "CLAUDE.md").read_text("utf-8"), original)
 
     def test_actualizacion_con_proveedor_mock(self):
         proyecto = self._proyecto()
-        with mock.patch.object(sc, "_confirmar_accion", return_value=True), \
-             mock.patch.object(sc, "_enviar_al_proveedor",
-                               return_value="# memoria v2"):
-            self.assertTrue(sc._actualizar_claude_md_automatico(
-                "aprendimos Y", str(proyecto)))
+        with (
+            mock.patch.object(sc, "_confirmar_accion", return_value=True),
+            mock.patch.object(sc, "_enviar_al_proveedor", return_value="# memoria v2"),
+        ):
+            self.assertTrue(sc._actualizar_claude_md_automatico("aprendimos Y", str(proyecto)))
         self.assertIn("memoria v2", (proyecto / "CLAUDE.md").read_text("utf-8"))
 
 
@@ -153,8 +158,9 @@ class TestPlanIncluyeMemoria(BaseMemoria):
         class FakeCompletions:
             def create(self, **kwargs):
                 captura["prompt"] = kwargs["messages"][0]["content"]
-                return mock.MagicMock(choices=[mock.MagicMock(
-                    message=mock.MagicMock(content='{"pasos": []}'))])
+                return mock.MagicMock(
+                    choices=[mock.MagicMock(message=mock.MagicMock(content='{"pasos": []}'))]
+                )
 
         class FakeChat:
             completions = FakeCompletions()
@@ -175,8 +181,7 @@ class TestPlanIncluyeMemoria(BaseMemoria):
 
 class TestFlagsMemoriaCli(BaseMemoria):
     def test_flag_init_claude(self):
-        self.assertTrue(sc.crear_parser().parse_args(
-            ["--init-claude"]).init_claude)
+        self.assertTrue(sc.crear_parser().parse_args(["--init-claude"]).init_claude)
 
     def test_version_es_1_2_0(self):
         self.assertEqual(sc.VERSION, "6.33.0")

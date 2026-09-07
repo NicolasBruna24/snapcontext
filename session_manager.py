@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Gestor de sesiones persistentes (v6.28.0) — Agente Fantasma.
 
 Mantiene sesiones de agente vivas entre conexiones, permitiendo que multiples
@@ -18,7 +17,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 __all__ = [
     "Session",
@@ -34,36 +33,37 @@ TIMEOUT_DEFECTO = 3600  # 1 hora de inactividad
 class Session:
     """Sesion persistente del agente."""
 
-    def __init__(self, id: Optional[str] = None,
-                 consulta_inicial: Optional[str] = None) -> None:
+    def __init__(self, id: str | None = None, consulta_inicial: str | None = None) -> None:
         self.id: str = id or str(uuid.uuid4())[:8]
-        self.historial: List[Dict[str, str]] = []
-        self.estado: Dict[str, Any] = {
+        self.historial: list[dict[str, str]] = []
+        self.estado: dict[str, Any] = {
             "fase": "inactivo",
             "detalle": "",
             "iteracion": 0,
         }
-        self.plan: List[Dict[str, Any]] = []
-        self.archivos_modificados: List[str] = []
-        self.consulta_inicial: Optional[str] = consulta_inicial
+        self.plan: list[dict[str, Any]] = []
+        self.archivos_modificados: list[str] = []
+        self.consulta_inicial: str | None = consulta_inicial
         self.creado: str = datetime.now().isoformat()
         self.ultima_actividad: float = time.time()
 
-    def actualizar_estado(self, estado: Dict[str, Any]) -> None:
+    def actualizar_estado(self, estado: dict[str, Any]) -> None:
         """Actualiza el estado de la sesion."""
         self.estado.update(estado)
         self.ultima_actividad = time.time()
 
     def añadir_mensaje(self, rol: str, contenido: str) -> None:
         """Añade un mensaje al historial."""
-        self.historial.append({
-            "rol": rol,
-            "contenido": contenido,
-            "timestamp": datetime.now().isoformat(),
-        })
+        self.historial.append(
+            {
+                "rol": rol,
+                "contenido": contenido,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
         self.ultima_actividad = time.time()
 
-    def guardar_plan(self, plan: List[Dict[str, Any]]) -> None:
+    def guardar_plan(self, plan: list[dict[str, Any]]) -> None:
         """Guarda el plan actual."""
         self.plan = list(plan)
         self.ultima_actividad = time.time()
@@ -74,7 +74,7 @@ class Session:
             self.archivos_modificados.append(archivo)
         self.ultima_actividad = time.time()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serializa la sesion a dict."""
         return {
             "id": self.id,
@@ -99,11 +99,10 @@ class Session:
 class SessionManager:
     """Gestiona todas las sesiones activas."""
 
-    def __init__(self, db_path: Optional[Path] = None,
-                 timeout: int = TIMEOUT_DEFECTO) -> None:
+    def __init__(self, db_path: Path | None = None, timeout: int = TIMEOUT_DEFECTO) -> None:
         self.db_path = db_path or SESIONES_DB_PATH
         self.timeout = timeout
-        self._sesiones: Dict[str, Session] = {}
+        self._sesiones: dict[str, Session] = {}
         self._lock = threading.RLock()
         self._asegurar_db()
 
@@ -129,7 +128,7 @@ class SessionManager:
             """)
             conn.commit()
 
-    def crear_sesion(self, consulta_inicial: Optional[str] = None) -> str:
+    def crear_sesion(self, consulta_inicial: str | None = None) -> str:
         """Crea una nueva sesion y devuelve su ID."""
         with self._lock:
             sesion = Session(consulta_inicial=consulta_inicial)
@@ -137,7 +136,7 @@ class SessionManager:
             self.persistir_sesion(sesion.id)
             return sesion.id
 
-    def obtener_sesion(self, id: str) -> Optional[Session]:
+    def obtener_sesion(self, id: str) -> Session | None:
         """Devuelve la session si existe (None si no)."""
         with self._lock:
             sesion = self._sesiones.get(id)
@@ -158,20 +157,22 @@ class SessionManager:
                 return True
             return False
 
-    def listar_sesiones(self) -> List[Dict[str, Any]]:
+    def listar_sesiones(self) -> list[dict[str, Any]]:
         """Devuelve lista de sesiones activas con metadatos."""
         with self._lock:
             resultado = []
             for id, sesion in self._sesiones.items():
-                resultado.append({
-                    "id": id,
-                    "consulta_inicial": sesion.consulta_inicial,
-                    "estado": sesion.estado.get("fase", "inactivo"),
-                    "archivos_modificados": len(sesion.archivos_modificados),
-                    "mensajes": len(sesion.historial),
-                    "inactivo_segundos": int(sesion.tiempo_inactividad()),
-                    "expirado": sesion.expirado(self.timeout),
-                })
+                resultado.append(
+                    {
+                        "id": id,
+                        "consulta_inicial": sesion.consulta_inicial,
+                        "estado": sesion.estado.get("fase", "inactivo"),
+                        "archivos_modificados": len(sesion.archivos_modificados),
+                        "mensajes": len(sesion.historial),
+                        "inactivo_segundos": int(sesion.tiempo_inactividad()),
+                        "expirado": sesion.expirado(self.timeout),
+                    }
+                )
             return resultado
 
     def persistir_sesion(self, id: str) -> bool:
@@ -182,35 +183,36 @@ class SessionManager:
                 return False
             try:
                 with sqlite3.connect(str(self.db_path)) as conn:
-                    conn.execute("""
+                    conn.execute(
+                        """
                         INSERT OR REPLACE INTO sesiones
                         (id, consulta_inicial, historial_json, estado_json,
                          plan_json, archivos_modificados_json, creado,
                          ultima_actividad)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        sesion.id,
-                        sesion.consulta_inicial,
-                        json.dumps(sesion.historial[-100:], ensure_ascii=False),
-                        json.dumps(sesion.estado, ensure_ascii=False),
-                        json.dumps(sesion.plan, ensure_ascii=False),
-                        json.dumps(sesion.archivos_modificados, ensure_ascii=False),
-                        sesion.creado,
-                        sesion.ultima_actividad,
-                    ))
+                    """,
+                        (
+                            sesion.id,
+                            sesion.consulta_inicial,
+                            json.dumps(sesion.historial[-100:], ensure_ascii=False),
+                            json.dumps(sesion.estado, ensure_ascii=False),
+                            json.dumps(sesion.plan, ensure_ascii=False),
+                            json.dumps(sesion.archivos_modificados, ensure_ascii=False),
+                            sesion.creado,
+                            sesion.ultima_actividad,
+                        ),
+                    )
                     conn.commit()
                 return True
             except Exception:
                 return False
 
-    def cargar_sesion(self, id: str) -> Optional[Session]:
+    def cargar_sesion(self, id: str) -> Session | None:
         """Carga una sesion desde disco."""
         try:
             with sqlite3.connect(str(self.db_path)) as conn:
                 conn.row_factory = sqlite3.Row
-                fila = conn.execute(
-                    "SELECT * FROM sesiones WHERE id = ?", (id,)
-                ).fetchone()
+                fila = conn.execute("SELECT * FROM sesiones WHERE id = ?", (id,)).fetchone()
                 if fila is None:
                     return None
                 sesion = Session(id=fila["id"])
@@ -218,9 +220,7 @@ class SessionManager:
                 sesion.historial = json.loads(fila["historial_json"] or "[]")
                 sesion.estado = json.loads(fila["estado_json"] or "{}")
                 sesion.plan = json.loads(fila["plan_json"] or "[]")
-                sesion.archivos_modificados = json.loads(
-                    fila["archivos_modificados_json"] or "[]"
-                )
+                sesion.archivos_modificados = json.loads(fila["archivos_modificados_json"] or "[]")
                 sesion.creado = fila["creado"]
                 sesion.ultima_actividad = fila["ultima_actividad"]
                 self._sesiones[id] = sesion
@@ -231,15 +231,12 @@ class SessionManager:
     def limpiar_expiradas(self) -> int:
         """Elimina sesiones que excedieron el timeout."""
         with self._lock:
-            expiradas = [
-                id for id, s in self._sesiones.items()
-                if s.expirado(self.timeout)
-            ]
+            expiradas = [id for id, s in self._sesiones.items() if s.expirado(self.timeout)]
             for id in expiradas:
                 self.eliminar_sesion(id)
             return len(expiradas)
 
-    def ejecutar_comando(self, id: str, comando: str) -> Dict[str, Any]:
+    def ejecutar_comando(self, id: str, comando: str) -> dict[str, Any]:
         """Ejecuta un comando en una sesion."""
         sesion = self.obtener_sesion(id)
         if sesion is None:
@@ -249,7 +246,7 @@ class SessionManager:
 
 
 # Singleton global
-_manager: Optional[SessionManager] = None
+_manager: SessionManager | None = None
 
 
 def obtener_manager(timeout: int = TIMEOUT_DEFECTO) -> SessionManager:

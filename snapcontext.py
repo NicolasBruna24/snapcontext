@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SnapContext — Asistente de IA para desarrollo con contexto automático.
 
@@ -48,7 +47,6 @@ import re
 import shlex
 import shutil
 import signal
-from concurrent.futures import ThreadPoolExecutor
 import subprocess
 import sys
 import tempfile
@@ -57,48 +55,58 @@ import time
 import unicodedata
 import warnings
 import webbrowser
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any
+from urllib.parse import urlparse
 
-# v5.4.0: detección de comandos peligrosos para el sandboxing inteligente.
-from sandbox_utils import es_comando_peligroso
-# seguridad: ejecución segura de comandos (shell=False por defecto).
-from sandbox_utils import ejecutar_comando_con_politica as _ejecutar_con_politica
+# Fase 8: subsistema de herramientas MCP (dispatcher y registro) extraído a
+# módulo independiente. Las implementaciones (_tool_*) se resuelven con import
+# diferido a snapcontext desde mcp_tools para evitar ciclos.
+from mcp_tools import (
+    HERRAMIENTAS_PREDEFINIDAS,  # noqa: E402,F401  (re-export: API interna y tests)
+    _cargar_herramientas_mcp,
+    _ejecutar_herramienta_mcp,
+    _entero_opcional,
+    _formatear_resultado_mcp,
+    _contexto_automatico_mcp,
+)
+
+# Fase 6: subsistema de permisos y confirmaciones extraído a módulo independiente.
+from permisos import (
+    PERMISOS_PATH,
+    CONFIRMAR_ACCIONES,  # noqa: E402,F401  (re-export: API interna y tests)
+    _cargar_permisos,
+    _guardar_permiso,
+    _permiso_recordado,
+    _limpiar_permisos,
+    _confirmar_accion,
+)
 
 # v4.8.0: capa de presentación centralizada (Rich). Degradación elegante:
 # ui.py funciona también sin `rich` (print plano), así que la importación
 # nunca rompe el CLI.
-from planificador import (_CONTEXTO_PLAN, _CANDADO_CONTEXTO_PLAN,
-                          _contexto_plan_reiniciar, _contexto_plan_variable,
-                          _registrar_resultado_plan, _mostrar_plan_resumido)
 # Fase 9: núcleo del planificador extraído a planificador.py. Se reexporta
 # para preservar la API interna (``sc._generar_plan`` y similares).
-from planificador import (PROMPT_PLAN, ACCIONES_VALIDAS, _normalizar_pasos,
-                          _normalizar_dependencias, _generar_plan,
-                          _ejecutar_paso_plan, _evaluar_condicion,
-                          _resolver_operando_condicion, _normalizar_comparacion,
-                          _partir_argumentos, _resolver_marcadores,
-                          _refs_de_condicion, _resolver_marcadores_args,
-                          _ejecutar_paso_paralelo, _ejecutar_plan_en_paralelo,
-                          _DESCONOCIDO, _CANDADO_GIT_PLAN)
-from ui import (configurar_auto as _ui_configurar_auto,
-                es_auto as _ui_es_auto,
-                mostrar_banner as _ui_mostrar_banner,
-                mostrar_progreso as _ui_mostrar_progreso)
-from urllib.parse import urlparse
-# Fase 6: subsistema de permisos y confirmaciones extraído a módulo independiente.
-from permisos import (PERMISOS_PATH, CONFIRMAR_ACCIONES,
-                      _cargar_permisos, _guardar_permiso,
-                      _permiso_recordado, _limpiar_permisos,
-                      _confirmar_accion)
-# Fase 8: subsistema de herramientas MCP (dispatcher y registro) extraído a
-# módulo independiente. Las implementaciones (_tool_*) se resuelven con import
-# diferido a snapcontext desde mcp_tools para evitar ciclos.
-from mcp_tools import (HERRAMIENTAS_PREDEFINIDAS,
-                       _cargar_herramientas_mcp, _ejecutar_herramienta_mcp,
-                       _entero_opcional, _formatear_resultado_mcp,
-                       _contexto_automatico_mcp)
+from planificador import (
+    _CONTEXTO_PLAN,
+    _CANDADO_CONTEXTO_PLAN,  # noqa: E402,F401  (re-export: API interna y tests)
+    _contexto_plan_reiniciar,
+    _contexto_plan_variable,
+    _registrar_resultado_plan,
+    _mostrar_plan_resumido,
+)
 
+# seguridad: ejecución segura de comandos (shell=False por defecto).
+from sandbox_utils import ejecutar_comando_con_politica as _ejecutar_con_politica
+
+# v5.4.0: detección de comandos peligrosos para el sandboxing inteligente.
+from sandbox_utils import es_comando_peligroso
+from ui import configurar_auto as _ui_configurar_auto
+from ui import es_auto as _ui_es_auto
+from ui import mostrar_banner as _ui_mostrar_banner
+from ui import mostrar_progreso as _ui_mostrar_progreso
 
 # ════════════════════════════════════════════════════════════════════════════
 # v6.9.0 — IMPORTS PEREZOSOS (rendimiento de arranque)
@@ -115,22 +123,22 @@ from mcp_tools import (HERRAMIENTAS_PREDEFINIDAS,
 # tests/usuarios asignen explícitamente (nunca se sobrescriben).
 # ════════════════════════════════════════════════════════════════════════════
 
-_SIN_CARGAR = object()          # centinela: la importación aún no se intentó
+_SIN_CARGAR = object()  # centinela: la importación aún no se intentó
 
 
 def _importar_genai():
     """Carga `google.generativeai` una sola vez (o None si falta)."""
     _actual = globals().get("genai", _SIN_CARGAR)
-    if _actual is not _SIN_CARGAR:          # ya cargado o asignado explícitamente
+    if _actual is not _SIN_CARGAR:  # ya cargado o asignado explícitamente
         return _actual
-    global genai                            # noqa: PLW0603
+    global genai
     try:
         with warnings.catch_warnings():
             # Silenciamos SOLO el FutureWarning de puesta al día de la librería.
             warnings.simplefilter("ignore", FutureWarning)
             import google.generativeai as _genai
         genai = _genai
-    except ImportError:                     # pragma: no cover
+    except ImportError:  # pragma: no cover
         genai = None
     return genai
 
@@ -140,11 +148,12 @@ def _importar_openai():
     _actual = globals().get("openai", _SIN_CARGAR)
     if _actual is not _SIN_CARGAR:
         return _actual
-    global openai                           # noqa: PLW0603
+    global openai
     try:
         import openai as _openai
+
         openai = _openai
-    except ImportError:                     # pragma: no cover
+    except ImportError:  # pragma: no cover
         openai = None
     return openai
 
@@ -154,11 +163,12 @@ def _importar_anthropic():
     _actual = globals().get("anthropic", _SIN_CARGAR)
     if _actual is not _SIN_CARGAR:
         return _actual
-    global anthropic                        # noqa: PLW0603
+    global anthropic
     try:
-        import anthropic as _anthropic      # type: ignore
+        import anthropic as _anthropic  # type: ignore
+
         anthropic = _anthropic
-    except ImportError:                     # pragma: no cover
+    except ImportError:  # pragma: no cover
         anthropic = None
     return anthropic
 
@@ -168,11 +178,12 @@ def _importar_sentence_transformer():
     _actual = globals().get("SentenceTransformer", _SIN_CARGAR)
     if _actual is not _SIN_CARGAR:
         return _actual
-    global SentenceTransformer              # noqa: PLW0603
+    global SentenceTransformer
     try:
         from sentence_transformers import SentenceTransformer as _ST  # type: ignore
+
         SentenceTransformer = _ST
-    except ImportError:                     # pragma: no cover
+    except ImportError:  # pragma: no cover
         SentenceTransformer = None
     return SentenceTransformer
 
@@ -182,18 +193,20 @@ def _importar_tree_sitter():
     _actual = globals().get("tree_sitter", _SIN_CARGAR)
     if _actual is not _SIN_CARGAR:
         return _actual
-    global tree_sitter, Language, _ts_lang  # noqa: PLW0603
+    global tree_sitter, Language, _ts_lang
     try:
-        import tree_sitter as _ts           # type: ignore
+        import tree_sitter as _ts  # type: ignore
         from tree_sitter import Language as _Lang  # type: ignore
+
         tree_sitter = _ts
         Language = _Lang
         try:
             import tree_sitter_languages as _tsl  # type: ignore
+
             _ts_lang = _tsl
-        except ImportError:                 # pragma: no cover
+        except ImportError:  # pragma: no cover
             _ts_lang = None
-    except ImportError:                     # pragma: no cover
+    except ImportError:  # pragma: no cover
         tree_sitter = None
         Language = None
         _ts_lang = None
@@ -221,9 +234,8 @@ def __getattr__(nombre: str):
         return globals().get(nombre)
     raise AttributeError(f"módulo 'snapcontext' no tiene atributo {nombre!r}")
 
+
 # Ejecución en paralelo de pasos del plan (v1.3.0) — stdlib, sin deps extra.
-import concurrent.futures
-from concurrent.futures import ThreadPoolExecutor
 
 VERSION = "6.34.11"
 
@@ -244,13 +256,36 @@ MAX_CONTEXT_TOKENS = 3000
 
 # v3.1.0 — Claves de API reconocidas para el modo por defecto (offline).
 CLAVES_API_CONOCIDAS = (
-    "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY",
-    "GROQ_API_KEY", "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "GROQ_API_KEY",
+    "OPENAI_API_KEY",
 )
 
+from planificador import (
+    PROMPT_PLAN,
+    ACCIONES_VALIDAS,
+    _normalizar_pasos,  # noqa: E402,F401  (re-export: API interna y tests)
+    _normalizar_dependencias,
+    _generar_plan,
+    _ejecutar_paso_plan,
+    _evaluar_condicion,
+    _resolver_operando_condicion,
+    _normalizar_comparacion,
+    _partir_argumentos,
+    _resolver_marcadores,
+    _refs_de_condicion,
+    _resolver_marcadores_args,
+    _ejecutar_paso_paralelo,
+    _ejecutar_plan_en_paralelo,
+    _DESCONOCIDO,
+    _CANDADO_GIT_PLAN,
+)
+
+
 # v3.1.0 — Modelos ligeros preferidos en modo offline (por orden de prioridad).
-MODELOS_LIGEROS_OLLAMA = ("llama3.2:1b", "llama3.2", "phi3", "gemma2:2b",
-                          "qwen2.5:0.5b")
+MODELOS_LIGEROS_OLLAMA = ("llama3.2:1b", "llama3.2", "phi3", "gemma2:2b", "qwen2.5:0.5b")
 
 # v3.1.0 — Mensaje cuando no hay ni API key ni Ollama disponible.
 MENSAJE_SIN_CLAVE_NI_OLLAMA = (
@@ -258,7 +293,7 @@ MENSAJE_SIN_CLAVE_NI_OLLAMA = (
     "Puedes instalar Ollama desde https://ollama.com o configurar una API\n"
     "key con 'snapcontext --init'.\n"
     "Alternativas:\n"
-    "  PowerShell :  $env:GEMINI_API_KEY=\"tu_clave\"\n"
+    '  PowerShell :  $env:GEMINI_API_KEY="tu_clave"\n'
     "  Linux/Mac  :  export GEMINI_API_KEY=tu_clave\n"
     "  Diagnóstico:  snapcontext --diagnostico"
 )
@@ -267,34 +302,22 @@ MENSAJE_SIN_CLAVE_NI_OLLAMA = (
 # ─── Configuración por tipo de proyecto ────────────────────────────────────
 # Detección automática de carpetas y extensiones según el tipo de proyecto detectado.
 _CORRECTORES_CARPETAS_PROYECTO = {
-    "flutter": {
-        "carpetas_defecto": ["lib", "test", "web"],
-        "extensiones": [".dart"]
-    },
+    "flutter": {"carpetas_defecto": ["lib", "test", "web"], "extensiones": [".dart"]},
     "node": {
         "carpetas_defecto": ["src", "backend", "frontend", "lib"],
-        "extensiones": [".js", ".ts", ".jsx", ".tsx", ".json"]
+        "extensiones": [".js", ".ts", ".jsx", ".tsx", ".json"],
     },
     "python": {
         "carpetas_defecto": ["src", "app", "lib", "tests", "scripts"],
-        "extensiones": [".py", ".pyx", ".pxd"]
+        "extensiones": [".py", ".pyx", ".pxd"],
     },
-    "go": {
-        "carpetas_defecto": ["cmd", "internal", "pkg"],
-        "extensiones": [".go"]
-    },
-    "rust": {
-        "carpetas_defecto": ["src", "tests"],
-        "extensiones": [".rs", ".toml", ".md"]
-    },
+    "go": {"carpetas_defecto": ["cmd", "internal", "pkg"], "extensiones": [".go"]},
+    "rust": {"carpetas_defecto": ["src", "tests"], "extensiones": [".rs", ".toml", ".md"]},
     "kotlin": {
         "carpetas_defecto": ["app/src/main/kotlin", "app/src/test/kotlin"],
-        "extensiones": [".kt", ".kts"]
+        "extensiones": [".kt", ".kts"],
     },
-    "swift": {
-        "carpetas_defecto": ["Sources", "Tests"],
-        "extensiones": [".swift"]
-    }
+    "swift": {"carpetas_defecto": ["Sources", "Tests"], "extensiones": [".swift"]},
 }
 
 _CORRECTORES_EXTENSIONES_PROYECTO = {
@@ -304,7 +327,7 @@ _CORRECTORES_EXTENSIONES_PROYECTO = {
     "go": [".go", ".mod", ".sum"],
     "rust": [".rs", ".toml", ".md"],
     "kotlin": [".kt", ".kts"],
-    "swift": [".swift"]
+    "swift": [".swift"],
 }
 
 # Mapeo de archivos clave para la detección automática de tipo de proyecto.
@@ -317,7 +340,7 @@ _CORRECTORES_ARCHIVOS_IDENTIFICADORES = {
     "go.mod": "go",
     "Cargo.toml": "rust",
     "build.gradle": "kotlin",
-    "Podfile": "swift"
+    "Podfile": "swift",
 }
 
 
@@ -340,7 +363,7 @@ _LOGO = r"""
 """.replace("__VERSION__", "v" + VERSION)
 
 
-def _detectar_tipo_proyecto(directorio: str) -> Optional[str]:
+def _detectar_tipo_proyecto(directorio: str) -> str | None:
     """Detecta automáticamente el tipo de proyecto buscando archivos clave.
 
     Args:
@@ -370,8 +393,14 @@ def _detectar_tipo_proyecto(directorio: str) -> Optional[str]:
 # Archivos y carpetas que indican que un directorio es raíz de un proyecto.
 # Usado por _es_directorio_proyecto() para la verificación temprana en main().
 _ARCHIVOS_PROYECTO = (
-    "package.json", "go.mod", "pyproject.toml", "requirements.txt",
-    "Cargo.toml", "pubspec.yaml", "Gemfile", "mix.exs",
+    "package.json",
+    "go.mod",
+    "pyproject.toml",
+    "requirements.txt",
+    "Cargo.toml",
+    "pubspec.yaml",
+    "Gemfile",
+    "mix.exs",
 )
 _CARPETAS_PROYECTO = ("src", "lib", "tests", "app", "scripts")
 
@@ -413,7 +442,7 @@ def _es_directorio_proyecto(directorio: str) -> bool:
     return False
 
 
-def _advertencia_directorio_proyecto(args: argparse.Namespace) -> Optional[int]:
+def _advertencia_directorio_proyecto(args: argparse.Namespace) -> int | None:
     """Advertencia temprana si el directorio no parece una raíz de proyecto.
 
     Se muestra después del banner y antes de cualquier operación. En modo
@@ -423,12 +452,27 @@ def _advertencia_directorio_proyecto(args: argparse.Namespace) -> Optional[int]:
     con el flujo normal. No se muestra si se usó ``--no-validar-proyecto`` o un
     flag que no requiera proyecto (``--demo``, ``--init``, ``--chat``…).
     """
-    _directorios_proyecto_sin_avisar = frozenset({
-        "demo", "init", "chat", "web", "api", "api_generate_key",
-        "bienvenida", "diagnostico", "reparar", "historial",
-        "historial_limpiar", "setup_path", "iniciar_proyecto",
-        "curador", "daemon", "skills", "local",
-    })
+    _directorios_proyecto_sin_avisar = frozenset(
+        {
+            "demo",
+            "init",
+            "chat",
+            "web",
+            "api",
+            "api_generate_key",
+            "bienvenida",
+            "diagnostico",
+            "reparar",
+            "historial",
+            "historial_limpiar",
+            "setup_path",
+            "iniciar_proyecto",
+            "curador",
+            "daemon",
+            "skills",
+            "local",
+        }
+    )
     _usa_flag_sin_proyecto = any(
         getattr(args, attr, False) for attr in _directorios_proyecto_sin_avisar
     )
@@ -439,8 +483,11 @@ def _advertencia_directorio_proyecto(args: argparse.Namespace) -> Optional[int]:
         return None
     _ui_mostrar_banner(VERSION)
     import ui
-    aviso = ("ℹ SnapContext funciona mejor desde la raíz de un proyecto.\n"
-             "No se detectaron archivos de proyecto en este directorio.")
+
+    aviso = (
+        "ℹ SnapContext funciona mejor desde la raíz de un proyecto.\n"
+        "No se detectaron archivos de proyecto en este directorio."
+    )
     ui.mostrar_estado(aviso, emoji="🧭")
     # En modo --auto (o sin entrada interactiva) se continúa sin preguntar.
     if getattr(args, "auto", False):
@@ -450,8 +497,7 @@ def _advertencia_directorio_proyecto(args: argparse.Namespace) -> Optional[int]:
         ("d", "Ejecutar demo (--demo)"),
         ("s", "Salir"),
     ]
-    eleccion = ui.preguntar_interactivo(
-        opciones, "¿Qué quieres hacer?", defecto="c")
+    eleccion = ui.preguntar_interactivo(opciones, "¿Qué quieres hacer?", defecto="c")
     if eleccion == "d":
         return _ejecutar_demo()
     if eleccion == "s":
@@ -460,7 +506,7 @@ def _advertencia_directorio_proyecto(args: argparse.Namespace) -> Optional[int]:
     return None
 
 
-def _ajustar_parametros_por_tipo(tipo: Optional[str], args):
+def _ajustar_parametros_por_tipo(tipo: str | None, args):
     """Ajusta ``args`` según el tipo de proyecto detectado.
 
     Solo modifica ``carpetas`` y ``extensiones`` si NO se pasaron explícitamente
@@ -486,6 +532,7 @@ def _ajustar_parametros_por_tipo(tipo: Optional[str], args):
 
     return args
 
+
 _LOGO_SMALL = f"""
 \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557
 \u2551           SnapContext  v{VERSION: <9}            \u2551
@@ -496,20 +543,45 @@ _LOGO_SMALL = f"""
 # ---------------------------------------------------------------------------
 # Configuración por defecto (se puede sobrescribir con argumentos CLI o env)
 # ---------------------------------------------------------------------------
-CARPETAS_DEFECTO = ("lib", "supabase")   # carpetas que se escanean
+CARPETAS_DEFECTO = ("lib", "supabase")  # carpetas que se escanean
 CARPETAS_PROYECTO_VALIDAS = ("lib", "src", "supabase", "app", "packages", "backend")
 # Archivos de configuración que indican un proyecto válido aunque estén vacíos
 # (v1.3.0: la validación ya no exige contenido, solo su presencia).
-ARCHIVOS_CONFIG_PROYECTO = frozenset((
-    "pubspec.yaml", "package.json", "requirements.txt", "go.mod",
-    "cargo.toml", "setup.py", "pyproject.toml",
-))
+ARCHIVOS_CONFIG_PROYECTO = frozenset(
+    (
+        "pubspec.yaml",
+        "package.json",
+        "requirements.txt",
+        "go.mod",
+        "cargo.toml",
+        "setup.py",
+        "pyproject.toml",
+    )
+)
 # Extensiones de código que, presentes en la raíz (aunque el archivo esté
 # vacío), también validan la carpeta como proyecto.
-EXT_CODIGO_RAIZ = frozenset((
-    ".py", ".dart", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".java",
-    ".kt", ".swift", ".c", ".cpp", ".h", ".hpp", ".cs", ".rb", ".php",
-))
+EXT_CODIGO_RAIZ = frozenset(
+    (
+        ".py",
+        ".dart",
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".go",
+        ".rs",
+        ".java",
+        ".kt",
+        ".swift",
+        ".c",
+        ".cpp",
+        ".h",
+        ".hpp",
+        ".cs",
+        ".rb",
+        ".php",
+    )
+)
 # [Fase 4] PROVEEDOR_DEFECTO movido a configuracion.py (487-487)
 # SNAPCONTEXT_MODELO (opcional) sobrescribe el modelo por defecto del proveedor.
 MODELO_DEFECTO = os.environ.get("SNAPCONTEXT_MODELO") or None
@@ -518,25 +590,37 @@ MODELO_DEFECTO = os.environ.get("SNAPCONTEXT_MODELO") or None
 # [Fase 4] CONFIG_PATH movido a configuracion.py (492-492)
 # v3.1.1: estado ligero de primer uso (~/.snapcontext/estado.json).
 # Configuracion inicial (Fase 4): re-import para disponibilidad temprana.
-from configuracion import (
-    PROVEEDOR_DEFECTO, CONFIG_DIR, CONFIG_PATH, PROVEEDORES,
-    MENSAJE_OPENAI_FALTANTE, MENSAJE_ANTHROPIC_FALTANTE,
-    cargar_configuracion, guardar_configuracion,
-    _actualizar_clave_configuracion, _generar_clave_api,
-    _importar_questionary, _listar_modelos_ollama,
-    seleccionar_proveedor_interactivo, _preguntar_guardar_config,
-    _probar_conexion_proveedor, asistente_configuracion_inicial,
-    hay_api_key_configurada, _estado_ollama, _elegir_modelo_ligero,
-    _tutorial_interactivo, _crear_demo_proyecto,
-)  # noqa: E402,F410
+from configuracion import (  # noqa: E402,F401  (re-export: API interna y tests)
+    PROVEEDOR_DEFECTO,
+    CONFIG_DIR,
+    CONFIG_PATH,
+    PROVEEDORES,
+    MENSAJE_OPENAI_FALTANTE,
+    MENSAJE_ANTHROPIC_FALTANTE,
+    cargar_configuracion,
+    guardar_configuracion,
+    _actualizar_clave_configuracion,
+    _generar_clave_api,
+    _importar_questionary,
+    _listar_modelos_ollama,
+    seleccionar_proveedor_interactivo,
+    _preguntar_guardar_config,
+    _probar_conexion_proveedor,
+    asistente_configuracion_inicial,
+    hay_api_key_configurada,
+    _estado_ollama,
+    _elegir_modelo_ligero,
+    _tutorial_interactivo,
+    _crear_demo_proyecto,
+)
 
 ESTADO_PATH = CONFIG_DIR / "estado.json"
 BACKUPS_DIR = CONFIG_DIR / "backups"
-MAX_ARCHIVOS_DEFECTO = 3                           # archivos que recibe Aider
-MAX_CANDIDATOS_DEFECTO = 80                        # candidatos que se envían al selector IA
+MAX_ARCHIVOS_DEFECTO = 3  # archivos que recibe Aider
+MAX_CANDIDATOS_DEFECTO = 80  # candidatos que se envían al selector IA
 MAX_ITERACIONES_TEST_DEFECTO = 3
 COMANDO_TEST_DEFECTO = "flutter test"
-MAX_INTENTOS_VALIDACION = 3                        # reintentos de validación del editor propio
+MAX_INTENTOS_VALIDACION = 3  # reintentos de validación del editor propio
 
 # ---------------------------------------------------------------------------
 # Proveedores de IA para la selección de archivos
@@ -552,30 +636,128 @@ MAX_INTENTOS_VALIDACION = 3                        # reintentos de validación d
 # suelen aparecer porque .gitignore ya las excluye, pero sirven de red de
 # seguridad en repositorios sin git.
 DIRS_IGNORADOS = {
-    ".git", ".dart_tool", "build", ".idea", ".vscode", "node_modules",
-    "__pycache__", ".venv", "venv", ".pub-cache", "coverage",
+    ".git",
+    ".dart_tool",
+    "build",
+    ".idea",
+    ".vscode",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".pub-cache",
+    "coverage",
 }
 EXT_IGNORADAS = {
-    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".icns",
-    ".ttf", ".otf", ".woff", ".woff2", ".zip", ".tar", ".gz", ".rar",
-    ".7z", ".mp4", ".mp3", ".wav", ".mov", ".pdf", ".class", ".jar",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".svg",
+    ".ico",
+    ".icns",
+    ".ttf",
+    ".otf",
+    ".woff",
+    ".woff2",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".rar",
+    ".7z",
+    ".mp4",
+    ".mp3",
+    ".wav",
+    ".mov",
+    ".pdf",
+    ".class",
+    ".jar",
 }
 
 # Palabras vacías (español/inglés) que no aportan información al buscar.
 PALABRAS_VACIAS = {
-    "a", "al", "ante", "bajo", "con", "contra", "de", "del", "desde", "e",
-    "el", "en", "entre", "es", "esa", "ese", "eso", "esta", "este", "esto",
-    "la", "las", "le", "lo", "los", "ni", "no", "o", "para", "pero", "por",
-    "que", "se", "si", "sin", "sobre", "su", "una", "unas", "unos", "the",
-    "and", "for", "of", "to", "in", "is", "are", "was", "were", "has",
-    "have", "it", "this", "that", "with", "on", "at", "from", "by", "as",
-    "como", "cada", "cuando", "mas", "muy", "hay", "ya", "tambien",
-    "ser", "tu", "sus", "mi", "me", "te", "nos",
+    "a",
+    "al",
+    "ante",
+    "bajo",
+    "con",
+    "contra",
+    "de",
+    "del",
+    "desde",
+    "e",
+    "el",
+    "en",
+    "entre",
+    "es",
+    "esa",
+    "ese",
+    "eso",
+    "esta",
+    "este",
+    "esto",
+    "la",
+    "las",
+    "le",
+    "lo",
+    "los",
+    "ni",
+    "no",
+    "o",
+    "para",
+    "pero",
+    "por",
+    "que",
+    "se",
+    "si",
+    "sin",
+    "sobre",
+    "su",
+    "una",
+    "unas",
+    "unos",
+    "the",
+    "and",
+    "for",
+    "of",
+    "to",
+    "in",
+    "is",
+    "are",
+    "was",
+    "were",
+    "has",
+    "have",
+    "it",
+    "this",
+    "that",
+    "with",
+    "on",
+    "at",
+    "from",
+    "by",
+    "as",
+    "como",
+    "cada",
+    "cuando",
+    "mas",
+    "muy",
+    "hay",
+    "ya",
+    "tambien",
+    "ser",
+    "tu",
+    "sus",
+    "mi",
+    "me",
+    "te",
+    "nos",
 }
 
-MAX_LINEAS_CONTENIDO = 250       # líneas por archivo que se puntúan al escanear
+MAX_LINEAS_CONTENIDO = 250  # líneas por archivo que se puntúan al escanear
 TAMANO_MAX_ARCHIVO = 512 * 1024  # bytes; archivos más grandes no se leen
-MAX_ERROR_SALIDA = 6000          # caracteres de salida de test que se muestran a Aider
+MAX_ERROR_SALIDA = 6000  # caracteres de salida de test que se muestran a Aider
 
 # En Windows la consola puede usar cp1252/cp437 y los símbolos unicode rompen
 # los print. Aquí forzamos UTF-8 con reemplazo seguro y, además, tenemos una
@@ -592,14 +774,6 @@ if os.name == "nt":
 # Se re-exportan los nombres para preservar la API interna (``sc.info``,
 # ``sc._pintar``, ``sc.DEPURAR``, ``sc.fijar_evento_callback``, ...).
 # ---------------------------------------------------------------------------
-from presentacion import (                              # noqa: E402,F401
-    DEPURAR, EVENTO_CALLBACK, _ANSI, _AMARILLO, _AYUDA_CON_COLOR, _CYAN,
-    _GLIFOS_ASCII, _GRIS, _REINICIO, _ROJO, _TUI_HUB, _VERDE,
-    _colores_activos, _consola_es_utf8, _emitir, _pintar, _soporta_color,
-    _texto_seguro, _tui_log, aviso, depurar, error, exito,
-    fijar_evento_callback, info,
-)
-
 # ---------------------------------------------------------------------------
 # Configuración inicial: la implementación vive en :mod:`configuracion` (Fase 4).
 # Se re-exportan los nombres para preservar la API interna.
@@ -627,8 +801,33 @@ from configuracion import (  # noqa: E402,F410
     _tutorial_interactivo,
     _crear_demo_proyecto,
 )
-
-
+from presentacion import (  # noqa: E402,F401
+    _AMARILLO,
+    _ANSI,
+    _AYUDA_CON_COLOR,
+    _CYAN,
+    _GLIFOS_ASCII,
+    _GRIS,
+    _REINICIO,
+    _ROJO,
+    _TUI_HUB,
+    _VERDE,
+    DEPURAR,
+    EVENTO_CALLBACK,
+    _colores_activos,
+    _consola_es_utf8,
+    _emitir,
+    _pintar,
+    _soporta_color,
+    _texto_seguro,
+    _tui_log,
+    aviso,
+    depurar,
+    error,
+    exito,
+    fijar_evento_callback,
+    info,
+)
 
 # ---------------------------------------------------------------------------
 # Mensajes de error reutilizables
@@ -640,18 +839,17 @@ MENSAJE_GENAI_FALTANTE = (
 MENSAJE_API_KEY = (
     "No se encontró la variable de entorno GEMINI_API_KEY.\n"
     "Crea una API key en https://aistudio.google.com/apikey y configúrala:\n"
-    "  PowerShell:  $env:GEMINI_API_KEY=\"tu_clave\"\n"
+    '  PowerShell:  $env:GEMINI_API_KEY="tu_clave"\n'
     "  Linux/Mac :  export GEMINI_API_KEY=tu_clave"
 )
 MENSAJE_AIDER_FALTANTE = (
-    "No se encontró el comando 'aider' en el PATH.\n"
-    "Instálalo con:  pip install aider-chat"
+    "No se encontró el comando 'aider' en el PATH.\nInstálalo con:  pip install aider-chat"
 )
 # [Fase 4] MENSAJE_OPENAI_FALTANTE movido a configuracion.py (636-639)
 # [Fase 4] MENSAJE_ANTHROPIC_FALTANTE movido a configuracion.py (640-644)
 # Memoria persistente (~/.snapcontext/historial.json): últimas tareas realizadas.
 HISTORIAL_PATH = CONFIG_DIR / "historial.json"
-MAX_HISTORIAL_ENTRADAS = 200      # se recorta para que el archivo no crezca sin límite
+MAX_HISTORIAL_ENTRADAS = 200  # se recorta para que el archivo no crezca sin límite
 
 # ---------------------------------------------------------------------------
 # Señales y cierre limpio (Ctrl+C / SIGTERM) — multiplataforma
@@ -679,13 +877,14 @@ def _registrar_manejadores_senales() -> None:
     protege con try/except por si la plataforma no permite registrar alguna
     señal (p. ej. SIGTERM no se entrega en Windows).
     """
-    def _manejar(signum, frame):  # noqa: ARG001
+
+    def _manejar(signum, frame):
         _apagar_subprocesos()
         # v6.4.0: si hay una sesión Docker persistente, destruirla en Ctrl+C /
         # SIGTERM para no dejar contenedores huérfanos.
         try:
             _destruir_sesion_si_aplica()
-        except Exception:                                  # noqa: BLE001
+        except Exception:
             pass
         error(f"Señal {signum} recibida. SnapContext se está cerrando...")
         raise SystemExit(0)
@@ -698,6 +897,7 @@ def _registrar_manejadores_senales() -> None:
         except (ValueError, OSError):
             continue
 
+
 # ---------------------------------------------------------------------------
 # Utilidades de texto
 # ---------------------------------------------------------------------------
@@ -707,7 +907,7 @@ def normalizar(texto: str) -> str:
     return "".join(c for c in texto if unicodedata.category(c) != "Mn")
 
 
-def tokenizar(consulta: str) -> List[str]:
+def tokenizar(consulta: str) -> list[str]:
     """Convierte la consulta en palabras clave útiles (sin stopwords)."""
     tokens = re.findall(r"[a-z0-9_]+", normalizar(consulta))
     return [t for t in tokens if len(t) > 1 and t not in PALABRAS_VACIAS]
@@ -716,7 +916,7 @@ def tokenizar(consulta: str) -> List[str]:
 # ---------------------------------------------------------------------------
 # Resolución del repositorio
 # ---------------------------------------------------------------------------
-def encontrar_raiz_git(inicio: Path) -> Optional[Path]:
+def encontrar_raiz_git(inicio: Path) -> Path | None:
     """Busca hacia arriba un directorio .git partiendo de `inicio`."""
     actual = inicio
     while True:
@@ -746,7 +946,7 @@ def resolver_raiz(directorio: str) -> Path:
     return encontrar_raiz_git(ruta) or ruta
 
 
-def _es_proyecto_valido(directorio: Union[str, Path]) -> bool:
+def _es_proyecto_valido(directorio: str | Path) -> bool:
     """Devuelve True si 'directorio' tiene indicios de ser un proyecto.
 
     Criterios (v1.3.0, más permisivos para proyectos nuevos):
@@ -808,10 +1008,11 @@ def _esta_dentro(raiz: Path, relativa: str) -> bool:
     except ValueError:
         return False
 
+
 # ---------------------------------------------------------------------------
 # Escaneo del repositorio (búsqueda local de candidatos)
 # ---------------------------------------------------------------------------
-def _pertenece_a_carpetas(ruta: str, carpetas: List[str]) -> bool:
+def _pertenece_a_carpetas(ruta: str, carpetas: list[str]) -> bool:
     """True si la ruta relativa cae dentro de alguna carpeta de interés."""
     for carpeta in carpetas:
         prefijo = carpeta.replace("\\", "/").rstrip("/") + "/"
@@ -828,8 +1029,9 @@ def _es_archivo_indexable(ruta: str) -> bool:
     return not any(p in DIRS_IGNORADOS for p in partes[:-1])
 
 
-def listar_archivos_candidatos(raiz: Path, carpetas: List[str],
-                               extensiones: Optional[List[str]] = None) -> List[str]:
+def listar_archivos_candidatos(
+    raiz: Path, carpetas: list[str], extensiones: list[str] | None = None
+) -> list[str]:
     """Devuelve las rutas (relativas, formato POSIX) de `carpetas` bajo `raiz`.
 
     Prioridad:
@@ -837,7 +1039,7 @@ def listar_archivos_candidatos(raiz: Path, carpetas: List[str],
          archivos nuevos aún sin commitear.
       2. Si no hay repo git (o falla), recorre el árbol con os.walk.
     """
-    coleccion: List[str] = []
+    coleccion: list[str] = []
     usa_git = (raiz / ".git").exists()
 
     if usa_git:
@@ -845,8 +1047,11 @@ def listar_archivos_candidatos(raiz: Path, carpetas: List[str],
             flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
             proc = subprocess.run(
                 ["git", "ls-files", "-c", "-o", "--exclude-standard"],
-                cwd=str(raiz), capture_output=True, text=True,
-                timeout=60, creationflags=flags,
+                cwd=str(raiz),
+                capture_output=True,
+                text=True,
+                timeout=60,
+                creationflags=flags,
             )
             if proc.returncode == 0:
                 for linea in proc.stdout.splitlines():
@@ -876,15 +1081,18 @@ def listar_archivos_candidatos(raiz: Path, carpetas: List[str],
         permitidas = {ext.lower() for ext in extensiones}
         return Path(ruta).suffix.lower() in permitidas
 
-    return sorted({
-        ruta for ruta in coleccion
-        if _pertenece_a_carpetas(ruta, carpetas)
-        and _es_archivo_indexable(ruta)
-        and _cumple_extension(ruta)
-    })
+    return sorted(
+        {
+            ruta
+            for ruta in coleccion
+            if _pertenece_a_carpetas(ruta, carpetas)
+            and _es_archivo_indexable(ruta)
+            and _cumple_extension(ruta)
+        }
+    )
 
 
-def puntuar_ruta(ruta: str, tokens: List[str]) -> float:
+def puntuar_ruta(ruta: str, tokens: list[str]) -> float:
     """Puntos por coincidencia en la ruta: el nombre del archivo pesa más que
     el directorio. Ej.: 'procesar-pago-mp/index.ts' y tokens ['boton','pago']
     reciben puntos por 'pago' en la carpeta."""
@@ -901,7 +1109,7 @@ def puntuar_ruta(ruta: str, tokens: List[str]) -> float:
     return puntuacion
 
 
-def puntuar_contenido(archivo: Path, tokens: List[str]) -> float:
+def puntuar_contenido(archivo: Path, tokens: list[str]) -> float:
     """Lee las primeras líneas del archivo y suma cuántas veces aparece cada
     token (limitado para darle balanza a los archivos muy verbosos)."""
     try:
@@ -911,8 +1119,8 @@ def puntuar_contenido(archivo: Path, tokens: List[str]) -> float:
         return 0.0
 
     try:
-        lineas: List[str] = []
-        with open(archivo, "r", encoding="utf-8", errors="ignore") as fh:
+        lineas: list[str] = []
+        with open(archivo, encoding="utf-8", errors="ignore") as fh:
             for _ in range(MAX_LINEAS_CONTENIDO):
                 linea = fh.readline()
                 if not linea:
@@ -925,10 +1133,13 @@ def puntuar_contenido(archivo: Path, tokens: List[str]) -> float:
     return float(sum(min(texto.count(tk), 12) for tk in tokens))
 
 
-def escanear_repositorio(consulta: str, directorio: str = ".",
-                         carpetas: Optional[List[str]] = None,
-                         extensiones: Optional[List[str]] = None,
-                         max_candidatos: int = MAX_CANDIDATOS_DEFECTO) -> List[str]:
+def escanear_repositorio(
+    consulta: str,
+    directorio: str = ".",
+    carpetas: list[str] | None = None,
+    extensiones: list[str] | None = None,
+    max_candidatos: int = MAX_CANDIDATOS_DEFECTO,
+) -> list[str]:
     """Escanea el repositorio y devuelve los mejores candidatos (heurística
     local) para la consulta, ordenados de más a menos relevante.
 
@@ -951,39 +1162,34 @@ def escanear_repositorio(consulta: str, directorio: str = ".",
 
     if len(archivos) > 200:
         # Pre-filtro por ruta para no leer el contenido de miles de archivos.
-        archivos = sorted(
-            archivos, key=lambda p: puntuar_ruta(p, tokens), reverse=True
-        )[:200]
+        archivos = sorted(archivos, key=lambda p: puntuar_ruta(p, tokens), reverse=True)[:200]
 
-    puntuados: List[tuple] = []
+    puntuados: list[tuple] = []
     # v4.8.0: barra de progreso durante el escaneo (silenciosa con --auto).
-    for ruta in _ui_mostrar_progreso(archivos,
-                                     "⚙️ Escaneando archivos del repo..."):
+    for ruta in _ui_mostrar_progreso(archivos, "⚙️ Escaneando archivos del repo..."):
         puntuados.append(
-            (ruta,
-             puntuar_ruta(ruta, tokens)
-             + 0.5 * puntuar_contenido(raiz / ruta, tokens))
+            (ruta, puntuar_ruta(ruta, tokens) + 0.5 * puntuar_contenido(raiz / ruta, tokens))
         )
     puntuados.sort(key=lambda par: par[1], reverse=True)
     return [p for p, _ in puntuados[:max_candidatos]]
 
+
 # ---------------------------------------------------------------------------
 # Selección con Gemini (elige los archivos más relevantes entre candidatos)
 # ---------------------------------------------------------------------------
-def construir_prompt_seleccion(consulta: str, archivos: List[str],
-                               max_archivos: int) -> str:
+def construir_prompt_seleccion(consulta: str, archivos: list[str], max_archivos: int) -> str:
     """Prompt que pide a Gemini elegir las `max_archivos` rutas más relevantes
     respondiendo solo con JSON (facilita el parseo)."""
     lista = "\n".join(f"{i + 1}. {p}" for i, p in enumerate(archivos))
     return (
         "Eres el módulo de selección de archivos de SnapContext, una herramienta "
         "de IA para desarrollo con Flutter y Supabase.\n\n"
-        f"TAREA A RESOLVER (la pidió el desarrollador):\n\"{consulta}\"\n\n"
+        f'TAREA A RESOLVER (la pidió el desarrollador):\n"{consulta}"\n\n'
         f"ARCHIVOS CANDIDATOS (rutas relativas al repositorio):\n{lista}\n\n"
         f"Devuelve EXCLUSIVAMENTE un único objeto JSON válido, sin markdown y sin "
-        f"texto adicional, con la clave \"archivos\" cuyo valor es un array con "
+        f'texto adicional, con la clave "archivos" cuyo valor es un array con '
         f"EXACTAMENTE {max_archivos} rutas tomadas de la lista anterior, escritas "
-        "en el MISMO formato exacto (sin \"./\" y sin modificarlas), ordenadas de "
+        'en el MISMO formato exacto (sin "./" y sin modificarlas), ordenadas de '
         "más a menos relevantes para resolver la tarea.\n"
         "Prioriza los archivos que probablemente necesiten MODIFICARSE, no solo "
         "los que aportan contexto.\n"
@@ -992,7 +1198,7 @@ def construir_prompt_seleccion(consulta: str, archivos: List[str],
     )
 
 
-def parsear_json(texto) -> Optional[object]:
+def parsear_json(texto) -> object | None:
     """Convierte la respuesta del modelo en Python de forma tolerante: quita
     cercas de código ```json y busca el bloque JSON más grande de la respuesta."""
     if not texto:
@@ -1012,8 +1218,7 @@ def parsear_json(texto) -> Optional[object]:
     return None
 
 
-def normalizar_seleccion(datos, disponibles: List[str],
-                         max_archivos: int) -> List[str]:
+def normalizar_seleccion(datos, disponibles: list[str], max_archivos: int) -> list[str]:
     """Valida y deduplica las rutas devueltas por el modelo: solo se aceptan
     rutas de la lista de disponibles y respetando el límite."""
     rutas = []
@@ -1026,7 +1231,7 @@ def normalizar_seleccion(datos, disponibles: List[str],
         rutas = datos
 
     disponibles_set = set(disponibles)
-    seleccion: List[str] = []
+    seleccion: list[str] = []
     for ruta in rutas:
         if not isinstance(ruta, str):
             continue
@@ -1038,9 +1243,12 @@ def normalizar_seleccion(datos, disponibles: List[str],
     return seleccion
 
 
-def seleccionar_archivos_con_gemini(consulta: str, archivos: List[str],
-                                    max_archivos: int = MAX_ARCHIVOS_DEFECTO,
-                                    modelo: Optional[str] = None) -> List[str]:
+def seleccionar_archivos_con_gemini(
+    consulta: str,
+    archivos: list[str],
+    max_archivos: int = MAX_ARCHIVOS_DEFECTO,
+    modelo: str | None = None,
+) -> list[str]:
     """Usa Gemini para quedarse con los `max_archivos` candidatos relevantes.
 
     Errores controlados con mensajes claros:
@@ -1100,14 +1308,18 @@ def _mensaje_clave_faltante(proveedor: str, cfg: dict) -> str:
     return (
         f"No se encontró la variable de entorno {var} (necesaria para "
         f"{cfg['nombre']}, proveedor '{proveedor}').\n"
-        f"  PowerShell:  $env:{var}=\"tu_clave\"\n"
+        f'  PowerShell:  $env:{var}="tu_clave"\n'
         f"  Linux/Mac :  export {var}=tu_clave"
     )
 
 
-def seleccionar_archivos_con_openai(consulta: str, archivos: List[str],
-                                    proveedor: str, modelo: str,
-                                    max_archivos: int = MAX_ARCHIVOS_DEFECTO) -> List[str]:
+def seleccionar_archivos_con_openai(
+    consulta: str,
+    archivos: list[str],
+    proveedor: str,
+    modelo: str,
+    max_archivos: int = MAX_ARCHIVOS_DEFECTO,
+) -> list[str]:
     """Selecciona archivos con DeepSeek, Groq u Ollama (APIs estilo OpenAI).
 
     Modelos sugeridos por proveedor (se sobrescriben con --model):
@@ -1139,14 +1351,18 @@ def seleccionar_archivos_con_openai(consulta: str, archivos: List[str],
     try:
         try:
             respuesta = cliente.chat.completions.create(
-                model=modelo, messages=mensajes,
-                temperature=0.2, response_format={"type": "json_object"},
+                model=modelo,
+                messages=mensajes,
+                temperature=0.2,
+                response_format={"type": "json_object"},
             )
         except Exception:
             # Algunos endpoints (p. ej. ciertas versiones de Ollama) no aceptan
             # response_format; reintentamos sin él (el prompt ya pide JSON).
             respuesta = cliente.chat.completions.create(
-                model=modelo, messages=mensajes, temperature=0.2,
+                model=modelo,
+                messages=mensajes,
+                temperature=0.2,
             )
     except Exception as exc:  # red, clave inválida, modelo inexistente...
         raise RuntimeError(f"Error al llamar a {cfg['nombre']}: {exc}") from exc
@@ -1161,9 +1377,12 @@ def seleccionar_archivos_con_openai(consulta: str, archivos: List[str],
     return normalizar_seleccion(parsear_json(texto), archivos, max_archivos)
 
 
-def seleccionar_archivos_con_anthropic(consulta: str, archivos: List[str],
-                                       max_archivos: int = MAX_ARCHIVOS_DEFECTO,
-                                       modelo: Optional[str] = None) -> List[str]:
+def seleccionar_archivos_con_anthropic(
+    consulta: str,
+    archivos: list[str],
+    max_archivos: int = MAX_ARCHIVOS_DEFECTO,
+    modelo: str | None = None,
+) -> list[str]:
     """Selecciona archivos con Claude (Anthropic) usando su SDK oficial.
 
     Errores controlados con mensajes claros:
@@ -1179,7 +1398,7 @@ def seleccionar_archivos_con_anthropic(consulta: str, archivos: List[str],
         raise RuntimeError(
             "No se encontró la variable de entorno ANTHROPIC_API_KEY "
             "(necesaria para Claude, proveedor 'anthropic').\n"
-            "  PowerShell:  $env:ANTHROPIC_API_KEY=\"tu_clave\"\n"
+            '  PowerShell:  $env:ANTHROPIC_API_KEY="tu_clave"\n'
             "  Linux/Mac :  export ANTHROPIC_API_KEY=tu_clave"
         )
 
@@ -1204,8 +1423,7 @@ def seleccionar_archivos_con_anthropic(consulta: str, archivos: List[str],
     try:
         # messages.create devuelve bloques de contenido; concatenamos los de texto.
         texto = "".join(
-            bloque.text for bloque in respuesta.content
-            if getattr(bloque, "type", None) == "text"
+            bloque.text for bloque in respuesta.content if getattr(bloque, "type", None) == "text"
         )
     except Exception:
         texto = ""
@@ -1234,8 +1452,8 @@ def _guardar_estado(datos: dict) -> bool:
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         ESTADO_PATH.write_text(
-            json.dumps(datos, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8")
+            json.dumps(datos, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
         return True
     except OSError:
         return False
@@ -1258,7 +1476,7 @@ def _entrada_interactiva() -> bool:
     """True si stdin es un terminal (evita bloqueos en tests/CI/scripts)."""
     try:
         return sys.stdin is not None and sys.stdin.isatty()
-    except (AttributeError, ValueError):       # pragma: no cover
+    except (AttributeError, ValueError):  # pragma: no cover
         return False
 
 
@@ -1304,7 +1522,7 @@ def _entrada_interactiva() -> bool:
 # [Fase 4] _elegir_modelo_ligero movido a configuracion.py (1677-1693)
 
 
-def _proveedor_offline() -> Optional[dict]:
+def _proveedor_offline() -> dict | None:
     """Intenta configurar Ollama como proveedor offline.
 
     Devuelve {'provider': 'ollama', 'model': <ligero>} si Ollama tiene
@@ -1366,40 +1584,53 @@ def _determinar_proveedor(args: argparse.Namespace) -> dict:
     return {"provider": proveedor, "model": modelo}
 
 
-def seleccionar_archivos(consulta: str, archivos: List[str],
-                         proveedor: str = PROVEEDOR_DEFECTO,
-                         modelo: Optional[str] = None,
-                         max_archivos: int = MAX_ARCHIVOS_DEFECTO) -> List[str]:
+def seleccionar_archivos(
+    consulta: str,
+    archivos: list[str],
+    proveedor: str = PROVEEDOR_DEFECTO,
+    modelo: str | None = None,
+    max_archivos: int = MAX_ARCHIVOS_DEFECTO,
+) -> list[str]:
     """Despachador por proveedor. `modelo=None` usa el valor por defecto del
     proveedor (o el de SNAPCONTEXT_MODELO si está definida)."""
     if proveedor not in PROVEEDORES:
         raise RuntimeError(
-            f"Proveedor desconocido '{proveedor}'. "
-            f"Válidos: {', '.join(sorted(PROVEEDORES))}"
+            f"Proveedor desconocido '{proveedor}'. Válidos: {', '.join(sorted(PROVEEDORES))}"
         )
     cfg = PROVEEDORES[proveedor]
     modelo = modelo or cfg["modelo_default"]
 
     if cfg["tipo"] == "gemini":
         return seleccionar_archivos_con_gemini(
-            consulta, archivos, max_archivos=max_archivos, modelo=modelo,
+            consulta,
+            archivos,
+            max_archivos=max_archivos,
+            modelo=modelo,
         )
     if cfg["tipo"] == "openai":
         return seleccionar_archivos_con_openai(
-            consulta, archivos, proveedor=proveedor, modelo=modelo,
+            consulta,
+            archivos,
+            proveedor=proveedor,
+            modelo=modelo,
             max_archivos=max_archivos,
         )
     if cfg["tipo"] == "anthropic":
         return seleccionar_archivos_con_anthropic(
-            consulta, archivos, max_archivos=max_archivos, modelo=modelo,
+            consulta,
+            archivos,
+            max_archivos=max_archivos,
+            modelo=modelo,
         )
     raise RuntimeError(f"Tipo de proveedor no implementado: {cfg['tipo']}")
+
 
 # ---------------------------------------------------------------------------
 # Ejecución de Aider y bucle de pruebas
 # ---------------------------------------------------------------------------
-def ejecutar_aider(archivos: List[str], consulta: str, directorio: str,
-                   opciones_aider: str = "") -> bool:
+def ejecutar_aider(
+    archivos: list[str], consulta: str, directorio: str, opciones_aider: str = ""
+) -> bool:
     """Ejecuta Aider en `directorio` con los `archivos` añadidos y la consulta
     como mensaje. `--yes` evita confirmaciones manuales (auto-commit de git).
 
@@ -1436,8 +1667,7 @@ def ejecutar_aider(archivos: List[str], consulta: str, directorio: str,
     return False
 
 
-def _editor_sobrescribir(archivo: str, contenido: str,
-                          directorio: str = ".") -> bool:
+def _editor_sobrescribir(archivo: str, contenido: str, directorio: str = ".") -> bool:
     """Editor propio (Fase 1 — Sobrescritura de archivos).
 
     Escribe `contenido` en `archivo` dentro de `directorio`.
@@ -1453,7 +1683,9 @@ def _editor_sobrescribir(archivo: str, contenido: str,
     raw = str(archivo).replace("\\", "/").strip()
     partes_raw = raw.split("/")
     if ".." in partes_raw or raw.startswith("/"):
-        error(f"Acceso denegado: el archivo '{archivo}' contiene referencias a directorios padre o raíz.")
+        error(
+            f"Acceso denegado: el archivo '{archivo}' contiene referencias a directorios padre o raíz."
+        )
         return False
 
     raiz_res = Path(directorio).resolve()
@@ -1480,8 +1712,9 @@ def _editor_sobrescribir(archivo: str, contenido: str,
             shutil.copy2(destino, backup_path)
             depurar(f"[EditorPropio] Backup guardado en {backup_path}")
         except Exception as exc:
-            error(f"[EditorPropio] Backup de {limpia} falló ({exc}); "
-                  "edición cancelada por seguridad.")
+            error(
+                f"[EditorPropio] Backup de {limpia} falló ({exc}); edición cancelada por seguridad."
+            )
             return False
 
     try:
@@ -1497,8 +1730,7 @@ def _editor_sobrescribir(archivo: str, contenido: str,
 # ---------------------------------------------------------------------------
 # Contexto inteligente para archivos grandes (v4.7.0)
 # ---------------------------------------------------------------------------
-def _extraer_bloques_ast(contenido: str,
-                         archivo: Optional[str] = None) -> List[dict]:
+def _extraer_bloques_ast(contenido: str, archivo: str | None = None) -> list[dict]:
     """Extrae los bloques de primer nivel (funciones/clases) de ``contenido``.
 
     - Python (o sin ``archivo``): usa el ``ast`` de la stdlib.
@@ -1511,33 +1743,37 @@ def _extraer_bloques_ast(contenido: str,
     """
     if archivo and not _es_extension_python(archivo):
         try:
-            import parser_universal as pu          # noqa: E402
+            import parser_universal as pu
+
             return pu.extraer_bloques(archivo, contenido)
-        except Exception:                          # noqa: BLE001
+        except Exception:
             return []
     try:
         arbol = ast.parse(contenido)
     except SyntaxError:
         return []
     total = len(contenido.splitlines())
-    bloques: List[dict] = []
+    bloques: list[dict] = []
     for nodo in arbol.body:
-        if isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef,
-                             ast.ClassDef)):
+        if isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             inicio = nodo.lineno
             if getattr(nodo, "decorator_list", None):
-                inicio = min(getattr(d, "lineno", inicio)
-                             for d in nodo.decorator_list)
+                inicio = min(getattr(d, "lineno", inicio) for d in nodo.decorator_list)
             fin = getattr(nodo, "end_lineno", nodo.lineno) or nodo.lineno
-            bloques.append({"tipo": type(nodo).__name__,
-                            "nombre": nodo.name,
-                            "inicio": max(inicio, 1),
-                            "fin": min(fin, total)})
+            bloques.append(
+                {
+                    "tipo": type(nodo).__name__,
+                    "nombre": nodo.name,
+                    "inicio": max(inicio, 1),
+                    "fin": min(fin, total),
+                }
+            )
     return bloques
 
 
-def _extraer_contexto_selectivo(contenido: str, mensaje: str = "",
-                                archivo: Optional[str] = None) -> str:
+def _extraer_contexto_selectivo(
+    contenido: str, mensaje: str = "", archivo: str | None = None
+) -> str:
     """Construye contexto reducido para archivos grandes (> MAX_CONTEXT_LINES).
 
     Formato devuelto: ``[RESUMEN DEL ARCHIVO (AST)]`` (Python vía
@@ -1553,25 +1789,27 @@ def _extraer_contexto_selectivo(contenido: str, mensaje: str = "",
         resumen = _resumen_ast_python(contenido)
     else:
         try:
-            import parser_universal as pu          # noqa: E402
+            import parser_universal as pu
+
             resumen = pu.resumen_archivo(archivo, contenido)
-        except Exception:                          # noqa: BLE001
+        except Exception:
             resumen = None
         if not resumen or not resumen.get("ok"):
             resumen = _resumen_ast(contenido, archivo or "")
     lineas = contenido.splitlines()
     total = len(lineas)
 
-    partes = ["[RESUMEN DEL ARCHIVO (AST)]:",
-              f"(lenguaje: {resumen.get('lenguaje') or '?'}, "
-              f"motor: {resumen.get('motor') or '?'}, {total} líneas)"]
-    for clave, titulo in (("imports", "Imports"), ("clases", "Clases"),
-                          ("funciones", "Funciones")):
+    partes = [
+        "[RESUMEN DEL ARCHIVO (AST)]:",
+        f"(lenguaje: {resumen.get('lenguaje') or '?'}, "
+        f"motor: {resumen.get('motor') or '?'}, {total} líneas)",
+    ]
+    for clave, titulo in (("imports", "Imports"), ("clases", "Clases"), ("funciones", "Funciones")):
         items = resumen.get(clave) or []
         if items:
             nombres = ", ".join(
-                (it.get("nombre") if isinstance(it, dict) else str(it))
-                for it in items[:80])
+                (it.get("nombre") if isinstance(it, dict) else str(it)) for it in items[:80]
+            )
             partes.append(f"{titulo}: {nombres}")
 
     bloques = _extraer_bloques_ast(contenido, archivo)
@@ -1583,7 +1821,7 @@ def _extraer_contexto_selectivo(contenido: str, mensaje: str = "",
         presupuesto = max(MAX_CONTEXT_LINES - 80, 40)
         usadas = 0
         for b in bloques:
-            tam = (b["fin"] - b["inicio"]) + 11       # + contexto ±5
+            tam = (b["fin"] - b["inicio"]) + 11  # + contexto ±5
             if objetivo and usadas + tam > presupuesto:
                 break
             objetivo.append(b)
@@ -1591,30 +1829,30 @@ def _extraer_contexto_selectivo(contenido: str, mensaje: str = "",
 
     partes.append("")
     partes.append("[CÓDIGO RELEVANTE A EDITAR]:")
-    rango_mostrado: List[tuple] = []
+    rango_mostrado: list[tuple] = []
     for b in objetivo:
         ini = max(b["inicio"] - 5, 1)
         fin = min(b["fin"] + 5, total)
         if any(ini <= f and fin >= i for i, f in rango_mostrado):
-            continue                                  # ya cubierto por otro
+            continue  # ya cubierto por otro
         rango_mostrado.append((ini, fin))
-        partes.append(f"# ── {b['tipo']} {b['nombre']} "
-                      f"(líneas {ini}-{fin} de {total}) ──")
-        partes.extend(lineas[ini - 1:fin])
+        partes.append(f"# ── {b['tipo']} {b['nombre']} (líneas {ini}-{fin} de {total}) ──")
+        partes.extend(lineas[ini - 1 : fin])
     if not objetivo:
         # Último recurso (p. ej. script sin funciones/clases): cabecera.
         partes.append("# (sin funciones/clases detectadas; cabecera del archivo)")
-        partes.extend(lineas[:min(MAX_CONTEXT_LINES, total)])
+        partes.extend(lineas[: min(MAX_CONTEXT_LINES, total)])
 
     partes.append("")
-    partes.append("[RESTRICCIÓN]: El resto del archivo no se muestra por "
-                  "límites de contexto. Genera el parche/diff solo para el "
-                  "bloque mostrado. NO reescribas el archivo completo.")
+    partes.append(
+        "[RESTRICCIÓN]: El resto del archivo no se muestra por "
+        "límites de contexto. Genera el parche/diff solo para el "
+        "bloque mostrado. NO reescribas el archivo completo."
+    )
     return "\n".join(partes)
 
 
-def _splicear_bloque(contenido: str, bloque_viejo: str,
-                     bloque_nuevo: str) -> Optional[str]:
+def _splicear_bloque(contenido: str, bloque_viejo: str, bloque_nuevo: str) -> str | None:
     """Reemplaza ``bloque_viejo`` dentro de ``contenido`` por ``bloque_nuevo``.
 
     Localiza el bloque aunque haya pequeñas diferencias (difflib sobre líneas
@@ -1631,19 +1869,20 @@ def _splicear_bloque(contenido: str, bloque_viejo: str,
     viejas_st = [l.strip() for l in viejas]
     mejor_pos, mejor_ratio = -1, 0.0
     for i in range(len(actuales) - n + 1):
-        suma = sum(difflib.SequenceMatcher(
-            None, viejas_st[j], stripped[i + j]).ratio() for j in range(n))
+        suma = sum(
+            difflib.SequenceMatcher(None, viejas_st[j], stripped[i + j]).ratio() for j in range(n)
+        )
         promedio = suma / n
         if promedio > mejor_ratio:
             mejor_pos, mejor_ratio = i, promedio
     if mejor_pos < 0 or mejor_ratio < 0.80:
         return None
-    resultado = actuales[:mejor_pos] + nuevas + actuales[mejor_pos + n:]
+    resultado = actuales[:mejor_pos] + nuevas + actuales[mejor_pos + n :]
     sufijo = "\n" if (contenido.endswith("\n") or not resultado) else ""
     return "\n".join(resultado) + sufijo
 
 
-def _comandos_validacion(lenguaje: str, archivo_tmp: str) -> List[List[str]]:
+def _comandos_validacion(lenguaje: str, archivo_tmp: str) -> list[list[str]]:
     """Comandos de validación sintáctica para ``lenguaje``.
 
     Devuelve una lista de candidatos (cada uno un argv con ``archivo_tmp`` ya
@@ -1655,30 +1894,36 @@ def _comandos_validacion(lenguaje: str, archivo_tmp: str) -> List[List[str]]:
         return []
     if lenguaje in ("python", "py", "python3"):
         return [[sys.executable, "-m", "py_compile", archivo_tmp]]
-    if lenguaje in ("javascript", "typescript", "tsx", "js", "ts", "node",
-                    "jsx", "mjs", "cjs", "mts", "cts"):
+    if lenguaje in (
+        "javascript",
+        "typescript",
+        "tsx",
+        "js",
+        "ts",
+        "node",
+        "jsx",
+        "mjs",
+        "cjs",
+        "mts",
+        "cts",
+    ):
         return [["node", "--check", archivo_tmp]]
     if lenguaje == "dart":
-        return [["dart", "analyze", archivo_tmp],
-                ["dart", "format", "--output=none", archivo_tmp]]
+        return [["dart", "analyze", archivo_tmp], ["dart", "format", "--output=none", archivo_tmp]]
     if lenguaje == "go":
-        return [["go", "build", "-n", archivo_tmp],
-                ["gofmt", "-e", archivo_tmp]]
+        return [["go", "build", "-n", archivo_tmp], ["gofmt", "-e", archivo_tmp]]
     if lenguaje in ("rust", "rs"):
         return [["rustc", "--parse-only", archivo_tmp]]
     if lenguaje in ("java",):
         return [["javac", "-Xlint:none", archivo_tmp]]
     if lenguaje in ("c", "h"):
-        return [["gcc", "-fsyntax-only", archivo_tmp],
-                ["clang", "-fsyntax-only", archivo_tmp]]
+        return [["gcc", "-fsyntax-only", archivo_tmp], ["clang", "-fsyntax-only", archivo_tmp]]
     if lenguaje in ("cpp", "cc", "cxx", "hpp", "hh", "hxx", "c++"):
-        return [["g++", "-fsyntax-only", archivo_tmp],
-                ["clang++", "-fsyntax-only", archivo_tmp]]
+        return [["g++", "-fsyntax-only", archivo_tmp], ["clang++", "-fsyntax-only", archivo_tmp]]
     return []
 
 
-def _validar_sintaxis(archivo: str, contenido: str,
-                      directorio: str = ".") -> Tuple[bool, str]:
+def _validar_sintaxis(archivo: str, contenido: str, directorio: str = ".") -> tuple[bool, str]:
     """Valida la sintaxis de ``contenido`` como si fuese el de ``archivo``.
 
     Escribe el ``contenido`` en un archivo temporal (siempre conserva la
@@ -1702,30 +1947,28 @@ def _validar_sintaxis(archivo: str, contenido: str,
     suffix = Path(archivo).suffix or ".txt"
     archivo_tmp = ""
     try:
-        fd, archivo_tmp = tempfile.mkstemp(
-            suffix=suffix, prefix=".snapcontext_validacion_")
+        fd, archivo_tmp = tempfile.mkstemp(suffix=suffix, prefix=".snapcontext_validacion_")
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(contenido or "")
 
         comandos = _comandos_validacion(lenguaje, archivo_tmp)
         if not comandos:
-            depurar(
-                f"[validar-sintaxis] Sin validador para '{lenguaje}'; "
-                "se omite la validación."
-            )
+            depurar(f"[validar-sintaxis] Sin validador para '{lenguaje}'; se omite la validación.")
             return True, ""
 
         for cmd in comandos:
             binario = cmd[0]
             if shutil.which(binario) is None:
                 depurar(
-                    f"[validar-sintaxis] Comando '{binario}' no disponible; "
-                    "se busca alternativa."
+                    f"[validar-sintaxis] Comando '{binario}' no disponible; se busca alternativa."
                 )
                 continue
             try:
                 proc = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=60,
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
                     cwd=directorio or ".",
                 )
             except subprocess.TimeoutExpired:
@@ -1733,11 +1976,9 @@ def _validar_sintaxis(archivo: str, contenido: str,
                     f"[validar-sintaxis] El comando '{binario}' excedió el "
                     f"tiempo límite al validar '{archivo}'."
                 )
-                return False, (
-                    f"el comando '{binario}' excedió el tiempo límite de validación"
-                )
+                return False, (f"el comando '{binario}' excedió el tiempo límite de validación")
             except (OSError, ValueError):
-                continue          # no se pudo lanzar → probar candidato siguiente
+                continue  # no se pudo lanzar → probar candidato siguiente
 
             if proc.returncode == 0:
                 return True, ""
@@ -1745,9 +1986,7 @@ def _validar_sintaxis(archivo: str, contenido: str,
             salida = (proc.stderr or "").strip()
             if not salida:
                 salida = (proc.stdout or "").strip()
-            mensaje = salida or (
-                f"el validador '{binario}' falló (código {proc.returncode})"
-            )
+            mensaje = salida or (f"el validador '{binario}' falló (código {proc.returncode})")
             return False, mensaje
 
         # Ningún candidato disponible → se omite la validación.
@@ -1814,7 +2053,9 @@ def _aplicar_parche(parche: str, directorio: str = ".") -> bool:
             if res_git.returncode == 0:
                 exito("[EditorPropio] Parche unificado aplicado correctamente con git apply.")
                 return True
-            depurar(f"[EditorPropio] git apply falló (código {res_git.returncode}): {res_git.stderr}")
+            depurar(
+                f"[EditorPropio] git apply falló (código {res_git.returncode}): {res_git.stderr}"
+            )
 
         # Fallback a patch
         if shutil.which("patch"):
@@ -1825,9 +2066,13 @@ def _aplicar_parche(parche: str, directorio: str = ".") -> bool:
             if res_patch.returncode == 0:
                 exito("[EditorPropio] Parche unificado aplicado correctamente con patch.")
                 return True
-            depurar(f"[EditorPropio] patch falló (código {res_patch.returncode}): {res_patch.stderr}")
+            depurar(
+                f"[EditorPropio] patch falló (código {res_patch.returncode}): {res_patch.stderr}"
+            )
 
-        aviso("[EditorPropio] No se pudo aplicar el parche automáticamente (ni git apply ni patch tuvieron éxito).")
+        aviso(
+            "[EditorPropio] No se pudo aplicar el parche automáticamente (ni git apply ni patch tuvieron éxito)."
+        )
         return False
     finally:
         try:
@@ -1855,7 +2100,7 @@ UMBRAL_DIFUSO_BLOQUE = 0.80
 MAX_CONTEXTO_DIFUSO_LINEAS = 20
 
 
-def _ruta_del_parche(parche: str) -> Optional[str]:
+def _ruta_del_parche(parche: str) -> str | None:
     """Extrae la ruta del archivo objetivo del encabezado del parche.
 
     Acepta encabezados ``--- a/ruta`` / ``+++ b/ruta`` y variantes sin
@@ -1876,8 +2121,7 @@ def _ruta_del_parche(parche: str) -> Optional[str]:
     return None
 
 
-def _validar_parche_previo(parche: str, directorio: str,
-                           contenido_esperado: Optional[str]) -> tuple:
+def _validar_parche_previo(parche: str, directorio: str, contenido_esperado: str | None) -> tuple:
     """Verifica que el archivo coincide con lo usado para generar el parche.
 
     Evita conflictos por cambios concurrentes: si el contenido actual del
@@ -1897,19 +2141,20 @@ def _validar_parche_previo(parche: str, directorio: str,
     except OSError as exc:
         return False, f"no se pudo leer '{ruta}': {exc}"
     if actual != contenido_esperado:
-        return False, (f"'{ruta}' cambió desde que se generó el parche "
-                       "(posible cambio concurrente)")
+        return False, (
+            f"'{ruta}' cambió desde que se generó el parche (posible cambio concurrente)"
+        )
     return True, "el archivo coincide con la referencia"
 
 
-def _parsear_hunks(parche: str) -> List[tuple]:
+def _parsear_hunks(parche: str) -> list[tuple]:
     """Divide un diff unificado en hunks ``(linea_inicio_original, cambios)``.
 
     ``cambios`` es una lista de ``(marca, texto)`` con marca ' ', '-' o '+'.
     Se omiten los hunks sin líneas modificadas. Devuelve [] si no hay ninguno.
     """
-    hunks: List[tuple] = []
-    hunk_actual: Optional[List[tuple]] = None
+    hunks: list[tuple] = []
+    hunk_actual: list[tuple] | None = None
     inicio_orig = 0
     for linea in (parche or "").splitlines(keepends=True):
         texto = linea.rstrip("\r\n")
@@ -1921,7 +2166,7 @@ def _parsear_hunks(parche: str) -> List[tuple]:
             hunk_actual = []
             continue
         if hunk_actual is None:
-            continue                      # encabezados ---/+++/ruido
+            continue  # encabezados ---/+++/ruido
         if texto.startswith("+"):
             hunk_actual.append(("+", texto[1:]))
         elif texto.startswith("-"):
@@ -1952,7 +2197,7 @@ def _quitar_comentario(linea: str) -> str:
     return linea
 
 
-def _variantes_linea(linea: str) -> Tuple[str, str, str]:
+def _variantes_linea(linea: str) -> tuple[str, str, str]:
     """Variantes progresivamente más laxas de una línea (v6.3.0).
 
     1. La línea tal cual (sin salto final).
@@ -1983,13 +2228,12 @@ def _ratio_bloque(a: str, b: str) -> float:
     ``UMBRAL_DIFUSO_BLOQUE``.
     """
     sm = difflib.SequenceMatcher(None, a, b)
-    if sm.real_quick_ratio() < UMBRAL_DIFUSO_BLOQUE \
-            or sm.quick_ratio() < UMBRAL_DIFUSO_BLOQUE:
+    if sm.real_quick_ratio() < UMBRAL_DIFUSO_BLOQUE or sm.quick_ratio() < UMBRAL_DIFUSO_BLOQUE:
         return 0.0
     return sm.ratio()
 
 
-def _contar_cambios_parche(parche: str) -> Tuple[int, int]:
+def _contar_cambios_parche(parche: str) -> tuple[int, int]:
     """Cuenta ``(añadidas, eliminadas)`` en un diff unificado (v6.3.0)."""
     anadidas = eliminadas = 0
     en_hunk = False
@@ -2006,7 +2250,7 @@ def _contar_cambios_parche(parche: str) -> Tuple[int, int]:
     return anadidas, eliminadas
 
 
-def _mostrar_diff_parche(parche: str, ruta: Optional[str] = None) -> None:
+def _mostrar_diff_parche(parche: str, ruta: str | None = None) -> None:
     """Muestra el diff propuesto coloreado (rich.syntax, 'diff') — v6.3.0.
 
     Importa ``ui`` de forma tardía (patrón de ``_procesar_razonamiento``)
@@ -2015,32 +2259,32 @@ def _mostrar_diff_parche(parche: str, ruta: Optional[str] = None) -> None:
     """
     try:
         import ui as _ui
+
         anadidas, eliminadas = _contar_cambios_parche(parche)
         # v6.12.0: envía el diff también a la TUI (pestaña Diffs) si está
         # activa; nunca lanza ni bloquea.
-        _tui_log("info", f"🗜 Diff generado: {ruta or '(parche)'} "
-                         f"(+{anadidas}/-{eliminadas})")
+        _tui_log("info", f"🗜 Diff generado: {ruta or '(parche)'} (+{anadidas}/-{eliminadas})")
         try:
             import presentacion as _pres
+
             if _pres._TUI_HUB is False:
                 try:
                     import tui_hub as _hub_d
+
                     _pres._TUI_HUB = _hub_d
-                except Exception:                # noqa: BLE001
+                except Exception:
                     _pres._TUI_HUB = None
             _hub_activo = _pres._TUI_HUB
-            if _hub_activo and getattr(_hub_activo, "esta_activo",
-                                       lambda: False)():
+            if _hub_activo and getattr(_hub_activo, "esta_activo", lambda: False)():
                 _hub_activo.enviar_diff(ruta or "(parche)", parche)
-        except Exception:                        # noqa: BLE001 — blindaje TUI
+        except Exception:
             pass
         _ui.mostrar_diff(ruta or "(parche)", anadidas, eliminadas, parche)
-    except Exception as exc:                   # noqa: BLE001 - blindaje UI
+    except Exception as exc:
         depurar(f"[EditorPropio] No se pudo mostrar el diff: {exc}")
 
 
-def _aplicar_hunks_incremental(parche: str, directorio: str,
-                               mostrar_diff: bool = False) -> bool:
+def _aplicar_hunks_incremental(parche: str, directorio: str, mostrar_diff: bool = False) -> bool:
     """Resolución automática de conflictos: aplica el parche línea a línea.
 
     Estrategia puramente Python (sin git/patch): para cada hunk busca el
@@ -2086,7 +2330,7 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
         aviso("[EditorPropio] El parche no contiene hunks aplicables.")
         return False
 
-    def _coincide(desde: int, bloque: List[tuple]) -> bool:
+    def _coincide(desde: int, bloque: list[tuple]) -> bool:
         """True si ``resultado[desde:]`` encaja con las líneas no-'+'."""
         idx = desde
         for marca, texto in bloque:
@@ -2097,10 +2341,10 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
             idx += 1
         return True
 
-    def _n_borrar(bloque: List[tuple]) -> int:
+    def _n_borrar(bloque: list[tuple]) -> int:
         return sum(1 for marca, _ in bloque if marca != "+")
 
-    def _coincide_variantes(desde: int, bloque: List[tuple]) -> bool:
+    def _coincide_variantes(desde: int, bloque: list[tuple]) -> bool:
         """True si las líneas no-'+' encajan tolerando espacios/comentarios.
 
         v6.3.0: compara las variantes laxas (espacios colapsados y sin
@@ -2118,7 +2362,7 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
             idx += 1
         return True
 
-    def _coincide_difusa(desde: int, bloque: List[tuple]) -> bool:
+    def _coincide_difusa(desde: int, bloque: list[tuple]) -> bool:
         """True si ``resultado[desde:]`` encaja de forma difusa con las líneas
         no-'+' del bloque (``difflib.SequenceMatcher``, ratio ≥
         ``UMBRAL_DIFUSO_LINEA`` por línea de contexto). Tolera comentarios
@@ -2130,16 +2374,15 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
             if idx >= len(resultado):
                 return False
             if resultado[idx] != texto:
-                sm = difflib.SequenceMatcher(None, texto.strip(),
-                                             resultado[idx].strip())
+                sm = difflib.SequenceMatcher(None, texto.strip(), resultado[idx].strip())
                 if sm.ratio() < UMBRAL_DIFUSO_LINEA:
                     return False
             idx += 1
         return True
 
-    desplazamiento = 0                     # acumulado por hunks previos
-    hubo_resincronizacion = False          # v6.3.0: algún hunk se recolocó
-    lineas_norm: Optional[List[str]] = None  # perezoso (solo si hace falta)
+    desplazamiento = 0  # acumulado por hunks previos
+    hubo_resincronizacion = False  # v6.3.0: algún hunk se recolocó
+    lineas_norm: list[str] | None = None  # perezoso (solo si hace falta)
     for inicio_orig, cambios in hunks:
         base = max(inicio_orig - 1 + desplazamiento, 0)
         n_borrados = _n_borrar(cambios)
@@ -2149,8 +2392,7 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
         offsets = sorted({0, 1, -1, 2, -2, 3, -3, 5, -5, 10, -10, 20, -20})
         for delta in offsets:
             candidato = base + delta
-            if 0 <= candidato <= len(resultado) and \
-                    _coincide(candidato, cambios):
+            if 0 <= candidato <= len(resultado) and _coincide(candidato, cambios):
                 posicion = candidato
                 break
         # 2) v6.3.0: coincidencia por variantes cerca de la posición
@@ -2158,8 +2400,7 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
         if posicion < 0:
             for delta in offsets:
                 candidato = base + delta
-                if 0 <= candidato <= len(resultado) and \
-                        _coincide_variantes(candidato, cambios):
+                if 0 <= candidato <= len(resultado) and _coincide_variantes(candidato, cambios):
                     posicion = candidato
                     break
         # 3) Búsqueda difusa real con difflib.SequenceMatcher (v4.6.0).
@@ -2170,30 +2411,32 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
         if posicion < 0:
             # v6.9.0: se limitan las líneas de contexto a 20 para reducir el
             # coste del barrido completo (O(n) candidatos × ctx líneas).
-            contexto_idx = [i for i, (m, _) in enumerate(cambios)
-                            if m == " " and _.strip()][:MAX_CONTEXTO_DIFUSO_LINEAS]
+            contexto_idx = [i for i, (m, _) in enumerate(cambios) if m == " " and _.strip()][
+                :MAX_CONTEXTO_DIFUSO_LINEAS
+            ]
             if contexto_idx:
                 lineas_stripped = [l.strip() for l in resultado]
                 mejor_ratio, mejor_cand = 0.0, -1
                 limite = max(1, len(resultado) - n_borrados + 1)
-                textos_ctx = [(i, cambios[i][1].strip())
-                              for i in contexto_idx]
+                textos_ctx = [(i, cambios[i][1].strip()) for i in contexto_idx]
                 for candidato in range(limite):
                     ratio_total, n_ctx = 0.0, 0
                     for i_ctx, texto_ctx in textos_ctx:
                         idx = candidato + i_ctx
                         if idx >= len(lineas_stripped):
                             continue
-                        sm = difflib.SequenceMatcher(
-                            None, texto_ctx, lineas_stripped[idx])
+                        sm = difflib.SequenceMatcher(None, texto_ctx, lineas_stripped[idx])
                         ratio_total += sm.ratio()
                         n_ctx += 1
                     if n_ctx:
                         promedio = ratio_total / n_ctx
                         if promedio > mejor_ratio:
                             mejor_ratio, mejor_cand = promedio, candidato
-                if mejor_cand >= 0 and mejor_ratio >= UMBRAL_DIFUSO_HUNKS \
-                        and _coincide_difusa(mejor_cand, cambios):
+                if (
+                    mejor_cand >= 0
+                    and mejor_ratio >= UMBRAL_DIFUSO_HUNKS
+                    and _coincide_difusa(mejor_cand, cambios)
+                ):
                     posicion = mejor_cand
         # 4) v6.3.0 — Resincronización a nivel de bloque: si el hunk no encaja
         #    ni de forma exacta ni difusa, se busca en TODO el archivo la
@@ -2203,13 +2446,11 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
         #    cambios locales del usuario.
         resincronizado = False
         if posicion < 0:
-            bloque_original = [texto for marca, texto in cambios
-                               if marca in (" ", "-")]
+            bloque_original = [texto for marca, texto in cambios if marca in (" ", "-")]
             n_bloque = len(bloque_original)
             if n_bloque:
                 texto_bloque = "\n".join(bloque_original)
-                texto_bloque_norm = "\n".join(
-                    " ".join(l.split()) for l in bloque_original)
+                texto_bloque_norm = "\n".join(" ".join(l.split()) for l in bloque_original)
                 if lineas_norm is None:
                     lineas_norm = [" ".join(l.split()) for l in resultado]
                 mejor_ratio, mejor_cand = 0.0, -1
@@ -2218,13 +2459,11 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
                 # la ventana más parecida al bloque (evita el barrido manual
                 # en el caso habitual; su coste es comparable pero centralizado
                 # en una única llamada de la librería estándar).
-                ventanas_norm = [
-                    "\n".join(lineas_norm[c:c + n_bloque])
-                    for c in range(limite)]
+                ventanas_norm = ["\n".join(lineas_norm[c : c + n_bloque]) for c in range(limite)]
                 if ventanas_norm:
                     coincidencias = difflib.get_close_matches(
-                        texto_bloque_norm, ventanas_norm, n=1,
-                        cutoff=UMBRAL_DIFUSO_BLOQUE)
+                        texto_bloque_norm, ventanas_norm, n=1, cutoff=UMBRAL_DIFUSO_BLOQUE
+                    )
                     if coincidencias:
                         mejor_cand = ventanas_norm.index(coincidencias[0])
                         # get_close_matches garantiza ratio >= UMBRAL_DIFUSO_BLOQUE.
@@ -2233,13 +2472,16 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
                     # Respaldo: barrido manual (comportamiento histórico).
                     for candidato in range(limite):
                         ratio = _ratio_bloque(
-                            texto_bloque,
-                            "\n".join(resultado[candidato:candidato + n_bloque]))
+                            texto_bloque, "\n".join(resultado[candidato : candidato + n_bloque])
+                        )
                         if ratio < UMBRAL_DIFUSO_BLOQUE:
-                            ratio = max(ratio, _ratio_bloque(
-                                texto_bloque_norm,
-                                "\n".join(
-                                    lineas_norm[candidato:candidato + n_bloque])))
+                            ratio = max(
+                                ratio,
+                                _ratio_bloque(
+                                    texto_bloque_norm,
+                                    "\n".join(lineas_norm[candidato : candidato + n_bloque]),
+                                ),
+                            )
                         if ratio > mejor_ratio:
                             mejor_ratio, mejor_cand = ratio, candidato
                 if mejor_cand >= 0 and mejor_ratio >= UMBRAL_DIFUSO_BLOQUE:
@@ -2247,10 +2489,11 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
                     resincronizado = True
                     hubo_resincronizacion = True
         if posicion < 0 or not (
-                resincronizado
-                or _coincide(posicion, cambios)
-                or _coincide_variantes(posicion, cambios)
-                or _coincide_difusa(posicion, cambios)):
+            resincronizado
+            or _coincide(posicion, cambios)
+            or _coincide_variantes(posicion, cambios)
+            or _coincide_difusa(posicion, cambios)
+        ):
             # v4.6.0: antes se omitía el hunk y se escribía una aplicación
             # PARCIAL (estado mixto potencialmente inválido). Se aborta toda
             # la operación dejando el archivo intacto.
@@ -2259,12 +2502,14 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
             # el diff propuesto para revisarlo o editarlo a mano.
             if mostrar_diff:
                 _mostrar_diff_parche(parche, ruta)
-            error("El parche no pudo aplicarse limpiamente.\n"
-                  f"  Buscando coincidencia difusa... (umbral "
-                  f"{UMBRAL_DIFUSO_HUNKS})\n"
-                  "  No se encontró una coincidencia suficiente.\n"
-                  "  Sugerencia: Prueba con '--editor aider' o edita "
-                  "manualmente.")
+            error(
+                "El parche no pudo aplicarse limpiamente.\n"
+                f"  Buscando coincidencia difusa... (umbral "
+                f"{UMBRAL_DIFUSO_HUNKS})\n"
+                "  No se encontró una coincidencia suficiente.\n"
+                "  Sugerencia: Prueba con '--editor aider' o edita "
+                "manualmente."
+            )
             return False
 
         # v4.6.0: las líneas de contexto (' ') se conservan tal cual están en
@@ -2278,25 +2523,31 @@ def _aplicar_hunks_incremental(parche: str, directorio: str,
             elif marca == " ":
                 nuevo_bloque.append(resultado[idx])
                 idx += 1
-            else:                       # '-'
+            else:  # '-'
                 idx += 1
-        resultado[posicion:posicion + n_borrados] = nuevo_bloque
+        resultado[posicion : posicion + n_borrados] = nuevo_bloque
         desplazamiento += len(nuevo_bloque) - n_borrados
 
     if hubo_resincronizacion:
-        exito(f"[EditorPropio] Parche aplicado con resolución incremental "
-              f"(línea a línea, resincronizando bloques) sobre '{ruta}'.")
+        exito(
+            f"[EditorPropio] Parche aplicado con resolución incremental "
+            f"(línea a línea, resincronizando bloques) sobre '{ruta}'."
+        )
     else:
-        exito(f"[EditorPropio] Parche aplicado con resolución incremental "
-              f"(línea a línea) sobre '{ruta}'.")
-    return _editor_sobrescribir(ruta, "\n".join(resultado) + "\n",
-                                directorio=directorio)
+        exito(
+            f"[EditorPropio] Parche aplicado con resolución incremental "
+            f"(línea a línea) sobre '{ruta}'."
+        )
+    return _editor_sobrescribir(ruta, "\n".join(resultado) + "\n", directorio=directorio)
 
 
-def _aplicar_parche_con_resolucion(parche: str, directorio: str = ".",
-                                   contenido_esperado: Optional[str] = None,
-                                   mostrar_diff: bool = False,
-                                   preguntar: Optional[Callable] = None) -> bool:
+def _aplicar_parche_con_resolucion(
+    parche: str,
+    directorio: str = ".",
+    contenido_esperado: str | None = None,
+    mostrar_diff: bool = False,
+    preguntar: Callable | None = None,
+) -> bool:
     """Aplica un parche con validación previa y resolución de conflictos.
 
     Flujo (v3.3.0):
@@ -2318,6 +2569,7 @@ def _aplicar_parche_con_resolucion(parche: str, directorio: str = ".",
     ruta = _ruta_del_parche(parche)
     if mostrar_diff and (parche or "").strip():
         import ui as _ui
+
         _mostrar_diff_parche(parche, ruta)
         opciones = [
             ("a", "Aplicar el parche"),
@@ -2328,33 +2580,31 @@ def _aplicar_parche_con_resolucion(parche: str, directorio: str = ".",
         if preguntar is not None:
             eleccion = preguntar(opciones, mensaje, defecto="a")
         else:
-            eleccion = _ui.preguntar_interactivo(
-                opciones, mensaje, defecto="a")
+            eleccion = _ui.preguntar_interactivo(opciones, mensaje, defecto="a")
         if eleccion == "c":
-            info("[EditorPropio] Parche cancelado por el usuario; no se "
-                 "realizó ningún cambio.")
+            info("[EditorPropio] Parche cancelado por el usuario; no se realizó ningún cambio.")
             return False
         if eleccion == "e":
-            aviso("[EditorPropio] Edición manual solicitada: el parche se "
-                  f"descarta sin tocar '{ruta or 'el archivo'}'. Las copias "
-                  "de seguridad previas están en ~/.snapcontext/backups/.")
+            aviso(
+                "[EditorPropio] Edición manual solicitada: el parche se "
+                f"descarta sin tocar '{ruta or 'el archivo'}'. Las copias "
+                "de seguridad previas están en ~/.snapcontext/backups/."
+            )
             return False
 
-    ok_validacion, detalle = _validar_parche_previo(
-        parche, directorio, contenido_esperado)
+    ok_validacion, detalle = _validar_parche_previo(parche, directorio, contenido_esperado)
     if not ok_validacion:
-        aviso(f"[EditorPropio] Validación previa fallida: {detalle}. "
-              "Se intentará la resolución automática.")
+        aviso(
+            f"[EditorPropio] Validación previa fallida: {detalle}. "
+            "Se intentará la resolución automática."
+        )
     elif contenido_esperado is not None:
         depurar(f"[EditorPropio] Validación previa OK: {detalle}")
 
     if _aplicar_parche(parche, directorio=directorio):
         return True
-    info("[EditorPropio] Conflicto detectado; probando resolución "
-         "incremental (línea a línea)...")
-    return _aplicar_hunks_incremental(parche, directorio,
-                                      mostrar_diff=mostrar_diff)
-
+    info("[EditorPropio] Conflicto detectado; probando resolución incremental (línea a línea)...")
+    return _aplicar_hunks_incremental(parche, directorio, mostrar_diff=mostrar_diff)
 
 
 # ---------------------------------------------------------------------------
@@ -2377,10 +2627,11 @@ def _ast_disponible(ruta: str) -> bool:
     if _es_extension_python(ruta):
         return True
     try:
-        import parser_universal as pu          # noqa: E402
+        import parser_universal as pu
+
         if pu.detectar_lenguaje_por_extension(str(ruta)):
             return pu.backend_disponible()
-    except Exception:                          # noqa: BLE001
+    except Exception:
         pass
     lenguaje = _lenguaje_tree_sitter(str(ruta))
     _importar_tree_sitter()
@@ -2390,8 +2641,13 @@ def _ast_disponible(ruta: str) -> bool:
 def _resumen_ast_python(contenido: str) -> dict:
     """Resumen del AST de un archivo Python (funciones, clases, variables, imports)."""
     resumen: dict = {
-        "ok": False, "motor": "ast", "lenguaje": "python",
-        "funciones": [], "clases": [], "variables": [], "imports": [],
+        "ok": False,
+        "motor": "ast",
+        "lenguaje": "python",
+        "funciones": [],
+        "clases": [],
+        "variables": [],
+        "imports": [],
         "error": None,
     }
     try:
@@ -2400,34 +2656,39 @@ def _resumen_ast_python(contenido: str) -> dict:
         resumen["error"] = f"sintaxis inválida: {exc}"
         return resumen
     resumen["ok"] = True
-    variables: List[str] = []
+    variables: list[str] = []
     for nodo in ast.walk(arbol):
         if isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            resumen["funciones"].append({
-                "nombre": nodo.name,
-                "linea": nodo.lineno,
-                "argumentos": [a.arg for a in nodo.args.args],
-                "es_metodo": bool(nodo.col_offset > 0),
-            })
+            resumen["funciones"].append(
+                {
+                    "nombre": nodo.name,
+                    "linea": nodo.lineno,
+                    "argumentos": [a.arg for a in nodo.args.args],
+                    "es_metodo": bool(nodo.col_offset > 0),
+                }
+            )
         elif isinstance(nodo, ast.ClassDef):
-            metodos = [n.name for n in nodo.body
-                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+            metodos = [
+                n.name for n in nodo.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+            ]
             resumen["clases"].append(
-                {"nombre": nodo.name, "linea": nodo.lineno, "metodos": metodos})
+                {"nombre": nodo.name, "linea": nodo.lineno, "metodos": metodos}
+            )
         elif isinstance(nodo, ast.Name) and isinstance(nodo.ctx, ast.Store):
             if nodo.id not in variables:
                 variables.append(nodo.id)
                 resumen["variables"].append({"nombre": nodo.id, "linea": nodo.lineno})
         elif isinstance(nodo, ast.Import):
             for alias in nodo.names:
-                resumen["imports"].append({"tipo": "import", "nombre": alias.name,
-                                           "linea": nodo.lineno})
+                resumen["imports"].append(
+                    {"tipo": "import", "nombre": alias.name, "linea": nodo.lineno}
+                )
         elif isinstance(nodo, ast.ImportFrom):
             modulo = nodo.module or ""
             for alias in nodo.names:
                 resumen["imports"].append(
-                    {"tipo": "from", "modulo": modulo, "nombre": alias.name,
-                     "linea": nodo.lineno})
+                    {"tipo": "from", "modulo": modulo, "nombre": alias.name, "linea": nodo.lineno}
+                )
     return resumen
 
 
@@ -2446,12 +2707,13 @@ def _resumen_ast(contenido: str, ruta: str) -> dict:
     # v5.6.0: parser_universal (tree-sitter language pack) como motor
     # principal; el backend clásico tree_sitter_languages queda de reserva.
     try:
-        import parser_universal as pu              # noqa: E402
+        import parser_universal as pu
+
         resumen_pu = pu.resumen_archivo(ruta, contenido)
         if resumen_pu and resumen_pu.get("ok"):
             resumen_pu["llamadas"] = []
             return resumen_pu
-    except Exception:                              # noqa: BLE001
+    except Exception:
         pass
     _importar_tree_sitter()
     if tree_sitter is not None and _ts_lang is not None and lenguaje:
@@ -2459,36 +2721,50 @@ def _resumen_ast(contenido: str, ruta: str) -> dict:
             idioma = _ts_lang.get_language(lenguaje)
             parser = tree_sitter.Parser()
             try:
-                parser.set_language(idioma)          # API antigua (<0.22)
+                parser.set_language(idioma)  # API antigua (<0.22)
             except (AttributeError, TypeError):
-                parser.language = idioma             # API nueva (>=0.22)
+                parser.language = idioma  # API nueva (>=0.22)
             arbol = parser.parse(contenido.encode("utf-8"))
             simbolos = _extraer_simbolos_ts(arbol, lenguaje)
             return {
-                "ok": True, "motor": "tree-sitter", "lenguaje": lenguaje,
+                "ok": True,
+                "motor": "tree-sitter",
+                "lenguaje": lenguaje,
                 "funciones": simbolos.get("funciones", []),
                 "clases": simbolos.get("clases", []),
                 "imports": simbolos.get("imports", []),
                 "llamadas": simbolos.get("llamadas", []),
-                "variables": [], "error": None,
+                "variables": [],
+                "error": None,
             }
-        except Exception as exc:                     # gramática ausente, API distinta…
-            return {"ok": False, "motor": "tree-sitter", "lenguaje": lenguaje,
-                    "error": f"tree-sitter falló para {lenguaje}: {exc}"}
-    return {"ok": False, "motor": None, "lenguaje": lenguaje,
-            "error": "sin analizador AST disponible para este lenguaje "
-                     "(usa .py o instala tree-sitter)"}
+        except Exception as exc:  # gramática ausente, API distinta…
+            return {
+                "ok": False,
+                "motor": "tree-sitter",
+                "lenguaje": lenguaje,
+                "error": f"tree-sitter falló para {lenguaje}: {exc}",
+            }
+    return {
+        "ok": False,
+        "motor": None,
+        "lenguaje": lenguaje,
+        "error": "sin analizador AST disponible para este lenguaje (usa .py o instala tree-sitter)",
+    }
+
 
 def _formatear_resumen_ast(resumen: dict, ruta: str) -> str:
     """Devuelve una representación textual compacta del resumen para el prompt."""
     lineas = [
-        f"Lenguaje: {resumen.get('lenguaje') or '?'}  "
-        f"(motor: {resumen.get('motor') or 'ninguno'})",
+        f"Lenguaje: {resumen.get('lenguaje') or '?'}  (motor: {resumen.get('motor') or 'ninguno'})",
         "",
     ]
-    for clave, titulo in (("imports", "Imports"), ("clases", "Clases"),
-                          ("funciones", "Funciones"), ("variables", "Variables"),
-                          ("llamadas", "Llamadas")):
+    for clave, titulo in (
+        ("imports", "Imports"),
+        ("clases", "Clases"),
+        ("funciones", "Funciones"),
+        ("variables", "Variables"),
+        ("llamadas", "Llamadas"),
+    ):
         items = resumen.get(clave) or []
         if not items:
             continue
@@ -2526,7 +2802,7 @@ def _limpiar_fenced_codigo(texto: str) -> str:
     return "\n".join(lineas).strip()
 
 
-def _interpretar_operaciones_ast(respuesta: str) -> Optional[List[dict]]:
+def _interpretar_operaciones_ast(respuesta: str) -> list[dict] | None:
     """Interpreta la respuesta del proveedor como operaciones AST.
 
     Prefiere una lista JSON de operaciones; si no es JSON válido, la trata como
@@ -2540,7 +2816,7 @@ def _interpretar_operaciones_ast(respuesta: str) -> Optional[List[dict]]:
     fin = limpio.rfind("]")
     if inicio != -1 and fin > inicio:
         try:
-            dato = json.loads(limpio[inicio:fin + 1])
+            dato = json.loads(limpio[inicio : fin + 1])
             if isinstance(dato, list) and dato:
                 return dato
         except (json.JSONDecodeError, ValueError):
@@ -2548,7 +2824,7 @@ def _interpretar_operaciones_ast(respuesta: str) -> Optional[List[dict]]:
     return [{"tipo": "completo", "codigo": limpio}]
 
 
-def _offset_caracteres(contenido: str, fila: int, col: int) -> Optional[int]:
+def _offset_caracteres(contenido: str, fila: int, col: int) -> int | None:
     """Convierte (fila 1-based, col 0-based) a índice de caracteres del código."""
     if fila < 1 or col < 0:
         return None
@@ -2560,6 +2836,7 @@ def _offset_caracteres(contenido: str, fila: int, col: int) -> Optional[int]:
         pos += len(linea)
         fila_actual += 1
     return None
+
 
 def _renombrar_identificador(contenido: str, viejo: str, nuevo: str) -> str:
     """Renombra un identificador (variable, función, clase, parámetro) en ``contenido``.
@@ -2575,7 +2852,7 @@ def _renombrar_identificador(contenido: str, viejo: str, nuevo: str) -> str:
         tokens = list(generate_tokens(_io.StringIO(contenido).readline))
     except Exception:
         return contenido
-    cambios: List[tuple] = []
+    cambios: list[tuple] = []
     for tok in tokens:
         if tok.type == NAME and tok.string == viejo:
             inicio = _offset_caracteres(contenido, tok.start[0], tok.start[1])
@@ -2606,7 +2883,7 @@ def _insertar_import(contenido: str, importacion: str) -> str:
     return "\n".join(lineas)
 
 
-def _aplicar_operaciones_ast(contenido: str, operaciones: List[dict]) -> Optional[str]:
+def _aplicar_operaciones_ast(contenido: str, operaciones: list[dict]) -> str | None:
     """Aplica una lista de operaciones AST al código.
 
     Soporta al menos:
@@ -2631,16 +2908,20 @@ def _aplicar_operaciones_ast(contenido: str, operaciones: List[dict]) -> Optiona
             if viejo and nuevo:
                 resultado = _renombrar_identificador(resultado, viejo, nuevo)
         elif tipo == "insertar_import":
-            resultado = _insertar_import(
-                resultado, op.get("importacion") or op.get("codigo") or "")
+            resultado = _insertar_import(resultado, op.get("importacion") or op.get("codigo") or "")
     return resultado if resultado != contenido else None
 
-def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
-                proveedor: Optional[str] = None,
-                modelo: Optional[str] = None,
-                conciso: bool = False,
-                max_context_tokens: Optional[int] = None,
-                mostrar_razonamiento: bool = False) -> bool:
+
+def _editor_ast(
+    archivo: str,
+    tarea: str,
+    directorio: str = ".",
+    proveedor: str | None = None,
+    modelo: str | None = None,
+    conciso: bool = False,
+    max_context_tokens: int | None = None,
+    mostrar_razonamiento: bool = False,
+) -> bool:
     """Editor propio (Fase 3 — Edición basada en AST).
 
     1) Lee el contenido del archivo.
@@ -2681,33 +2962,36 @@ def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
         return False
     resumen = _resumen_ast(contenido, ruta_posix)
     if not resumen.get("ok"):
-        depurar(f"[EditorAST] No se pudo generar AST de '{ruta_posix}': "
-                f"{resumen.get('error')}")
+        depurar(f"[EditorAST] No se pudo generar AST de '{ruta_posix}': {resumen.get('error')}")
         return False
 
     proveedor = proveedor or cargar_configuracion().get("provider") or PROVEEDOR_DEFECTO
-    lenguaje = resumen.get("lenguaje") or _lenguaje_archivo(ruta_posix,
-                                                            contenido) or "?"
+    lenguaje = resumen.get("lenguaje") or _lenguaje_archivo(ruta_posix, contenido) or "?"
     # v6.1.0 — Contexto selectivo: si el archivo supera el presupuesto de
     # tokens se envía resumen AST + bloque objetivo + bloques relevantes.
     # Las operaciones siguen aplicándose sobre `contenido` (el archivo entero).
     try:
         import context_utils as _ctx
-        _limite = (max_context_tokens if max_context_tokens is not None
-                   else MAX_CONTEXT_TOKENS)
+
+        _limite = max_context_tokens if max_context_tokens is not None else MAX_CONTEXT_TOKENS
         _objetivo = _ctx.objetivo_en_mensaje(contenido, lenguaje, tarea)
         contenido_envio = _ctx.seleccionar_contexto(
-            contenido, lenguaje, objetivo=_objetivo, max_tokens=int(_limite))
+            contenido, lenguaje, objetivo=_objetivo, max_tokens=int(_limite)
+        )
         truncado = contenido_envio != contenido
         if truncado:
             if _objetivo:
-                info(f"ℹ Archivo grande ({_ctx.estimar_tokens(contenido)} "
-                     f"tokens). Usando contexto selectivo (bloque: "
-                     f"'{_objetivo}')...")
+                info(
+                    f"ℹ Archivo grande ({_ctx.estimar_tokens(contenido)} "
+                    f"tokens). Usando contexto selectivo (bloque: "
+                    f"'{_objetivo}')..."
+                )
             else:
-                info(f"ℹ Archivo grande ({_ctx.estimar_tokens(contenido)} "
-                     "tokens). Usando contexto selectivo...")
-    except Exception as _exc:          # noqa: BLE001 — nunca romper el modo AST
+                info(
+                    f"ℹ Archivo grande ({_ctx.estimar_tokens(contenido)} "
+                    "tokens). Usando contexto selectivo..."
+                )
+    except Exception as _exc:
         depurar(f"[EditorAST] contexto selectivo falló: {_exc}")
         contenido_envio, truncado = contenido, False
     num_lineas = contenido.count("\n") + 1
@@ -2735,24 +3019,23 @@ def _editor_ast(archivo: str, tarea: str, directorio: str = ".",
             f"- Usa los símbolos del resumen del AST para anclar tus cambios.\n\n"
             f"Responde ÚNICAMENTE con una lista JSON de operaciones de edición, por ejemplo:\n"
             f'[{{"tipo": "renombrar", "nombre": "viejo", "nuevo": "nuevo"}}]\n'
-            f'O, si prefieres devolver el código completo resultante:\n'
+            f"O, si prefieres devolver el código completo resultante:\n"
             f'[{{"tipo": "completo", "codigo": "def fn(): ...\\n..."}}]\n'
             f"Sin explicaciones ni markdown fuera del JSON."
         )
         if truncado:
             prompt += (
                 "\nNOTA: solo se muestra parte del archivo por límites de "
-                "contexto. Responde SOLO con operaciones (\"renombrar\" / "
-                "\"insertar_import\"); NO uses \"completo\".")
+                'contexto. Responde SOLO con operaciones ("renombrar" / '
+                '"insertar_import"); NO uses "completo".'
+            )
     try:
-        respuesta = _enviar_al_proveedor(
-            proveedor, modelo, [{"role": "user", "content": prompt}])
+        respuesta = _enviar_al_proveedor(proveedor, modelo, [{"role": "user", "content": prompt}])
     except Exception as exc:
         error(f"[EditorAST] Error generando cambios para {ruta_posix}: {exc}")
         return False
 
-    respuesta, _raz_ast = _procesar_razonamiento(
-        respuesta, activo=mostrar_razonamiento)
+    respuesta, _raz_ast = _procesar_razonamiento(respuesta, activo=mostrar_razonamiento)
     opos = _interpretar_operaciones_ast(respuesta)
     if truncado:
         # v6.1.0: con contexto selectivo una op "completo" reemplazaría TODO
@@ -2783,9 +3066,9 @@ def _extraer_error(resultado: "subprocess.CompletedProcess") -> str:
     return salida
 
 
-def _resolver_comando_test(directorio: str,
-                           comando_explicito: Optional[List[str]] = None
-                           ) -> List[str]:
+def _resolver_comando_test(
+    directorio: str, comando_explicito: list[str] | None = None
+) -> list[str]:
     """Resuelve el comando de pruebas del bucle (v5.3.0).
 
     Prioridad:
@@ -2800,17 +3083,23 @@ def _resolver_comando_test(directorio: str,
         return list(comando_explicito)
     try:
         import detector_tests as _det
+
         det = _det.detectar_automaticamente(str(directorio))
         if det["detectado"] and det["comando"]:
             return shlex.split(det["comando"])
-    except Exception:                       # noqa: BLE001 — nunca romper el flujo
+    except Exception:
         pass
     return shlex.split(COMANDO_TEST_DEFECTO)
 
 
-def ejecutar_bucle_test(consulta: str, archivos: List[str], directorio: str,
-                        opciones_aider: str, comando_test: List[str],
-                        max_iteraciones: int = MAX_ITERACIONES_TEST_DEFECTO) -> bool:
+def ejecutar_bucle_test(
+    consulta: str,
+    archivos: list[str],
+    directorio: str,
+    opciones_aider: str,
+    comando_test: list[str],
+    max_iteraciones: int = MAX_ITERACIONES_TEST_DEFECTO,
+) -> bool:
     """Bucle agéntico básico: Aider → pruebas → si fallan, Aider las arregla.
 
     Este es el punto natural de extensión: aquí puedes añadir más herramientas
@@ -2826,8 +3115,7 @@ def ejecutar_bucle_test(consulta: str, archivos: List[str], directorio: str,
     # de PATH del host no aplica.
     if not _SANDBOX_ACTIVO and shutil.which(comando_test[0]) is None:
         raise RuntimeError(
-            f"No se encontró el comando de pruebas '{comando_test[0]}'. "
-            "Ajusta --comando-test."
+            f"No se encontró el comando de pruebas '{comando_test[0]}'. Ajusta --comando-test."
         )
 
     ultimo_error = ""
@@ -2850,14 +3138,12 @@ def ejecutar_bucle_test(consulta: str, archivos: List[str], directorio: str,
         info(f"Ejecutando pruebas: {solicitud}")
         # v4.3.0: con --sandbox las pruebas corren dentro del contenedor.
         if _SANDBOX_ACTIVO:
-            codigo, stdout, stderr = _ejecutar_pruebas_argv(
-                comando_test, directorio)
+            codigo, stdout, stderr = _ejecutar_pruebas_argv(comando_test, directorio)
             resultado = subprocess.CompletedProcess(
-                comando_test, codigo, stdout=stdout, stderr=stderr)
-        else:
-            resultado = subprocess.run(
-                comando_test, cwd=directorio, capture_output=True, text=True
+                comando_test, codigo, stdout=stdout, stderr=stderr
             )
+        else:
+            resultado = subprocess.run(comando_test, cwd=directorio, capture_output=True, text=True)
         if resultado.returncode == 0:
             exito(f"¡Pruebas superadas en la iteración {iteracion}!")
             return True
@@ -2881,9 +3167,9 @@ _PATRONES_SERVIDOR = re.compile(
 _RE_URL = re.compile(r"https?://[^\s\"'()<>]+")
 
 
-def lanzar_servidor(directorio: str = ".",
-                    dispositivo: str = "web-server",
-                    puerto: int = 5000) -> subprocess.Popen:
+def lanzar_servidor(
+    directorio: str = ".", dispositivo: str = "web-server", puerto: int = 5000
+) -> subprocess.Popen:
     """Lanza `flutter run` en segundo plano y devuelve el subproceso.
 
     Se fusiona stderr en stdout (así es más fácil analizar la salida y, para
@@ -2904,25 +3190,25 @@ def lanzar_servidor(directorio: str = ".",
         cmd,
         cwd=directorio,
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,   # juntamos stdout y stderr
+        stderr=subprocess.STDOUT,  # juntamos stdout y stderr
         text=True,
         encoding="utf-8",
         errors="replace",
-        bufsize=1,                  # lectura por líneas
+        bufsize=1,  # lectura por líneas
         creationflags=flags,
     )
     _PROCESOS_ACTIVOS.add(proceso)  # para poder cerrarlo desde la señal SIGINT/SIGTERM
     return proceso
 
 
-def _iniciar_lector_salida(proceso: subprocess.Popen) -> List[str]:
+def _iniciar_lector_salida(proceso: subprocess.Popen) -> list[str]:
     """Hilo lector que acumula la salida de `proceso` en una lista.
 
     Esto permite a `esperar_servidor` revisar la salida sin bloquearse en un
     readline() (truco cross-platform, sin depender de select/fcntl) y deja la
     salida disponible también para `obtener_error`.
     """
-    buffer: List[str] = []
+    buffer: list[str] = []
     finalizado = threading.Event()
 
     def _leer() -> None:
@@ -2937,14 +3223,14 @@ def _iniciar_lector_salida(proceso: subprocess.Popen) -> List[str]:
     hilo = threading.Thread(target=_leer, daemon=True)
     hilo.start()
     # Se guardan en el propio objeto proceso para compartirlos con otras funciones.
-    proceso.snapctx_buffer = buffer           # type: ignore[attr-defined]
-    proceso.snapctx_lector_fin = finalizado   # type: ignore[attr-defined]
+    proceso.snapctx_buffer = buffer  # type: ignore[attr-defined]
+    proceso.snapctx_lector_fin = finalizado  # type: ignore[attr-defined]
     return buffer
 
 
-def esperar_servidor(proceso,
-                     url_defecto: str = "http://localhost:5000",
-                     timeout: int = 60) -> Optional[str]:
+def esperar_servidor(
+    proceso, url_defecto: str = "http://localhost:5000", timeout: int = 60
+) -> str | None:
     """Espera a que el servidor Flutter esté listo leyendo su salida en vivo.
 
     Busca patrones típicos de arranque ("Running on", "Synced", "served at",
@@ -2977,8 +3263,10 @@ def esperar_servidor(proceso,
 
     # Se agotó el tiempo sin patrón conocido: si sigue vivo, asumimos que sirve.
     if proceso.poll() is None:
-        aviso("No se detectó el patrón de arranque esperado; se asume que el "
-              "servidor responde en " + url_defecto)
+        aviso(
+            "No se detectó el patrón de arranque esperado; se asume que el "
+            "servidor responde en " + url_defecto
+        )
         return url_defecto
     return None
 
@@ -2998,9 +3286,10 @@ def _detener_servidor(proceso) -> None:
     except (AttributeError, OSError, ValueError):
         pass
 
+
 def obtener_error(proceso, max_caracteres: int = 4000) -> str:
     """Extrae y recorta el error del proceso del servidor (para pasarlo a Aider)."""
-    lineas: List[str] = []
+    lineas: list[str] = []
     buffer = getattr(proceso, "snapctx_buffer", None)
     if buffer:
         lineas = list(buffer)
@@ -3053,12 +3342,10 @@ def abrir_navegador(url: str) -> bool:
             subprocess.run(comando, shell=False, check=False, creationflags=flags)
             return True
         except (OSError, ValueError):
-            aviso("No se pudo abrir el navegador. Abre "
-                  + url + " manualmente.")
+            aviso("No se pudo abrir el navegador. Abre " + url + " manualmente.")
             return False
 
-    aviso("No se pudo abrir el navegador automáticamente. Abre "
-          + url + " manualmente.")
+    aviso("No se pudo abrir el navegador automáticamente. Abre " + url + " manualmente.")
     return False
 
 
@@ -3082,8 +3369,7 @@ def _menu_conflicto_parche() -> str:
             return eleccion
 
 
-def _registrar_fallo_editor(archivo: str, tarea: str,
-                            estrategias: list, motivo: str) -> None:
+def _registrar_fallo_editor(archivo: str, tarea: str, estrategias: list, motivo: str) -> None:
     """Registra un fallo del editor propio en ~/.snapcontext/logs/ (v4.1.0).
 
     Nunca lanza excepciones: es telemetría local opcional para depuración.
@@ -3092,9 +3378,11 @@ def _registrar_fallo_editor(archivo: str, tarea: str,
         carpeta = CONFIG_DIR / "logs"
         carpeta.mkdir(parents=True, exist_ok=True)
         sello = time.strftime("%Y-%m-%d %H:%M:%S")
-        linea = (f"[{sello}] archivo={archivo} estrategias="
-                 f"{' → '.join(estrategias)} motivo={motivo or 'desconocido'} "
-                 f"tarea={tarea[:200]}\n")
+        linea = (
+            f"[{sello}] archivo={archivo} estrategias="
+            f"{' → '.join(estrategias)} motivo={motivo or 'desconocido'} "
+            f"tarea={tarea[:200]}\n"
+        )
         with open(carpeta / "editor_fallos.log", "a", encoding="utf-8") as fh:
             fh.write(linea)
     except Exception:
@@ -3119,8 +3407,7 @@ def _pedir_detalle_error(error_servidor: str) -> str:
     """Pide al usuario (modo manual) que describa el error para dárselo a Aider."""
     aviso("El usuario reportará el problema y Aider lo corregirá.")
     try:
-        descripcion = input(_pintar("Describe el error (o pega el mensaje): ",
-                                    _CYAN)).strip()
+        descripcion = input(_pintar("Describe el error (o pega el mensaje): ", _CYAN)).strip()
     except EOFError:
         descripcion = ""
     if descripcion:
@@ -3135,12 +3422,17 @@ def _puerto_de(url: str) -> int:
     except (ValueError, TypeError):
         return 5000
 
-def ejecutar_bucle_agente(consulta: str, archivos: List[str],
-                          modo: str = "auto", max_intentos: int = 3,
-                          directorio: str = ".",
-                          opciones_aider: str = "",
-                          dispositivo: str = "web-server",
-                          url_defecto: str = "http://localhost:5000") -> bool:
+
+def ejecutar_bucle_agente(
+    consulta: str,
+    archivos: list[str],
+    modo: str = "auto",
+    max_intentos: int = 3,
+    directorio: str = ".",
+    opciones_aider: str = "",
+    dispositivo: str = "web-server",
+    url_defecto: str = "http://localhost:5000",
+) -> bool:
     """Bucle agéntico con servidor Flutter (flutter run en segundo plano).
 
     --server-loop (modo="auto"):
@@ -3157,7 +3449,7 @@ def ejecutar_bucle_agente(consulta: str, archivos: List[str],
         raise RuntimeError(f"Modo de bucle agente desconocido: {modo}")
     max_intentos = max(1, max_intentos)
 
-    error_ultimo = ""      # mensaje para Aider ("Arregla este error: ...")
+    error_ultimo = ""  # mensaje para Aider ("Arregla este error: ...")
     proceso_actual = None
     intento = 0
     try:
@@ -3192,8 +3484,11 @@ def ejecutar_bucle_agente(consulta: str, archivos: List[str],
                     ):
                         abrir_navegador(url)
                         try:
-                            input(_pintar("Pulsa Enter cuando hayas terminado de "
-                                          "probar la app...", _CYAN))
+                            input(
+                                _pintar(
+                                    "Pulsa Enter cuando hayas terminado de probar la app...", _CYAN
+                                )
+                            )
                         except EOFError:
                             pass
                     _detener_servidor(proceso_actual)
@@ -3241,9 +3536,13 @@ def ejecutar_bucle_agente(consulta: str, archivos: List[str],
                 info("Cambiando a modo manual...")
                 return ejecutar_bucle_agente(
                     consulta + "\n\n" + error_ultimo,
-                    archivos, modo="manual", max_intentos=max_intentos,
-                    directorio=directorio, opciones_aider=opciones_aider,
-                    dispositivo=dispositivo, url_defecto=url_defecto,
+                    archivos,
+                    modo="manual",
+                    max_intentos=max_intentos,
+                    directorio=directorio,
+                    opciones_aider=opciones_aider,
+                    dispositivo=dispositivo,
+                    url_defecto=url_defecto,
                 )
             error("Finalizado: el usuario decidió no continuar en modo manual.")
             return False
@@ -3255,7 +3554,7 @@ def ejecutar_bucle_agente(consulta: str, archivos: List[str],
 # ---------------------------------------------------------------------------
 # Modo experto (--experto): revisar/editar la selección antes de Aider
 # ---------------------------------------------------------------------------
-def _normalizar_ruta_manual(raiz: Path, ruta: str) -> Optional[str]:
+def _normalizar_ruta_manual(raiz: Path, ruta: str) -> str | None:
     """Normaliza una ruta tecleada por el usuario a formato POSIX relativo.
 
     Acepta "lib/a.dart", "./lib/a.dart" y rutas absolutas dentro del repo.
@@ -3276,11 +3575,10 @@ def _normalizar_ruta_manual(raiz: Path, ruta: str) -> Optional[str]:
     return limpia.strip("/") or None
 
 
-def _pedir_archivo_para_agregar(raiz: Path, seleccion: List[str]) -> Optional[str]:
+def _pedir_archivo_para_agregar(raiz: Path, seleccion: list[str]) -> str | None:
     """Pide una ruta, la valida (existe, dentro del repo, sin duplicados)."""
     try:
-        ruta = input(_pintar("Ruta del archivo a añadir (relativa al repo): ",
-                             _CYAN)).strip()
+        ruta = input(_pintar("Ruta del archivo a añadir (relativa al repo): ", _CYAN)).strip()
     except EOFError:
         return None
 
@@ -3305,7 +3603,7 @@ def _pedir_archivo_para_agregar(raiz: Path, seleccion: List[str]) -> Optional[st
     return normalizada
 
 
-def _eliminar_por_indice(seleccion: List[str]) -> List[str]:
+def _eliminar_por_indice(seleccion: list[str]) -> list[str]:
     """Pide un índice y elimina ese archivo (valida que esté en rango)."""
     try:
         entrada = input(_pintar("Índice a eliminar: ", _CYAN)).strip()
@@ -3321,7 +3619,7 @@ def _eliminar_por_indice(seleccion: List[str]) -> List[str]:
     return seleccion
 
 
-def modo_experto(seleccion: List[str], raiz: Path) -> List[str]:
+def modo_experto(seleccion: list[str], raiz: Path) -> list[str]:
     """Modo experto: revisar/añadir/eliminar/limpiar archivos de la selección.
 
     Opciones del menú:
@@ -3338,8 +3636,9 @@ def modo_experto(seleccion: List[str], raiz: Path) -> List[str]:
             aviso("La lista de archivos está vacía.")
         for i, archivo in enumerate(seleccion, start=1):
             _emitir(sys.stdout, f"  [{i}] {archivo}")
-        _emitir(sys.stdout, _pintar(
-            "Opciones: [a]gregar   [e]liminar   [l]impiar   [c]ontinuar", _CYAN))
+        _emitir(
+            sys.stdout, _pintar("Opciones: [a]gregar   [e]liminar   [l]impiar   [c]ontinuar", _CYAN)
+        )
 
         try:
             opcion = input(_pintar("Elige (a/e/l/c): ", _CYAN)).strip().lower()
@@ -3348,8 +3647,10 @@ def modo_experto(seleccion: List[str], raiz: Path) -> List[str]:
 
         if opcion in ("c", "continuar", ""):
             if not seleccion:
-                aviso("No se puede continuar con la lista vacía: añade archivos "
-                      "con [a] o sal con Ctrl+C.")
+                aviso(
+                    "No se puede continuar con la lista vacía: añade archivos "
+                    "con [a] o sal con Ctrl+C."
+                )
                 continue
             return seleccion
 
@@ -3372,11 +3673,13 @@ def modo_experto(seleccion: List[str], raiz: Path) -> List[str]:
 
         aviso(f"Opción no válida: '{opcion}'. Usa a, e, l o c.")
 
+
 # ---------------------------------------------------------------------------
 # Interfaz CLI
 # ---------------------------------------------------------------------------
 class _VersionAction(argparse.Action):
     """Acción personalizada para --version: muestra el logo grande y sale."""
+
     def __init__(self, option_strings, dest, nargs=0, **kwargs):
         super().__init__(option_strings, dest, nargs=nargs, **kwargs)
 
@@ -3389,7 +3692,7 @@ class _VersionAction(argparse.Action):
 # ---------------------------------------------------------------------------
 # Memoria persistente (~/.snapcontext/historial.json) — v0.10.0
 # ---------------------------------------------------------------------------
-def _cargar_historial() -> List[dict]:
+def _cargar_historial() -> list[dict]:
     """Devuelve la lista de tareas guardadas en ~/.snapcontext/historial.json.
 
     Si el archivo no existe o está corrupto se devuelve [] (sin lanzar error),
@@ -3441,9 +3744,8 @@ def _mostrar_historial(ultimas: int = 20) -> int:
         info("Historial vacío: aún no hay tareas guardadas.")
         return 0
     recientes = historial[-ultimas:]
-    exito(f"Últimas {len(recientes)} tarea(s) guardada(s) "
-          f"({HISTORIAL_PATH}):")
-    for entrada in reversed(recientes):     # la más reciente primero
+    exito(f"Últimas {len(recientes)} tarea(s) guardada(s) ({HISTORIAL_PATH}):")
+    for entrada in reversed(recientes):  # la más reciente primero
         fecha = str(entrada.get("fecha", "?"))
         consulta = str(entrada.get("consulta", "?"))[:70]
         resultado = str(entrada.get("resultado", "?"))
@@ -3453,8 +3755,11 @@ def _mostrar_historial(ultimas: int = 20) -> int:
         _emitir(sys.stdout, f"  [{fecha}] {resultado} · {duracion_txt}")
         _emitir(sys.stdout, f"      consulta : {consulta}")
         if archivos:
-            _emitir(sys.stdout, f"      archivos : {', '.join(map(str, archivos[:5]))}"
-                    + ("…" if len(archivos) > 5 else ""))
+            _emitir(
+                sys.stdout,
+                f"      archivos : {', '.join(map(str, archivos[:5]))}"
+                + ("…" if len(archivos) > 5 else ""),
+            )
     return len(recientes)
 
 
@@ -3475,7 +3780,7 @@ def _limpiar_historial() -> bool:
 # ---------------------------------------------------------------------------
 # Utilidades genéricas para el agente autónomo — v0.10.0
 # ---------------------------------------------------------------------------
-def _leer_archivo(ruta: Union[str, Path]) -> Optional[str]:
+def _leer_archivo(ruta: str | Path) -> str | None:
     """Lee un archivo (ruta relativa o absoluta) y devuelve su contenido.
 
     Devuelve ``None`` si no existe, es un directorio o falla la lectura
@@ -3496,8 +3801,9 @@ def _leer_archivo(ruta: Union[str, Path]) -> Optional[str]:
         return None
 
 
-def _ejecutar_comando(comando: str, directorio: str = ".",
-                      timeout: int = 120, capture_output: bool = True) -> tuple:
+def _ejecutar_comando(
+    comando: str, directorio: str = ".", timeout: int = 120, capture_output: bool = True
+) -> tuple:
     """Ejecuta ``comando`` (str de shell) en ``directorio``.
 
     Devuelve ``(codigo_retorno, stdout, stderr)``. Usa ``shell=True`` en todas
@@ -3521,7 +3827,8 @@ def _ejecutar_comando(comando: str, directorio: str = ".",
         # la tarea; si está solicitada, se ejecuta con `docker exec` del mismo
         # contenedor (se crea de forma perezosa en el primer comando).
         if _SESION_DOCKER_SOLICITADA:
-            import sandbox_session as ss                           # noqa: E402
+            import sandbox_session as ss
+
             if _asegurar_sesion_docker(str(raiz)):
                 info(f"🐳 Ejecutando en sesión Docker: {comando}")
                 comando = ss.comando_en_sesion(comando)
@@ -3544,16 +3851,16 @@ def _ejecutar_comando(comando: str, directorio: str = ".",
             if _ui_es_auto() or not _entrada_interactiva():
                 return (-1, "", "Comando peligroso abortado (modo --auto / no interactivo).")
             if not _preguntar_si(
-                    f"Comando potencialmente peligroso: {comando}\n"
-                    "¿Ejecutar igualmente? (s/n): "):
+                f"Comando potencialmente peligroso: {comando}\n¿Ejecutar igualmente? (s/n): "
+            ):
                 return (-1, "", "Comando peligroso rechazado por el usuario.")
         # seguridad: helper seguro. Comandos SIN sintaxis de shell
         # (pipes/redirecciones/glóbulos) se dividen con shlex.split y se
         # ejecutan con shell=False; los que la usan mantienen shell=True tras
         # la validación de peligro (realizada arriba / en el sandbox).
         proc = _ejecutar_con_politica(
-            comando, cwd=str(raiz), timeout=timeout,
-            capturar_salida=capture_output)
+            comando, cwd=str(raiz), timeout=timeout, capturar_salida=capture_output
+        )
         if not capture_output:
             return (proc.returncode, "", "")
         return (proc.returncode, proc.stdout or "", proc.stderr or "")
@@ -3573,14 +3880,20 @@ def _ejecutar_comando(comando: str, directorio: str = ".",
 SANDBOX_IMAGEN_DEFECTO = "python:3.11-slim"
 SANDBOX_DIR_TRABAJO = "/workspace"
 # Nombres/patrones de variables de entorno que se pasan al contenedor.
-_SANDBOX_VARS_CLAVE = ("GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
-                       "DEEPSEEK_API_KEY", "GROQ_API_KEY", "OLLAMA_URL",
-                       "SNAPCONTEXT_SANDBOX_IMAGE")
+_SANDBOX_VARS_CLAVE = (
+    "GEMINI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "GROQ_API_KEY",
+    "OLLAMA_URL",
+    "SNAPCONTEXT_SANDBOX_IMAGE",
+)
 
 # Estado global del sandbox (lo activa _activar_sandbox desde main()).
 _SANDBOX_ACTIVO: bool = False
 _SANDBOX_IMAGEN: str = SANDBOX_IMAGEN_DEFECTO
-_SANDBOX_COMANDO_PREP: Optional[str] = None
+_SANDBOX_COMANDO_PREP: str | None = None
 # v6.4.0: persistencia Docker por sesión (--sandbox-session). Cuando está
 # activa, los comandos se ejecutan en un único contenedor reutilizado en toda
 # la tarea en lugar de `docker run --rm` por comando. Se solicita en main().
@@ -3597,8 +3910,7 @@ _SANDBOX_SMART: bool = True
 # se activa en main() llamando a _activar_sandbox cuando la variable es "1".
 
 
-def _deberia_usar_sandbox(comando: Optional[str],
-                          args: Optional[argparse.Namespace] = None) -> bool:
+def _deberia_usar_sandbox(comando: str | None, args: argparse.Namespace | None = None) -> bool:
     """Decide si ``comando`` debe ejecutarse dentro del sandbox Docker (v5.4.0).
 
     Orden de prioridad:
@@ -3642,23 +3954,32 @@ def _configurar_no_sandbox(activo: bool) -> None:
 
 
 # v6.24.0: orquestación inteligente de modelos (model_router.py).
-_MODEL_ROUTING_ACTIVO = True     # flag --model-routing (por defecto activado)
-_MODELO_EXPLICITO = False        # --model/--provider explícitos → sin enrutado
+_MODEL_ROUTING_ACTIVO = True  # flag --model-routing (por defecto activado)
+_MODELO_EXPLICITO = False  # --model/--provider explícitos → sin enrutado
 
 
 # v6.30.0: enrutamiento híbrido Local-Nube (fallback entre modelos).
-_MODEL_FALLBACK_ACTIVO = True              # --model-fallback (por defecto: sí)
-_UMBRAL_COMPLEJIDAD_CLI: Optional[int] = None      # --complejidad-umbral N
-_PRIORIDAD_LOCAL_CLI: Optional[List[str]] = None   # --model-prioridad-local
-_PRIORIDAD_NUBE_CLI: Optional[List[str]] = None    # --model-prioridad-nube
+_MODEL_FALLBACK_ACTIVO = True  # --model-fallback (por defecto: sí)
+_UMBRAL_COMPLEJIDAD_CLI: int | None = None  # --complejidad-umbral N
+_PRIORIDAD_LOCAL_CLI: list[str] | None = None  # --model-prioridad-local
+_PRIORIDAD_NUBE_CLI: list[str] | None = None  # --model-prioridad-nube
 
 # Marcas de error de AUTENTICACIÓN (v6.30.0): NO disparan el fallback porque
 # reintentar con otro modelo no arregla una clave ausente o inválida; se
 # exige acción del usuario (exportar la variable de entorno correcta).
-_MARCAS_ERROR_AUTH: Tuple[str, ...] = (
-    "api key", "apikey", "api_key", "clave", "variable de entorno",
-    "unauthorized", "authentication", "forbidden", "permission denied",
-    "invalid_api_key", "401", "403",
+_MARCAS_ERROR_AUTH: tuple[str, ...] = (
+    "api key",
+    "apikey",
+    "api_key",
+    "clave",
+    "variable de entorno",
+    "unauthorized",
+    "authentication",
+    "forbidden",
+    "permission denied",
+    "invalid_api_key",
+    "401",
+    "403",
 )
 
 
@@ -3674,9 +3995,11 @@ def _configurar_model_fallback(activo: bool) -> None:
     _MODEL_FALLBACK_ACTIVO = bool(activo)
 
 
-def _configurar_hibrido_cli(umbral: Optional[int] = None,
-                            prioridad_local: Optional[List[str]] = None,
-                            prioridad_nube: Optional[List[str]] = None) -> None:
+def _configurar_hibrido_cli(
+    umbral: int | None = None,
+    prioridad_local: list[str] | None = None,
+    prioridad_nube: list[str] | None = None,
+) -> None:
     """Fija los overrides CLI del enrutamiento híbrido (v6.30.0).
 
     - ``umbral``         : ``--complejidad-umbral N`` (longitud_consulta).
@@ -3712,7 +4035,7 @@ def _cargar_configuracion_routing() -> dict:
     """
     try:
         seccion = cargar_configuracion().get("model_routing")
-    except Exception:                                    # noqa: BLE001
+    except Exception:
         return {}
     return seccion if isinstance(seccion, dict) else {}
 
@@ -3726,7 +4049,7 @@ def _configuracion_routing_efectiva() -> dict:
     """
     try:
         seccion = dict(_cargar_configuracion_routing())
-    except Exception:                                    # noqa: BLE001
+    except Exception:
         seccion = {}
     if _UMBRAL_COMPLEJIDAD_CLI is not None:
         previos = seccion.get("umbral_complejidad")
@@ -3740,7 +4063,7 @@ def _configuracion_routing_efectiva() -> dict:
     return seccion
 
 
-def _extraer_consulta_mensajes(mensajes: List[dict]) -> str:
+def _extraer_consulta_mensajes(mensajes: list[dict]) -> str:
     """Último mensaje del usuario (heurística de complejidad, v6.30.0).
 
     ``_enviar_al_proveedor`` no recibe la consulta original; para las
@@ -3751,7 +4074,7 @@ def _extraer_consulta_mensajes(mensajes: List[dict]) -> str:
         for mensaje in reversed(mensajes):
             if isinstance(mensaje, dict) and mensaje.get("role") == "user":
                 return str(mensaje.get("content") or "")[:100000]
-    except Exception:                                    # noqa: BLE001
+    except Exception:
         pass
     return ""
 
@@ -3768,7 +4091,7 @@ def _es_error_autenticacion(exc: BaseException) -> bool:
         return True
     try:
         texto = f"{type(exc).__name__}: {exc}".lower()
-    except Exception:                                    # noqa: BLE001
+    except Exception:
         return False
     return any(marca in texto for marca in _MARCAS_ERROR_AUTH)
 
@@ -3779,8 +4102,8 @@ def _es_comando_peligroso(comando: str) -> bool:
 
 
 # Códigos de decisión de ejecución respecto al sandbox.
-_SANDBOX_ABORTAR = -1    # no ejecutar (comando peligroso sin Docker disponible)
-_SANDBOX_DIRECTO = 0     # ejecutar directamente (comando seguro / opt-out)
+_SANDBOX_ABORTAR = -1  # no ejecutar (comando peligroso sin Docker disponible)
+_SANDBOX_DIRECTO = 0  # ejecutar directamente (comando seguro / opt-out)
 _SANDBOX_CONTENEDOR = 1  # ejecutar dentro del contenedor Docker
 
 
@@ -3807,16 +4130,14 @@ def _decidir_ejecucion_sandbox(comando: str, directorio: str) -> int:
     # Sandbox detectado por peligro (o env=1) → comprobar disponibilidad.
     if _docker_disponible():
         if peligroso:
-            info("🗝 Comando potencialmente peligroso detectado. "
-                 "Ejecutando en sandbox Docker.")
+            info("🗝 Comando potencialmente peligroso detectado. Ejecutando en sandbox Docker.")
         else:
             depurar("[sandbox] SNAPCONTEXT_SANDBOX=1 → Ejecutando en contenedor.")
         return _SANDBOX_CONTENEDOR
 
     # Solicitado pero sin Docker disponible.
     if peligroso:
-        aviso("⚠️ Comando peligroso detectado. No se puede usar sandbox "
-              "(Docker no instalado).")
+        aviso("⚠️ Comando peligroso detectado. No se puede usar sandbox (Docker no instalado).")
         if _ui_es_auto() or not _entrada_interactiva():
             aviso("  → Modo --auto: se aborta la ejecución del comando.")
             return _SANDBOX_ABORTAR
@@ -3843,24 +4164,29 @@ def _docker_disponible() -> bool:
         return False
     try:
         proc = subprocess.run(
-            ["docker", "info"], capture_output=True, text=True,
-            timeout=30, creationflags=(
-                subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
+            ["docker", "info"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
         )
         return proc.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False
 
 
-def _sandbox_imagen_resuelta(explicita: Optional[str] = None) -> str:
+def _sandbox_imagen_resuelta(explicita: str | None = None) -> str:
     """Resuelve la imagen del sandbox: flag > variable de entorno > defecto."""
-    return (explicita or os.environ.get("SNAPCONTEXT_SANDBOX_IMAGE", "").strip()
-            or SANDBOX_IMAGEN_DEFECTO)
+    return (
+        explicita
+        or os.environ.get("SNAPCONTEXT_SANDBOX_IMAGE", "").strip()
+        or SANDBOX_IMAGEN_DEFECTO
+    )
 
 
-def _activar_sandbox(imagen: Optional[str] = None,
-                     comando_prep: Optional[str] = None,
-                     estricto: bool = True) -> bool:
+def _activar_sandbox(
+    imagen: str | None = None, comando_prep: str | None = None, estricto: bool = True
+) -> bool:
     """Activa el sandbox global si Docker está disponible.
 
     Args:
@@ -3887,8 +4213,10 @@ def _activar_sandbox(imagen: Optional[str] = None,
     _SANDBOX_ACTIVO = True
     _SANDBOX_IMAGEN = _sandbox_imagen_resuelta(imagen)
     _SANDBOX_COMANDO_PREP = (comando_prep or "").strip() or None
-    exito(f"🐳 Sandbox activo (imagen: {_SANDBOX_IMAGEN}, "
-          f"directorio montado en {SANDBOX_DIR_TRABAJO}).")
+    exito(
+        f"🐳 Sandbox activo (imagen: {_SANDBOX_IMAGEN}, "
+        f"directorio montado en {SANDBOX_DIR_TRABAJO})."
+    )
     return True
 
 
@@ -3918,9 +4246,15 @@ def _envolver_sandbox(comando: str, directorio: str = ".") -> str:
     if not _SANDBOX_ACTIVO:
         return comando
     raiz = Path(directorio).expanduser().resolve()
-    partes = ["docker", "run", "--rm",
-              "-v", f"{raiz}:{SANDBOX_DIR_TRABAJO}",
-              "-w", SANDBOX_DIR_TRABAJO]
+    partes = [
+        "docker",
+        "run",
+        "--rm",
+        "-v",
+        f"{raiz}:{SANDBOX_DIR_TRABAJO}",
+        "-w",
+        SANDBOX_DIR_TRABAJO,
+    ]
     # Pasar las variables de entorno relevantes del host al contenedor.
     vistas = set()
     for nombre in list(os.environ):
@@ -3933,6 +4267,8 @@ def _envolver_sandbox(comando: str, directorio: str = ".") -> str:
         comando = f"{_SANDBOX_COMANDO_PREP} && ({comando})"
     partes.extend(["sh", "-c", comando])
     return shlex.join(partes)
+
+
 # --- Persistencia Docker por sesión (v6.4.0) ---------------------------------
 def _configurar_sesion_docker(solicitada: bool) -> None:
     """Fija el estado global de sesión persistente (para CLI y tests)."""
@@ -3940,19 +4276,20 @@ def _configurar_sesion_docker(solicitada: bool) -> None:
     _SESION_DOCKER_SOLICITADA = bool(solicitada)
 
 
-def _asegurar_sesion_docker(directorio: str) -> Optional[str]:
+def _asegurar_sesion_docker(directorio: str) -> str | None:
     """Devuelve el contenedor de sesión activo, creándolo si hace falta.
 
     La sesión se crea de forma perezosa en el primer comando de la tarea
     (``--sandbox-session``). Si ya existe en memoria la reutiliza (sin volver
     a lanzar ``docker run``). Devuelve el nombre del contenedor o ``None``.
     """
-    import sandbox_session as ss                                   # noqa: E402
+    import sandbox_session as ss
+
     if ss.sesion_nombre() is not None:
         return ss.sesion_nombre()
-    nombre = ss.crear_sesion(directorio, _SANDBOX_IMAGEN,
-                             _SANDBOX_COMANDO_PREP,
-                             vars_entorno=_SANDBOX_VARS_CLAVE)
+    nombre = ss.crear_sesion(
+        directorio, _SANDBOX_IMAGEN, _SANDBOX_COMANDO_PREP, vars_entorno=_SANDBOX_VARS_CLAVE
+    )
     return nombre
 
 
@@ -3965,19 +4302,21 @@ def _destruir_sesion_si_aplica() -> None:
     if not _SESION_DOCKER_SOLICITADA:
         return
     try:
-        import sandbox_session as ss                               # noqa: E402
+        import sandbox_session as ss
+
         ss.destruir_sesion()
-    except Exception as exc:                                       # noqa: BLE001
+    except Exception as exc:
         aviso(f"[salida] No se pudo destruir la sesión Docker ({exc}).")
 
 
 def _limpiar_sesiones_huérfanas(auto: bool = False) -> int:
     """Elimina contenedores ``snap-session-*`` sobrantes (--sandbox-session-clean)."""
-    import sandbox_session as ss                                   # noqa: E402
+    import sandbox_session as ss
+
     return ss.limpiar_huérfanos(auto=auto)
 
 
-def _ejecutar_pruebas_argv(comando: List[str], directorio: str) -> tuple:
+def _ejecutar_pruebas_argv(comando: list[str], directorio: str) -> tuple:
     """Ejecuta un comando de pruebas (lista argv) respetando el sandbox.
 
     Devuelve ``(codigo_retorno, stdout, stderr)`` como :func:`_ejecutar_comando`.
@@ -4004,11 +4343,10 @@ def _sandbox_pausado():
 
 
 # --- Procesos en segundo plano para execute_command (v2.3.0) -----------------
-_PROCESOS_FONDO: dict = {}   # pid → estado (para ejecución en background)
+_PROCESOS_FONDO: dict = {}  # pid → estado (para ejecución en background)
 
 
-def _lanzar_proceso_fondo(comando: str, directorio: str = ".",
-                          capture_output: bool = True) -> dict:
+def _lanzar_proceso_fondo(comando: str, directorio: str = ".", capture_output: bool = True) -> dict:
     """Lanza ``comando`` en segundo plano (Popen). Devuelve un registro con el PID.
 
     El proceso queda registrado en ``_PROCESOS_FONDO`` para poder consultarlo
@@ -4021,7 +4359,8 @@ def _lanzar_proceso_fondo(comando: str, directorio: str = ".",
     if _SANDBOX_ACTIVO:
         # v6.4.0: con --sandbox-session se lanzan dentro del contenedor de sesión.
         if _SESION_DOCKER_SOLICITADA:
-            import sandbox_session as ss                           # noqa: E402
+            import sandbox_session as ss
+
             if _asegurar_sesion_docker(str(raiz)):
                 info(f"🐳 Ejecutando en sesión Docker (background): {comando}")
                 comando = ss.comando_en_sesion(comando)
@@ -4037,19 +4376,26 @@ def _lanzar_proceso_fondo(comando: str, directorio: str = ".",
     # seguridad: en background no hay confirmación interactiva útil;
     # si no hay sandbox y el comando es peligroso, se rechaza sin lanzarlo.
     if not _SANDBOX_ACTIVO and _es_comando_peligroso(comando):
-        return {"ok": False,
-                "error": f"Comando peligroso rechazado (sin sandbox): {comando}"}
+        return {"ok": False, "error": f"Comando peligroso rechazado (sin sandbox): {comando}"}
     try:
         # seguridad (A1): lanzamiento en background vía helper con política
         # (shell=False para comandos simples; shell=True solo para pipes,
         #  tras validar que no es peligroso — ya pre-filtrado arriba).
-        import sandbox_utils as _su                        # noqa: E402
+        import sandbox_utils as _su
+
         proc = _su.lanzar_proceso_fondo_seguro(
-            comando, cwd=str(raiz), capturar_salida=capture_output)
-        registro = {"ok": True, "pid": proc.pid,
-                    "proceso": proc, "estado": "ejecutando",
-                    "comando": comando, "codigo_retorno": None,
-                    "stdout": "", "stderr": ""}
+            comando, cwd=str(raiz), capturar_salida=capture_output
+        )
+        registro = {
+            "ok": True,
+            "pid": proc.pid,
+            "proceso": proc,
+            "estado": "ejecutando",
+            "comando": comando,
+            "codigo_retorno": None,
+            "stdout": "",
+            "stderr": "",
+        }
         _PROCESOS_FONDO[proc.pid] = registro
         return {"ok": True, "pid": proc.pid, "comando": comando}
     except OSError as exc:
@@ -4065,12 +4411,15 @@ def _estado_proceso_fondo(pid: int) -> dict:
     """
     registro = _PROCESOS_FONDO.get(pid)
     if registro is None:
-        return {"ok": False, "estado": "desconocido", "pid": pid,
-                "error": f"no hay proceso en segundo plano con pid {pid}"}
+        return {
+            "ok": False,
+            "estado": "desconocido",
+            "pid": pid,
+            "error": f"no hay proceso en segundo plano con pid {pid}",
+        }
     proc = registro.get("proceso")
     if proc is None:
-        return {"ok": True, "estado": registro.get("estado", "desconocido"),
-                "pid": pid}
+        return {"ok": True, "estado": registro.get("estado", "desconocido"), "pid": pid}
     if proc.poll() is None:
         registro["estado"] = "ejecutando"
         return {"ok": True, "estado": "ejecutando", "pid": pid}
@@ -4087,9 +4436,15 @@ def _estado_proceso_fondo(pid: int) -> dict:
             registro["stderr"] = ""
     registro["codigo_retorno"] = proc.returncode
     registro["estado"] = "finalizado"
-    return {"ok": True, "estado": "finalizado", "pid": pid,
-            "codigo_retorno": proc.returncode,
-            "stdout": registro["stdout"], "stderr": registro["stderr"]}
+    return {
+        "ok": True,
+        "estado": "finalizado",
+        "pid": pid,
+        "codigo_retorno": proc.returncode,
+        "stdout": registro["stdout"],
+        "stderr": registro["stderr"],
+    }
+
 
 # ---------------------------------------------------------------------------
 # Modo chat interactivo (--chat) — v0.10.0
@@ -4138,9 +4493,15 @@ separado para no bloquear el chat."""
 # ---------------------------------------------------------------------------
 # Razonamiento del modelo (chain-of-thought) — v6.2.0
 # ---------------------------------------------------------------------------
-_CLAVES_RAZONAMIENTO = ("reasoning", "reasoning_content", "thinking",
-                        "chain_of_thought", "thoughts", "razonamiento",
-                        "thought")
+_CLAVES_RAZONAMIENTO = (
+    "reasoning",
+    "reasoning_content",
+    "thinking",
+    "chain_of_thought",
+    "thoughts",
+    "razonamiento",
+    "thought",
+)
 _RE_THINK = re.compile(r"<think>(.*?)</think>", re.S | re.I)
 _RE_THINK_ABIERTO = re.compile(r"</?think>", re.I)
 
@@ -4148,7 +4509,7 @@ _RE_THINK_ABIERTO = re.compile(r"</?think>", re.I)
 _RAZONAMIENTO_ESTADO = {"banner": False, "aviso_dos_pasos": False}
 
 
-def _extraer_razonamiento(respuesta) -> Optional[str]:
+def _extraer_razonamiento(respuesta) -> str | None:
     """Extrae el razonamiento (chain-of-thought) de una respuesta del modelo.
 
     Acepta un dict (campos ``reasoning``/``thinking``/``chain_of_thought``/
@@ -4164,8 +4525,7 @@ def _extraer_razonamiento(respuesta) -> Optional[str]:
             valor = respuesta.get(clave)
             if isinstance(valor, str) and valor.strip():
                 return valor.strip()
-        for anidado in (respuesta.get("message"),
-                        respuesta.get("delta")):
+        for anidado in (respuesta.get("message"), respuesta.get("delta")):
             if isinstance(anidado, dict):
                 encontrado = _extraer_razonamiento(anidado)
                 if encontrado:
@@ -4207,16 +4567,15 @@ def _razonamiento_activo(args=None) -> bool:
     """¿Mostrar el razonamiento? Flag ``--mostrar-razonamiento`` o variable
     de entorno ``SNAPCONTEXT_MOSTRAR_RAZONAMIENTO`` (``1``/``true``/``yes``).
     """
-    bruto = (os.environ.get("SNAPCONTEXT_MOSTRAR_RAZONAMIENTO")
-             or "").strip().lower()
+    bruto = (os.environ.get("SNAPCONTEXT_MOSTRAR_RAZONAMIENTO") or "").strip().lower()
     if bruto in ("1", "true", "yes", "si", "sí", "on"):
         return True
     return bool(getattr(args, "mostrar_razonamiento", False))
 
 
-def _procesar_razonamiento(respuesta, activo: bool = False,
-                           avisar: bool = True,
-                           titulo: str = "🧠 Razonamiento del modelo") -> tuple:
+def _procesar_razonamiento(
+    respuesta, activo: bool = False, avisar: bool = True, titulo: str = "🧠 Razonamiento del modelo"
+) -> tuple:
     """Muestra (si ``activo``) el razonamiento y devuelve ``(limpio, raz)``.
 
     Siempre elimina los bloques ``<think>…</think>`` del texto útil. Con
@@ -4224,32 +4583,33 @@ def _procesar_razonamiento(respuesta, activo: bool = False,
     (útil cuando el llamador gestiona el modo de dos pasos).
     """
     raz = _extraer_razonamiento(respuesta)
-    limpio = (_quitar_razonamiento(respuesta)
-              if isinstance(respuesta, str) else respuesta)
+    limpio = _quitar_razonamiento(respuesta) if isinstance(respuesta, str) else respuesta
     if activo:
         if raz:
             import ui as _ui
+
             _ui.mostrar_razonamiento(raz, titulo=titulo)
         elif avisar:
             info("ℹ El modelo no proporcionó razonamiento explícito.")
     return limpio, raz
 
 
-def _razonamiento_dos_pasos(tarea: str, proveedor: Optional[str],
-                            modelo: Optional[str] = None) -> Optional[str]:
+def _razonamiento_dos_pasos(
+    tarea: str, proveedor: str | None, modelo: str | None = None
+) -> str | None:
     """Modo de dos pasos: pide primero SOLO el razonamiento de ``tarea``.
 
     Se usa cuando el modelo no devuelve razonamiento explícito y el usuario
     activó ``--mostrar-razonamiento``. Devuelve el texto del razonamiento o
     ``None`` si la llamada falla (nunca rompe el flujo principal).
     """
-    prompt = ("Por favor, genera tu razonamiento paso a paso para la "
-              "siguiente tarea, sin ejecutar ninguna acción.\n\nTarea: "
-              + (tarea or "").strip())
+    prompt = (
+        "Por favor, genera tu razonamiento paso a paso para la "
+        "siguiente tarea, sin ejecutar ninguna acción.\n\nTarea: " + (tarea or "").strip()
+    )
     try:
-        respuesta = _enviar_al_proveedor(
-            proveedor, modelo, [{"role": "user", "content": prompt}])
-    except Exception:                   # noqa: BLE001 — nunca romper el flujo
+        respuesta = _enviar_al_proveedor(proveedor, modelo, [{"role": "user", "content": prompt}])
+    except Exception:
         return None
     raz = _extraer_razonamiento(respuesta)
     return raz or (str(respuesta).strip() or None)
@@ -4274,7 +4634,12 @@ ENV_PROMPT_CACHING = "SNAPCONTEXT_PROMPT_CACHING"
 # Heurística ligera (no afecta al contenido) para detectar si un mensaje lleva
 # definiciones de herramientas MCP o la memoria del proyecto y marcarlo cacheable.
 _MARCADORES_CACHE_HERRAMIENTAS = (
-    "HERRAMIENTAS", "herramienta", "MCP", "editar_archivo", "ejecutar_comando")
+    "HERRAMIENTAS",
+    "herramienta",
+    "MCP",
+    "editar_archivo",
+    "ejecutar_comando",
+)
 _MARCADORES_CACHE_MEMORIA = ("CLAUDE.md", "SNAPCONTEXT.md")
 
 
@@ -4283,7 +4648,7 @@ def _soporta_prompt_caching(proveedor: str) -> bool:
     return bool(PROVEEDORES.get(proveedor, {}).get("soporta_caching", False))
 
 
-def _resolver_prompt_caching(explicito: Optional[bool] = None) -> bool:
+def _resolver_prompt_caching(explicito: bool | None = None) -> bool:
     """Resuelve si el prompt caching está activado (v6.11.0).
 
     Prioridad: flag ``--prompt-caching`` (``explicito``) > entorno
@@ -4303,7 +4668,7 @@ def _resolver_prompt_caching(explicito: Optional[bool] = None) -> bool:
             if isinstance(valor, dict):
                 return bool(valor.get("activo", True))
             return bool(valor)
-    except Exception:                        # noqa: BLE001 — nunca romper flujo
+    except Exception:
         pass
     return PROMPT_CACHING_DEFECTO
 
@@ -4318,10 +4683,10 @@ def _resolver_prompt_caching(explicito: Optional[bool] = None) -> bool:
 # se resuelve por flag > entorno > config.json > defecto (activado).
 # -----------------------------------------------------------------------------
 ENV_PROMPT_CACHING_CAPAS = "SNAPCONTEXT_PROMPT_CACHING_CAPAS"
-_PROMPT_CACHING_CAPAS: Optional[bool] = None   # --prompt-caching-capas
+_PROMPT_CACHING_CAPAS: bool | None = None  # --prompt-caching-capas
 
 
-def _configurar_prompt_caching_capas(activo: Optional[bool]) -> None:
+def _configurar_prompt_caching_capas(activo: bool | None) -> None:
     """Fija el estado global del Prompt Caching por Capas (v6.31.0).
 
     ``None`` significa "sin override": se resuelve dinámicamente por
@@ -4331,7 +4696,7 @@ def _configurar_prompt_caching_capas(activo: Optional[bool]) -> None:
     _PROMPT_CACHING_CAPAS = None if activo is None else bool(activo)
 
 
-def _resolver_prompt_caching_capas(explicito: Optional[bool] = None) -> bool:
+def _resolver_prompt_caching_capas(explicito: bool | None = None) -> bool:
     """Resuelve si el caching por Capas está activado (v6.31.0).
 
     Prioridad: flag ``--prompt-caching-capas`` (``explicito``) > entorno
@@ -4351,12 +4716,12 @@ def _resolver_prompt_caching_capas(explicito: Optional[bool] = None) -> bool:
                 return bool(seccion.get("capas_activo", True))
             if "prompt_caching_capas" in cfg:
                 return bool(cfg["prompt_caching_capas"])
-    except Exception:                        # noqa: BLE001 — nunca romper flujo
+    except Exception:
         pass
     return True
 
 
-def _capas_caching_activo(explicito: Optional[bool] = None) -> bool:
+def _capas_caching_activo(explicito: bool | None = None) -> bool:
     """¿Está activo el caching por Capas? (estado global > resolución)."""
     if _PROMPT_CACHING_CAPAS is not None:
         return _PROMPT_CACHING_CAPAS
@@ -4370,11 +4735,11 @@ def _capas_caching_activo(explicito: Optional[bool] = None) -> bool:
 # Estado global _PRUNING_ACTIVO: None → se resuelve por flag > config > defecto.
 # -----------------------------------------------------------------------------
 ENV_PRUNING = "SNAPCONTEXT_PRUNING"
-_PRUNING_ACTIVO: Optional[bool] = None   # --prune-context
-_PRUNING_UMBRAL: Optional[int] = None    # --prune-umbral
+_PRUNING_ACTIVO: bool | None = None  # --prune-context
+_PRUNING_UMBRAL: int | None = None  # --prune-umbral
 
 
-def _configurar_pruning(activo: Optional[bool]) -> None:
+def _configurar_pruning(activo: bool | None) -> None:
     """Fija el estado global del pruning proactivo (v6.32.0).
 
     ``None`` significa \"sin override\": se resuelve dinámicamente por
@@ -4384,7 +4749,7 @@ def _configurar_pruning(activo: Optional[bool]) -> None:
     _PRUNING_ACTIVO = None if activo is None else bool(activo)
 
 
-def _configurar_umbral_pruning(umbral: Optional[int]) -> None:
+def _configurar_umbral_pruning(umbral: int | None) -> None:
     """Fija el umbral global de líneas para el pruning (v6.32.0)."""
     global _PRUNING_UMBRAL
     if umbral is None:
@@ -4396,7 +4761,7 @@ def _configurar_umbral_pruning(umbral: Optional[int]) -> None:
         _PRUNING_UMBRAL = None
 
 
-def _resolver_pruning(explicito: Optional[bool] = None) -> bool:
+def _resolver_pruning(explicito: bool | None = None) -> bool:
     """Resuelve si el pruning proactivo está activado (v6.32.0).
 
     Prioridad: flag ``--prune-context`` (``explicito``) > entorno
@@ -4421,7 +4786,7 @@ def _resolver_pruning(explicito: Optional[bool] = None) -> bool:
     return True
 
 
-def _pruning_activo(explicito: Optional[bool] = None) -> bool:
+def _pruning_activo(explicito: bool | None = None) -> bool:
     """¿Está activo el pruning? (estado global > resolución)."""
     if _PRUNING_ACTIVO is not None:
         return _PRUNING_ACTIVO
@@ -4446,9 +4811,8 @@ def _umbral_pruning() -> int:
 
 
 def podar_si_extenso(
-        resultado: dict,
-        tipo_herramienta: str = "",
-        umbral_lineas: Optional[int] = None) -> dict:
+    resultado: dict, tipo_herramienta: str = "", umbral_lineas: int | None = None
+) -> dict:
     """Poda un resultado de herramienta si es extenso (v6.32.0).
 
     Wrapper seguro sobre ``context_pruner.prune_resultado``. Si el módulo
@@ -4466,13 +4830,13 @@ def podar_si_extenso(
     umbral = umbral_lineas if umbral_lineas is not None else _umbral_pruning()
     try:
         return _cp.prune_resultado(
-            resultado, tipo_herramienta=tipo_herramienta,
-            umbral_lineas=umbral)
+            resultado, tipo_herramienta=tipo_herramienta, umbral_lineas=umbral
+        )
     except Exception:
         return resultado
 
 
-def _podar_resultados_extensos(mensajes: List[dict]) -> List[dict]:
+def _podar_resultados_extensos(mensajes: list[dict]) -> list[dict]:
     """Poda los resultados extensos de herramientas en una lista de mensajes.
 
     Revisa mensajes de rol ``"tool"`` y ``"assistant"`` que contengan resultados
@@ -4486,7 +4850,7 @@ def _podar_resultados_extensos(mensajes: List[dict]) -> List[dict]:
     if not _pruning_activo():
         return mensajes
     umbral = _umbral_pruning()
-    podados: List[dict] = []
+    podados: list[dict] = []
     for msg in mensajes:
         if not isinstance(msg, dict):
             podados.append(msg)
@@ -4495,7 +4859,8 @@ def _podar_resultados_extensos(mensajes: List[dict]) -> List[dict]:
         if rol in ("tool", "assistant"):
             contenido = msg.get("content", "")
             if isinstance(contenido, str) and _cp.es_resultado_extenso(
-                    {"contenido": contenido}, umbral_lineas=umbral):
+                {"contenido": contenido}, umbral_lineas=umbral
+            ):
                 resumen = _cp.resumir_linea(contenido)
                 msg_nuevo = dict(msg)
                 msg_nuevo["content"] = resumen if resumen else contenido[:200]
@@ -4506,9 +4871,7 @@ def _podar_resultados_extensos(mensajes: List[dict]) -> List[dict]:
     return podados
 
 
-def _estructura_mensajes_por_capas(
-        mensajes: List[dict],
-        config: Optional[dict] = None) -> List[dict]:
+def _estructura_mensajes_por_capas(mensajes: list[dict], config: dict | None = None) -> list[dict]:
     """Estructura ``mensajes`` en capas inmutables (v6.31.0).
 
     Clasifica la lista plana (estática/semi-estática/volátil) y la ensambla en
@@ -4517,16 +4880,17 @@ def _estructura_mensajes_por_capas(
     de v6.16.0 (``_aplicar_cache_control``) sin romper el flujo.
     """
     try:
-        import prompt_cache as _pc              # noqa: E402
+        import prompt_cache as _pc
+
         _capas = _pc.clasificar_mensajes(mensajes, config)
         return _pc.ensamblar_prompt_estructurado(
-            None, _capas["estatica"], _capas["semi_estatica"],
-            _capas["volatil"], config)
-    except Exception:                        # noqa: BLE001 — degradación graceful
+            None, _capas["estatica"], _capas["semi_estatica"], _capas["volatil"], config
+        )
+    except Exception:
         return _aplicar_cache_control(mensajes)
 
 
-def _aplicar_cache_control(mensajes: List[dict]) -> List[dict]:
+def _aplicar_cache_control(mensajes: list[dict]) -> list[dict]:
     """Devuelve una copia de ``mensajes`` con la marca ``cache_control``.
 
     Solo debe llamarse para proveedores con ``soporta_caching`` (v6.11.0).
@@ -4538,15 +4902,13 @@ def _aplicar_cache_control(mensajes: List[dict]) -> List[dict]:
     """
     if not mensajes:
         return list(mensajes)
-    salida: List[dict] = []
+    salida: list[dict] = []
     for i, m in enumerate(mensajes):
         copia = dict(m)
         contenido = str(m.get("content", ""))
         es_sistema = bool(m.get("role") == "system") or i == 0
-        tiene_herramientas = any(
-            p in contenido for p in _MARCADORES_CACHE_HERRAMIENTAS)
-        tiene_memoria = any(
-            p in contenido for p in _MARCADORES_CACHE_MEMORIA)
+        tiene_herramientas = any(p in contenido for p in _MARCADORES_CACHE_HERRAMIENTAS)
+        tiene_memoria = any(p in contenido for p in _MARCADORES_CACHE_MEMORIA)
         if es_sistema or tiene_herramientas or tiene_memoria:
             copia["cache_control"] = {"type": "ephemeral"}
         salida.append(copia)
@@ -4563,7 +4925,7 @@ def _contar_tokens(texto: str) -> int:
     return max(len(texto) // 4, 0)
 
 
-def _calcular_metricas_caching(mensajes: List[dict]) -> dict:
+def _calcular_metricas_caching(mensajes: list[dict]) -> dict:
     """Calcula métricas de Prompt Caching (v6.16.0).
 
     Categoriza los mensajes cacheables (sistema, herramientas, memoria) y
@@ -4581,20 +4943,18 @@ def _calcular_metricas_caching(mensajes: List[dict]) -> dict:
         {"categorias": {cat: tokens, ...},
          "tokens_cacheados": int, "tokens_no_cacheados": int}
     """
-    categorias: Dict[str, int] = {}
+    categorias: dict[str, int] = {}
     tokens_cacheados = 0
     tokens_no_cacheados = 0
     for i, m in enumerate(mensajes):
         contenido = str(m.get("content", ""))
         tokens = _contar_tokens(contenido)
         es_sistema = bool(m.get("role") == "system") or i == 0
-        tiene_memoria = any(
-            p in contenido for p in _MARCADORES_CACHE_MEMORIA)
+        tiene_memoria = any(p in contenido for p in _MARCADORES_CACHE_MEMORIA)
         if es_sistema:
             categoria = "sistema"
         elif tiene_memoria:
-            categoria = ("CLAUDE.md" if "CLAUDE.md" in contenido
-                         else "SNAPCONTEXT.md")
+            categoria = "CLAUDE.md" if "CLAUDE.md" in contenido else "SNAPCONTEXT.md"
         elif any(p in contenido for p in _MARCADORES_CACHE_HERRAMIENTAS):
             categoria = "herramientas"
         else:
@@ -4611,7 +4971,7 @@ def _calcular_metricas_caching(mensajes: List[dict]) -> dict:
     }
 
 
-def _mensaje_caching_inicio(proveedor: str) -> Optional[str]:
+def _mensaje_caching_inicio(proveedor: str) -> str | None:
     """Mensaje de usuario al inicio de sesión sobre prompt caching (v6.11.0).
 
     Devuelve None si el proveedor lo soporta pero el caching está desactivado
@@ -4622,12 +4982,12 @@ def _mensaje_caching_inicio(proveedor: str) -> Optional[str]:
             if _resolver_prompt_caching(None):
                 return f"🧠 Prompt Caching activado para {proveedor}"
             return None
-    except Exception:                        # noqa: BLE001
+    except Exception:
         return None
     return f"🧠 Prompt Caching no soportado para {proveedor}"
 
 
-def _mensaje_capas_caching_inicio(proveedor: str) -> Optional[str]:
+def _mensaje_capas_caching_inicio(proveedor: str) -> str | None:
     """Mensaje de usuario sobre Prompt Caching por Capas (v6.31.0).
 
     Devuelve el texto solo si el proveedor soporta caching, el caching básico
@@ -4636,20 +4996,24 @@ def _mensaje_capas_caching_inicio(proveedor: str) -> Optional[str]:
     mensaje básico de v6.16.0 (que no cambia, compatibilidad total).
     """
     try:
-        if (_soporta_prompt_caching(proveedor)
-                and _resolver_prompt_caching(None)
-                and _capas_caching_activo()):
-            return ("🧠 Prompt Caching por Capas activado "
-                    "(estática + semi-estática + volátil).")
-    except Exception:                        # noqa: BLE001
+        if (
+            _soporta_prompt_caching(proveedor)
+            and _resolver_prompt_caching(None)
+            and _capas_caching_activo()
+        ):
+            return "🧠 Prompt Caching por Capas activado (estática + semi-estática + volátil)."
+    except Exception:
         return None
     return None
 
 
-def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
-                         mensajes: List[dict],
-                         prompt_caching: Optional[bool] = None,
-                         categoria: Optional[str] = None) -> str:
+def _enviar_al_proveedor(
+    proveedor: str,
+    modelo: str | None,
+    mensajes: list[dict],
+    prompt_caching: bool | None = None,
+    categoria: str | None = None,
+) -> str:
     """Envía ``mensajes`` al proveedor, con enrutamiento y fallback (v6.30.0).
 
     Soporta todos los tipos registrados en PROVEEDORES (gemini, openai-compatible
@@ -4670,80 +5034,80 @@ def _enviar_al_proveedor(proveedor: str, modelo: Optional[str],
     inmediato. Si TODOS los modelos fallan se lanza un RuntimeError claro.
     Sin prioridades configuradas el comportamiento es idéntico a v6.24.0.
     """
-    candidatos: List[Tuple[str, Optional[str]]] = [(proveedor, modelo)]
+    candidatos: list[tuple[str, str | None]] = [(proveedor, modelo)]
     if categoria and _MODEL_ROUTING_ACTIVO and not _MODELO_EXPLICITO:
         try:
-            import model_router as _mr              # noqa: E402
+            import model_router as _mr
+
             _cfg = {"model_routing": _configuracion_routing_efectiva()}
             _hibrido = False
             if _MODEL_FALLBACK_ACTIVO:
                 _compleja = _mr.es_tarea_compleja(
-                    _extraer_consulta_mensajes(mensajes),
-                    {"categoria": categoria}, _cfg)
-                _orden = [_par for _par in _mr.obtener_orden_prioridad(
-                    _compleja, _cfg) if _par[0] in PROVEEDORES]
+                    _extraer_consulta_mensajes(mensajes), {"categoria": categoria}, _cfg
+                )
+                _orden = [
+                    _par
+                    for _par in _mr.obtener_orden_prioridad(_compleja, _cfg)
+                    if _par[0] in PROVEEDORES
+                ]
                 if _orden:
                     _p0, _m0 = _orden[0]
                     _m0_ef = _m0 or PROVEEDORES[_p0]["modelo_default"]
                     if _mr.es_proveedor_local(_p0, _cfg):
-                        info(f"🧠 Tarea simple. Usando modelo local: "
-                             f"{_p0}/{_m0_ef}")
+                        info(f"🧠 Tarea simple. Usando modelo local: {_p0}/{_m0_ef}")
                     else:
-                        info(f"🧠 Tarea compleja detectada. Usando modelo "
-                             f"cloud: {_p0}/{_m0_ef}")
+                        info(f"🧠 Tarea compleja detectada. Usando modelo cloud: {_p0}/{_m0_ef}")
                     candidatos = _orden
                     _hibrido = True
             if not _hibrido:
                 # Sin cadena de prioridades → enrutado por categoría (v6.24.0).
                 _p2, _m2 = _mr.seleccionar_modelo(
-                    categoria,
-                    {"model_routing": _cargar_configuracion_routing()})
+                    categoria, {"model_routing": _cargar_configuracion_routing()}
+                )
                 if _p2 and _p2 in PROVEEDORES:
                     _m_efectivo = _m2 or PROVEEDORES[_p2]["modelo_default"]
                     info(f"🧠 Modelo enrutado: {categoria} → {_p2}/{_m_efectivo}")
                     candidatos = [(_p2, _m2)]
                 elif _p2:
-                    depurar(f"[model-routing] proveedor desconocido '{_p2}'; "
-                            f"se mantiene {proveedor}.")
-        except Exception as exc:                     # noqa: BLE001 — nunca romper
+                    depurar(
+                        f"[model-routing] proveedor desconocido '{_p2}'; se mantiene {proveedor}."
+                    )
+        except Exception as exc:
             depurar(f"[model-routing] no se pudo enrutar ({categoria}): {exc}")
 
     if len(candidatos) <= 1 or not _MODEL_FALLBACK_ACTIVO:
         _p_unico, _m_unico = candidatos[0]
-        return _enviar_al_proveedor_unico(_p_unico, _m_unico, mensajes,
-                                          prompt_caching)
+        return _enviar_al_proveedor_unico(_p_unico, _m_unico, mensajes, prompt_caching)
 
     # v6.30.0: cadena de fallback entre modelos (local ↔ nube).
-    _intentados: List[str] = []
-    _ultimo_error: Optional[BaseException] = None
+    _intentados: list[str] = []
+    _ultimo_error: BaseException | None = None
     for _pos, (_p, _m) in enumerate(candidatos):
-        _m_ef = _m or (PROVEEDORES[_p]["modelo_default"]
-                       if _p in PROVEEDORES else None)
+        _m_ef = _m or (PROVEEDORES[_p]["modelo_default"] if _p in PROVEEDORES else None)
         try:
             return _enviar_al_proveedor_unico(_p, _m, mensajes, prompt_caching)
-        except Exception as exc:                     # noqa: BLE001
+        except Exception as exc:
             if _es_error_autenticacion(exc):
-                raise      # la clave no se arregla cambiando de modelo
+                raise  # la clave no se arregla cambiando de modelo
             _intentados.append(f"{_p}/{_m_ef or '?'}")
             _ultimo_error = exc
             if _pos + 1 < len(candidatos):
                 _p2, _m2 = candidatos[_pos + 1]
-                _m2_ef = _m2 or (PROVEEDORES[_p2]["modelo_default"]
-                                 if _p2 in PROVEEDORES else None)
-                aviso(f"⚠️ Fallo en {_p}/{_m_ef or '?'}. Reintentando con "
-                      f"{_p2}/{_m2_ef or '?'}.")
+                _m2_ef = _m2 or (PROVEEDORES[_p2]["modelo_default"] if _p2 in PROVEEDORES else None)
+                aviso(f"⚠️ Fallo en {_p}/{_m_ef or '?'}. Reintentando con {_p2}/{_m2_ef or '?'}.")
     raise RuntimeError(
         "Todos los modelos de la cadena de fallback fallaron ("
-        + ", ".join(_intentados) + ")"
+        + ", ".join(_intentados)
+        + ")"
         + (f"; último error: {_ultimo_error}" if _ultimo_error else "")
         + ". Revisa la configuración (o usa --no-model-fallback para "
-          "usar solo el modelo principal)."
+        "usar solo el modelo principal)."
     )
 
 
-def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
-                               mensajes: List[dict],
-                               prompt_caching: Optional[bool] = None) -> str:
+def _enviar_al_proveedor_unico(
+    proveedor: str, modelo: str | None, mensajes: list[dict], prompt_caching: bool | None = None
+) -> str:
     """Envía ``mensajes`` ([{"role": ..., "content": ...}, ...]) a UN proveedor.
 
     Soporta todos los tipos registrados en PROVEEDORES (gemini, openai-compatible
@@ -4755,8 +5119,7 @@ def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
     """
     if proveedor not in PROVEEDORES:
         raise RuntimeError(
-            f"Proveedor desconocido '{proveedor}'. "
-            f"Válidos: {', '.join(sorted(PROVEEDORES))}"
+            f"Proveedor desconocido '{proveedor}'. Válidos: {', '.join(sorted(PROVEEDORES))}"
         )
     cfg = PROVEEDORES[proveedor]
     modelo = modelo or cfg["modelo_default"]
@@ -4766,8 +5129,7 @@ def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
     # (Anthropic, DeepSeek) y cuando está activado. El resto recibe los mensajes
     # tal cual (sin marcas), manteniendo la compatibilidad total.
     mensajes_finales = mensajes
-    if (_soporta_prompt_caching(proveedor)
-            and _resolver_prompt_caching(prompt_caching)):
+    if _soporta_prompt_caching(proveedor) and _resolver_prompt_caching(prompt_caching):
         # v6.31.0: Prompt Caching por Capas (orden estricto estatica ->
         # semi-estatica -> volatil). Con --no-prompt-caching-capas se usa
         # el caching basico de v6.16.0 (marcas sin reestructurar).
@@ -4779,21 +5141,21 @@ def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
         # v6.16.0: métricas de caché en modo --depurar
         if DEPURAR:
             _metricas = _calcular_metricas_caching(mensajes)
-            _cats = ", ".join(
-                f"{k} ({v} tokens)"
-                for k, v in _metricas["categorias"].items())
+            _cats = ", ".join(f"{k} ({v} tokens)" for k, v in _metricas["categorias"].items())
             depurar(f"ℹ Prompt Caching activado ({proveedor}): {_cats}")
             if _por_capas:
                 # v6.31.0: metricas por capa (estatica/semi/volatil).
                 try:
-                    import prompt_cache as _pc          # noqa: E402
+                    import prompt_cache as _pc
+
                     _tokens_capa = _pc.metricas_capas(mensajes_finales)
                     depurar(
                         "📊 Capa estática: "
                         f"{_tokens_capa['estatica']} tokens, semi-estática: "
                         f"{_tokens_capa['semi_estatica']} tokens, volátil: "
-                        f"{_tokens_capa['volatil']} tokens.")
-                except Exception:            # noqa: BLE001
+                        f"{_tokens_capa['volatil']} tokens."
+                    )
+                except Exception:
                     pass
     # v6.32.0: Pruning proactivo de contexto — podar resultados extensos de
     # herramientas (logs, salidas, diffs) con resumen de una línea. Se aplica
@@ -4816,8 +5178,7 @@ def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
         generador = genai.GenerativeModel(model_name=modelo)
         # Gemini distingue user/model; convertimos "assistant" → "model".
         contenidos = [
-            {"role": "user" if m["role"] != "assistant" else "model",
-             "parts": [m["content"]]}
+            {"role": "user" if m["role"] != "assistant" else "model", "parts": [m["content"]]}
             for m in mensajes
         ]
         respuesta = generador.generate_content(contenidos)
@@ -4831,11 +5192,12 @@ def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
             raise RuntimeError(_mensaje_clave_faltante(proveedor, cfg))
         cliente = anthropic.Anthropic(api_key=api_key)
         respuesta = cliente.messages.create(
-            model=modelo, max_tokens=2048, messages=mensajes_finales,
+            model=modelo,
+            max_tokens=2048,
+            messages=mensajes_finales,
         )
         return "".join(
-            bloque.text for bloque in respuesta.content
-            if getattr(bloque, "type", None) == "text"
+            bloque.text for bloque in respuesta.content if getattr(bloque, "type", None) == "text"
         )
 
     # v6.34.0: tipo "xpu" — inferencia local en GPUs Intel Arc vía IPEX.
@@ -4847,9 +5209,7 @@ def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
                 f"Para usar XPU se necesita backend_xpu y sus dependencias: {exc}"
             ) from exc
         if not _xpu.xpu_disponible():
-            raise RuntimeError(
-                "Intel XPU no detectado. Revisa la instalación de IPEX y drivers."
-            )
+            raise RuntimeError("Intel XPU no detectado. Revisa la instalación de IPEX y drivers.")
         _modelo_xpu = modelo or PROVEEDORES["xpu"]["modelo_default"]
         _cfg_xpu = cargar_configuracion().get("xpu", {})
         _max_tokens = int(_cfg_xpu.get("max_tokens", 500))
@@ -4879,17 +5239,20 @@ def _enviar_al_proveedor_unico(proveedor: str, modelo: Optional[str],
         raise RuntimeError(_mensaje_clave_faltante(proveedor, cfg))
     cliente = openai.OpenAI(
         api_key=api_key or "ollama-local",
-        base_url=_resolver_url_openai(cfg), timeout=120,
+        base_url=_resolver_url_openai(cfg),
+        timeout=120,
     )
     respuesta = cliente.chat.completions.create(
-        model=modelo, messages=mensajes_finales, temperature=0.4,
+        model=modelo,
+        messages=mensajes_finales,
+        temperature=0.4,
     )
     return respuesta.choices[0].message.content or ""
 
 
-def _ejecutar_chat(proveedor: Optional[str] = None,
-                   modelo: Optional[str] = None,
-                   prompt_caching: Optional[bool] = None) -> int:
+def _ejecutar_chat(
+    proveedor: str | None = None, modelo: str | None = None, prompt_caching: bool | None = None
+) -> int:
     """REPL interactivo (`snapcontext --chat`). Devuelve código de salida.
 
     Mantiene la conversación en memoria (`historial_chat`) y da acceso a los
@@ -4908,26 +5271,29 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
     # tenía otro modelo descargado, p. ej. qwen3.5:9b).
     proveedor_flag = proveedor or os.environ.get("SNAPCONTEXT_PROVIDER") or None
     modelo_flag = modelo or os.environ.get("SNAPCONTEXT_MODELO") or None
-    proveedor = (proveedor_flag
-                 or preferencias.get("provider")
-                 or PROVEEDOR_DEFECTO)
+    proveedor = proveedor_flag or preferencias.get("provider") or PROVEEDOR_DEFECTO
     # El modelo guardado en config.json solo aplica si el proveedor también
     # viene de la configuración (evita mezclar modelos entre proveedores).
-    modelo = (modelo_flag
-              or (None if proveedor_flag else preferencias.get("model"))
-              or None)
+    modelo = modelo_flag or (None if proveedor_flag else preferencias.get("model")) or None
     if not proveedor_flag and not preferencias.get("provider"):
-        aviso("No hay proveedor configurado (flags, entorno ni config.json); "
-              f"usando el fallback '{PROVEEDOR_DEFECTO}' "
-              f"({PROVEEDORES[PROVEEDOR_DEFECTO]['modelo_default']}). "
-              "Configúralo con 'snapcontext --init'.")
+        aviso(
+            "No hay proveedor configurado (flags, entorno ni config.json); "
+            f"usando el fallback '{PROVEEDOR_DEFECTO}' "
+            f"({PROVEEDORES[PROVEEDOR_DEFECTO]['modelo_default']}). "
+            "Configúralo con 'snapcontext --init'."
+        )
 
-    _emitir(sys.stdout, _pintar(
-        f"💬 SnapContext Chat (v{VERSION}) — Escribe tu tarea, "
-        "/salir para terminar", _CYAN))
-    info(f"Proveedor actual: {proveedor} "
-         f"({modelo or PROVEEDORES[proveedor]['modelo_default']}). "
-         "Escribe /ayuda para ver los comandos.")
+    _emitir(
+        sys.stdout,
+        _pintar(
+            f"💬 SnapContext Chat (v{VERSION}) — Escribe tu tarea, /salir para terminar", _CYAN
+        ),
+    )
+    info(
+        f"Proveedor actual: {proveedor} "
+        f"({modelo or PROVEEDORES[proveedor]['modelo_default']}). "
+        "Escribe /ayuda para ver los comandos."
+    )
     # v6.11.0: informa del estado del Prompt Caching al inicio de la sesión.
     _mensaje_caching = _mensaje_caching_inicio(proveedor)
     if _mensaje_caching:
@@ -4937,9 +5303,9 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
     if _mensaje_capas:
         info(_mensaje_capas)
 
-    historial_chat: List[dict] = []       # conversación de esta sesión
-    contexto_archivos: List[str] = []     # selección actual (/seleccion)
-    hilos: List[threading.Thread] = []    # comandos de agente en 2º plano
+    historial_chat: list[dict] = []  # conversación de esta sesión
+    contexto_archivos: list[str] = []  # selección actual (/seleccion)
+    hilos: list[threading.Thread] = []  # comandos de agente en 2º plano
 
     def _esperar_hilos(limite: float = 120.0) -> None:
         """Espera (con tope) a que terminen los comandos lanzados en hilos."""
@@ -4989,15 +5355,17 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
 
         # ---- plugins (v4.0.0) ----------------------------------------------
         if linea == "/plugin" or linea.startswith("/plugin "):
-            argumento = linea[len("/plugin"):].strip()
+            argumento = linea[len("/plugin") :].strip()
             if not argumento:
                 _plugin_mostrar()
                 continue
             partes = shlex.split(argumento)
             objetivo = partes[0]
             if "." not in objetivo:
-                aviso("Uso: /plugin <plugin>.<herramienta> ['{args json}'] "
-                      "— o /plugin a secas para listar.")
+                aviso(
+                    "Uso: /plugin <plugin>.<herramienta> ['{args json}'] "
+                    "— o /plugin a secas para listar."
+                )
                 continue
             nombre_plugin, nombre_herramienta = objetivo.split(".", 1)
             instalados_chat = _plugins_instalados()
@@ -5005,11 +5373,12 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
                 aviso(f"Plugin '{nombre_plugin}' no encontrado.")
                 continue
             if not any(
-                    (h.get("nombre") or "").strip() == nombre_herramienta
-                    for h in instalados_chat[nombre_plugin].get(
-                        "herramientas", [])):
-                aviso(f"El plugin '{nombre_plugin}' no expone la herramienta "
-                      f"'{nombre_herramienta}'.")
+                (h.get("nombre") or "").strip() == nombre_herramienta
+                for h in instalados_chat[nombre_plugin].get("herramientas", [])
+            ):
+                aviso(
+                    f"El plugin '{nombre_plugin}' no expone la herramienta '{nombre_herramienta}'."
+                )
                 continue
             argumentos_chat: dict = {}
             if len(partes) > 1:
@@ -5019,8 +5388,7 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
                         argumentos_chat = cargado
                 except (ValueError, json.JSONDecodeError):
                     argumentos_chat = {"consulta": " ".join(partes[1:])}
-            llamada_chat = _ejecutar_herramienta_mcp(nombre_herramienta,
-                                                     argumentos_chat)
+            llamada_chat = _ejecutar_herramienta_mcp(nombre_herramienta, argumentos_chat)
             _emitir(sys.stdout, _formatear_resultado_mcp(llamada_chat))
             continue
 
@@ -5035,8 +5403,10 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
                 for linea_memoria in MEMORIA_PROYECTO.splitlines()[:60]:
                     _emitir(sys.stdout, "  " + linea_memoria)
             if not contexto_archivos and not MEMORIA_PROYECTO:
-                aviso("Sin memoria de proyecto ni archivos en contexto "
-                      "(usa --init-claude o /seleccion).")
+                aviso(
+                    "Sin memoria de proyecto ni archivos en contexto "
+                    "(usa --init-claude o /seleccion)."
+                )
             elif contexto_archivos:
                 exito(f"Archivos en contexto ({len(contexto_archivos)}):")
                 for archivo in contexto_archivos:
@@ -5046,8 +5416,10 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
         # ---- memoria del proyecto (v0.15.0) -------------------------------
         if linea == "/claude":
             if not MEMORIA_PROYECTO:
-                aviso("No hay CLAUDE.md ni SNAPCONTEXT.md en este proyecto. "
-                      "Créalos con: snapcontext --init-claude")
+                aviso(
+                    "No hay CLAUDE.md ni SNAPCONTEXT.md en este proyecto. "
+                    "Créalos con: snapcontext --init-claude"
+                )
             else:
                 exito(f"── {_buscar_claude_md().name} ──")
                 _emitir(sys.stdout, MEMORIA_PROYECTO)
@@ -5063,15 +5435,13 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
 
         # ---- búsqueda semántica (v1.1.0; alias /buscar desde v1.4.0) -------
         if linea.startswith("/search ") or linea.startswith("/buscar"):
-            prefijo_busqueda = ("/search" if linea.startswith("/search")
-                                else "/buscar")
-            consulta_busqueda = linea[len(prefijo_busqueda):].strip()
+            prefijo_busqueda = "/search" if linea.startswith("/search") else "/buscar"
+            consulta_busqueda = linea[len(prefijo_busqueda) :].strip()
             if not consulta_busqueda:
                 aviso("Uso: /search <consulta>")
                 continue
             try:
-                resultados = _buscar_semanticamente(consulta_busqueda,
-                                                    directorio=".")
+                resultados = _buscar_semanticamente(consulta_busqueda, directorio=".")
             except RuntimeError as exc:
                 error(str(exc))
                 continue
@@ -5080,9 +5450,14 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
                 continue
             exito(f"Resultados semánticos para '{consulta_busqueda}':")
             for resultado in resultados[:10]:
-                _emitir(sys.stdout, _pintar(
-                    f"   • {resultado['archivo']}:{resultado['linea_inicio']} "
-                    f"(similitud {resultado['similitud']})", _VERDE))
+                _emitir(
+                    sys.stdout,
+                    _pintar(
+                        f"   • {resultado['archivo']}:{resultado['linea_inicio']} "
+                        f"(similitud {resultado['similitud']})",
+                        _VERDE,
+                    ),
+                )
             continue
 
         # ---- grafo y dependencias (v1.4.0) --------------------------------
@@ -5093,12 +5468,12 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             if not nodos_chat:
                 aviso("Sin archivos de código detectados para construir el grafo.")
                 continue
-            exito(f"Grafo de dependencias ({len(nodos_chat)} nodo(s), "
-                  f"{len(enlaces_chat)} enlace(s)):")
+            exito(
+                f"Grafo de dependencias ({len(nodos_chat)} nodo(s), {len(enlaces_chat)} enlace(s)):"
+            )
             salientes: dict = {}
             for enlace in enlaces_chat:
-                salientes.setdefault(enlace["origen"], []).append(
-                    enlace["destino"])
+                salientes.setdefault(enlace["origen"], []).append(enlace["destino"])
             for nodo in nodos_chat:
                 nodo_id = nodo["id"]
                 _emitir(sys.stdout, _pintar(f"  ▸ {nodo_id}", _CYAN))
@@ -5122,8 +5497,10 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
                 if enlace["destino"] == archivo_objetivo:
                     inversas.append(enlace["origen"])
             if not directas and not inversas:
-                aviso(f"Sin dependencias detectadas para '{archivo_objetivo}' "
-                      f"(¿existe el archivo y tiene imports?).")
+                aviso(
+                    f"Sin dependencias detectadas para '{archivo_objetivo}' "
+                    f"(¿existe el archivo y tiene imports?)."
+                )
                 continue
             exito(f"Dependencias de {archivo_objetivo}:")
             _emitir(sys.stdout, f"  Importa de ({len(directas)}):")
@@ -5144,14 +5521,12 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             exito(f"Herramientas MCP disponibles ({len(herramientas)}):")
             for nombre in sorted(herramientas):
                 cfg = herramientas[nombre]
-                permiso = "🗝 requiere permiso" if cfg.get("requiere_permiso") \
-                    else "lectura"
-                _emitir(sys.stdout,
-                        f"   • {nombre} — {cfg['descripcion']} [{permiso}]")
+                permiso = "🗝 requiere permiso" if cfg.get("requiere_permiso") else "lectura"
+                _emitir(sys.stdout, f"   • {nombre} — {cfg['descripcion']} [{permiso}]")
             continue
 
         if linea.startswith("/tool "):
-            resto = linea[len("/tool "):].strip()
+            resto = linea[len("/tool ") :].strip()
             partes = resto.split(maxsplit=1)
             nombre = partes[0]
             argumentos: dict = {}
@@ -5184,49 +5559,54 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
                     else:
                         argumentos = {"comando": bruto}
             info(f"🗺 Ejecutando herramienta MCP '{nombre}'...")
-            llamada = _ejecutar_herramienta_mcp(nombre, argumentos,
-                                                confirmar=CONFIRMAR_ACCIONES)
+            llamada = _ejecutar_herramienta_mcp(nombre, argumentos, confirmar=CONFIRMAR_ACCIONES)
             texto = _formatear_resultado_mcp(llamada)
-            _emitir(sys.stdout, _pintar(texto, _VERDE if llamada["ok"]
-                                        else _AMARILLO))
+            _emitir(sys.stdout, _pintar(texto, _VERDE if llamada["ok"] else _AMARILLO))
             if llamada["ok"]:
                 exito("Herramienta completada.")
             else:
                 error("La herramienta devolvió un error.")
             # El resultado queda en el contexto de la conversación.
-            historial_chat.append({
-                "role": "user",
-                "content": f"[herramienta {nombre}] "
-                           + _formatear_resultado_mcp(llamada)[:2000]})
+            historial_chat.append(
+                {
+                    "role": "user",
+                    "content": f"[herramienta {nombre}] "
+                    + _formatear_resultado_mcp(llamada)[:2000],
+                }
+            )
             continue
 
         # ---- comandos de agente ------------------------------------------
         if linea.startswith("/run "):
-            hilos.append(_lanzar_en_hilo(
-                _cmd_chat_run, linea[len("/run "):].strip()))
+            hilos.append(_lanzar_en_hilo(_cmd_chat_run, linea[len("/run ") :].strip()))
             continue
 
         if linea.startswith("/read "):
-            _cmd_chat_read(linea[len("/read "):].strip().strip('"').strip("'"))
+            _cmd_chat_read(linea[len("/read ") :].strip().strip('"').strip("'"))
             continue
 
         if linea.startswith("/explore "):
-            hilos.append(_lanzar_en_hilo(
-                _cmd_chat_explore, linea[len("/explore "):].strip()))
+            hilos.append(_lanzar_en_hilo(_cmd_chat_explore, linea[len("/explore ") :].strip()))
             continue
 
         if linea.startswith("/edit "):
-            _cmd_chat_edit(linea[len("/edit "):].strip().strip('"').strip("'"),
-                           confirmar=CONFIRMAR_ACCIONES)
+            _cmd_chat_edit(
+                linea[len("/edit ") :].strip().strip('"').strip("'"), confirmar=CONFIRMAR_ACCIONES
+            )
             continue
 
-        if linea == "/fix" or linea.startswith("/fix ") \
-                or linea == "/review" or linea.startswith("/review ") \
-                or linea == "/server" or linea.startswith("/server "):
+        if (
+            linea == "/fix"
+            or linea.startswith("/fix ")
+            or linea == "/review"
+            or linea.startswith("/review ")
+            or linea == "/server"
+            or linea.startswith("/server ")
+        ):
             _alias = linea[1:].split(maxsplit=1)[0]
-            hilos.append(_lanzar_en_hilo(
-                _cmd_chat_alias, _alias,
-                linea[len(f"/{_alias}"):].strip()))
+            hilos.append(
+                _lanzar_en_hilo(_cmd_chat_alias, _alias, linea[len(f"/{_alias}") :].strip())
+            )
             continue
 
         if linea.startswith("/provider"):
@@ -5236,25 +5616,30 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
                 aviso(f"Proveedores válidos: {', '.join(sorted(PROVEEDORES))}")
                 continue
             proveedor = nuevo
-            modelo = None                       # vuelve al modelo por defecto
-            exito(f"Proveedor cambiado a {PROVEEDORES[proveedor]['nombre']} "
-                  f"({PROVEEDORES[proveedor]['modelo_default']}).")
+            modelo = None  # vuelve al modelo por defecto
+            exito(
+                f"Proveedor cambiado a {PROVEEDORES[proveedor]['nombre']} "
+                f"({PROVEEDORES[proveedor]['modelo_default']})."
+            )
             continue
 
         if linea.startswith("/seleccion"):
-            consulta = linea[len("/seleccion"):].strip()
+            consulta = linea[len("/seleccion") :].strip()
             if not consulta:
                 aviso("Uso: /seleccion <consulta>")
                 continue
             try:
                 candidatos = escanear_repositorio(
-                    consulta, directorio=".", carpetas=list(CARPETAS_DEFECTO))
+                    consulta, directorio=".", carpetas=list(CARPETAS_DEFECTO)
+                )
                 if not candidatos:
                     aviso("No se encontraron candidatos en este repositorio.")
                     continue
                 contexto_archivos = seleccionar_archivos(
-                    consulta, candidatos,
-                    proveedor=proveedor, modelo=modelo,
+                    consulta,
+                    candidatos,
+                    proveedor=proveedor,
+                    modelo=modelo,
                 )
                 if contexto_archivos:
                     exito(f"Selección ({len(contexto_archivos)}):")
@@ -5273,60 +5658,65 @@ def _ejecutar_chat(proveedor: Optional[str] = None,
             # exploración, se recopila contexto con herramientas de solo
             # lectura y se añade al turno del usuario.
             contexto_mcp = _contexto_automatico_mcp(linea)
-        except Exception as exc:                # nunca romper el chat
+        except Exception as exc:  # nunca romper el chat
             depurar(f"[mcp] contexto automático falló: {exc}")
             contexto_mcp = ""
         if contexto_mcp:
-            info("🗺 Contexto MCP añadido a la consulta "
-                 "(herramientas de solo lectura).")
+            info("🗺 Contexto MCP añadido a la consulta (herramientas de solo lectura).")
             historial_chat[-1]["content"] += (
-                "\n\n[Contexto obtenido con herramientas MCP]\n"
-                + contexto_mcp[:3000])
+                "\n\n[Contexto obtenido con herramientas MCP]\n" + contexto_mcp[:3000]
+            )
         if MEMORIA_PROYECTO:
             # Memoria del proyecto (v0.15.0): contexto persistente CLAUDE.md.
             historial_chat[-1]["content"] = (
-                "[Memoria del proyecto]\n" + MEMORIA_PROYECTO[:2000]
-                + "\n\n" + historial_chat[-1]["content"])
+                "[Memoria del proyecto]\n"
+                + MEMORIA_PROYECTO[:2000]
+                + "\n\n"
+                + historial_chat[-1]["content"]
+            )
         try:
             # Se envían solo los últimos 20 turnos para no crecer sin límite.
             respuesta = _enviar_al_proveedor(
-                proveedor, modelo, historial_chat[-20:],
+                proveedor,
+                modelo,
+                historial_chat[-20:],
                 prompt_caching=prompt_caching,
             )
         except RuntimeError as exc:
             error(str(exc))
-            historial_chat.pop()            # no conservar el turno fallido
+            historial_chat.pop()  # no conservar el turno fallido
             continue
-        except Exception as exc:            # errores de red/API no controlados
+        except Exception as exc:  # errores de red/API no controlados
             error(f"Error hablando con {PROVEEDORES[proveedor]['nombre']}: {exc}")
             historial_chat.pop()
             continue
         _raz_activo = _razonamiento_activo()
         if _raz_activo and not _RAZONAMIENTO_ESTADO.get("banner"):
             _RAZONAMIENTO_ESTADO["banner"] = True
-            info("🧠 Mostrando razonamiento del modelo "
-                 "(--mostrar-razonamiento)")
-        respuesta_limpia, raz = _procesar_razonamiento(respuesta,
-                                                       activo=False)
+            info("🧠 Mostrando razonamiento del modelo (--mostrar-razonamiento)")
+        respuesta_limpia, raz = _procesar_razonamiento(respuesta, activo=False)
         if _raz_activo and raz:
             import ui as _ui
+
             _ui.mostrar_razonamiento(raz)
         elif _raz_activo:
             # Modo de dos pasos (v6.2.0): el modelo no etiqueta su
             # razonamiento → se pide explícitamente antes de la respuesta.
             if not _RAZONAMIENTO_ESTADO.get("aviso_dos_pasos"):
                 _RAZONAMIENTO_ESTADO["aviso_dos_pasos"] = True
-                aviso("⚠ El modelo no devuelve razonamiento explícito: se "
-                      "usará el modo de dos pasos (duplica las llamadas y "
-                      "puede ralentizar modelos lentos).")
+                aviso(
+                    "⚠ El modelo no devuelve razonamiento explícito: se "
+                    "usará el modo de dos pasos (duplica las llamadas y "
+                    "puede ralentizar modelos lentos)."
+                )
             raz2 = _razonamiento_dos_pasos(linea, proveedor, modelo)
             if raz2:
                 import ui as _ui
+
                 _ui.mostrar_razonamiento(raz2)
             else:
                 info("ℹ El modelo no proporcionó razonamiento explícito.")
-        historial_chat.append({"role": "assistant",
-                               "content": respuesta_limpia})
+        historial_chat.append({"role": "assistant", "content": respuesta_limpia})
         _emitir(sys.stdout, _pintar(respuesta_limpia, _VERDE))
         _emitir(sys.stdout, "")
 
@@ -5341,15 +5731,14 @@ def _lanzar_en_hilo(fn, *args) -> threading.Thread:
     return hilo
 
 
-def _cmd_chat_run(comando: str, directorio: str = ".",
-                  confirmar: Optional[bool] = None) -> None:
+def _cmd_chat_run(comando: str, directorio: str = ".", confirmar: bool | None = None) -> None:
     """`/run <comando>`: ejecuta un comando de shell y muestra su salida."""
     if not comando:
         aviso("Uso: /run <comando>")
         return
-    if not _confirmar_accion(comando, tipo="ejecutar",
-                             detalles=f"directorio: {directorio}",
-                             confirmar=confirmar):
+    if not _confirmar_accion(
+        comando, tipo="ejecutar", detalles=f"directorio: {directorio}", confirmar=confirmar
+    ):
         return
     info(f"$ {comando}")
     codigo, stdout, stderr = _ejecutar_comando(comando, directorio)
@@ -5381,7 +5770,7 @@ def _cmd_chat_read(archivo: str) -> None:
         aviso(f"(salida recortada: {len(lineas) - 400} línea(s) más)")
 
 
-def _herramienta_busqueda() -> Optional[str]:
+def _herramienta_busqueda() -> str | None:
     """Devuelve el buscador disponible: ripgrep ('rg'), 'grep' o 'findstr'."""
     for herramienta in ("rg", "grep", "findstr"):
         if shutil.which(herramienta):
@@ -5421,8 +5810,7 @@ def _cmd_chat_explore(tema: str, directorio: str = ".") -> None:
     elif codigo == 0:
         aviso("Sin coincidencias.")
     else:
-        error(f"La búsqueda falló (código {codigo}): "
-              f"{stderr.strip() or 'sin detalle'}")
+        error(f"La búsqueda falló (código {codigo}): {stderr.strip() or 'sin detalle'}")
 
 
 def _cmd_chat_alias(alias: str, mensaje: str) -> int:
@@ -5443,7 +5831,7 @@ def _cmd_chat_alias(alias: str, mensaje: str) -> int:
     return flujo_principal(args)
 
 
-def _cmd_chat_edit(archivo: str, confirmar: Optional[bool] = None) -> None:
+def _cmd_chat_edit(archivo: str, confirmar: bool | None = None) -> None:
     """`/edit <archivo>`: abre el archivo en VSCode, $EDITOR o nano/notepad."""
     if not archivo:
         aviso("Uso: /edit <archivo>")
@@ -5455,11 +5843,10 @@ def _cmd_chat_edit(archivo: str, confirmar: Optional[bool] = None) -> None:
         error(f"El archivo no existe: {camino}")
         return
     # Solo lectura en el chat, pero se abre un programa externo: se confirma.
-    if not _confirmar_accion(f"abrir '{camino}' en el editor", tipo="editar",
-                             confirmar=confirmar):
+    if not _confirmar_accion(f"abrir '{camino}' en el editor", tipo="editar", confirmar=confirmar):
         return
     editor_cmd = (os.environ.get("VISUAL") or os.environ.get("EDITOR") or "").strip()
-    candidatos = ([shlex.split(editor_cmd)] if editor_cmd else [])
+    candidatos = [shlex.split(editor_cmd)] if editor_cmd else []
     candidatos += [["code"], ["nano"] if os.name != "nt" else ["notepad"]]
     for cmd in candidatos:
         if shutil.which(cmd[0]):
@@ -5472,25 +5859,23 @@ def _cmd_chat_edit(archivo: str, confirmar: Optional[bool] = None) -> None:
     error("No se encontró ningún editor (code/nano/notepad/$EDITOR).")
 
 
-def _cmd_chat_save(historial_chat: List[dict]) -> None:
+def _cmd_chat_save(historial_chat: list[dict]) -> None:
     """`/save`: guarda un resumen de la sesión actual en historial.json."""
     if not historial_chat:
         aviso("No hay conversación que guardar.")
         return
-    turnos_usuario = [m["content"] for m in historial_chat
-                      if m.get("role") == "user"]
+    turnos_usuario = [m["content"] for m in historial_chat if m.get("role") == "user"]
     entrada = {
         "fecha": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "consulta": " | ".join(t[:120] for t in turnos_usuario),
         "archivos": [],
         "resultado": "éxito",
-        "duracion": round(len(turnos_usuario), 2),   # nº de turnos del usuario
+        "duracion": round(len(turnos_usuario), 2),  # nº de turnos del usuario
         "tipo": "sesion-chat",
         "mensajes": len(historial_chat),
     }
     if _guardar_historial(entrada):
-        exito(f"Sesión guardada en {HISTORIAL_PATH} "
-              f"({entrada['mensajes']} mensajes).")
+        exito(f"Sesión guardada en {HISTORIAL_PATH} ({entrada['mensajes']} mensajes).")
 
 
 # ---------------------------------------------------------------------------
@@ -5499,8 +5884,7 @@ def _cmd_chat_save(historial_chat: List[dict]) -> None:
 # --- Git explícito para el planificador ------------------------------------
 def _es_repo_git(directorio: str) -> bool:
     """True si ``directorio`` está dentro de un repositorio git."""
-    codigo, _, _ = _ejecutar_comando("git rev-parse --is-inside-work-tree",
-                                     directorio, timeout=15)
+    codigo, _, _ = _ejecutar_comando("git rev-parse --is-inside-work-tree", directorio, timeout=15)
     return codigo == 0
 
 
@@ -5510,22 +5894,20 @@ def _git_crear_rama(nombre: str, directorio: str = ".") -> bool:
         error("--branch requiere un nombre de rama.")
         return False
     if not _es_repo_git(directorio):
-        error(f"'{directorio}' no es un repositorio git; no se puede crear "
-              f"la rama '{nombre}'.")
+        error(f"'{directorio}' no es un repositorio git; no se puede crear la rama '{nombre}'.")
         return False
     codigo, _, stderr = _ejecutar_comando(
-        f'git checkout -b "{nombre.strip()}"', directorio, timeout=30)
+        f'git checkout -b "{nombre.strip()}"', directorio, timeout=30
+    )
     if codigo == 0:
         exito(f"Rama creada y activada: {nombre.strip()}")
         return True
     # La rama puede existir ya; intentar solo cambiar a ella.
-    codigo2, _, _ = _ejecutar_comando(
-        f'git checkout "{nombre.strip()}"', directorio, timeout=30)
+    codigo2, _, _ = _ejecutar_comando(f'git checkout "{nombre.strip()}"', directorio, timeout=30)
     if codigo2 == 0:
         aviso(f"La rama '{nombre.strip()}' ya existía; se ha cambiado a ella.")
         return True
-    error(f"No se pudo crear/cambiar a la rama '{nombre.strip()}': "
-          f"{stderr.strip()}")
+    error(f"No se pudo crear/cambiar a la rama '{nombre.strip()}': {stderr.strip()}")
     return False
 
 
@@ -5539,8 +5921,7 @@ def _git_commit_paso(descripcion: str, directorio: str = ".") -> bool:
         return True
     _ejecutar_comando("git add .", directorio, timeout=60)
     mensaje = f"paso: {descripcion}".replace('"', "'")
-    codigo, _, stderr = _ejecutar_comando(
-        f'git commit -m "{mensaje}"', directorio, timeout=60)
+    codigo, _, stderr = _ejecutar_comando(f'git commit -m "{mensaje}"', directorio, timeout=60)
     if codigo == 0:
         exito(f"Commit creado: {mensaje}")
         return True
@@ -5558,8 +5939,8 @@ def _git_commit_paso(descripcion: str, directorio: str = ".") -> bool:
 # ----------------------------------------------------------------------
 
 _PATRON_SECRETOS = re.compile(
-    r"(sk-[A-Za-z0-9_\-]{8,}"                            # claves OpenAI-like
-    r"|[A-Za-z0-9_\-]{32,}"                              # tokens genéricos largos
+    r"(sk-[A-Za-z0-9_\-]{8,}"  # claves OpenAI-like
+    r"|[A-Za-z0-9_\-]{32,}"  # tokens genéricos largos
     r"|(?:api[_-]?key|token|secret|password)\s*[:=]\s*\S+)",
     re.IGNORECASE,
 )
@@ -5589,18 +5970,22 @@ def _generar_mensaje_commit(diff: str, tarea: str) -> str:
             f"Tarea: {tarea}\n\nDiff:\n{diff_recortado}\n\n"
             "Responde SOLO con la línea del mensaje, sin comillas."
         )
-        respuesta = _enviar_al_proveedor(proveedor, modelo, [
-            {"role": "user", "content": prompt},
-        ])
+        respuesta = _enviar_al_proveedor(
+            proveedor,
+            modelo,
+            [
+                {"role": "user", "content": prompt},
+            ],
+        )
         mensaje = _sanear_mensaje_commit(
-            (respuesta or "").strip().splitlines()[0].strip().strip('"'))
+            (respuesta or "").strip().splitlines()[0].strip().strip('"')
+        )
         return mensaje or fallback
-    except Exception:                                    # noqa: BLE001
+    except Exception:
         return fallback
 
 
-def _commit_paso(paso: dict, args: argparse.Namespace,
-                 directorio: str = ".") -> Optional[str]:
+def _commit_paso(paso: dict, args: argparse.Namespace, directorio: str = ".") -> str | None:
     """Commit atómico de un paso (v6.20.0). Devuelve el hash o ``None``.
 
     - Inicializa el repo con ``git init`` si el directorio no es repo git.
@@ -5616,7 +6001,8 @@ def _commit_paso(paso: dict, args: argparse.Namespace,
         if not _es_repo_git(directorio):
             _ejecutar_comando("git init", directorio, timeout=30)
         codigo_estado, salida_estado, _ = _ejecutar_comando(
-            "git status --porcelain", directorio, timeout=30)
+            "git status --porcelain", directorio, timeout=30
+        )
         if codigo_estado != 0 or not (salida_estado or "").strip():
             depurar("[git-profundo] Sin cambios; no se commitea.")
             return None
@@ -5626,36 +6012,32 @@ def _commit_paso(paso: dict, args: argparse.Namespace,
         else:
             mensaje = _generar_mensaje_commit(salida_estado, descripcion)
         mensaje = _sanear_mensaje_commit(mensaje)
-        codigo, _, stderr = _ejecutar_comando(
-            f'git commit -m "{mensaje}"', directorio, timeout=60)
+        codigo, _, stderr = _ejecutar_comando(f'git commit -m "{mensaje}"', directorio, timeout=60)
         if codigo != 0:
             aviso(f"El commit del paso falló: {(stderr or '').strip()}")
             return None
-        _, salida_hash, _ = _ejecutar_comando(
-            "git rev-parse HEAD", directorio, timeout=30)
+        _, salida_hash, _ = _ejecutar_comando("git rev-parse HEAD", directorio, timeout=30)
         commit_hash = (salida_hash or "").strip() or None
-        _db_registrar_paso(descripcion, commit_hash,
-                           tipo=str(paso.get("accion") or "paso"))
-        _emitir(sys.stdout, _pintar(
-            f"🗜 Commit automático: {mensaje} ({commit_hash})", _VERDE))
+        _db_registrar_paso(descripcion, commit_hash, tipo=str(paso.get("accion") or "paso"))
+        _emitir(sys.stdout, _pintar(f"🗜 Commit automático: {mensaje} ({commit_hash})", _VERDE))
         return commit_hash
-    except Exception as exc:                             # noqa: BLE001
+    except Exception as exc:
         aviso(f"[git-profundo] No se pudo commitear el paso: {exc}")
         return None
 
 
-def _db_registrar_paso(descripcion: str, commit_hash: Optional[str],
-                       tipo: str = "paso",
-                       tarea_id: Optional[int] = None) -> Optional[int]:
+def _db_registrar_paso(
+    descripcion: str, commit_hash: str | None, tipo: str = "paso", tarea_id: int | None = None
+) -> int | None:
     """Inserta una fila en la tabla ``pasos`` y devuelve su id (o ``None``)."""
     try:
         _db_ejecutar(
-            "INSERT INTO pasos (tarea_id, tipo, descripcion, commit_hash)"
-            " VALUES (?, ?, ?, ?)",
-            (tarea_id, tipo, descripcion, commit_hash))
+            "INSERT INTO pasos (tarea_id, tipo, descripcion, commit_hash) VALUES (?, ?, ?, ?)",
+            (tarea_id, tipo, descripcion, commit_hash),
+        )
         filas = _db_query("SELECT last_insert_rowid() AS id")
         return int(filas[0]["id"]) if filas else None
-    except Exception:                                    # noqa: BLE001
+    except Exception:
         return None
 
 
@@ -5672,9 +6054,9 @@ def _db_migrar_pasos() -> None:
         "tipo TEXT NOT NULL, "
         "descripcion TEXT, "
         "commit_hash TEXT, "
-        "creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-    _db_ejecutar(
-        "CREATE INDEX IF NOT EXISTS idx_pasos_tarea ON pasos(tarea_id)")
+        "creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+    )
+    _db_ejecutar("CREATE INDEX IF NOT EXISTS idx_pasos_tarea ON pasos(tarea_id)")
 
 
 def _revertir_paso(step_id: int) -> bool:
@@ -5683,8 +6065,7 @@ def _revertir_paso(step_id: int) -> bool:
     Ejecuta ``git revert --no-commit <hash>`` + ``git commit -m
     "revert: paso {id}"``. Si hay conflictos, sugiere ``git mergetool``.
     """
-    filas = _db_query(
-        "SELECT * FROM pasos WHERE id = ? ORDER BY id DESC LIMIT 1", (step_id,))
+    filas = _db_query("SELECT * FROM pasos WHERE id = ? ORDER BY id DESC LIMIT 1", (step_id,))
     if not filas:
         error(f"No existe el paso {step_id} en la base de datos.")
         return False
@@ -5697,32 +6078,31 @@ def _revertir_paso(step_id: int) -> bool:
     if not _es_repo_git("."):
         error("El directorio actual no es un repositorio git.")
         return False
-    codigo, _, stderr = _ejecutar_comando(
-        f"git revert --no-commit {commit_hash}", ".", timeout=120)
-    texto_err = (stderr or "")
+    codigo, _, stderr = _ejecutar_comando(f"git revert --no-commit {commit_hash}", ".", timeout=120)
+    texto_err = stderr or ""
     if codigo != 0:
         if "conflict" in texto_err.lower():
-            error(f"Conflicto al revertir el paso {step_id}:\n"
-                  f"{texto_err.strip()}\n"
-                  "Resuélvelo con 'git mergetool' y finaliza con "
-                  "'git commit'.")
+            error(
+                f"Conflicto al revertir el paso {step_id}:\n"
+                f"{texto_err.strip()}\n"
+                "Resuélvelo con 'git mergetool' y finaliza con "
+                "'git commit'."
+            )
         else:
-            error(f"No se pudo revertir el paso {step_id}: "
-                  f"{texto_err.strip()}")
+            error(f"No se pudo revertir el paso {step_id}: {texto_err.strip()}")
         return False
     codigo, _, stderr = _ejecutar_comando(
-        f'git commit -m "revert: paso {step_id}"', ".", timeout=60)
+        f'git commit -m "revert: paso {step_id}"', ".", timeout=60
+    )
     if codigo != 0 and "nothing to commit" not in (stderr or "").lower():
-        error(f"No se pudo cerrar el revert del paso {step_id}: "
-              f"{(stderr or '').strip()}")
+        error(f"No se pudo cerrar el revert del paso {step_id}: {(stderr or '').strip()}")
         return False
     _db_registrar_paso(f"revert: paso {step_id}", None, tipo="revert")
-    _emitir(sys.stdout, _pintar(
-        f"↩️ Revertido paso {step_id}: {mensaje}", _AMARILLO))
+    _emitir(sys.stdout, _pintar(f"↩️ Revertido paso {step_id}: {mensaje}", _AMARILLO))
     return True
 
 
-def _ejecutar_revert(step: Optional[str] = None) -> int:
+def _ejecutar_revert(step: str | None = None) -> int:
     """Comando ``snapcontext revert <step>`` (v6.20.0).
 
     ``step`` puede ser un id numérico; si se omite, se revierte el último
@@ -5732,7 +6112,8 @@ def _ejecutar_revert(step: Optional[str] = None) -> int:
         if step is None or not str(step).strip():
             filas = _db_query(
                 "SELECT id FROM pasos WHERE tipo != 'revert' "
-                "AND commit_hash IS NOT NULL ORDER BY id DESC LIMIT 1")
+                "AND commit_hash IS NOT NULL ORDER BY id DESC LIMIT 1"
+            )
             if not filas:
                 error("No hay pasos con commit para revertir.")
                 return 1
@@ -5748,21 +6129,23 @@ def _ejecutar_revert(step: Optional[str] = None) -> int:
         return 1
     return 0 if _revertir_paso(step_id) else 1
 
+
 # v6.22.0: gestor global de hooks (lifecycle events). Import perezoso y
 # tolerante: sin `hooks.py` disponible, los call-sites no rompen el flujo.
 try:
-    import hooks as _hooks                      # type: ignore[import]
+    import hooks as _hooks  # type: ignore[import]
+
     # Fase 7: wrappers del gestor global extraídos a hooks.py. Se re-importan
     # para preservar la API interna (``sc._hooks_inicializar``/``sc._hooks_ejecutar``).
     _hooks_inicializar = _hooks._hooks_inicializar
     _hooks_ejecutar = _hooks._hooks_ejecutar
-except Exception:                               # pragma: no cover
-    _hooks = None                               # type: ignore[assignment]
-    _hooks_inicializar = lambda: None           # type: ignore[assignment]
-    _hooks_ejecutar = lambda evento, contexto=None: (False,
-        (contexto if isinstance(contexto, dict) else {}))
-
-
+except Exception:  # pragma: no cover
+    _hooks = None  # type: ignore[assignment]
+    _hooks_inicializar = lambda: None  # type: ignore[assignment]
+    _hooks_ejecutar = lambda evento, contexto=None: (
+        False,
+        (contexto if isinstance(contexto, dict) else {}),
+    )
 
 
 def _graph_rag_activo(args: argparse.Namespace) -> bool:
@@ -5774,9 +6157,10 @@ def _graph_rag_activo(args: argparse.Namespace) -> bool:
     if getattr(args, "graph_rag", False):
         return True
     try:
-        import graph_rag as gr                   # noqa: E402
+        import graph_rag as gr
+
         return gr.graph_rag_activo(None)
-    except Exception:                            # noqa: BLE001
+    except Exception:
         return False
 
     return False
@@ -5801,7 +6185,7 @@ def _graph_lsp_activo(args: argparse.Namespace) -> bool:
 _graph_rag_lsp_activo = _graph_lsp_activo
 
 
-def _configurar_graph_lsp(args: argparse.Namespace) -> Dict[str, Any]:
+def _configurar_graph_lsp(args: argparse.Namespace) -> dict[str, Any]:
     """v6.33.0: Devuelve la configuracion efectiva de Graph RAG + LSP."""
     return {
         "activo": _graph_lsp_activo(args),
@@ -5811,10 +6195,8 @@ def _configurar_graph_lsp(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def _obtener_contexto_graph_lsp(
-        archivo: str,
-        linea: Optional[int] = None,
-        grafo: Optional[Dict] = None,
-        config: Optional[Dict] = None) -> List[Dict[str, Any]]:
+    archivo: str, linea: int | None = None, grafo: dict | None = None, config: dict | None = None
+) -> list[dict[str, Any]]:
     """v6.33.0: Obtiene simbolos precisos via Graph RAG + LSP.
 
     Funcion de conveniencia que delega en ``graph_lsp_integrator``.
@@ -5822,19 +6204,21 @@ def _obtener_contexto_graph_lsp(
     """
     try:
         import graph_lsp_integrator as gli
+
         return gli.obtener_contexto_preciso(
-            archivo, linea, "funcion", grafo,
-            config=config, proveedor_lsp=None)
+            archivo, linea, "funcion", grafo, config=config, proveedor_lsp=None
+        )
     except Exception:
         return []
 
 
 def obtener_simbolos_lsp(
-        archivo: str,
-        linea: Optional[int] = None,
-        tipo: str = "funcion",
-        grafo: Optional[Dict] = None,
-        config: Optional[Dict] = None) -> List[Dict[str, Any]]:
+    archivo: str,
+    linea: int | None = None,
+    tipo: str = "funcion",
+    grafo: dict | None = None,
+    config: dict | None = None,
+) -> list[dict[str, Any]]:
     """v6.33.0: Obtiene símbolos LSP de un archivo (público).
 
     Función de conveniencia que delega en ``graph_lsp_integrator``.
@@ -5842,14 +6226,15 @@ def obtener_simbolos_lsp(
     """
     try:
         import graph_lsp_integrator as gli
+
         return gli.obtener_contexto_preciso(
-            archivo, linea, tipo, grafo,
-            config=config, proveedor_lsp=None)
+            archivo, linea, tipo, grafo, config=config, proveedor_lsp=None
+        )
     except Exception:
         return []
 
 
-def _multi_agent_activo(flag: Optional[bool] = None) -> bool:
+def _multi_agent_activo(flag: bool | None = None) -> bool:
     """v6.0.0: True si el modo multi-agente está activado.
 
     Prioridad: flag ``--multi-agent`` > env ``SNAPCONTEXT_MULTI_AGENT=1``.
@@ -5868,12 +6253,14 @@ def _ejecutar_multi_agent(args: argparse.Namespace) -> int:
     """
     consulta = getattr(args, "consulta", None)
     if not consulta:
-        error("El modo --multi-agent necesita una consulta. Uso:\n"
-              '  snapcontext --multi-agent "añadir un endpoint de login"')
+        error(
+            "El modo --multi-agent necesita una consulta. Uso:\n"
+            '  snapcontext --multi-agent "añadir un endpoint de login"'
+        )
         return 1
     try:
-        import multi_agent as ma                       # noqa: E402
-    except Exception as exc:                           # noqa: BLE001
+        import multi_agent as ma
+    except Exception as exc:
         error(f"No se pudo cargar el módulo multi_agent: {exc}")
         return 1
     directorio = getattr(args, "directorio", ".") or "."
@@ -5897,8 +6284,7 @@ def _ejecutar_multi_agent(args: argparse.Namespace) -> int:
     if resultado.get("ok"):
         exito("🌁 Multi-agente: la tarea se completó.")
         return 0
-    error("Multi-agente: " + str(resultado.get("error")
-          or "la tarea no se completó."))
+    error("Multi-agente: " + str(resultado.get("error") or "la tarea no se completó."))
     return 1
 
 
@@ -5906,8 +6292,8 @@ def _ejecutar_multi_agent(args: argparse.Namespace) -> int:
 def _ejecutar_listar_sub_agentes() -> int:
     """``snapcontext --sub-agente-listar``: lista los sub-agentes registrados."""
     try:
-        import sub_agent as sa                              # noqa: E402
-    except Exception as exc:                                 # noqa: BLE001
+        import sub_agent as sa
+    except Exception as exc:
         error(f"No se pudo cargar el módulo de sub-agentes: {exc}")
         return 1
     nombres = sa.REGISTRO_SUB_AGENTES.listar()
@@ -5917,8 +6303,7 @@ def _ejecutar_listar_sub_agentes() -> int:
         desc = str(cfg.get("descripcion") or "")
         herramientas = ", ".join(cfg.get("herramientas") or [])
         info(f"  - {n}: {desc}")
-        info(f"      herramientas: {herramientas} | "
-             f"max_iter: {cfg.get('max_iter')}")
+        info(f"      herramientas: {herramientas} | max_iter: {cfg.get('max_iter')}")
     return 0
 
 
@@ -5931,9 +6316,9 @@ def _registrar_sub_agente_cli(nombre: str, descripcion: str) -> int:
     herramienta ReAct ``invocar_sub_agente``.
     """
     try:
-        import sub_agent as sa                              # noqa: E402
-        from sub_agent_prompts import PROMPTS as _P         # noqa: E402
-    except Exception as exc:                                 # noqa: BLE001
+        import sub_agent as sa
+        from sub_agent_prompts import PROMPTS as _P
+    except Exception as exc:
         error(f"No se pudo cargar el módulo de sub-agentes: {exc}")
         return 1
     nombre = str(nombre or "").strip()
@@ -5944,9 +6329,11 @@ def _registrar_sub_agente_cli(nombre: str, descripcion: str) -> int:
         "descripcion": str(descripcion or ""),
         # Si el nombre coincide con un prompt canónico se usa ese; si no, un
         # prompt genérico con herramientas de solo lectura (mínimo privilegio).
-        "prompt": _P.get(nombre.lower(),
-                         f"Eres {nombre}, un sub-agente especializado. "
-                         "Lee e investiga y devuelve un resumen conciso."),
+        "prompt": _P.get(
+            nombre.lower(),
+            f"Eres {nombre}, un sub-agente especializado. "
+            "Lee e investiga y devuelve un resumen conciso.",
+        ),
         "herramientas": ["leer_archivo", "buscar_codigo", "finalizar"],
         "max_iter": 8,
     }
@@ -5965,13 +6352,15 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
     decida finalizar, se alcance el tope de iteraciones o el usuario aborte.
     """
     if not getattr(args, "consulta", None):
-        error("El modo ReAct necesita una consulta. Uso:\n"
-              '  snapcontext "añadir login con Google"\n'
-              '  snapcontext --react "añadir login con Google"   # equivalente')
+        error(
+            "El modo ReAct necesita una consulta. Uso:\n"
+            '  snapcontext "añadir login con Google"\n'
+            '  snapcontext --react "añadir login con Google"   # equivalente'
+        )
         return 1
     try:
-        import react_agent as ra                     # noqa: E402
-    except Exception as exc:                         # pragma: no cover
+        import react_agent as ra
+    except Exception as exc:  # pragma: no cover
         error(f"No se pudo importar react_agent: {exc}")
         return 1
     agente = ra.ReactAgent(
@@ -5983,8 +6372,7 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
         sesion_docker=bool(getattr(args, "sandbox_session", False)),
         web_interactive=bool(getattr(args, "web_interactive", False)),
         browser=bool(getattr(args, "browser", False)),
-        prompt_caching=getattr(args, "prompt_caching",
-                               PROMPT_CACHING_DEFECTO),
+        prompt_caching=getattr(args, "prompt_caching", PROMPT_CACHING_DEFECTO),
         lsp=bool(getattr(args, "lsp", False)),
         # v6.20.0: commits automáticos por acción (git profundo).
         git_commit=bool(getattr(args, "git_commit", True)),
@@ -5995,10 +6383,10 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
     if bool(getattr(args, "browser", False)):
         try:
             import mcp_tools_browser as btool
-            btool.browser_activar(
-                headless=not bool(getattr(args, "browser_headed", False)))
+
+            btool.browser_activar(headless=not bool(getattr(args, "browser_headed", False)))
             info("🆐 Modo navegador activado (--browser).")
-        except Exception as exc:                         # noqa: BLE001
+        except Exception as exc:
             aviso(f"⚠️ No se pudo activar el modo navegador: {exc}")
     # v6.4.0: la sesión Docker se crea de forma perezosa y se destruye con
     # total garantía al terminar el bucle ReAct (éxito, aborto o excepción).
@@ -6009,8 +6397,9 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
         # v6.10.0: liberar el navegador al terminar (éxito, aborto o error).
         try:
             import mcp_tools_browser as _btool
+
             _btool.browser_cerrar()
-        except Exception:                                # noqa: BLE001
+        except Exception:
             pass
     return 0 if resultado.get("ok") else 1
 
@@ -6025,30 +6414,55 @@ def _ejecutar_react(args: argparse.Namespace) -> int:
 # Flags que indican que el usuario ya eligió un pipeline concreto. Ante
 # cualquiera de ellos se respeta su elección (compatibilidad total) y NO se
 # activa la detección automática ni se sobrescriben defaults.
-_FLAGS_MODO_EXPLICITO: Tuple[str, ...] = (
-    "plan", "react", "auto",
-    "multi_agent", "sub_agents",
-    "test_loop", "server_loop", "manual_loop",
-    "vista_previa", "experto",
-    "asesor", "asesor_auto", "asesor_profundo",
+_FLAGS_MODO_EXPLICITO: tuple[str, ...] = (
+    "plan",
+    "react",
+    "auto",
+    "multi_agent",
+    "sub_agents",
+    "test_loop",
+    "server_loop",
+    "manual_loop",
+    "vista_previa",
+    "experto",
+    "asesor",
+    "asesor_auto",
+    "asesor_profundo",
     "iniciar_proyecto",
 )
 
 # Raíces verbales para la detección heurística de intención (cubren la
 # conjugación: "arreglar/arregla/arreglo", "añadir/añade", ...).
-_PALABRAS_EDITAR: Tuple[str, ...] = (
-    "arregl", "corrig", "correg", "refactoriz",
-    "añad", "anad", "cambi", "elimin",
+_PALABRAS_EDITAR: tuple[str, ...] = (
+    "arregl",
+    "corrig",
+    "correg",
+    "refactoriz",
+    "añad",
+    "anad",
+    "cambi",
+    "elimin",
 )
-_PALABRAS_LEER: Tuple[str, ...] = (
-    "analiz", "revis", "leer", "audit", "explor",
+_PALABRAS_LEER: tuple[str, ...] = (
+    "analiz",
+    "revis",
+    "leer",
+    "audit",
+    "explor",
 )
-_PALABRAS_MULTIPASO: Tuple[str, ...] = (
-    "luego", "después", "despues", "entonces",
-    "primero", "finalmente", "pasos", "posteriormente",
+_PALABRAS_MULTIPASO: tuple[str, ...] = (
+    "luego",
+    "después",
+    "despues",
+    "entonces",
+    "primero",
+    "finalmente",
+    "pasos",
+    "posteriormente",
 )
-def _detectar_modo_operacion(consulta: Optional[str],
-                             args: argparse.Namespace) -> dict:
+
+
+def _detectar_modo_operacion(consulta: str | None, args: argparse.Namespace) -> dict:
     """Detecta la complejidad de la tarea y elige el modo (v6.23.0).
 
     Devuelve un dict ``{"modo", "razon", "flags_extra"}``:
@@ -6072,47 +6486,56 @@ def _detectar_modo_operacion(consulta: Optional[str],
     consulta = str(consulta).strip()
     for flag in _FLAGS_MODO_EXPLICITO:
         if bool(getattr(args, flag, False)):
-            return {"modo": None,
-                    "razon": ("Se detectaron flags explícitos; se respeta la "
-                              "elección del usuario."),
-                    "flags_extra": {}}
+            return {
+                "modo": None,
+                "razon": ("Se detectaron flags explícitos; se respeta la elección del usuario."),
+                "flags_extra": {},
+            }
     if not consulta:
-        return {"modo": None,
-                "razon": "Sin consulta; no se aplica detección.",
-                "flags_extra": {}}
+        return {"modo": None, "razon": "Sin consulta; no se aplica detección.", "flags_extra": {}}
     baja = consulta.lower()
     num_palabras = len(consulta.split())
 
     # 1) Edición de archivos → planificador.
     if any(p in baja for p in _PALABRAS_EDITAR):
-        return {"modo": "plan",
-                "razon": "La consulta pide modificar/editar el código.",
-                "flags_extra": {"plan": True, "auto": True}}
+        return {
+            "modo": "plan",
+            "razon": "La consulta pide modificar/editar el código.",
+            "flags_extra": {"plan": True, "auto": True},
+        }
 
     # 2) Lectura / análisis → ReAct con herramientas de lectura.
     if any(p in baja for p in _PALABRAS_LEER):
-        return {"modo": "react",
-                "razon": "La consulta pide analizar/revisar (modo lectura).",
-                "flags_extra": {}}
+        return {
+            "modo": "react",
+            "razon": "La consulta pide analizar/revisar (modo lectura).",
+            "flags_extra": {},
+        }
 
     # 3) Larga (>50 palabras) o con varios pasos → paralelismo.
     if num_palabras > 50 or any(p in baja for p in _PALABRAS_MULTIPASO):
-        return {"modo": "react_paralelo",
-                "razon": ("Tarea extensa o con varios pasos; se usará "
-                          "paralelismo (--paralelo 3)."),
-                "flags_extra": {"paralelo": 3}}
+        return {
+            "modo": "react_paralelo",
+            "razon": ("Tarea extensa o con varios pasos; se usará paralelismo (--paralelo 3)."),
+            "flags_extra": {"paralelo": 3},
+        }
 
     # 4) Corta (<20 palabras) y sin edición → chat simple (ReAct).
     if num_palabras < 20:
-        return {"modo": "chat",
-                "razon": "Consulta corta; conversación/ReAct simple.",
-                "flags_extra": {}}
+        return {
+            "modo": "chat",
+            "razon": "Consulta corta; conversación/ReAct simple.",
+            "flags_extra": {},
+        }
 
-    return {"modo": "react",
-            "razon": "Consulta de complejidad media; ReAct estándar.",
-            "flags_extra": {}}
-def _configurar_comportamiento_por_defecto(
-        args: argparse.Namespace) -> argparse.Namespace:
+    return {
+        "modo": "react",
+        "razon": "Consulta de complejidad media; ReAct estándar.",
+        "flags_extra": {},
+    }
+
+
+def _configurar_comportamiento_por_defecto(args: argparse.Namespace) -> argparse.Namespace:
     """Aplica defaults inteligentes sobre ``args`` (v6.23.0).
 
     - ``--local``                 si no hay API key configurada.
@@ -6165,8 +6588,6 @@ def _configurar_comportamiento_por_defecto(
     return args
 
 
-
-
 def _aplicar_modo_inteligente(args: argparse.Namespace) -> argparse.Namespace:
     """v6.23.0: punto de entrada del modo inteligente (capa de "entrada").
 
@@ -6174,8 +6595,9 @@ def _aplicar_modo_inteligente(args: argparse.Namespace) -> argparse.Namespace:
     no eligió un pipeline explícito (flag de ``_FLAGS_MODO_EXPLICITO``).
     Aplica los defaults inteligentes y muestra los mensajes descriptivos.
     """
-    modo_env = (os.environ.get("SNAPCONTEXT_MODO_DEFAULT", "inteligente")
-                or "inteligente").strip().lower()
+    modo_env = (
+        (os.environ.get("SNAPCONTEXT_MODO_DEFAULT", "inteligente") or "inteligente").strip().lower()
+    )
     if modo_env == "manual":
         return args
     # Flags de pipeline explícitos → compatibilidad total (sin cambios).
@@ -6186,11 +6608,15 @@ def _aplicar_modo_inteligente(args: argparse.Namespace) -> argparse.Namespace:
         return args
     args = _configurar_comportamiento_por_defecto(args)
     if getattr(args, "_modo_inteligente", False):
-        info(f"🧠 Modo inteligente activado (detectado: "
-             f"{args._modo_detectado}). Escribe /ayuda para ver comandos.")
+        info(
+            f"🧠 Modo inteligente activado (detectado: "
+            f"{args._modo_detectado}). Escribe /ayuda para ver comandos."
+        )
         if getattr(args, "_modo_razon", ""):
             info(f"💭 {args._modo_razon}")
     return args
+
+
 def _ejecutar_modo_tarea(args: argparse.Namespace) -> int:
     """Resuelve el modo de ejecución de la tarea (v5.2.0).
 
@@ -6202,7 +6628,7 @@ def _ejecutar_modo_tarea(args: argparse.Namespace) -> int:
       entrada y muestra la ayuda amigable si falta la consulta.
     """
     if bool(getattr(args, "plan", False)):
-        return _ejecutar_planificador(args)          # legacy explícito
+        return _ejecutar_planificador(args)  # legacy explícito
     # v6.0.0: multi-agente (--multi-agent o SNAPCONTEXT_MULTI_AGENT=1) gana
     # sobre ReAct, que sigue siendo el modo por defecto para el resto.
     if _multi_agent_activo(getattr(args, "multi_agent", None) or None):
@@ -6213,8 +6639,9 @@ def _ejecutar_modo_tarea(args: argparse.Namespace) -> int:
     return flujo_principal(args)
 
 
-def _aprender_regla_en_fondo(consulta: str, resultados: list,
-                             raiz: str = ".") -> Optional[threading.Thread]:
+def _aprender_regla_en_fondo(
+    consulta: str, resultados: list, raiz: str = "."
+) -> threading.Thread | None:
     """Extrae (en un hilo demonio) una regla abstracta de un plan exitoso.
 
     v6.6.0: usa ``skill_abstraction.extraer_regla`` (LLM con fallback
@@ -6233,23 +6660,24 @@ def _aprender_regla_en_fondo(consulta: str, resultados: list,
     def _trabajo():
         try:
             import skill_abstraction as _sa
+
             info("🧠 Extrayendo regla abstracta del plan exitoso...")
             plan = {"tarea": consulta, "pasos": resultados}
             regla = _sa.extraer_regla(plan, {"directorio": raiz})
             regla = _sa.guardar_regla(regla, directorio=raiz)
             if regla:
-                info("🗜 Nueva regla aprendida: "
-                     f"{regla.get('patron', '')} "
-                     f"(confianza: {regla.get('confianza', 1.0):.2f})")
-                if float(regla.get("confianza", 0)) > \
-                        _sa.UMBRAL_CONFIANZA_INYECCION:
+                info(
+                    "🗜 Nueva regla aprendida: "
+                    f"{regla.get('patron', '')} "
+                    f"(confianza: {regla.get('confianza', 1.0):.2f})"
+                )
+                if float(regla.get("confianza", 0)) > _sa.UMBRAL_CONFIANZA_INYECCION:
                     if _sa.inyectar_en_claudemd(regla, raiz):
                         info("🗜 Regla inyectada en CLAUDE.md")
-        except Exception as exc:         # noqa: BLE001 — nunca romper
+        except Exception as exc:
             depurar(f"[skills-dinamicos] extracción falló: {exc}")
 
-    hilo = threading.Thread(target=_trabajo, daemon=True,
-                            name="snap-skills-dinamicos")
+    hilo = threading.Thread(target=_trabajo, daemon=True, name="snap-skills-dinamicos")
     hilo.start()
     return hilo
 
@@ -6264,11 +6692,14 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
     """
     global DEPURAR
     import presentacion as _pres
+
     DEPURAR = _pres.DEPURAR = getattr(args, "depurar", False)
     consulta = getattr(args, "consulta", None)
     if not consulta:
-        error("El modo --plan necesita una consulta. Uso:\n"
-              '  snapcontext --plan "añadir login con Google"')
+        error(
+            "El modo --plan necesita una consulta. Uso:\n"
+            '  snapcontext --plan "añadir login con Google"'
+        )
         return 1
 
     directorio = getattr(args, "directorio", ".") or "."
@@ -6280,12 +6711,12 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
         return 1
 
     # 1) Generación del plan (con un reintento si viene vacío/mal formado).
-    pasos: List[dict] = []
+    pasos: list[dict] = []
     for _intento in range(2):
         try:
-            pasos = _generar_plan(consulta,
-                                  getattr(args, "provider", None),
-                                  getattr(args, "modelo", None))
+            pasos = _generar_plan(
+                consulta, getattr(args, "provider", None), getattr(args, "modelo", None)
+            )
         except RuntimeError as exc:
             error(str(exc))
             return 1
@@ -6301,10 +6732,12 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
     auto = bool(getattr(args, "auto", False))
     MAX_REINTENTOS_AUTO = 3
     if auto:
-        exito(f"Modo autónomo (--auto): {len(pasos)} paso(s) se ejecutarán "
-              f"sin confirmaciones, con hasta {MAX_REINTENTOS_AUTO} "
-              f"reintentos por paso. Permisos guardados en permisos.json "
-              f"siguen aplicándose.")
+        exito(
+            f"Modo autónomo (--auto): {len(pasos)} paso(s) se ejecutarán "
+            f"sin confirmaciones, con hasta {MAX_REINTENTOS_AUTO} "
+            f"reintentos por paso. Permisos guardados en permisos.json "
+            f"siguen aplicándose."
+        )
         # v6.23.0: en modo inteligente se muestra un resumen condensado del
         # plan (📋) en lugar de la lista completa, antes de ejecutarlo.
         if getattr(args, "_modo_inteligente", False):
@@ -6315,8 +6748,7 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
         for numero, paso in enumerate(pasos, start=1):
             extra = paso.get("comando") or ", ".join(paso.get("archivos", []))
             sufijo = f" → {extra}" if extra else ""
-            _emitir(sys.stdout, f"  {numero}. [{paso['accion']}] "
-                                f"{paso['descripcion']}{sufijo}")
+            _emitir(sys.stdout, f"  {numero}. [{paso['accion']}] {paso['descripcion']}{sufijo}")
         if not _preguntar_si("\n¿Quieres ejecutar estos pasos? (s/n): "):
             aviso("Plan cancelado por el usuario.")
             _destruir_sesion_si_aplica()
@@ -6324,23 +6756,25 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
 
     # 3) Ejecución (v1.4.0): con --paralelo N (y --auto) se lanzan varios pasos
     # sin dependencias mutuas a la vez; en caso contrario, secuencial.
-    _contexto_plan_reiniciar()   # v2.3.0: contexto dinámico por plan
+    _contexto_plan_reiniciar()  # v2.3.0: contexto dinámico por plan
     # v6.22.0: hook `session_start` — inicio de sesión del planificador.
     try:
-        _hooks.ejecutar_hook("session_start", {
-            "modo": "planificador", "consulta": consulta,
-            "pasos": len(pasos), "directorio": raiz})
-    except Exception:                                # noqa: BLE001 — nunca romper
+        _hooks.ejecutar_hook(
+            "session_start",
+            {"modo": "planificador", "consulta": consulta, "pasos": len(pasos), "directorio": raiz},
+        )
+    except Exception:
         pass
     # v6.20.0: `--paralelo 0` = nº de núcleos de CPU (ParallelExecutor).
     _paralelo = getattr(args, "paralelo", 1)
     _paralelo = 1 if _paralelo is None else int(_paralelo)
     try:
-        from parallel_executor import resolver_workers  # noqa: E402
+        from parallel_executor import resolver_workers
+
         max_hilos = resolver_workers(_paralelo)
-    except Exception:                                    # noqa: BLE001
+    except Exception:
         max_hilos = max(1, _paralelo)
-    resultados: List[dict] = []
+    resultados: list[dict] = []
     abortar = False
     if auto and max_hilos > 1:
         exito(f"Modo --paralelo: hasta {max_hilos} paso(s) simultáneo(s).")
@@ -6348,7 +6782,7 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
     else:
         indice = 0
         abortar = False
-        estado_seq: dict = {}   # índice → "éxito"|"fallo"|"saltado"
+        estado_seq: dict = {}  # índice → "éxito"|"fallo"|"saltado"
         while indice < len(pasos) and not abortar:
             paso = pasos[indice]
             numero = indice + 1
@@ -6356,16 +6790,19 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
             # v1.4.0: un paso solo se ejecuta si sus dependencias tuvieron éxito.
             # 'dependencias' guarda números de paso (base 1); convertimos.
             deps_paso = [d - 1 for d in (paso.get("dependencias") or [])]
-            fallidas = [d + 1 for d in deps_paso
-                        if estado_seq.get(d) != "éxito"]
+            fallidas = [d + 1 for d in deps_paso if estado_seq.get(d) != "éxito"]
             if fallidas:
-                aviso(f"Paso {numero} saltado: dependencia(s) sin éxito "
-                      f"{fallidas}.")
+                aviso(f"Paso {numero} saltado: dependencia(s) sin éxito {fallidas}.")
                 resultados.append(
-                    {"paso": numero, "descripcion": paso["descripcion"],
-                     "accion": paso["accion"], "resultado": "saltado",
-                     "detalle": f"dependencia(s) sin éxito: {fallidas}",
-                     "intentos": 0})
+                    {
+                        "paso": numero,
+                        "descripcion": paso["descripcion"],
+                        "accion": paso["accion"],
+                        "resultado": "saltado",
+                        "detalle": f"dependencia(s) sin éxito: {fallidas}",
+                        "intentos": 0,
+                    }
+                )
                 estado_seq[indice] = "saltado"
                 indice += 1
                 continue
@@ -6373,36 +6810,43 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
             # v1.4.0: ejecución condicional del paso.
             condicion = paso.get("condicion")
             if condicion and not _evaluar_condicion(condicion, raiz):
-                aviso(f"Paso {numero} saltado: condición no cumplida "
-                      f"({condicion}).")
+                aviso(f"Paso {numero} saltado: condición no cumplida ({condicion}).")
                 resultados.append(
-                    {"paso": numero, "descripcion": paso["descripcion"],
-                     "accion": paso["accion"], "resultado": "saltado",
-                     "detalle": f"condición no cumplida: {condicion}",
-                     "intentos": 0})
+                    {
+                        "paso": numero,
+                        "descripcion": paso["descripcion"],
+                        "accion": paso["accion"],
+                        "resultado": "saltado",
+                        "detalle": f"condición no cumplida: {condicion}",
+                        "intentos": 0,
+                    }
+                )
                 estado_seq[indice] = "saltado"
                 indice += 1
                 continue
 
             _emitir(sys.stdout, "")
-            exito(f"Paso {numero}/{len(pasos)} [{paso['accion']}]: "
-                  f"{paso['descripcion']}")
+            exito(f"Paso {numero}/{len(pasos)} [{paso['accion']}]: {paso['descripcion']}")
             intentos = 0
             while True:
                 intentos += 1
                 try:
                     ok, detalle = _ejecutar_paso_plan(paso, args, raiz)
-                except Exception as exc:        # blindaje del bucle interactivo
+                except Exception as exc:  # blindaje del bucle interactivo
                     ok, detalle = False, f"excepción: {exc}"
                     error(f"El paso lanzó una excepción: {exc}")
                 if ok or not auto:
                     break
                 if intentos < MAX_REINTENTOS_AUTO:
-                    aviso(f"Paso {numero} falló (intento {intentos}/"
-                          f"{MAX_REINTENTOS_AUTO}); reintentando automáticamente…")
+                    aviso(
+                        f"Paso {numero} falló (intento {intentos}/"
+                        f"{MAX_REINTENTOS_AUTO}); reintentando automáticamente…"
+                    )
                 else:
-                    aviso(f"Paso {numero} agotó sus {MAX_REINTENTOS_AUTO} "
-                          f"intentos; se continúa con el siguiente paso.")
+                    aviso(
+                        f"Paso {numero} agotó sus {MAX_REINTENTOS_AUTO} "
+                        f"intentos; se continúa con el siguiente paso."
+                    )
                     break
 
             _registrar_resultado_plan(numero, ok, detalle)
@@ -6412,39 +6856,62 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
 
             if auto:
                 # Autónomo: cada paso se registra una única vez (último intento).
-                resultados.append({"paso": numero,
-                                   "descripcion": paso["descripcion"],
-                                   "accion": paso["accion"],
-                                   "resultado": "éxito" if ok else "fallo",
-                                   "detalle": detalle, "intentos": intentos})
+                resultados.append(
+                    {
+                        "paso": numero,
+                        "descripcion": paso["descripcion"],
+                        "accion": paso["accion"],
+                        "resultado": "éxito" if ok else "fallo",
+                        "detalle": detalle,
+                        "intentos": intentos,
+                    }
+                )
                 indice += 1
                 continue
 
             # Interactivo: menú post-paso y registro único al abandonar el paso.
             while True:
                 try:
-                    eleccion = input(_pintar(
-                        "[c]ontinuar · [r]eintentar · [s]altar · [x]abortar "
-                        "(c/r/s/x): ", _CYAN)).strip().lower()
+                    eleccion = (
+                        input(
+                            _pintar(
+                                "[c]ontinuar · [r]eintentar · [s]altar · [x]abortar (c/r/s/x): ",
+                                _CYAN,
+                            )
+                        )
+                        .strip()
+                        .lower()
+                    )
                 except EOFError:
                     eleccion = "c"
                 if eleccion in ("", "c", "continuar"):
                     resultados.append(
-                        {"paso": numero, "descripcion": paso["descripcion"],
-                         "accion": paso["accion"],
-                         "resultado": "éxito" if ok else "fallo",
-                         "detalle": detalle, "intentos": intentos})
+                        {
+                            "paso": numero,
+                            "descripcion": paso["descripcion"],
+                            "accion": paso["accion"],
+                            "resultado": "éxito" if ok else "fallo",
+                            "detalle": detalle,
+                            "intentos": intentos,
+                        }
+                    )
                     indice += 1
                     break
                 if eleccion in ("r", "reintentar"):
-                    break                        # mismo índice: repetir el paso
+                    break  # mismo índice: repetir el paso
                 if eleccion in ("s", "saltar"):
                     aviso(f"Paso {numero} saltado.")
                     estado_seq[indice] = "saltado"
                     resultados.append(
-                        {"paso": numero, "descripcion": paso["descripcion"],
-                         "accion": paso["accion"], "resultado": "fallo",
-                         "detalle": "saltado por el usuario", "intentos": intentos})
+                        {
+                            "paso": numero,
+                            "descripcion": paso["descripcion"],
+                            "accion": paso["accion"],
+                            "resultado": "fallo",
+                            "detalle": "saltado por el usuario",
+                            "intentos": intentos,
+                        }
+                    )
                     indice += 1
                     break
                 if eleccion in ("x", "abortar", "salir"):
@@ -6458,12 +6925,13 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
     exito("── Resumen del plan " + "─" * 30)
     for r in resultados:
         marca = "✔" if r["resultado"] == "éxito" else "✖"
-        reintentos = (f", {r['intentos']} intento(s)"
-                      if r.get("intentos", 1) > 1 else "")
-        _emitir(sys.stdout,
-                f"  {marca} Paso {r['paso']} [{r['accion']}] "
-                f"{r['descripcion']} ({r['resultado']}: {r['detalle']}"
-                f"{reintentos})")
+        reintentos = f", {r['intentos']} intento(s)" if r.get("intentos", 1) > 1 else ""
+        _emitir(
+            sys.stdout,
+            f"  {marca} Paso {r['paso']} [{r['accion']}] "
+            f"{r['descripcion']} ({r['resultado']}: {r['detalle']}"
+            f"{reintentos})",
+        )
     saltados = len(pasos) - len(resultados)
     if saltados > 0:
         aviso(f"{saltados} paso(s) sin ejecutar (saltados o abortados).")
@@ -6471,49 +6939,59 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
     exito(f"Resultado: {exitos}/{len(resultados)} paso(s) exitoso(s).")
 
     todo_ok = bool(resultados) and exitos == len(resultados) and saltados == 0
-    _guardar_historial({
-        "fecha": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "consulta": consulta,
-        "archivos": [],
-        "resultado": "éxito" if todo_ok else ("fallo" if exitos == 0 else "parcial"),
-        "duracion": round(len(resultados), 2),
-        "tipo": "plan",
-        "pasos": resultados,
-    })
+    _guardar_historial(
+        {
+            "fecha": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "consulta": consulta,
+            "archivos": [],
+            "resultado": "éxito" if todo_ok else ("fallo" if exitos == 0 else "parcial"),
+            "duracion": round(len(resultados), 2),
+            "tipo": "plan",
+            "pasos": resultados,
+        }
+    )
 
     # Aprendizaje continuo (v3.0.0): registrar la tarea y generar/reforzar
     # skills. Desactivable con --sin-aprendizaje. Nunca rompe el planificador.
     if not getattr(args, "sin_aprendizaje", False):
         try:
             _aprender_de_tarea(
-                consulta, todo_ok, resultados, raiz=str(raiz),
-                detalle=("plan: " + str(exitos) + "/"
-                         + str(len(resultados)) + " pasos"))
+                consulta,
+                todo_ok,
+                resultados,
+                raiz=str(raiz),
+                detalle=("plan: " + str(exitos) + "/" + str(len(resultados)) + " pasos"),
+            )
         except Exception as exc:
             aviso(f"[aprendizaje] No se pudo registrar la tarea ({exc})")
 
     # Skills dinámicos (v6.6.0): si el plan fue todo exitoso, extraer una
     # regla abstracta en segundo plano (nunca bloquea al usuario).
-    if todo_ok and SKILLS_DINAMICOS and not getattr(
-            args, "sin_aprendizaje", False):
+    if todo_ok and SKILLS_DINAMICOS and not getattr(args, "sin_aprendizaje", False):
         _aprender_regla_en_fondo(consulta, resultados, str(raiz))
 
     # Memoria de proyecto (v0.15.0): tras un plan exitoso se propone (con
     # confirmación) actualizar CLAUDE.md con lo aprendido.
     if todo_ok and MEMORIA_PROYECTO:
         resumen = "; ".join(
-            f"{r['descripcion']} [{r['accion']}] ({r['resultado']})"
-            for r in resultados)
+            f"{r['descripcion']} [{r['accion']}] ({r['resultado']})" for r in resultados
+        )
         _actualizar_claude_md_automatico(resumen, raiz)
     # v6.4.0: al terminar el plan (éxito, aborto o error) se destruye la sesión
     # Docker persistente para no dejar contenedores huérfanos.
     # v6.22.0: hook `session_end` — cierre de sesión del planificador.
     try:
-        _hooks.ejecutar_hook("session_end", {
-            "modo": "planificador", "consulta": consulta,
-            "resultado": "éxito" if todo_ok else ("abortado" if abortar else "fallo"),
-            "exitos": exitos, "total": len(resultados)})
-    except Exception:                                # noqa: BLE001 — nunca romper
+        _hooks.ejecutar_hook(
+            "session_end",
+            {
+                "modo": "planificador",
+                "consulta": consulta,
+                "resultado": "éxito" if todo_ok else ("abortado" if abortar else "fallo"),
+                "exitos": exitos,
+                "total": len(resultados),
+            },
+        )
+    except Exception:
         pass
     _destruir_sesion_si_aplica()
     return 0 if todo_ok or abortar else 1
@@ -6527,12 +7005,12 @@ def _ejecutar_planificador(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # Sustituye/complementa el historial JSON con una base de datos robusta en
 # ~/.snapcontext/memoria.db. sqlite3 forma parte de la stdlib: sin dependencias.
-import sqlite3
 import datetime
+import sqlite3
 
 DB_PATH = CONFIG_DIR / "memoria.db"
-_DB_CONEXION = None                    # conexión singleton (check_same_thread=False)
-_CANDADO_DB = threading.RLock()        # reentrante: _db_insert → _db → _db_init
+_DB_CONEXION = None  # conexión singleton (check_same_thread=False)
+_CANDADO_DB = threading.RLock()  # reentrante: _db_insert → _db → _db_init
 
 
 def _db_init() -> str:
@@ -6549,8 +7027,7 @@ def _db_init() -> str:
     with _CANDADO_DB:
         global _DB_CONEXION
         if _DB_CONEXION is None:
-            _DB_CONEXION = sqlite3.connect(
-                str(ruta), check_same_thread=False)
+            _DB_CONEXION = sqlite3.connect(str(ruta), check_same_thread=False)
             _DB_CONEXION.row_factory = sqlite3.Row
             _DB_CONEXION.execute("PRAGMA journal_mode=WAL")
         _DB_CONEXION.executescript("""
@@ -6634,9 +7111,9 @@ def _db_migrar_tareas() -> None:
         "chat_id TEXT, "
         "canal TEXT, "
         "creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
-        "actualizado TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-    _db_ejecutar(
-        "CREATE INDEX IF NOT EXISTS idx_tareas_estado ON tareas(estado)")
+        "actualizado TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+    )
+    _db_ejecutar("CREATE INDEX IF NOT EXISTS idx_tareas_estado ON tareas(estado)")
 
 
 def _db_migrar_reglas() -> None:
@@ -6654,7 +7131,8 @@ def _db_migrar_reglas() -> None:
         "dependencias TEXT, "
         "confianza REAL DEFAULT 1.0, "
         "usos INTEGER DEFAULT 0, "
-        "creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        "creado TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+    )
 
 
 def _db_migrar_curador() -> None:
@@ -6674,12 +7152,10 @@ def _db_migrar_curador() -> None:
         "version": "INTEGER DEFAULT 1",
         "activo": "INTEGER DEFAULT 1",
     }
-    existen = {fila["name"] for fila in
-               _db_query("PRAGMA table_info(skills)")}
+    existen = {fila["name"] for fila in _db_query("PRAGMA table_info(skills)")}
     for columna, definicion in _COLUMNAS_NUEVAS.items():
         if columna not in existen:
-            _db_ejecutar(
-                f"ALTER TABLE skills ADD COLUMN {columna} {definicion}")
+            _db_ejecutar(f"ALTER TABLE skills ADD COLUMN {columna} {definicion}")
     _db_ejecutar(
         "CREATE TABLE IF NOT EXISTS historial_skills ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -6687,7 +7163,8 @@ def _db_migrar_curador() -> None:
         "version INTEGER DEFAULT 1, "
         "prompt TEXT DEFAULT '', "
         "motivo TEXT DEFAULT 'refactorizado', "
-        "fecha TEXT NOT NULL)")
+        "fecha TEXT NOT NULL)"
+    )
 
 
 def _db():
@@ -6709,7 +7186,7 @@ def _db_cerrar() -> None:
             _DB_CONEXION = None
 
 
-def _db_query(sql: str, params: tuple = ()) -> List[dict]:
+def _db_query(sql: str, params: tuple = ()) -> list[dict]:
     """Ejecuta un SELECT y devuelve las filas como lista de diccionarios."""
     filas = _db().execute(sql, params).fetchall()
     return [dict(f) for f in filas]
@@ -6733,8 +7210,7 @@ def _db_ejecutar(sql: str, params: tuple = ()) -> int:
 
 def _kv_obtener(clave: str, defecto: str = "") -> str:
     """Lee un valor del contexto persistente (tabla contexto_kv)."""
-    filas = _db_query("SELECT valor FROM contexto_kv WHERE clave = ?",
-                      (clave,))
+    filas = _db_query("SELECT valor FROM contexto_kv WHERE clave = ?", (clave,))
     return filas[0]["valor"] if filas else defecto
 
 
@@ -6743,7 +7219,8 @@ def _kv_fijar(clave: str, valor: str) -> None:
     _db_ejecutar(
         "INSERT INTO contexto_kv (clave, valor) VALUES (?, ?) "
         "ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor",
-        (clave, valor))
+        (clave, valor),
+    )
 
 
 # ─── Skills: procedimientos reutilizables ──────────────────────────────────
@@ -6759,17 +7236,20 @@ def _skill_normalizar_nombre(consulta: str, max_len: int = 60) -> str:
     return (texto[:max_len].rstrip("-")) or "skill-sin-nombre"
 
 
-def _skill_guardar(nombre: str, consulta: str, pasos: List[dict],
-                   contexto: Optional[dict] = None,
-                   descripcion: str = "") -> int:
+def _skill_guardar(
+    nombre: str,
+    consulta: str,
+    pasos: list[dict],
+    contexto: dict | None = None,
+    descripcion: str = "",
+) -> int:
     """Inserta (o actualiza) un skill y devuelve su id.
 
     Si ya existe un skill con el mismo nombre se actualiza en lugar de
     duplicarlo (idempotencia).
     """
     ahora = time.strftime("%Y-%m-%dT%H:%M:%S")
-    existente = _db_query(
-        "SELECT id FROM skills WHERE nombre = ?", (nombre,))
+    existente = _db_query("SELECT id FROM skills WHERE nombre = ?", (nombre,))
     pasos_json = json.dumps(pasos, ensure_ascii=False)
     contexto_json = json.dumps(contexto or {}, ensure_ascii=False)
     if existente:
@@ -6777,17 +7257,18 @@ def _skill_guardar(nombre: str, consulta: str, pasos: List[dict],
         _db_ejecutar(
             "UPDATE skills SET consulta = ?, descripcion = ?, "
             "pasos_json = ?, contexto_json = ? WHERE id = ?",
-            (consulta, descripcion, pasos_json, contexto_json, sid))
+            (consulta, descripcion, pasos_json, contexto_json, sid),
+        )
         return sid
     return _db_insert(
         "INSERT INTO skills (nombre, consulta, descripcion, pasos_json, "
         "contexto_json, creado, ultimo_exito, usos, fallos, confiabilidad, "
         "archivado) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0.5, 0)",
-        (nombre, consulta, descripcion, pasos_json, contexto_json,
-         ahora, ahora))
+        (nombre, consulta, descripcion, pasos_json, contexto_json, ahora, ahora),
+    )
 
 
-def _skill_obtener(skill_id: int) -> Optional[dict]:
+def _skill_obtener(skill_id: int) -> dict | None:
     """Devuelve un skill como diccionario (con pasos/contexto parseados)."""
     filas = _db_query("SELECT * FROM skills WHERE id = ?", (skill_id,))
     if not filas:
@@ -6806,22 +7287,43 @@ def _skill_obtener(skill_id: int) -> Optional[dict]:
 
 # ─── Skills del editor propio: patrones de edición (v3.3.0) ────────────────
 _EDITOR_PATRONES = (
-    ("renombrar", re.compile(
-        r"\b(renombrar|rename|cambia(r| el nombre)( de| la)? (la )?(función|"
-        r"funcion|variable|clase|método|metodo))\b", re.IGNORECASE)),
-    ("añadir_import", re.compile(
-        r"\b(a[nñ]ad(i|ir)|importar|import|agregar)\s+(el\s+|la\s+)?"
-        r"(import|módulo|modulo|librería|libreria|paquete)\b", re.IGNORECASE)),
-    ("refactorizar_clase", re.compile(
-        r"\b(refactoriza(r)?|reestructura|rdivide|extraer\s+clase|"
-        r"reorganiza(r)?)\b.*\b(clase|class|módulo|modulo)\b", re.IGNORECASE)),
-    ("añadir_funcion", re.compile(
-        r"\b(a[nñ]ade?|a[nñ]adir|crear?|agrega(r)?)\s+(una?\s+)?"
-        r"(función|funcion|función nueva|nueva funci|nuevo m[ée]todo|"
-        r"m[ée]todo)\b", re.IGNORECASE)),
-    ("corregir_error", re.compile(
-        r"\b(arregla|r|corrige|fix|bug|error|fallo|excepci[oó]n)\b",
-        re.IGNORECASE)),
+    (
+        "renombrar",
+        re.compile(
+            r"\b(renombrar|rename|cambia(r| el nombre)( de| la)? (la )?(función|"
+            r"funcion|variable|clase|método|metodo))\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "añadir_import",
+        re.compile(
+            r"\b(a[nñ]ad(i|ir)|importar|import|agregar)\s+(el\s+|la\s+)?"
+            r"(import|módulo|modulo|librería|libreria|paquete)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "refactorizar_clase",
+        re.compile(
+            r"\b(refactoriza(r)?|reestructura|rdivide|extraer\s+clase|"
+            r"reorganiza(r)?)\b.*\b(clase|class|módulo|modulo)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "añadir_funcion",
+        re.compile(
+            r"\b(a[nñ]ade?|a[nñ]adir|crear?|agrega(r)?)\s+(una?\s+)?"
+            r"(función|funcion|función nueva|nueva funci|nuevo m[ée]todo|"
+            r"m[ée]todo)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "corregir_error",
+        re.compile(r"\b(arregla|r|corrige|fix|bug|error|fallo|excepci[oó]n)\b", re.IGNORECASE),
+    ),
 )
 
 
@@ -6840,8 +7342,9 @@ def _editor_clasificar_tarea(tarea: str) -> str:
     return "general"
 
 
-def _skill_editor_guardar(tarea: str, archivo: str, patron: str,
-                          estrategia: str = "parche") -> Optional[int]:
+def _skill_editor_guardar(
+    tarea: str, archivo: str, patron: str, estrategia: str = "parche"
+) -> int | None:
     """Guarda/actualiza un skill con el patrón de edición exitoso (v3.3.0).
 
     Idempotente por nombre (`editor-<patrón>`): si ya existe se actualiza.
@@ -6851,21 +7354,22 @@ def _skill_editor_guardar(tarea: str, archivo: str, patron: str,
         return _skill_guardar(
             nombre=f"editor-{patron}",
             consulta=tarea or f"editar {archivo}",
-            pasos=[{
-                "descripcion": (f"Edición '{patron}' aplicada con éxito "
-                                f"sobre {archivo}"),
-                "accion": "editor_propio",
-                "estrategia": estrategia,
-            }],
-            contexto={"archivo": archivo, "patron": patron,
-                      "estrategia": estrategia},
-            descripcion=f"Patrón de edición del editor propio: {patron}")
-    except Exception as exc:                   # pragma: no cover
+            pasos=[
+                {
+                    "descripcion": (f"Edición '{patron}' aplicada con éxito sobre {archivo}"),
+                    "accion": "editor_propio",
+                    "estrategia": estrategia,
+                }
+            ],
+            contexto={"archivo": archivo, "patron": patron, "estrategia": estrategia},
+            descripcion=f"Patrón de edición del editor propio: {patron}",
+        )
+    except Exception as exc:  # pragma: no cover
         depurar(f"[skills-editor] No se pudo guardar el skill: {exc}")
         return None
 
 
-def _skill_editor_estrategia(tarea: str, umbral: float = 0.6) -> Optional[str]:
+def _skill_editor_estrategia(tarea: str, umbral: float = 0.6) -> str | None:
     """Busca un skill de edición previo y devuelve su estrategia (v3.3.0).
 
     Permite que el editor propio aplique directamente la estrategia que ya
@@ -6884,17 +7388,20 @@ def _skill_editor_estrategia(tarea: str, umbral: float = 0.6) -> Optional[str]:
     for paso in skill.get("pasos") or []:
         estrategia = paso.get("estrategia")
         if estrategia in ("parche", "sobrescribir", "ast"):
-            depurar(f"[skills-editor] Reutilizando estrategia "
-                    f"'{estrategia}' del skill #{skill.get('id')}.")
+            depurar(
+                f"[skills-editor] Reutilizando estrategia "
+                f"'{estrategia}' del skill #{skill.get('id')}."
+            )
             return estrategia
     return None
 
 
-def _skill_listar(incluir_archivados: bool = False,
-                  solo_confiables: bool = False) -> List[dict]:
+def _skill_listar(incluir_archivados: bool = False, solo_confiables: bool = False) -> list[dict]:
     """Lista skills ordenados por confiabilidad descendente."""
-    sql = ("SELECT id, nombre, consulta, descripcion, creado, ultimo_exito, "
-           "usos, fallos, confiabilidad, archivado FROM skills")
+    sql = (
+        "SELECT id, nombre, consulta, descripcion, creado, ultimo_exito, "
+        "usos, fallos, confiabilidad, archivado FROM skills"
+    )
     condiciones = []
     if not incluir_archivados:
         condiciones.append("archivado = 0")
@@ -6906,8 +7413,7 @@ def _skill_listar(incluir_archivados: bool = False,
     return _db_query(sql)
 
 
-def _skill_registrar_exito(skill_id: int, tokens: int = 0,
-                           tiempo_ms: int = 0) -> float:
+def _skill_registrar_exito(skill_id: int, tokens: int = 0, tiempo_ms: int = 0) -> float:
     """Refuerza un skill tras un uso exitoso. Devuelve la nueva confiabilidad.
 
     Con 3+ usos sin fallos el skill se considera 'confiable' (confiabilidad
@@ -6925,17 +7431,17 @@ def _skill_registrar_exito(skill_id: int, tokens: int = 0,
         "tiempo_promedio_ms = CASE WHEN usos = 0 THEN ? "
         "ELSE (tiempo_promedio_ms * usos + ?) / (usos + 1) END "
         "WHERE id = ?",
-        (ahora, ahora, tokens, tokens, tiempo_ms, tiempo_ms, skill_id))
+        (ahora, ahora, tokens, tokens, tiempo_ms, tiempo_ms, skill_id),
+    )
     _db_ejecutar(
-        "UPDATE skills SET confiabilidad = 1.0 "
-        "WHERE id = ? AND usos >= 3 AND fallos = 0", (skill_id,))
-    filas = _db_query("SELECT confiabilidad FROM skills WHERE id = ?",
-                      (skill_id,))
+        "UPDATE skills SET confiabilidad = 1.0 WHERE id = ? AND usos >= 3 AND fallos = 0",
+        (skill_id,),
+    )
+    filas = _db_query("SELECT confiabilidad FROM skills WHERE id = ?", (skill_id,))
     return float(filas[0]["confiabilidad"]) if filas else 0.5
 
 
-def _skill_registrar_fallo(skill_id: int, tokens: int = 0,
-                           tiempo_ms: int = 0) -> float:
+def _skill_registrar_fallo(skill_id: int, tokens: int = 0, tiempo_ms: int = 0) -> float:
     """Penaliza un skill tras un fallo. Devuelve la nueva confiabilidad.
 
     A partir de 2 fallos la confiabilidad cae por debajo de 0.4 y el skill
@@ -6952,9 +7458,9 @@ def _skill_registrar_fallo(skill_id: int, tokens: int = 0,
         "tiempo_promedio_ms = CASE WHEN usos = 0 THEN ? "
         "ELSE (tiempo_promedio_ms * usos + ?) / (usos + 1) END "
         "WHERE id = ?",
-        (ahora, tokens, tokens, tiempo_ms, tiempo_ms, skill_id))
-    filas = _db_query("SELECT confiabilidad FROM skills WHERE id = ?",
-                      (skill_id,))
+        (ahora, tokens, tokens, tiempo_ms, tiempo_ms, skill_id),
+    )
+    filas = _db_query("SELECT confiabilidad FROM skills WHERE id = ?", (skill_id,))
     return float(filas[0]["confiabilidad"]) if filas else 0.5
 
 
@@ -6968,6 +7474,7 @@ def _skill_similitud(texto_a: str, texto_b: str) -> float:
     if modelo is not None:
         try:
             import numpy as _np  # type: ignore
+
             vectores = modelo.encode([texto_a.lower(), texto_b.lower()])
             va = _np.asarray(vectores[0])
             vb = _np.asarray(vectores[1])
@@ -6987,12 +7494,11 @@ def _skill_similitud(texto_a: str, texto_b: str) -> float:
     # Contención: captura frases donde una contiene a la otra ("... ya",
     # "... ahora"), que Jaccard penaliza en exceso. Exige >= 2 palabras en
     # común para evitar falsos positivos con consultas muy cortas.
-    contencion = (interseccion / min(len(palabras_a), len(palabras_b))
-                  if interseccion >= 2 else 0.0)
+    contencion = interseccion / min(len(palabras_a), len(palabras_b)) if interseccion >= 2 else 0.0
     return min(1.0, max(jaccard, contencion))
 
 
-def _skill_buscar(consulta: str, umbral: float = 0.75) -> Optional[dict]:
+def _skill_buscar(consulta: str, umbral: float = 0.75) -> dict | None:
     """Busca el skill activo más similar a ``consulta``.
 
     Compara con similitud semántica (embeddings o Jaccard como fallback)
@@ -7000,8 +7506,7 @@ def _skill_buscar(consulta: str, umbral: float = 0.75) -> Optional[dict]:
     completo con su campo extra 'similitud', o None si ninguno supera el
     umbral.
     """
-    candidatos = _db_query(
-        "SELECT * FROM skills WHERE archivado = 0 ORDER BY usos DESC")
+    candidatos = _db_query("SELECT * FROM skills WHERE archivado = 0 ORDER BY usos DESC")
     mejor = None
     for fila in candidatos:
         sim = _skill_similitud(consulta, fila["consulta"])
@@ -7017,8 +7522,7 @@ def _skill_buscar(consulta: str, umbral: float = 0.75) -> Optional[dict]:
     return completo
 
 
-def _skill_generar(consulta: str, resultados: List[dict],
-                   raiz: str = ".") -> Optional[int]:
+def _skill_generar(consulta: str, resultados: list[dict], raiz: str = ".") -> int | None:
     """Genera un skill a partir de una tarea completada con éxito.
 
     Extrae los pasos clave de ``resultados`` (del planificador). Si hay
@@ -7028,8 +7532,7 @@ def _skill_generar(consulta: str, resultados: List[dict],
     """
     pasos_utiles = []
     for r in resultados or []:
-        paso = {"descripcion": r.get("descripcion") or "",
-                "accion": r.get("accion") or ""}
+        paso = {"descripcion": r.get("descripcion") or "", "accion": r.get("accion") or ""}
         if r.get("comando"):
             paso["comando"] = r["comando"]
         if r.get("archivos"):
@@ -7041,28 +7544,25 @@ def _skill_generar(consulta: str, resultados: List[dict],
 
     descripcion = ""
     try:
-        resumen = "; ".join(
-            f"{r.get('descripcion')} [{r.get('accion')}]"
-            for r in resultados or [])
+        resumen = "; ".join(f"{r.get('descripcion')} [{r.get('accion')}]" for r in resultados or [])
         respuesta = _enviar_al_proveedor(
             "Resume en UNA frase corta que hace este procedimiento de "
             "desarrollo (sin detalles de archivos): " + resumen,
-            args=None)
+            args=None,
+        )
         if respuesta and respuesta.strip():
             descripcion = respuesta.strip().splitlines()[0][:300]
     except Exception:
-        descripcion = ""          # modo local / sin red: seguimos sin resumen
+        descripcion = ""  # modo local / sin red: seguimos sin resumen
 
     nombre = _skill_normalizar_nombre(consulta)
-    contexto = {"raiz": str(raiz),
-                "fecha": time.strftime("%Y-%m-%dT%H:%M:%S")}
-    return _skill_guardar(nombre, consulta, pasos_utiles, contexto,
-                          descripcion)
+    contexto = {"raiz": str(raiz), "fecha": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    return _skill_guardar(nombre, consulta, pasos_utiles, contexto, descripcion)
 
 
-def _aprender_de_tarea(consulta: str, todo_ok: bool,
-                       resultados: List[dict], raiz: str = ".",
-                       detalle: str = "") -> Optional[int]:
+def _aprender_de_tarea(
+    consulta: str, todo_ok: bool, resultados: list[dict], raiz: str = ".", detalle: str = ""
+) -> int | None:
     """Gancho central de aprendizaje continuo (v3.0.0).
 
     Registra la tarea en historial_aprendizaje y:
@@ -7072,10 +7572,9 @@ def _aprender_de_tarea(consulta: str, todo_ok: bool,
     """
     _db_init()
     _db_insert(
-        "INSERT INTO historial_aprendizaje (consulta, exito, detalle, fecha) "
-        "VALUES (?, ?, ?, ?)",
-        (consulta, 1 if todo_ok else 0, detalle,
-         time.strftime("%Y-%m-%dT%H:%M:%S")))
+        "INSERT INTO historial_aprendizaje (consulta, exito, detalle, fecha) VALUES (?, ?, ?, ?)",
+        (consulta, 1 if todo_ok else 0, detalle, time.strftime("%Y-%m-%dT%H:%M:%S")),
+    )
     try:
         skill_previo = _skill_buscar(consulta, umbral=0.75)
     except Exception as exc:
@@ -7085,21 +7584,26 @@ def _aprender_de_tarea(consulta: str, todo_ok: bool,
     if todo_ok:
         if skill_previo is not None:
             conf = _skill_registrar_exito(int(skill_previo["id"]))
-            depurar(f"[aprendizaje] Skill #{skill_previo['id']} reforzado "
-                    f"(confiabilidad {conf:.2f})")
+            depurar(
+                f"[aprendizaje] Skill #{skill_previo['id']} reforzado (confiabilidad {conf:.2f})"
+            )
             id_skill = int(skill_previo["id"])
         else:
             id_skill = _skill_generar(consulta, resultados, raiz)
             if id_skill is not None:
-                info(f"[aprendizaje] Nuevo skill guardado: "
-                     f"{_skill_normalizar_nombre(consulta)} (#{id_skill})")
+                info(
+                    f"[aprendizaje] Nuevo skill guardado: "
+                    f"{_skill_normalizar_nombre(consulta)} (#{id_skill})"
+                )
         _aprender_regla_en_fondo(consulta, resultados, raiz)
         return id_skill
 
     if skill_previo is not None:
         conf = _skill_registrar_fallo(int(skill_previo["id"]))
-        aviso(f"[aprendizaje] Skill #{skill_previo['id']} marcado para "
-              f"revision (confiabilidad {conf:.2f})")
+        aviso(
+            f"[aprendizaje] Skill #{skill_previo['id']} marcado para "
+            f"revision (confiabilidad {conf:.2f})"
+        )
         return int(skill_previo["id"])
     return None
 
@@ -7108,17 +7612,19 @@ def _cola_encolar(skill_id: int) -> int:
     """Encola un skill para ejecución en segundo plano por el daemon."""
     return _db_insert(
         "INSERT INTO cola (skill_id, estado, fecha) VALUES (?, 'pendiente', ?)",
-        (skill_id, time.strftime("%Y-%m-%dT%H:%M:%S")))
+        (skill_id, time.strftime("%Y-%m-%dT%H:%M:%S")),
+    )
 
 
 # ─── Curador autónomo ──────────────────────────────────────────────────────
-CURADOR_DIAS_SIN_USO = 30          # skills sin uso > 30 días → archivados
-CURADOR_UMBRAL_FUSION = 0.90       # similitud mínima para fusionar skills
+CURADOR_DIAS_SIN_USO = 30  # skills sin uso > 30 días → archivados
+CURADOR_UMBRAL_FUSION = 0.90  # similitud mínima para fusionar skills
 CLAVE_CURADOR_ULTIMA = "curador_ultima_ejecucion"
 
 
-def _curador_ejecutar(dias_sin_uso: int = CURADOR_DIAS_SIN_USO,
-                      umbral_fusion: float = CURADOR_UMBRAL_FUSION) -> dict:
+def _curador_ejecutar(
+    dias_sin_uso: int = CURADOR_DIAS_SIN_USO, umbral_fusion: float = CURADOR_UMBRAL_FUSION
+) -> dict:
     """Ejecuta una pasada del curador. Devuelve un resumen de acciones.
 
     Acciones:
@@ -7134,7 +7640,7 @@ def _curador_ejecutar(dias_sin_uso: int = CURADOR_DIAS_SIN_USO,
 
     def _antiguedad_dias(valor):
         if not valor:
-            return dias_sin_uso + 1.0     # nunca usado → candidato
+            return dias_sin_uso + 1.0  # nunca usado → candidato
         try:
             fecha = datetime.datetime.fromisoformat(valor)
             return (ahora - fecha).total_seconds() / 86400.0
@@ -7145,10 +7651,8 @@ def _curador_ejecutar(dias_sin_uso: int = CURADOR_DIAS_SIN_USO,
     for fila in _skill_listar():
         referencia = fila["ultimo_exito"] or fila["creado"]
         if _antiguedad_dias(referencia) > dias_sin_uso:
-            _db_ejecutar("UPDATE skills SET archivado = 1 WHERE id = ?",
-                         (fila["id"],))
-            acciones["archivados"].append(
-                {"id": fila["id"], "nombre": fila["nombre"]})
+            _db_ejecutar("UPDATE skills SET archivado = 1 WHERE id = ?", (fila["id"],))
+            acciones["archivados"].append({"id": fila["id"], "nombre": fila["nombre"]})
 
     # 2) Fusionar skills muy similares entre sí.
     activos = _skill_listar()
@@ -7156,7 +7660,7 @@ def _curador_ejecutar(dias_sin_uso: int = CURADOR_DIAS_SIN_USO,
     for i, a in enumerate(activos):
         if a["id"] in vistos:
             continue
-        for b in activos[i + 1:]:
+        for b in activos[i + 1 :]:
             if b["id"] in vistos:
                 continue
             try:
@@ -7165,51 +7669,58 @@ def _curador_ejecutar(dias_sin_uso: int = CURADOR_DIAS_SIN_USO,
                 continue
             if sim < umbral_fusion:
                 continue
-            conservar, fusionar = (
-                (a, b) if a["usos"] >= b["usos"] else (b, a))
+            conservar, fusionar = (a, b) if a["usos"] >= b["usos"] else (b, a)
             _db_ejecutar(
                 "UPDATE skills SET usos = usos + ?, fallos = fallos + ?, "
                 "confiabilidad = MAX(confiabilidad, ?), "
                 "archivado = 0 WHERE id = ?",
-                (fusionar["usos"], fusionar["fallos"],
-                 fusionar["confiabilidad"], conservar["id"]))
-            _db_ejecutar(
-                "UPDATE skills SET archivado = 1 WHERE id = ?",
-                (fusionar["id"],))
+                (fusionar["usos"], fusionar["fallos"], fusionar["confiabilidad"], conservar["id"]),
+            )
+            _db_ejecutar("UPDATE skills SET archivado = 1 WHERE id = ?", (fusionar["id"],))
             vistos.add(fusionar["id"])
-            acciones["fusiones"].append({
-                "conservado": conservar["id"],
-                "archivado": fusionar["id"],
-                "similitud": round(sim, 3)})
+            acciones["fusiones"].append(
+                {
+                    "conservado": conservar["id"],
+                    "archivado": fusionar["id"],
+                    "similitud": round(sim, 3),
+                }
+            )
 
     # 3) Notificar skills marcados para revisión (muchos fallos).
     for fila in _db_query(
-            "SELECT id, nombre FROM skills "
-            "WHERE archivado = 0 AND confiabilidad < 0.4"):
-        acciones["revision"].append({"id": fila["id"],
-                                     "nombre": fila["nombre"]})
+        "SELECT id, nombre FROM skills WHERE archivado = 0 AND confiabilidad < 0.4"
+    ):
+        acciones["revision"].append({"id": fila["id"], "nombre": fila["nombre"]})
     for r in acciones["revision"]:
-        aviso("[curador] Skill #" + str(r["id"]) + " '" + r["nombre"]
-              + "' tiene baja confiabilidad; revisar o regenerar.")
+        aviso(
+            "[curador] Skill #"
+            + str(r["id"])
+            + " '"
+            + r["nombre"]
+            + "' tiene baja confiabilidad; revisar o regenerar."
+        )
 
     _kv_fijar(CLAVE_CURADOR_ULTIMA, time.strftime("%Y-%m-%dT%H:%M:%S"))
     total = len(acciones["archivados"]) + len(acciones["fusiones"])
     if total:
-        exito("[curador] " + str(len(acciones["archivados"]))
-              + " skill(s) archivado(s), "
-              + str(len(acciones["fusiones"])) + " fusion/fusiones.")
+        exito(
+            "[curador] "
+            + str(len(acciones["archivados"]))
+            + " skill(s) archivado(s), "
+            + str(len(acciones["fusiones"]))
+            + " fusion/fusiones."
+        )
     else:
         depurar("[curador] Sin acciones necesarias.")
     return acciones
 
 
 # ─── Daemon: proceso en segundo plano (--daemon) ───────────────────────────
-DAEMON_INTERVALO_HORAS_DEFECTO = 168     # curador cada 7 días
-DAEMON_PAUSA_SEGUNDOS = 60               # frecuencia de sondeo del bucle
+DAEMON_INTERVALO_HORAS_DEFECTO = 168  # curador cada 7 días
+DAEMON_PAUSA_SEGUNDOS = 60  # frecuencia de sondeo del bucle
 
 
-def _daemon_tick(intervalo_horas: int = DAEMON_INTERVALO_HORAS_DEFECTO,
-                 ahora=None) -> dict:
+def _daemon_tick(intervalo_horas: int = DAEMON_INTERVALO_HORAS_DEFECTO, ahora=None) -> dict:
     """Una iteración del daemon (función aislada para facilitar los tests).
 
     Ejecuta el curador si ha pasado ``intervalo_horas`` desde su última
@@ -7224,8 +7735,7 @@ def _daemon_tick(intervalo_horas: int = DAEMON_INTERVALO_HORAS_DEFECTO,
         try:
             fecha = datetime.datetime.fromisoformat(ultima)
             referencia = ahora or datetime.datetime.now()
-            vencido = ((referencia - fecha).total_seconds()
-                       >= intervalo_horas * 3600)
+            vencido = (referencia - fecha).total_seconds() >= intervalo_horas * 3600
         except ValueError:
             vencido = True
     if vencido:
@@ -7234,27 +7744,29 @@ def _daemon_tick(intervalo_horas: int = DAEMON_INTERVALO_HORAS_DEFECTO,
         resultado["curador"] = True
 
     pendientes = _db_query(
-        "SELECT id, skill_id FROM cola WHERE estado = 'pendiente' "
-        "ORDER BY id LIMIT 10")
+        "SELECT id, skill_id FROM cola WHERE estado = 'pendiente' ORDER BY id LIMIT 10"
+    )
     for tarea in pendientes:
         skill = _skill_obtener(int(tarea["skill_id"]))
         if skill is None or skill.get("archivado"):
-            _db_ejecutar(
-                "UPDATE cola SET estado = 'descartado' WHERE id = ?",
-                (tarea["id"],))
+            _db_ejecutar("UPDATE cola SET estado = 'descartado' WHERE id = ?", (tarea["id"],))
             continue
-        _db_ejecutar("UPDATE cola SET estado = 'ejecutando' WHERE id = ?",
-                     (tarea["id"],))
-        depurar("[daemon] Skill #" + str(skill["id"]) + " '"
-                + skill["nombre"] + "' listo para ejecución en segundo "
-                "plano (" + str(len(skill.get("pasos") or [])) + " pasos)")
-        _db_ejecutar("UPDATE cola SET estado = 'hecho' WHERE id = ?",
-                     (tarea["id"],))
+        _db_ejecutar("UPDATE cola SET estado = 'ejecutando' WHERE id = ?", (tarea["id"],))
+        depurar(
+            "[daemon] Skill #"
+            + str(skill["id"])
+            + " '"
+            + skill["nombre"]
+            + "' listo para ejecución en segundo "
+            "plano (" + str(len(skill.get("pasos") or [])) + " pasos)"
+        )
+        _db_ejecutar("UPDATE cola SET estado = 'hecho' WHERE id = ?", (tarea["id"],))
         resultado["procesados"].append(skill["id"])
 
     # v6.8.0: procesa tareas asíncronas encoladas (GitHub/Telegram/Discord)
     try:
         import task_queue as _tq
+
         while True:
             t_res = _tq.procesar_siguiente_tarea()
             if not t_res:
@@ -7266,11 +7778,18 @@ def _daemon_tick(intervalo_horas: int = DAEMON_INTERVALO_HORAS_DEFECTO,
     return resultado
 
 
-def _daemon_bucle(intervalo_horas: int = DAEMON_INTERVALO_HORAS_DEFECTO,
-                  pausa_segundos: int = DAEMON_PAUSA_SEGUNDOS) -> None:
+def _daemon_bucle(
+    intervalo_horas: int = DAEMON_INTERVALO_HORAS_DEFECTO,
+    pausa_segundos: int = DAEMON_PAUSA_SEGUNDOS,
+) -> None:
     """Bucle principal del daemon (`snapcontext --daemon`)."""
-    exito("Daemon iniciado (curador cada " + str(intervalo_horas)
-       + " h, sondeo cada " + str(pausa_segundos) + " s). Ctrl+C para salir.")
+    exito(
+        "Daemon iniciado (curador cada "
+        + str(intervalo_horas)
+        + " h, sondeo cada "
+        + str(pausa_segundos)
+        + " s). Ctrl+C para salir."
+    )
     while True:
         try:
             _daemon_tick(intervalo_horas=intervalo_horas)
@@ -7280,6 +7799,7 @@ def _daemon_bucle(intervalo_horas: int = DAEMON_INTERVALO_HORAS_DEFECTO,
             aviso("[daemon] Error en tick (" + str(exc) + "); se reintenta.")
         time.sleep(pausa_segundos)
 
+
 # ---------------------------------------------------------------------------
 # MCP (Model Context Protocol): herramientas para el agente — v0.14.0
 # ---------------------------------------------------------------------------
@@ -7288,7 +7808,6 @@ MCP_TOOLS_PATH = CONFIG_DIR / "mcp_tools.json"
 PLUGINS_DIR = CONFIG_DIR / "plugins"
 # Repositorio de comunidad donde `plugin install <nombre>` busca plugins.
 REPOSITORIO_PLUGINS = "https://github.com/NicolasBruna24/snapcontext-plugins"
-
 
 
 # ---------------------------------------------------------------------------
@@ -7304,8 +7823,7 @@ REPOSITORIO_PLUGINS = "https://github.com/NicolasBruna24/snapcontext-plugins"
 # Las herramientas se registran en el sistema MCP y se ejecutan por
 # subproceso (como las herramientas de usuario de mcp_tools.json).
 
-PERMISOS_PLUGIN_VALIDOS = ("archivos", "red", "red_escrita", "ejecucion",
-                           "entorno")
+PERMISOS_PLUGIN_VALIDOS = ("archivos", "red", "red_escrita", "ejecucion", "entorno")
 
 
 def _plugins_directorio() -> Path:
@@ -7314,7 +7832,7 @@ def _plugins_directorio() -> Path:
     return PLUGINS_DIR
 
 
-def _plugin_leer_manifest(ruta_plugin: Path) -> Optional[dict]:
+def _plugin_leer_manifest(ruta_plugin: Path) -> dict | None:
     """Lee y valida el ``plugin.json`` de un plugin. None si es inválido."""
     manifest = ruta_plugin / "plugin.json"
     if not manifest.is_file():
@@ -7329,8 +7847,7 @@ def _plugin_leer_manifest(ruta_plugin: Path) -> Optional[dict]:
     nombre = str(datos.get("nombre") or "").strip()
     herramientas = datos.get("herramientas")
     if not nombre or not isinstance(herramientas, list) or not herramientas:
-        aviso(f"[plugin] Manifest sin 'nombre' o sin 'herramientas': "
-              f"{ruta_plugin.name}")
+        aviso(f"[plugin] Manifest sin 'nombre' o sin 'herramientas': {ruta_plugin.name}")
         return None
     datos["nombre"] = nombre
     datos["ruta"] = str(ruta_plugin)
@@ -7384,12 +7901,11 @@ def _plugins_herramientas() -> dict:
             if not comando:
                 continue
             resultado[nombre] = {
-                "descripcion": str(herramienta.get("descripcion")
-                                   or f"Herramienta del plugin "
-                                      f"'{nombre_plugin}'."),
+                "descripcion": str(
+                    herramienta.get("descripcion") or f"Herramienta del plugin '{nombre_plugin}'."
+                ),
                 "parametros": herramienta.get("parametros") or {},
-                "requiere_permiso": bool(
-                    herramienta.get("requiere_permiso", True)),
+                "requiere_permiso": bool(herramienta.get("requiere_permiso", True)),
                 "comando": comando,
                 "plugin": nombre_plugin,
                 "permisos": list(manifest.get("permisos") or []),
@@ -7402,14 +7918,14 @@ def _plugin_guardar_manifest(manifest: dict) -> bool:
     try:
         datos = {k: v for k, v in manifest.items() if k != "ruta"}
         (Path(manifest["ruta"]) / "plugin.json").write_text(
-            json.dumps(datos, ensure_ascii=False, indent=2),
-            encoding="utf-8")
+            json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         return True
     except OSError:
         return False
 
 
-def _plugin_descargar_zip(origen: str, destino_tmp: Path) -> Optional[Path]:
+def _plugin_descargar_zip(origen: str, destino_tmp: Path) -> Path | None:
     """Descarga el ZIP de un plugin desde GitHub y lo extrae en ``destino_tmp``.
 
     ``origen`` acepta:
@@ -7423,14 +7939,14 @@ def _plugin_descargar_zip(origen: str, destino_tmp: Path) -> Optional[Path]:
     if origen.startswith("http"):
         url_zip = origen
     else:
-        url_zip = (f"https://codeload.github.com/{origen}/zip/refs/heads/main")
+        url_zip = f"https://codeload.github.com/{origen}/zip/refs/heads/main"
     zip_path = destino_tmp / "plugin.zip"
     try:
         with urllib.request.urlopen(url_zip, timeout=60) as respuesta:
             zip_path.write_bytes(respuesta.read())
         with zipfile.ZipFile(zip_path) as comprimido:
             comprimido.extractall(destino_tmp)
-    except Exception as exc:   # noqa: BLE001 — se reporta al llamador
+    except Exception as exc:
         error(f"No se pudo descargar el plugin desde '{origen}': {exc}")
         return None
     # Busca el primer directorio extraído que contenga plugin.json.
@@ -7440,8 +7956,7 @@ def _plugin_descargar_zip(origen: str, destino_tmp: Path) -> Optional[Path]:
     return None
 
 
-def _plugin_instalar(origen: str, confirmar: bool = True,
-                     auto: bool = False) -> int:
+def _plugin_instalar(origen: str, confirmar: bool = True, auto: bool = False) -> int:
     """Instala un plugin desde un repositorio o carpeta local. → código salida.
 
     - Origen local: ruta a una carpeta con ``plugin.json`` (o su padre).
@@ -7464,19 +7979,19 @@ def _plugin_instalar(origen: str, confirmar: bool = True,
         if manifest is None:
             return 1
     else:
-        error(f"'{origen}' no es una carpeta de plugin válida "
-              f"(falta plugin.json).")
+        error(f"'{origen}' no es una carpeta de plugin válida (falta plugin.json).")
         return 1
 
     nombre = manifest["nombre"]
     permisos = ", ".join(manifest.get("permisos") or []) or "ninguno"
     if externa and not auto:
         if not _confirmar_accion(
-                f"instalar el plugin externo '{nombre}' v{manifest['version']} "
-                f"de '{manifest.get('autor', '?')}'",
-                tipo="plugin",
-                detalles=f"permisos declarados: {permisos}",
-                confirmar=confirmar):
+            f"instalar el plugin externo '{nombre}' v{manifest['version']} "
+            f"de '{manifest.get('autor', '?')}'",
+            tipo="plugin",
+            detalles=f"permisos declarados: {permisos}",
+            confirmar=confirmar,
+        ):
             aviso("Instalación cancelada.")
             return 1
     destino = raiz / nombre
@@ -7484,9 +7999,9 @@ def _plugin_instalar(origen: str, confirmar: bool = True,
         aviso(f"El plugin '{nombre}' ya estaba instalado; se sobrescribe.")
         shutil.rmtree(destino, ignore_errors=True)
     try:
-        shutil.copytree(carpeta_origen, destino,
-                        ignore=shutil.ignore_patterns(
-                            ".git", "__pycache__", "*.zip"))
+        shutil.copytree(
+            carpeta_origen, destino, ignore=shutil.ignore_patterns(".git", "__pycache__", "*.zip")
+        )
     except OSError as exc:
         error(f"No se pudo instalar el plugin: {exc}")
         return 1
@@ -7496,10 +8011,8 @@ def _plugin_instalar(origen: str, confirmar: bool = True,
         if instalado is not None:
             instalado["origen"] = origen
             _plugin_guardar_manifest(instalado)
-    herramientas = ", ".join(
-        h.get("nombre", "?") for h in manifest.get("herramientas", []))
-    exito(f"Plugin '{nombre}' v{manifest['version']} instalado. "
-          f"Herramientas: {herramientas}")
+    herramientas = ", ".join(h.get("nombre", "?") for h in manifest.get("herramientas", []))
+    exito(f"Plugin '{nombre}' v{manifest['version']} instalado. Herramientas: {herramientas}")
     return 0
 
 
@@ -7507,11 +8020,11 @@ def _plugin_remove(nombre: str, confirmar: bool = True) -> int:
     """Desinstala un plugin borrando su carpeta (con confirmación)."""
     instalados = _plugins_instalados()
     if nombre not in instalados:
-        error(f"Plugin '{nombre}' no encontrado. Instalados: "
-              f"{', '.join(instalados) or '(ninguno)'}")
+        error(
+            f"Plugin '{nombre}' no encontrado. Instalados: {', '.join(instalados) or '(ninguno)'}"
+        )
         return 1
-    if confirmar and not _confirmar_accion(f"desinstalar el plugin '{nombre}'",
-                                           tipo="plugin"):
+    if confirmar and not _confirmar_accion(f"desinstalar el plugin '{nombre}'", tipo="plugin"):
         aviso("Desinstalación cancelada.")
         return 1
     shutil.rmtree(Path(instalados[nombre]["ruta"]), ignore_errors=True)
@@ -7526,8 +8039,7 @@ def _plugin_create(nombre: str = None) -> int:
         nombre = ""
         while not nombre or not re.fullmatch(r"[a-zA-Z0-9_\-]+", nombre):
             try:
-                nombre = input("Nombre del plugin (letras, números, - _): "
-                               ).strip()
+                nombre = input("Nombre del plugin (letras, números, - _): ").strip()
             except EOFError:
                 error("Nombre requerido.")
                 return 1
@@ -7537,22 +8049,27 @@ def _plugin_create(nombre: str = None) -> int:
         return 1
     destino.mkdir(parents=True)
     manifest = {
-        "nombre": nombre, "version": "0.1.0", "autor": "",
+        "nombre": nombre,
+        "version": "0.1.0",
+        "autor": "",
         "descripcion": f"Plugin {nombre} para SnapContext.",
-        "permisos": [], "habilitado": True,
-        "herramientas": [{
-            "nombre": f"{nombre}_saludar",
-            "descripcion": "Herramienta de ejemplo: imprime un saludo.",
-            "script": "saluda.py",
-            "requiere_permiso": False,
-            "parametros": {"nombre": "str"},
-        }],
+        "permisos": [],
+        "habilitado": True,
+        "herramientas": [
+            {
+                "nombre": f"{nombre}_saludar",
+                "descripcion": "Herramienta de ejemplo: imprime un saludo.",
+                "script": "saluda.py",
+                "requiere_permiso": False,
+                "parametros": {"nombre": "str"},
+            }
+        ],
     }
     (destino / "plugin.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2),
-        encoding="utf-8")
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     (destino / "saluda.py").write_text(
-        '#!/usr/bin/env python3\n'
+        "#!/usr/bin/env python3\n"
         '"""Herramienta de ejemplo del plugin. Recibe argumentos JSON por\n'
         'stdin y responde un JSON con {"ok": true|false, ...}."""\n'
         "import json\n"
@@ -7560,11 +8077,13 @@ def _plugin_create(nombre: str = None) -> int:
         "datos = json.loads(sys.stdin.read() or '{}')\n"
         "quien = datos.get('nombre', 'mundo')\n"
         "print(json.dumps({'ok': True, 'saludo': f'Hola, {quien}!'}))\n",
-        encoding="utf-8")
+        encoding="utf-8",
+    )
     (destino / "README.md").write_text(
         f"# Plugin {nombre}\n\nGenerado por `snapcontext plugin create`.\n\n"
         "Edita `plugin.json` para añadir más herramientas.\n",
-        encoding="utf-8")
+        encoding="utf-8",
+    )
     exito(f"Plugin '{nombre}' creado en {destino}.")
     info("Pruébalo con: snapcontext plugin list")
     return 0
@@ -7578,8 +8097,7 @@ def _plugin_update(nombre: str) -> int:
         return 1
     origen = instalados[nombre].get("origen")
     if not origen:
-        aviso(f"El plugin '{nombre}' no registra origen remoto; "
-              "reinstálalo manualmente.")
+        aviso(f"El plugin '{nombre}' no registra origen remoto; reinstálalo manualmente.")
         return 1
     info(f"Actualizando '{nombre}' desde {origen}...")
     return _plugin_instalar(origen, auto=True)
@@ -7610,42 +8128,61 @@ def _plugin_mostrar() -> None:
         return
     exito(f"Plugins instalados ({len(instalados)}):")
     for nombre, manifest in instalados.items():
-        estado = "habilitado" if manifest.get("habilitado") else \
-                 "DESHABILITADO"
+        estado = "habilitado" if manifest.get("habilitado") else "DESHABILITADO"
         color = _VERDE if manifest.get("habilitado") else _AMARILLO
-        _emitir(sys.stdout, _pintar(
-            f"  ● {nombre} v{manifest['version']} [{estado}] — "
-            f"{manifest.get('descripcion', '')}", color))
+        _emitir(
+            sys.stdout,
+            _pintar(
+                f"  ● {nombre} v{manifest['version']} [{estado}] — "
+                f"{manifest.get('descripcion', '')}",
+                color,
+            ),
+        )
         for herramienta in manifest.get("herramientas", []):
             if isinstance(herramienta, dict) and herramienta.get("nombre"):
-                _emitir(sys.stdout, _pintar(
-                    f"      · herramienta '{herramienta['nombre']}': "
-                    f"{herramienta.get('descripcion', '')}", _CYAN))
+                _emitir(
+                    sys.stdout,
+                    _pintar(
+                        f"      · herramienta '{herramienta['nombre']}': "
+                        f"{herramienta.get('descripcion', '')}",
+                        _CYAN,
+                    ),
+                )
 
 
-def _ejecutar_comando_discord(subargv: List[str]) -> int:
+def _ejecutar_comando_discord(subargv: list[str]) -> int:
     """Despacha el subcomando ``snapcontext discord <accion> [...]``."""
     import argparse as _ap
 
     try:
         import discord_gateway as dg
     except ImportError as exc:
-        error(f"El gateway de Discord necesita httpx y cryptography: "
-              f"pip install httpx cryptography (error: {exc})")
+        error(
+            f"El gateway de Discord necesita httpx y cryptography: "
+            f"pip install httpx cryptography (error: {exc})"
+        )
         return 1
 
     parser = _ap.ArgumentParser(prog="snapcontext discord", add_help=False)
     sub = parser.add_subparsers(dest="accion")
 
     p_setup = sub.add_parser("setup", help="Guarda las credenciales de la app.")
-    p_setup.add_argument("--public-key", dest="public_key", default=None,
-                         help="Clave pública Ed25519 de la aplicación.")
-    p_setup.add_argument("--app-id", dest="app_id", default=None,
-                         help="ID de la aplicación (Application ID).")
-    p_setup.add_argument("--token", default=None,
-                         help="Token del bot (Bot Token).")
-    p_setup.add_argument("--webhook-url", dest="webhook_url", default=None,
-                         help="Webhook estándar de un canal (alternativa).")
+    p_setup.add_argument(
+        "--public-key",
+        dest="public_key",
+        default=None,
+        help="Clave pública Ed25519 de la aplicación.",
+    )
+    p_setup.add_argument(
+        "--app-id", dest="app_id", default=None, help="ID de la aplicación (Application ID)."
+    )
+    p_setup.add_argument("--token", default=None, help="Token del bot (Bot Token).")
+    p_setup.add_argument(
+        "--webhook-url",
+        dest="webhook_url",
+        default=None,
+        help="Webhook estándar de un canal (alternativa).",
+    )
     sub.add_parser("estado", help="Muestra la configuración actual.")
 
     if not subargv or subargv[0] in ("-h", "--help", "help"):
@@ -7662,7 +8199,7 @@ def _ejecutar_comando_discord(subargv: List[str]) -> int:
             "  4. En 'General Information' → INTERACTIONS ENDPOINT URL pon:\n"
             "         https://<tu-dominio>/webhook/discord\n"
             "     Discord lo verificará con un PING; nuestro endpoint\n"
-            "     responde {\"type\": 1} automáticamente.\n"
+            '     responde {"type": 1} automáticamente.\n'
             "  5. 'Bot' → activa los permisos que necesites e invita el bot\n"
             "     a tu servidor (OAuth2 → URL Generator, scope 'applications.commands bot')."
         )
@@ -7672,14 +8209,14 @@ def _ejecutar_comando_discord(subargv: List[str]) -> int:
     except SystemExit:
         return 1
 
-    def _oculto(valor: Optional[str]) -> str:
+    def _oculto(valor: str | None) -> str:
         return f"configurado (***{valor[-4:]})" if valor else "(sin definir)"
 
     if args.accion == "setup":
         guardado = dg.guardar_configuracion_discord(
-            args.public_key, args.app_id, args.token, args.webhook_url)
-        exito("Credenciales de Discord guardadas en ~/.snapcontext/"
-              "config.json ('discord').")
+            args.public_key, args.app_id, args.token, args.webhook_url
+        )
+        exito("Credenciales de Discord guardadas en ~/.snapcontext/config.json ('discord').")
         info(f"  public_key     : {_oculto(guardado.get('public_key'))}")
         info(f"  application_id : {guardado.get('application_id') or '(sin definir)'}")
         info(f"  bot_token      : {_oculto(guardado.get('bot_token'))}")
@@ -7690,7 +8227,8 @@ def _ejecutar_comando_discord(subargv: List[str]) -> int:
             "  General Information → INTERACTIONS ENDPOINT URL:\n"
             "      https://<tu-dominio>/webhook/discord\n"
             "  (expón el puerto con `ngrok http 8001` si desarrollas en local;\n"
-            "   Discord lo verifica con un PING que respondemos automáticamente).")
+            "   Discord lo verifica con un PING que respondemos automáticamente)."
+        )
         return 0
 
     if args.accion == "estado":
@@ -7706,33 +8244,35 @@ def _ejecutar_comando_discord(subargv: List[str]) -> int:
     return 1
 
 
-def _ejecutar_comando_telegram(subargv: List[str]) -> int:
+def _ejecutar_comando_telegram(subargv: list[str]) -> int:
     """Despacha el subcomando ``snapcontext telegram <accion> [...]``."""
     import argparse as _ap
 
     try:
         import telegram_gateway as tg
     except ImportError as exc:
-        error(f"El gateway de Telegram necesita httpx: pip install httpx "
-              f"(error: {exc})")
+        error(f"El gateway de Telegram necesita httpx: pip install httpx (error: {exc})")
         return 1
 
     parser = _ap.ArgumentParser(prog="snapcontext telegram", add_help=False)
     sub = parser.add_subparsers(dest="accion")
 
     p_setup = sub.add_parser("setup", help="Guarda token y URL del webhook.")
-    p_setup.add_argument("--token", default=None,
-                         help="Token del bot (de @BotFather).")
-    p_setup.add_argument("--webhook-url", dest="webhook_url", default=None,
-                         help="URL pública (ngrok/dominio); el webhook queda "
-                              "en <url>/webhook/telegram.")
+    p_setup.add_argument("--token", default=None, help="Token del bot (de @BotFather).")
+    p_setup.add_argument(
+        "--webhook-url",
+        dest="webhook_url",
+        default=None,
+        help="URL pública (ngrok/dominio); el webhook queda en <url>/webhook/telegram.",
+    )
     sub.add_parser("estado", help="Muestra la configuración actual.")
-    sub.add_parser("webhook-registrar",
-                   help="Llama a setWebhook con la URL configurada.")
+    sub.add_parser("webhook-registrar", help="Llama a setWebhook con la URL configurada.")
 
     if not subargv or subargv[0] in ("-h", "--help", "help"):
-        info("Uso: snapcontext telegram <setup|estado|webhook-registrar> [...]\n"
-             "  setup --token <TOKEN> [--webhook-url <URL>]")
+        info(
+            "Uso: snapcontext telegram <setup|estado|webhook-registrar> [...]\n"
+            "  setup --token <TOKEN> [--webhook-url <URL>]"
+        )
         return 0
     try:
         args = parser.parse_args(subargv)
@@ -7740,27 +8280,33 @@ def _ejecutar_comando_telegram(subargv: List[str]) -> int:
         return 1
 
     if args.accion == "setup":
-        guardado = tg.guardar_configuracion_telegram(args.token,
-                                                     args.webhook_url)
-        exito("Configuración de Telegram guardada en ~/.snapcontext/"
-              "config.json ('telegram').")
+        guardado = tg.guardar_configuracion_telegram(args.token, args.webhook_url)
+        exito("Configuración de Telegram guardada en ~/.snapcontext/config.json ('telegram').")
         info(f"  webhook_url : {guardado.get('webhook_url') or '(sin definir)'}")
-        info(f"  bot_token   : {'***' + guardado.get('bot_token', '')[-4:]}"
-             if guardado.get("bot_token") else "  bot_token   : (sin definir)")
+        info(
+            f"  bot_token   : {'***' + guardado.get('bot_token', '')[-4:]}"
+            if guardado.get("bot_token")
+            else "  bot_token   : (sin definir)"
+        )
         if guardado.get("bot_token") and guardado.get("webhook_url"):
             ok, detalle = tg.registrar_webhook()
             (exito if ok else aviso)(f"setWebhook: {detalle}")
         elif not guardado.get("webhook_url"):
-            aviso("Sin --webhook-url no se registró el webhook; llámalo con\n"
-                  "  snapcontext telegram webhook-registrar")
+            aviso(
+                "Sin --webhook-url no se registró el webhook; llámalo con\n"
+                "  snapcontext telegram webhook-registrar"
+            )
         return 0
 
     if args.accion == "estado":
         token = tg.obtener_token()
         url = tg.obtener_webhook_url()
         exito("Estado del gateway de Telegram:")
-        info(f"  bot_token   : {'configurado (***' + token[-4:] + ')'}"
-             if token else "  bot_token   : NO configurado")
+        info(
+            f"  bot_token   : {'configurado (***' + token[-4:] + ')'}"
+            if token
+            else "  bot_token   : NO configurado"
+        )
         info(f"  webhook_url : {url or '(no definida)'}")
         return 0 if token else 1
 
@@ -7773,7 +8319,7 @@ def _ejecutar_comando_telegram(subargv: List[str]) -> int:
     return 1
 
 
-def _ejecutar_comando_github(subargv: List[str]) -> int:
+def _ejecutar_comando_github(subargv: list[str]) -> int:
     """Despacha el subcomando ``snapcontext github <accion> [...]`` (v6.8.0)."""
     import argparse as _ap
 
@@ -7788,22 +8334,37 @@ def _ejecutar_comando_github(subargv: List[str]) -> int:
 
     p_setup = sub.add_parser("setup", help="Guarda credenciales y webhook de GitHub.")
     p_setup.add_argument("--token", default=None, help="Personal Access Token de GitHub.")
-    p_setup.add_argument("--secret", "--webhook-secret", dest="secret", default=None,
-                         help="Secreto para validar la firma HMAC del webhook.")
-    p_setup.add_argument("--webhook-url", dest="webhook_url", default=None,
-                         help="URL pública (ngrok/dominio); el webhook queda en <url>/webhook/github.")
+    p_setup.add_argument(
+        "--secret",
+        "--webhook-secret",
+        dest="secret",
+        default=None,
+        help="Secreto para validar la firma HMAC del webhook.",
+    )
+    p_setup.add_argument(
+        "--webhook-url",
+        dest="webhook_url",
+        default=None,
+        help="URL pública (ngrok/dominio); el webhook queda en <url>/webhook/github.",
+    )
 
     sub.add_parser("estado", help="Muestra la configuración actual de GitHub.")
 
-    p_hook = sub.add_parser("webhook-registrar", help="Registra el webhook en un repositorio de GitHub.")
+    p_hook = sub.add_parser(
+        "webhook-registrar", help="Registra el webhook en un repositorio de GitHub."
+    )
     p_hook.add_argument("--repo", required=True, help="Repositorio en GitHub (ej: owner/repo).")
-    p_hook.add_argument("--webhook-url", dest="webhook_url", default=None, help="URL pública del webhook.")
+    p_hook.add_argument(
+        "--webhook-url", dest="webhook_url", default=None, help="URL pública del webhook."
+    )
     p_hook.add_argument("--secret", dest="secret", default=None, help="Secreto HMAC del webhook.")
 
     if not subargv or subargv[0] in ("-h", "--help", "help"):
-        info("Uso: snapcontext github <setup|estado|webhook-registrar> [...]\n"
-             "  setup [--token <TOKEN>] [--secret <SECRET>] [--webhook-url <URL>]\n"
-             "  webhook-registrar --repo <owner/repo> [--webhook-url <URL>] [--secret <SECRET>]")
+        info(
+            "Uso: snapcontext github <setup|estado|webhook-registrar> [...]\n"
+            "  setup [--token <TOKEN>] [--secret <SECRET>] [--webhook-url <URL>]\n"
+            "  webhook-registrar --repo <owner/repo> [--webhook-url <URL>] [--secret <SECRET>]"
+        )
         return 0
     try:
         args = parser.parse_args(subargv)
@@ -7843,7 +8404,7 @@ def _ejecutar_comando_github(subargv: List[str]) -> int:
     return 1
 
 
-def _ejecutar_comando_curador(subargv: List[str]) -> int:
+def _ejecutar_comando_curador(subargv: list[str]) -> int:
     """Despacha el subcomando ``snapcontext curador <accion> [...]`` (v5.0.0).
 
     Acciones:
@@ -7852,7 +8413,6 @@ def _ejecutar_comando_curador(subargv: List[str]) -> int:
       activar     → reactiva el curador proactivo (persistente).
       desactivar  → lo desactiva.
     """
-    import argparse as _ap
 
     try:
         import curador_proactivo as cp
@@ -7875,14 +8435,15 @@ def _ejecutar_comando_curador(subargv: List[str]) -> int:
         exito("Estado del curador proactivo:")
         info(f"  activo            : {'sí' if resumen['activo'] else 'no'}")
         info(f"  intervalo (horas) : {resumen['intervalo_horas']}")
-        info(f"  skills            : {resumen['total_skills']} "
-             f"(activos {resumen['activos']})")
+        info(f"  skills            : {resumen['total_skills']} (activos {resumen['activos']})")
         info(f"  candidatos        : {resumen['candidatos']}")
         info(f"  última pasada     : {resumen['ultima_pasada'] or 'nunca'}")
         for fila in resumen.get("reinado_lista", [])[:20]:
-            info(f"    #{fila['id']} {fila['nombre']} "
-                 f"(usos {fila['usos']}, fallos {fila['fallos']}, "
-                 f"tokens~ {fila['tokens_promedio']})")
+            info(
+                f"    #{fila['id']} {fila['nombre']} "
+                f"(usos {fila['usos']}, fallos {fila['fallos']}, "
+                f"tokens~ {fila['tokens_promedio']})"
+            )
         return 0
 
     if accion == "ejecutar":
@@ -7891,8 +8452,7 @@ def _ejecutar_comando_curador(subargv: List[str]) -> int:
             aviso("Curador desactivado. Actívalo: snapcontext curador activar")
             return 0
         mejorados = [r for r in resultados if r.get("mejorado")]
-        info(f"Curador: {len(resultados)} skill(s) candidato(s), "
-             f"{len(mejorados)} mejorado(s).")
+        info(f"Curador: {len(resultados)} skill(s) candidato(s), {len(mejorados)} mejorado(s).")
         return 0
 
     if accion == "activar":
@@ -7907,7 +8467,7 @@ def _ejecutar_comando_curador(subargv: List[str]) -> int:
     return 0
 
 
-def _ejecutar_comando_plugin(subargv: List[str]) -> int:
+def _ejecutar_comando_plugin(subargv: list[str]) -> int:
     """Despacha el subcomando ``snapcontext plugin <accion> [...]``."""
     global DEPURAR
     if not subargv:
@@ -7920,22 +8480,22 @@ def _ejecutar_comando_plugin(subargv: List[str]) -> int:
         return 0
     if accion == "install":
         if not resto:
-            error("Uso: snapcontext plugin install <nombre | usuario/repo "
-                  "| url | ruta_local>")
+            error("Uso: snapcontext plugin install <nombre | usuario/repo | url | ruta_local>")
             return 1
         # v6.22.0: nombres simples se resuelven contra el marketplace.
         try:
             import marketplace
+
             return marketplace.instalar_plugin(resto[0])
-        except Exception as exc:                         # noqa: BLE001
+        except Exception as exc:
             error(f"Error en la instalación: {exc}")
             return 1
-    if accion in ("remove", "uninstall"):                # v6.22.0: uninstall
+    if accion in ("remove", "uninstall"):  # v6.22.0: uninstall
         if not resto:
             error("Uso: snapcontext plugin remove <nombre>")
             return 1
         return _plugin_remove(resto[0])
-    if accion == "search":                               # v6.22.0: marketplace
+    if accion == "search":  # v6.22.0: marketplace
         if not resto:
             error("Uso: snapcontext plugin search <termino>")
             return 1
@@ -7952,8 +8512,10 @@ def _ejecutar_comando_plugin(subargv: List[str]) -> int:
             error(f"Uso: snapcontext plugin {accion} <nombre>")
             return 1
         return _plugin_cambiar_estado(resto[0], habilitar=accion == "enable")
-    error(f"Acción de plugin desconocida: '{accion}'. Usa search/list/install/"
-          "remove/create/update/enable/disable.")
+    error(
+        f"Acción de plugin desconocida: '{accion}'. Usa search/list/install/"
+        "remove/create/update/enable/disable."
+    )
     return 1
 
 
@@ -7961,12 +8523,12 @@ def _plugin_search(termino: str) -> int:
     """Busca plugins en el marketplace central (v6.22.0)."""
     try:
         import marketplace
-    except Exception as exc:                             # noqa: BLE001
+    except Exception as exc:
         error(f"No se pudo importar marketplace: {exc}")
         return 1
     try:
         resultados = marketplace.buscar_plugins(termino)
-    except Exception as exc:                             # noqa: BLE001
+    except Exception as exc:
         error(f"Error buscando en el marketplace: {exc}")
         return 1
     if not resultados:
@@ -7975,17 +8537,16 @@ def _plugin_search(termino: str) -> int:
     info(f"🗽 {len(resultados)} plugin(s) encontrados para '{termino}':")
     for entrada in resultados:
         nombre = entrada.get("nombre") or entrada.get("name") or "?"
-        desc = (entrada.get("descripcion") or entrada.get("description")
-                or "").strip()
+        desc = (entrada.get("descripcion") or entrada.get("description") or "").strip()
         autor = entrada.get("autor") or entrada.get("author") or ""
-        exito(f"  • {nombre}" + (f" — {desc}" if desc else "")
-              + (f" (por {autor})" if autor else ""))
+        exito(
+            f"  • {nombre}" + (f" — {desc}" if desc else "") + (f" (por {autor})" if autor else "")
+        )
     return 0
 
 
 # --- Implementaciones de las herramientas (resultados estructurados) -------
-def _tool_grep(patron: str, directorio: str = ".",
-               max_resultados: int = 50) -> dict:
+def _tool_grep(patron: str, directorio: str = ".", max_resultados: int = 50) -> dict:
     """Herramienta `grep`: busca un patrón en el código del proyecto."""
     if not patron:
         return {"ok": False, "error": "falta el patrón de búsqueda"}
@@ -8001,17 +8562,20 @@ def _tool_grep(patron: str, directorio: str = ".",
     codigo, stdout, stderr = (None, None, None)
     # v4.3.0: grep es de solo lectura → corre fuera del sandbox.
     with _sandbox_pausado():
-        codigo, stdout, stderr = _ejecutar_comando(comando, directorio,
-                                                   timeout=60)
+        codigo, stdout, stderr = _ejecutar_comando(comando, directorio, timeout=60)
     lineas = [l for l in (stdout or "").splitlines() if l.strip()]
-    return {"ok": codigo == 0 or bool(lineas),
-            "buscador": herramienta, "total": len(lineas),
-            "coincidencias": lineas[:max_resultados],
-            "error": None if (codigo == 0 or lineas) else stderr.strip()}
+    return {
+        "ok": codigo == 0 or bool(lineas),
+        "buscador": herramienta,
+        "total": len(lineas),
+        "coincidencias": lineas[:max_resultados],
+        "error": None if (codigo == 0 or lineas) else stderr.strip(),
+    }
 
 
-def _tool_read_file(ruta: str, linea_inicio: Optional[int] = None,
-                    linea_fin: Optional[int] = None) -> dict:
+def _tool_read_file(
+    ruta: str, linea_inicio: int | None = None, linea_fin: int | None = None
+) -> dict:
     """Herramienta `read_file`: lee un archivo completo o un rango de líneas."""
     contenido = _leer_archivo(ruta)
     if contenido is None:
@@ -8019,36 +8583,37 @@ def _tool_read_file(ruta: str, linea_inicio: Optional[int] = None,
     lineas = contenido.splitlines()
     ini = max((linea_inicio or 1), 1)
     fin = min(linea_fin or len(lineas), len(lineas))
-    fragmento = lineas[ini - 1:fin]
-    return {"ok": True, "ruta": ruta, "total_lineas": len(lineas),
-            "linea_inicio": ini, "linea_fin": fin,
-            "contenido": "\n".join(fragmento)}
+    fragmento = lineas[ini - 1 : fin]
+    return {
+        "ok": True,
+        "ruta": ruta,
+        "total_lineas": len(lineas),
+        "linea_inicio": ini,
+        "linea_fin": fin,
+        "contenido": "\n".join(fragmento),
+    }
 
 
-def _tool_list_files(directorio: str = ".",
-                     extensiones: Optional[List[str]] = None,
-                     max_archivos: int = 200) -> dict:
+def _tool_list_files(
+    directorio: str = ".", extensiones: list[str] | None = None, max_archivos: int = 200
+) -> dict:
     """Herramienta `list_files`: lista archivos con filtros opcionales."""
     raiz = Path(directorio).expanduser()
     if not raiz.is_dir():
-        return {"ok": False, "directorio": directorio,
-                "error": f"el directorio no existe: {raiz}"}
-    extensiones = [e.lower() if e.startswith(".") else f".{e.lower()}"
-                   for e in (extensiones or [])]
-    encontrados: List[str] = []
+        return {"ok": False, "directorio": directorio, "error": f"el directorio no existe: {raiz}"}
+    extensiones = [e.lower() if e.startswith(".") else f".{e.lower()}" for e in (extensiones or [])]
+    encontrados: list[str] = []
     for camino in sorted(raiz.rglob("*")):
         if not camino.is_file():
             continue
-        if any(parte in (".git", "__pycache__", "node_modules")
-               for parte in camino.parts):
+        if any(parte in (".git", "__pycache__", "node_modules") for parte in camino.parts):
             continue
         if extensiones and camino.suffix.lower() not in extensiones:
             continue
         encontrados.append(str(camino.relative_to(raiz)))
         if len(encontrados) >= max_archivos:
             break
-    return {"ok": True, "directorio": str(raiz), "total": len(encontrados),
-            "archivos": encontrados}
+    return {"ok": True, "directorio": str(raiz), "total": len(encontrados), "archivos": encontrados}
 
 
 def _tool_ast(ruta: str) -> dict:
@@ -8059,11 +8624,10 @@ def _tool_ast(ruta: str) -> dict:
     try:
         arbol = ast.parse(contenido)
     except SyntaxError as exc:
-        return {"ok": False, "ruta": ruta,
-                "error": f"sintaxis inválida: {exc}"}
-    imports: List[str] = []
-    clases: List[dict] = []
-    funciones: List[dict] = []
+        return {"ok": False, "ruta": ruta, "error": f"sintaxis inválida: {exc}"}
+    imports: list[str] = []
+    clases: list[dict] = []
+    funciones: list[dict] = []
     for nodo in ast.walk(arbol):
         if isinstance(nodo, ast.Import):
             for alias in nodo.names:
@@ -8073,34 +8637,35 @@ def _tool_ast(ruta: str) -> dict:
             nombres = ", ".join(a.name for a in nodo.names)
             imports.append(f"from {modulo} import {nombres}")
         elif isinstance(nodo, ast.ClassDef):
-            metodos = [n.name for n in nodo.body
-                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-            clases.append({"nombre": nodo.name, "linea": nodo.lineno,
-                           "metodos": metodos})
+            metodos = [
+                n.name for n in nodo.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+            ]
+            clases.append({"nombre": nodo.name, "linea": nodo.lineno, "metodos": metodos})
         elif isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
             argumentos = [a.arg for a in nodo.args.args]
-            funciones.append({"nombre": nodo.name, "linea": nodo.lineno,
-                              "argumentos": argumentos})
-    return {"ok": True, "ruta": ruta, "imports": imports, "clases": clases,
-            "funciones": funciones}
+            funciones.append({"nombre": nodo.name, "linea": nodo.lineno, "argumentos": argumentos})
+    return {"ok": True, "ruta": ruta, "imports": imports, "clases": clases, "funciones": funciones}
 
 
 def _tool_git_status(directorio: str = ".") -> dict:
     """Herramienta `git_status`: rama actual y cambios sin commitear."""
     if not _es_repo_git(directorio):
         return {"ok": False, "error": f"'{directorio}' no es un repositorio git"}
-    _, rama, _ = _ejecutar_comando("git rev-parse --abbrev-ref HEAD",
-                                   directorio, timeout=15)
+    _, rama, _ = _ejecutar_comando("git rev-parse --abbrev-ref HEAD", directorio, timeout=15)
     with _sandbox_pausado():  # v4.3.0: solo lectura → fuera del sandbox
-        codigo, salida, _ = _ejecutar_comando("git status --porcelain",
-                                              directorio, timeout=30)
+        codigo, salida, _ = _ejecutar_comando("git status --porcelain", directorio, timeout=30)
     modificados = [l.strip() for l in (salida or "").splitlines() if l.strip()]
-    return {"ok": codigo == 0, "rama": (rama or "").strip(),
-            "cambios": modificados, "total_cambios": len(modificados)}
+    return {
+        "ok": codigo == 0,
+        "rama": (rama or "").strip(),
+        "cambios": modificados,
+        "total_cambios": len(modificados),
+    }
 
 
-def _tool_git_diff(directorio: str = ".", archivo: Optional[str] = None,
-                   max_lineas: int = 200) -> dict:
+def _tool_git_diff(
+    directorio: str = ".", archivo: str | None = None, max_lineas: int = 200
+) -> dict:
     """Herramienta `git_diff`: diferencias sin commitear (staged + unstaged)."""
     if not _es_repo_git(directorio):
         return {"ok": False, "error": f"'{directorio}' no es un repositorio git"}
@@ -8108,19 +8673,21 @@ def _tool_git_diff(directorio: str = ".", archivo: Optional[str] = None,
     if archivo:
         comando += f' -- "{archivo}"'
     with _sandbox_pausado():  # v4.3.0: solo lectura → fuera del sandbox
-        codigo, salida, stderr = _ejecutar_comando(comando, directorio,
-                                                   timeout=60)
+        codigo, salida, stderr = _ejecutar_comando(comando, directorio, timeout=60)
     lineas = (salida or "").splitlines()
-    return {"ok": codigo == 0, "archivo": archivo,
-            "total_lineas": len(lineas),
-            "diff": "\n".join(lineas[:max_lineas]),
-            "recortado": len(lineas) > max_lineas,
-            "error": None if codigo == 0 else stderr.strip()}
+    return {
+        "ok": codigo == 0,
+        "archivo": archivo,
+        "total_lineas": len(lineas),
+        "diff": "\n".join(lineas[:max_lineas]),
+        "recortado": len(lineas) > max_lineas,
+        "error": None if codigo == 0 else stderr.strip(),
+    }
 
 
-def _tool_execute_command(comando: str, directorio: str = ".",
-                          background: bool = False,
-                          capture_output: bool = True) -> dict:
+def _tool_execute_command(
+    comando: str, directorio: str = ".", background: bool = False, capture_output: bool = True
+) -> dict:
     """Herramienta `execute_command`: ejecuta un comando shell arbitrario.
 
     - ``background=True`` lanza el proceso en segundo plano y devuelve un
@@ -8133,54 +8700,109 @@ def _tool_execute_command(comando: str, directorio: str = ".",
     if not comando:
         return {"ok": False, "error": "falta el comando a ejecutar"}
     if background:
-        res = _lanzar_proceso_fondo(comando, directorio,
-                                    capture_output=capture_output)
+        res = _lanzar_proceso_fondo(comando, directorio, capture_output=capture_output)
         if not res.get("ok"):
             return {"ok": False, "error": res.get("error", "no se pudo lanzar")}
-        return {"ok": True, "pid": res["pid"], "comando": comando,
-                "estado": "ejecutando"}
-    codigo, stdout, stderr = _ejecutar_comando(
-        comando, directorio, capture_output=capture_output)
-    return {"ok": codigo == 0, "codigo_retorno": codigo,
-            "stdout": stdout.strip() if stdout else "",
-            "stderr": stderr.strip() if stderr else ""}
+        return {"ok": True, "pid": res["pid"], "comando": comando, "estado": "ejecutando"}
+    codigo, stdout, stderr = _ejecutar_comando(comando, directorio, capture_output=capture_output)
+    return {
+        "ok": codigo == 0,
+        "codigo_retorno": codigo,
+        "stdout": stdout.strip() if stdout else "",
+        "stderr": stderr.strip() if stderr else "",
+    }
 
 
 # --- Herramientas avanzadas (v1.4.0): tree-sitter + búsqueda semántica ------
 # Tipos de nodo tree-sitter por categoría (nombres comunes entre gramáticas).
-_TS_NODOS_FUNCION = frozenset((
-    "function_definition", "function_declaration", "function_item",
-    "function_signature", "method_definition", "method_declaration",
-))
-_TS_NODOS_CLASE = frozenset((
-    "class_definition", "class_declaration", "class_specifier",
-    "struct_item", "interface_declaration",
-))
-_TS_NODOS_IMPORT = frozenset((
-    "import_statement", "import_from_statement", "import_specifier",
-    "import_declaration", "use_declaration", "package_clause",
-    "preproc_include", "import_directive",
-))
+_TS_NODOS_FUNCION = frozenset(
+    (
+        "function_definition",
+        "function_declaration",
+        "function_item",
+        "function_signature",
+        "method_definition",
+        "method_declaration",
+    )
+)
+_TS_NODOS_CLASE = frozenset(
+    (
+        "class_definition",
+        "class_declaration",
+        "class_specifier",
+        "struct_item",
+        "interface_declaration",
+    )
+)
+_TS_NODOS_IMPORT = frozenset(
+    (
+        "import_statement",
+        "import_from_statement",
+        "import_specifier",
+        "import_declaration",
+        "use_declaration",
+        "package_clause",
+        "preproc_include",
+        "import_directive",
+    )
+)
 _TS_NODOS_LLAMADA = frozenset(("call_expression", "call"))
 
 
-def _lenguaje_tree_sitter(ruta: str) -> Optional[str]:
+def _lenguaje_tree_sitter(ruta: str) -> str | None:
     """Adivina el nombre de gramática tree-sitter para ``ruta``."""
     extension = Path(ruta).suffix.lower().lstrip(".")
     mapa = {
-        "py": "python", "pyi": "python", "js": "javascript", "jsx": "javascript",
-        "mjs": "javascript", "cjs": "javascript", "ts": "typescript",
-        "mts": "typescript", "cts": "typescript", "tsx": "tsx",
-        "dart": "dart", "go": "go", "rs": "rust", "java": "java",
-        "kt": "kotlin", "kts": "kotlin", "swift": "swift", "c": "c",
-        "h": "c", "cpp": "cpp", "cc": "cpp", "cxx": "cpp", "hpp": "cpp",
-        "hh": "cpp", "hxx": "cpp", "cs": "c_sharp", "rb": "ruby",
-        "php": "php", "sh": "bash", "bash": "bash", "zsh": "bash",
-        "json": "json", "yaml": "yaml", "yml": "yaml", "toml": "toml",
-        "html": "html", "htm": "html", "css": "css", "scss": "css",
-        "md": "markdown", "scala": "scala", "lua": "lua", "sql": "sql",
-        "ex": "elixir", "exs": "elixir", "zig": "zig", "hs": "haskell",
-        "r": "r", "vue": "vue", "svelte": "svelte",
+        "py": "python",
+        "pyi": "python",
+        "js": "javascript",
+        "jsx": "javascript",
+        "mjs": "javascript",
+        "cjs": "javascript",
+        "ts": "typescript",
+        "mts": "typescript",
+        "cts": "typescript",
+        "tsx": "tsx",
+        "dart": "dart",
+        "go": "go",
+        "rs": "rust",
+        "java": "java",
+        "kt": "kotlin",
+        "kts": "kotlin",
+        "swift": "swift",
+        "c": "c",
+        "h": "c",
+        "cpp": "cpp",
+        "cc": "cpp",
+        "cxx": "cpp",
+        "hpp": "cpp",
+        "hh": "cpp",
+        "hxx": "cpp",
+        "cs": "c_sharp",
+        "rb": "ruby",
+        "php": "php",
+        "sh": "bash",
+        "bash": "bash",
+        "zsh": "bash",
+        "json": "json",
+        "yaml": "yaml",
+        "yml": "yaml",
+        "toml": "toml",
+        "html": "html",
+        "htm": "html",
+        "css": "css",
+        "scss": "css",
+        "md": "markdown",
+        "scala": "scala",
+        "lua": "lua",
+        "sql": "sql",
+        "ex": "elixir",
+        "exs": "elixir",
+        "zig": "zig",
+        "hs": "haskell",
+        "r": "r",
+        "vue": "vue",
+        "svelte": "svelte",
     }
     return mapa.get(extension)
 
@@ -8199,7 +8821,7 @@ _PATRONES_LENGUAJE_CONTENIDO = (
 )
 
 
-def _detectar_lenguaje_contenido(contenido: str) -> Optional[str]:
+def _detectar_lenguaje_contenido(contenido: str) -> str | None:
     """Intenta adivinar el lenguaje a partir del contenido del archivo.
 
     Se usa como refuerzo cuando la extensión es ambigua o desconocida
@@ -8214,8 +8836,7 @@ def _detectar_lenguaje_contenido(contenido: str) -> Optional[str]:
     return None
 
 
-def _lenguaje_archivo(ruta: str,
-                      contenido: Optional[str] = None) -> Optional[str]:
+def _lenguaje_archivo(ruta: str, contenido: str | None = None) -> str | None:
     """Detecta el lenguaje de ``ruta`` combinando extensión y contenido.
 
     Prioridad: extensión conocida → heurística de contenido → None.
@@ -8230,13 +8851,12 @@ def _lenguaje_archivo(ruta: str,
     return _detectar_lenguaje_contenido(contenido)
 
 
-
 def _extraer_simbolos_ts(arbol, lenguaje: str) -> dict:
     """Recorre el árbol tree-sitter y extrae funciones/clases/imports/llamadas."""
-    funciones: List[dict] = []
-    clases: List[dict] = []
-    imports: List[str] = []
-    llamadas: List[str] = []
+    funciones: list[dict] = []
+    clases: list[dict] = []
+    imports: list[str] = []
+    llamadas: list[str] = []
 
     def _texto(nodo) -> str:
         return nodo.text.decode("utf-8", errors="replace") if nodo.text else ""
@@ -8249,12 +8869,14 @@ def _extraer_simbolos_ts(arbol, lenguaje: str) -> dict:
             nombre = ""
             for hijo in nodo.children:
                 if getattr(hijo, "type", "") in (
-                        "identifier", "name", "property_identifier",
-                        "type_identifier"):
+                    "identifier",
+                    "name",
+                    "property_identifier",
+                    "type_identifier",
+                ):
                     nombre = _texto(hijo)
                     break
-            entrada = {"nombre": nombre or f"({tipo})",
-                       "linea": nodo.start_point[0] + 1}
+            entrada = {"nombre": nombre or f"({tipo})", "linea": nodo.start_point[0] + 1}
             (funciones if tipo in _TS_NODOS_FUNCION else clases).append(entrada)
         elif tipo in _TS_NODOS_IMPORT:
             fragmento = " ".join(_texto(nodo).split())
@@ -8268,8 +8890,12 @@ def _extraer_simbolos_ts(arbol, lenguaje: str) -> dict:
                         llamadas.append(texto)
                     break
         pila.extend(nodo.children)
-    return {"funciones": funciones, "clases": clases,
-            "imports": imports[:100], "llamadas": llamadas[:200]}
+    return {
+        "funciones": funciones,
+        "clases": clases,
+        "imports": imports[:100],
+        "llamadas": llamadas[:200],
+    }
 
 
 def _tool_ast_avanzado(ruta: str) -> dict:
@@ -8291,14 +8917,19 @@ def _tool_ast_avanzado(ruta: str) -> dict:
             idioma = _ts_lang.get_language(lenguaje)
             parser = tree_sitter.Parser()
             try:
-                parser.set_language(idioma)          # API antigua (<0.22)
+                parser.set_language(idioma)  # API antigua (<0.22)
             except (AttributeError, TypeError):
-                parser.language = idioma             # API nueva (>=0.22)
+                parser.language = idioma  # API nueva (>=0.22)
             arbol = parser.parse(contenido.encode("utf-8"))
             simbolos = _extraer_simbolos_ts(arbol, lenguaje)
-            return {"ok": True, "ruta": ruta, "motor": "tree-sitter",
-                    "lenguaje": lenguaje, **simbolos}
-        except Exception as exc:                 # gramática ausente, API distinta...
+            return {
+                "ok": True,
+                "ruta": ruta,
+                "motor": "tree-sitter",
+                "lenguaje": lenguaje,
+                **simbolos,
+            }
+        except Exception as exc:  # gramática ausente, API distinta...
             depurar(f"[ast_avanzado] tree-sitter falló ({exc}); fallback a ast.")
 
     # 2) Fallback: ast de la stdlib (solo Python).
@@ -8307,13 +8938,16 @@ def _tool_ast_avanzado(ruta: str) -> dict:
         if base.get("ok"):
             return {**base, "motor": "ast", "lenguaje": "python"}
         return base
-    return {"ok": False, "ruta": ruta, "lenguaje": lenguaje,
-            "error": "sin analizador disponible para este lenguaje "
-                     "(instala tree-sitter: pip install snapcontext[mcp_avanzado])"}
+    return {
+        "ok": False,
+        "ruta": ruta,
+        "lenguaje": lenguaje,
+        "error": "sin analizador disponible para este lenguaje "
+        "(instala tree-sitter: pip install snapcontext[mcp_avanzado])",
+    }
 
 
-def _tool_semantic_search(consulta: str, directorio: str = ".",
-                          max_resultados: int = 10) -> dict:
+def _tool_semantic_search(consulta: str, directorio: str = ".", max_resultados: int = 10) -> dict:
     """Herramienta `semantic_search` (v1.4.0).
 
     Búsqueda semántica por embeddings integrada en el sistema MCP: el agente
@@ -8323,17 +8957,25 @@ def _tool_semantic_search(consulta: str, directorio: str = ".",
     if not consulta.strip():
         return {"ok": False, "error": "falta la consulta de búsqueda"}
     if not _embeddings_disponibles():
-        return {"ok": False, "consulta": consulta,
-                "error": "búsqueda semántica no disponible; instala el extra "
-                         "'embeddings' (pip install snapcontext[embeddings])"}
+        return {
+            "ok": False,
+            "consulta": consulta,
+            "error": "búsqueda semántica no disponible; instala el extra "
+            "'embeddings' (pip install snapcontext[embeddings])",
+        }
     try:
-        resultados = _buscar_semanticamente(consulta, directorio,
-                                            max_resultados=max(1, max_resultados))
-    except Exception as exc:                      # nunca romper al agente
+        resultados = _buscar_semanticamente(
+            consulta, directorio, max_resultados=max(1, max_resultados)
+        )
+    except Exception as exc:  # nunca romper al agente
         return {"ok": False, "consulta": consulta, "error": str(exc)}
-    return {"ok": bool(resultados), "consulta": consulta,
-            "directorio": str(directorio), "total": len(resultados),
-            "resultados": resultados}
+    return {
+        "ok": bool(resultados),
+        "consulta": consulta,
+        "directorio": str(directorio),
+        "total": len(resultados),
+        "resultados": resultados,
+    }
 
 
 # Memoria de proyecto (CLAUDE.md / SNAPCONTEXT.md) — v0.15.0
@@ -8360,19 +9002,21 @@ def _enriquecer_prompt_con_reglas(prompt: str, consulta: str) -> str:
         return prompt
     try:
         import skill_abstraction as _sa
+
         reglas = _sa.buscar_reglas(consulta)
         if reglas:
             bloque = "\n".join(_sa.regla_a_linea(r) for r in reglas)
-            prompt += ("\n\nREGLAS APRENDIDAS de tareas anteriores "
-                       "(tenlas en cuenta al proponer pasos):\n" + bloque)
-            info("🧠 Regla(s) aprendida(s) aplicada(s) al plan ("
-                 f"{len(reglas)}).")
-    except Exception as exc:             # noqa: BLE001 — best-effort
+            prompt += (
+                "\n\nREGLAS APRENDIDAS de tareas anteriores "
+                "(tenlas en cuenta al proponer pasos):\n" + bloque
+            )
+            info(f"🧠 Regla(s) aprendida(s) aplicada(s) al plan ({len(reglas)}).")
+    except Exception as exc:
         depurar(f"[skills-dinamicos] búsqueda de reglas falló: {exc}")
     return prompt
 
 
-def _buscar_claude_md(raiz: str = ".") -> Optional[Path]:
+def _buscar_claude_md(raiz: str = ".") -> Path | None:
     """Devuelve la ruta de CLAUDE.md (o SNAPCONTEXT.md) en ``raiz``, o None."""
     for nombre in NOMBRES_MEMORIA:
         camino = Path(raiz) / nombre
@@ -8381,8 +9025,7 @@ def _buscar_claude_md(raiz: str = ".") -> Optional[Path]:
     return None
 
 
-def _cargar_claude_md(raiz: str = ".",
-                      max_caracteres: int = MEMORIA_MAX_CARACTERES) -> str:
+def _cargar_claude_md(raiz: str = ".", max_caracteres: int = MEMORIA_MAX_CARACTERES) -> str:
     """Carga el contenido de la memoria del proyecto (o "" si no existe).
 
     Se recorta a ``max_caracteres`` para no desbordar el contexto del modelo.
@@ -8409,27 +9052,40 @@ def _plantilla_claude_md_basica(directorio: str = ".") -> str:
     tipo = _detectar_tipo_proyecto(str(Path(directorio).resolve())) or "desconocido"
     listado = _tool_list_files(directorio, max_archivos=40)
     archivos = listado.get("archivos", [])
-    manifiestos = [n for n in ("pubspec.yaml", "package.json", "pyproject.toml",
-                               "requirements.txt", "go.mod", "Cargo.toml")
-                   if (Path(directorio) / n).is_file()]
+    manifiestos = [
+        n
+        for n in (
+            "pubspec.yaml",
+            "package.json",
+            "pyproject.toml",
+            "requirements.txt",
+            "go.mod",
+            "Cargo.toml",
+        )
+        if (Path(directorio) / n).is_file()
+    ]
     return (
         "# Memoria del proyecto\n\n"
         f"Generada por SnapContext v{VERSION} (modo básico, sin IA).\n\n"
         "## Objetivo\n\n(Describe aquí para qué sirve este proyecto.)\n\n"
         f"## Tecnologías\n\n- Tipo de proyecto detectado: **{tipo}**\n"
-        + ("- Manifiestos encontrados: " + ", ".join(manifiestos) + "\n"
-           if manifiestos else "- Sin manifiestos detectados.\n")
+        + (
+            "- Manifiestos encontrados: " + ", ".join(manifiestos) + "\n"
+            if manifiestos
+            else "- Sin manifiestos detectados.\n"
+        )
         + "\n## Estructura\n\nArchivos principales:\n"
         + "".join(f"- {a}\n" for a in archivos[:20])
         + "\n## Convenciones\n\n"
-          "- (Describe convenciones de estilo y ramas.)\n\n"
-          "## Comandos útiles\n\n"
-          "- (Describe cómo ejecutar tests/build.)\n")
+        "- (Describe convenciones de estilo y ramas.)\n\n"
+        "## Comandos útiles\n\n"
+        "- (Describe cómo ejecutar tests/build.)\n"
+    )
 
 
-def _generar_claude_md(proveedor: Optional[str] = None,
-                       modelo: Optional[str] = None,
-                       directorio: str = ".") -> Path:
+def _generar_claude_md(
+    proveedor: str | None = None, modelo: str | None = None, directorio: str = "."
+) -> Path:
     """Genera un CLAUDE.md inicial escaneando el proyecto (``--init-claude``).
 
     Usa el proveedor de IA para redactar el contenido; si falta clave/librería
@@ -8442,13 +9098,14 @@ def _generar_claude_md(proveedor: Optional[str] = None,
     # 1) Escaneo local: tipo de proyecto, estructura y estado git (vía MCP).
     tipo = _detectar_tipo_proyecto(str(raiz)) or "desconocido"
     listado = _ejecutar_herramienta_mcp(
-        "list_files", {"directorio": str(raiz), "max_archivos": 60},
-        confirmar=False)
-    estructura = "\n".join(listado["resultado"]["archivos"]) \
-        if listado.get("ok") else "(escaneo no disponible)"
-    estado_git = _ejecutar_herramienta_mcp("git_status",
-                                           {"directorio": str(raiz)},
-                                           confirmar=False)
+        "list_files", {"directorio": str(raiz), "max_archivos": 60}, confirmar=False
+    )
+    estructura = (
+        "\n".join(listado["resultado"]["archivos"])
+        if listado.get("ok")
+        else "(escaneo no disponible)"
+    )
+    estado_git = _ejecutar_herramienta_mcp("git_status", {"directorio": str(raiz)}, confirmar=False)
 
     prompt = (
         "Eres un asistente que documenta proyectos. Analiza esta información "
@@ -8461,25 +9118,26 @@ def _generar_claude_md(proveedor: Optional[str] = None,
         "Devuelve SOLO el contenido markdown del archivo, con estas secciones:\n"
         "# <nombre del proyecto>\n## Objetivo\n## Tecnologías\n"
         "## Estructura\n## Convenciones\n## Comandos útiles\n"
-        "Sé concreto y breve (máximo ~80 líneas).")
+        "Sé concreto y breve (máximo ~80 líneas)."
+    )
 
     contenido = ""
     preferencias = cargar_configuracion()
     proveedor = proveedor or preferencias.get("provider") or PROVEEDOR_DEFECTO
     try:
-        contenido = _enviar_al_proveedor(proveedor, modelo,
-                                         [{"role": "user", "content": prompt}])
+        contenido = _enviar_al_proveedor(proveedor, modelo, [{"role": "user", "content": prompt}])
         info(f"Contenido generado con {PROVEEDORES[proveedor]['nombre']}.")
     except RuntimeError as exc:
-        aviso(f"Sin generación por IA ({str(exc).splitlines()[0]}); "
-              "se usará una plantilla básica.")
+        aviso(f"Sin generación por IA ({str(exc).splitlines()[0]}); se usará una plantilla básica.")
     if not contenido.strip():
         contenido = _plantilla_claude_md_basica(str(raiz))
 
     # 2) Confirmación si se va a sobreescribir una memoria existente.
     if destino.exists() and not _confirmar_accion(
-            f"sobreescribir {destino.name}", tipo="editar",
-            detalles=f"tamaño actual: {destino.stat().st_size} bytes"):
+        f"sobreescribir {destino.name}",
+        tipo="editar",
+        detalles=f"tamaño actual: {destino.stat().st_size} bytes",
+    ):
         aviso("Operación cancelada; no se modificó la memoria.")
         return destino
 
@@ -8488,8 +9146,7 @@ def _generar_claude_md(proveedor: Optional[str] = None,
     return destino
 
 
-def _actualizar_claude_md_automatico(resumen_tarea: str,
-                                     directorio: str = ".") -> bool:
+def _actualizar_claude_md_automatico(resumen_tarea: str, directorio: str = ".") -> bool:
     """Tras una tarea significativa, propone actualizar la memoria (opcional).
 
     Pide confirmación; si se acepta, el proveedor reescribe la memoria
@@ -8501,19 +9158,22 @@ def _actualizar_claude_md_automatico(resumen_tarea: str,
         return False
     actual = _cargar_claude_md(directorio)
     if CONFIRMAR_ACCIONES and not _confirmar_accion(
-            f"actualizar {camino.name} con lo aprendido", tipo="editar",
-            detalles=resumen_tarea[:200]):
+        f"actualizar {camino.name} con lo aprendido", tipo="editar", detalles=resumen_tarea[:200]
+    ):
         return False
     prompt = (
         "Actualiza esta memoria de proyecto incorporando la información nueva. "
         "Mantén el formato y las secciones; devuelve SOLO el markdown final.\n\n"
         f"--- MEMORIA ACTUAL ---\n{actual or '(vacía)'}\n\n"
-        f"--- LO APRENDIDO EN LA ÚLTIMA TAREA ---\n{resumen_tarea}\n")
+        f"--- LO APRENDIDO EN LA ÚLTIMA TAREA ---\n{resumen_tarea}\n"
+    )
     preferencias = cargar_configuracion()
     try:
-        nuevo = _enviar_al_proveedor(preferencias.get("provider")
-                                     or PROVEEDOR_DEFECTO, None,
-                                     [{"role": "user", "content": prompt}])
+        nuevo = _enviar_al_proveedor(
+            preferencias.get("provider") or PROVEEDOR_DEFECTO,
+            None,
+            [{"role": "user", "content": prompt}],
+        )
     except RuntimeError as exc:
         aviso(f"No se pudo actualizar la memoria: {str(exc).splitlines()[0]}")
         return False
@@ -8538,15 +9198,43 @@ MENSAJE_EMBEDDINGS_FALTANTE = (
 INDICE_DIR = CONFIG_DIR / "index"
 MODELO_EMBEDDINGS_NOMBRE = "all-MiniLM-L6-v2"
 EXTENSIONES_EMBEDDINGS = {
-    ".py", ".js", ".ts", ".tsx", ".jsx", ".dart", ".go", ".rs", ".java",
-    ".kt", ".rb", ".php", ".c", ".cpp", ".h", ".hpp", ".cs", ".swift",
-    ".md", ".yaml", ".yml", ".toml",
+    ".py",
+    ".js",
+    ".ts",
+    ".tsx",
+    ".jsx",
+    ".dart",
+    ".go",
+    ".rs",
+    ".java",
+    ".kt",
+    ".rb",
+    ".php",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".cs",
+    ".swift",
+    ".md",
+    ".yaml",
+    ".yml",
+    ".toml",
 }
-CARPETAS_IGNORADAS = {".git", "__pycache__", "node_modules", "venv", ".venv",
-                      "dist", "build", ".idea", ".vscode"}
-CHUNK_CARACTERES = 2000          # ~512 tokens con heurística de 4 chars/token
+CARPETAS_IGNORADAS = {
+    ".git",
+    "__pycache__",
+    "node_modules",
+    "venv",
+    ".venv",
+    "dist",
+    "build",
+    ".idea",
+    ".vscode",
+}
+CHUNK_CARACTERES = 2000  # ~512 tokens con heurística de 4 chars/token
 
-_MODELO_EMBEDDINGS = None        # singleton del modelo cargado
+_MODELO_EMBEDDINGS = None  # singleton del modelo cargado
 
 # v6.9.0 — Caché persistente de embeddings (SQLite)
 # `~/.snapcontext/embeddings.db` almacena el vector por hash de contenido del
@@ -8560,12 +9248,14 @@ EMBEDDINGS_DB = CONFIG_DIR / "embeddings.db"
 def _serializar_vector(vector) -> bytes:
     """Empaqueta un vector de floats como bytes (``struct`` '<Nd')."""
     import struct
+
     return struct.pack(f"<{len(vector)}d", *(float(x) for x in vector))
 
 
-def _deserializar_vector(blob: bytes) -> List[float]:
+def _deserializar_vector(blob: bytes) -> list[float]:
     """Desempaqueta un blob a su lista de floats original."""
     import struct
+
     n = len(blob) // struct.calcsize("<d")
     return list(struct.unpack(f"<{n}d", blob))
 
@@ -8575,9 +9265,9 @@ def _init_db_embeddings(con) -> None:
     with con:
         con.execute(
             "CREATE TABLE IF NOT EXISTS embeddings ("
-            "hash TEXT PRIMARY KEY, archivo TEXT, embedding BLOB)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_emb_archivo "
-                    "ON embeddings(archivo)")
+            "hash TEXT PRIMARY KEY, archivo TEXT, embedding BLOB)"
+        )
+        con.execute("CREATE INDEX IF NOT EXISTS idx_emb_archivo ON embeddings(archivo)")
 
 
 def _conexion_embeddings():
@@ -8587,25 +9277,26 @@ def _conexion_embeddings():
         con = sqlite3.connect(str(EMBEDDINGS_DB), timeout=2.0)
         _init_db_embeddings(con)
         return con
-    except Exception:                       # noqa: BLE001 — caché best-effort
+    except Exception:
         return None
 
 
-def _consultar_embedding_cache(clave_hash: str) -> Optional[bytes]:
+def _consultar_embedding_cache(clave_hash: str) -> bytes | None:
     """Devuelve el blob del embedding cached por ``clave_hash`` o None."""
     try:
         import sqlite3 as _sqlite3
+
         con = _conexion_embeddings()
         if con is None:
             return None
         try:
             fila = con.execute(
-                "SELECT embedding FROM embeddings WHERE hash = ?",
-                (clave_hash,)).fetchone()
+                "SELECT embedding FROM embeddings WHERE hash = ?", (clave_hash,)
+            ).fetchone()
             return fila[0] if fila and fila[0] else None
         finally:
             con.close()
-    except _sqlite3.Error:                   # noqa: BLE001
+    except _sqlite3.Error:
         return None
 
 
@@ -8613,6 +9304,7 @@ def _guardar_embedding_cache(clave_hash: str, archivo: str, vector) -> bool:
     """Guarda o actualiza un embedding en la caché SQLite (best-effort)."""
     try:
         import sqlite3 as _sqlite3
+
         con = _conexion_embeddings()
         if con is None:
             return False
@@ -8622,11 +9314,12 @@ def _guardar_embedding_cache(clave_hash: str, archivo: str, vector) -> bool:
                     "INSERT INTO embeddings (hash, archivo, embedding) "
                     "VALUES (?, ?, ?) ON CONFLICT(hash) DO UPDATE SET "
                     "archivo=excluded.archivo, embedding=excluded.embedding",
-                    (clave_hash, archivo, _serializar_vector(vector)))
+                    (clave_hash, archivo, _serializar_vector(vector)),
+                )
             return True
         finally:
             con.close()
-    except _sqlite3.Error:                   # noqa: BLE001
+    except _sqlite3.Error:
         return False
 
 
@@ -8648,13 +9341,13 @@ def _modelo_embeddings():
         return None
     try:
         _MODELO_EMBEDDINGS = SentenceTransformer(MODELO_EMBEDDINGS_NOMBRE)
-    except Exception as exc:            # sin red para descargar el modelo, etc.
+    except Exception as exc:  # sin red para descargar el modelo, etc.
         aviso(f"No se pudo cargar el modelo de embeddings: {exc}")
         return None
     return _MODELO_EMBEDDINGS
 
 
-def _calcular_embeddings(textos: List[str]) -> List[List[float]]:
+def _calcular_embeddings(textos: list[str]) -> list[list[float]]:
     """Calcula embeddings para una lista de textos (lista de vectores).
 
     Lanza RuntimeError con MENSAJE_EMBEDDINGS_FALTANTE si la librería no está
@@ -8669,7 +9362,8 @@ def _calcular_embeddings(textos: List[str]) -> List[List[float]]:
 
 
 def _calcular_embeddings_con_cache(
-        textos: List[str], claves: Optional[List[tuple]] = None) -> List[List[float]]:
+    textos: list[str], claves: list[tuple] | None = None
+) -> list[list[float]]:
     """Calcula embeddings reutilizando la caché SQLite persistente (v6.9.0).
 
     Para cada ``texto`` consulta ``~/.snapcontext/embeddings.db`` por el hash de
@@ -8678,30 +9372,28 @@ def _calcular_embeddings_con_cache(
     proyectos re-escaneados se reduce el tiempo de selección hasta ~80%.
     Payload por si la caché no está disponible: recalcula todo desde cero.
     """
-    vectores: List[Optional[List[float]]] = [None] * len(textos)
-    pendientes: List[int] = []
+    vectores: list[list[float] | None] = [None] * len(textos)
+    pendientes: list[int] = []
     for i, texto in enumerate(textos):
         blob = _consultar_embedding_cache(_hash_texto(texto))
         if blob is not None:
             try:
                 vectores[i] = _deserializar_vector(blob)
-            except Exception:               # noqa: BLE001 — blob corrupto
+            except Exception:
                 vectores[i] = None
         if vectores[i] is None:
             pendientes.append(i)
     if pendientes:
-        aviso(f"[embeddings] Calculando embeddings de {len(pendientes)} "
-              f"fragmento(s) nuevo(s)…")
+        aviso(f"[embeddings] Calculando embeddings de {len(pendientes)} fragmento(s) nuevo(s)…")
         nuevos = _calcular_embeddings([textos[i] for i in pendientes])
         for j, idx in enumerate(pendientes):
             vectores[idx] = nuevos[j]
             archivo = claves[idx][0] if claves and idx < len(claves) else ""
-            _guardar_embedding_cache(_hash_texto(textos[idx]), archivo,
-                                     nuevos[j])
+            _guardar_embedding_cache(_hash_texto(textos[idx]), archivo, nuevos[j])
     return [v for v in vectores if v is not None]  # type: ignore[return-value]
 
 
-def _similitud_coseno(a: List[float], b: List[float]) -> float:
+def _similitud_coseno(a: list[float], b: list[float]) -> float:
     """Similitud de coseno entre dos vectores (sin depender de numpy)."""
     punto = sum(x * y for x, y in zip(a, b))
     norma_a = sum(x * x for x in a) ** 0.5
@@ -8713,44 +9405,41 @@ def _similitud_coseno(a: List[float], b: List[float]) -> float:
 
 def _hash_texto(texto: str) -> str:
     import hashlib
+
     return hashlib.sha256(texto.encode("utf-8")).hexdigest()[:16]
 
 
-def _dividir_en_fragmentos(texto: str,
-                           max_caracteres: int = CHUNK_CARACTERES) -> List[dict]:
+def _dividir_en_fragmentos(texto: str, max_caracteres: int = CHUNK_CARACTERES) -> list[dict]:
     """Divide el contenido en fragmentos de ~``max_caracteres`` (~512 tokens).
 
     Corta por líneas para no partir sentencias a mitad y registra la línea de
     inicio de cada fragmento (1-based).
     """
-    fragmentos: List[dict] = []
-    actual: List[str] = []
+    fragmentos: list[dict] = []
+    actual: list[str] = []
     linea_inicio = 1
     linea_actual = 0
     for numero, linea in enumerate(texto.splitlines(), start=1):
         linea_actual = numero
         actual.append(linea)
         if sum(len(l) + 1 for l in actual) >= max_caracteres:
-            fragmentos.append({"linea_inicio": linea_inicio,
-                               "texto": "\n".join(actual)})
+            fragmentos.append({"linea_inicio": linea_inicio, "texto": "\n".join(actual)})
             actual = []
             linea_inicio = numero + 1
     if actual:
-        fragmentos.append({"linea_inicio": linea_inicio,
-                           "texto": "\n".join(actual)})
-    if linea_actual == 0:               # archivo vacío
+        fragmentos.append({"linea_inicio": linea_inicio, "texto": "\n".join(actual)})
+    if linea_actual == 0:  # archivo vacío
         fragmentos.append({"linea_inicio": 1, "texto": ""})
     return fragmentos
 
 
-def _patrones_gitignore(raiz: Path) -> List[str]:
+def _patrones_gitignore(raiz: Path) -> list[str]:
     """Lee .gitignore de ``raiz`` y devuelve patrones simples (fnmatch)."""
-    patrones: List[str] = []
+    patrones: list[str] = []
     gitignore = raiz / ".gitignore"
     try:
         if gitignore.is_file():
-            for linea in gitignore.read_text(encoding="utf-8",
-                                             errors="replace").splitlines():
+            for linea in gitignore.read_text(encoding="utf-8", errors="replace").splitlines():
                 linea = linea.strip()
                 if linea and not linea.startswith("#") and not linea.startswith("!"):
                     patrones.append(linea.rstrip("/"))
@@ -8783,19 +9472,19 @@ def _guardar_indice(directorio: str, indice: dict) -> bool:
     try:
         INDICE_DIR.mkdir(parents=True, exist_ok=True)
         _ruta_indice(directorio).write_text(
-            json.dumps(indice, ensure_ascii=False), encoding="utf-8")
+            json.dumps(indice, ensure_ascii=False), encoding="utf-8"
+        )
         return True
     except OSError as exc:
         aviso(f"No se pudo guardar el índice: {exc}")
         return False
 
 
-def _es_ignorado(relativo: str, patrones: List[str]) -> bool:
+def _es_ignorado(relativo: str, patrones: list[str]) -> bool:
     """True si ``relativo`` (ruta POSIX relativa) casa con algún patrón."""
     partes = relativo.split("/")
     for patron in patrones:
-        if fnmatch.fnmatch(relativo, patron) or fnmatch.fnmatch(
-                partes[-1], patron):
+        if fnmatch.fnmatch(relativo, patron) or fnmatch.fnmatch(partes[-1], patron):
             return True
         # Patrón de directorio: ignorar todo lo que cuelga de él.
         if any(fnmatch.fnmatch(parte, patron) for parte in partes):
@@ -8829,8 +9518,7 @@ def _hash_proyecto(raiz) -> str:
     return _hash_texto(json.dumps(hashes, sort_keys=True, ensure_ascii=False))
 
 
-def _indexar_proyecto(directorio: str = ".",
-                      extensiones: Optional[set] = None) -> dict:
+def _indexar_proyecto(directorio: str = ".", extensiones: set | None = None) -> dict:
     """Indexa el proyecto: embeddings por fragmento de cada archivo de código.
 
     - Escanea recursivamente respetando .gitignore y ``CARPETAS_IGNORADAS``.
@@ -8847,11 +9535,12 @@ def _indexar_proyecto(directorio: str = ".",
     extensiones = extensiones or EXTENSIONES_EMBEDDINGS
     patrones = _patrones_gitignore(raiz)
     indice_previo = _cargar_indice(str(raiz))
-    fragmentos_previos = {(f["archivo"], f.get("hash_archivo")): f
-                          for f in indice_previo.get("fragmentos", [])}
+    fragmentos_previos = {
+        (f["archivo"], f.get("hash_archivo")): f for f in indice_previo.get("fragmentos", [])
+    }
 
     # 1) Recolectar archivos candidatos (relativo, contenido, hash) en paralelo.
-    candidatos_rutas: List[Path] = []
+    candidatos_rutas: list[Path] = []
     for camino in sorted(raiz.rglob("*")):
         if not camino.is_file() or camino.suffix.lower() not in extensiones:
             continue
@@ -8862,7 +9551,7 @@ def _indexar_proyecto(directorio: str = ".",
             continue
         candidatos_rutas.append(camino)
 
-    def _leer_archivo_candidato(camino: Path) -> Optional[tuple]:
+    def _leer_archivo_candidato(camino: Path) -> tuple | None:
         rel = camino.relative_to(raiz).as_posix()
         try:
             cont = camino.read_text(encoding="utf-8", errors="replace")
@@ -8871,7 +9560,7 @@ def _indexar_proyecto(directorio: str = ".",
             aviso(f"No se pudo leer {rel}: {exc}")
             return None
 
-    archivos: List[tuple] = []
+    archivos: list[tuple] = []
     if candidatos_rutas:
         num_hilos = min(8, len(candidatos_rutas), (os.cpu_count() or 4) * 2)
         with ThreadPoolExecutor(max_workers=num_hilos) as pool:
@@ -8884,23 +9573,27 @@ def _indexar_proyecto(directorio: str = ".",
         raise RuntimeError("No se encontraron archivos de código para indexar.")
 
     # 2) Separar fragmentos cacheados (mismo hash+texto) de los nuevos.
-    fragmentos: List[dict] = []
-    nuevos_textos: List[str] = []
-    nuevos_claves: List[tuple] = []
+    fragmentos: list[dict] = []
+    nuevos_textos: list[str] = []
+    nuevos_claves: list[tuple] = []
     for relativo, contenido, hash_archivo in archivos:
         for frag in _dividir_en_fragmentos(contenido):
             previo = fragmentos_previos.get((relativo, hash_archivo))
             if previo is not None and previo["texto"] == frag["texto"]:
-                fragmentos.append({**frag, "archivo": relativo,
-                                   "hash_archivo": hash_archivo,
-                                   "embedding": previo["embedding"]})
+                fragmentos.append(
+                    {
+                        **frag,
+                        "archivo": relativo,
+                        "hash_archivo": hash_archivo,
+                        "embedding": previo["embedding"],
+                    }
+                )
             else:
                 nuevos_textos.append(frag["texto"])
-                nuevos_claves.append((relativo, hash_archivo,
-                                      frag["linea_inicio"]))
-                fragmentos.append({**frag, "archivo": relativo,
-                                   "hash_archivo": hash_archivo,
-                                   "embedding": None})   # marcador temporal
+                nuevos_claves.append((relativo, hash_archivo, frag["linea_inicio"]))
+                fragmentos.append(
+                    {**frag, "archivo": relativo, "hash_archivo": hash_archivo, "embedding": None}
+                )  # marcador temporal
 
     # 3) Calcular embeddings de los fragmentos nuevos (caché SQLite v6.9.0).
     if nuevos_textos:
@@ -8910,21 +9603,27 @@ def _indexar_proyecto(directorio: str = ".",
             if frag.get("embedding") is not None:
                 continue
             for (relativo, hash_archivo, linea_inicio), vector in pendientes:
-                if (frag["archivo"] == relativo
-                        and frag["hash_archivo"] == hash_archivo
-                        and frag["linea_inicio"] == linea_inicio):
+                if (
+                    frag["archivo"] == relativo
+                    and frag["hash_archivo"] == hash_archivo
+                    and frag["linea_inicio"] == linea_inicio
+                ):
                     frag["embedding"] = vector
                     break
             if frag.get("embedding") is None:
                 raise RuntimeError(
                     "No se pudo asignar un embedding a un fragmento "
-                    f"({frag['archivo']}:{frag['linea_inicio']})")
+                    f"({frag['archivo']}:{frag['linea_inicio']})"
+                )
 
-    indice = {"version": 1, "directorio": str(raiz),
-              "modelo": MODELO_EMBEDDINGS_NOMBRE,
-              "hash_proyecto": _hash_proyecto(raiz),
-              "hashes": {rel: h for rel, _, h in archivos},
-              "fragmentos": fragmentos}
+    indice = {
+        "version": 1,
+        "directorio": str(raiz),
+        "modelo": MODELO_EMBEDDINGS_NOMBRE,
+        "hash_proyecto": _hash_proyecto(raiz),
+        "hashes": {rel: h for rel, _, h in archivos},
+        "fragmentos": fragmentos,
+    }
     _guardar_indice(str(raiz), indice)
     return indice
 
@@ -8945,8 +9644,9 @@ def _asegurar_indice(directorio: str) -> dict:
     return _indexar_proyecto(directorio)
 
 
-def _buscar_semanticamente(consulta: str, directorio: str = ".",
-                           max_resultados: int = 20) -> List[dict]:
+def _buscar_semanticamente(
+    consulta: str, directorio: str = ".", max_resultados: int = 20
+) -> list[dict]:
     """Búsqueda semántica: fragmentos más similares a ``consulta``.
 
     Devuelve una lista ordenada por similitud::
@@ -8956,25 +9656,28 @@ def _buscar_semanticamente(consulta: str, directorio: str = ".",
     Lanza RuntimeError si los embeddings no están disponibles.
     """
     indice = _asegurar_indice(directorio)
-    fragmentos = [f for f in indice.get("fragmentos", [])
-                  if f.get("embedding")]
+    fragmentos = [f for f in indice.get("fragmentos", []) if f.get("embedding")]
     if not fragmentos:
         return []
     vector_consulta = _calcular_embeddings([consulta])[0]
     puntuados = []
     for frag in fragmentos:
         similitud = _similitud_coseno(vector_consulta, frag["embedding"])
-        puntuados.append({"archivo": frag["archivo"],
-                          "linea_inicio": frag["linea_inicio"],
-                          "similitud": round(similitud, 4),
-                          "texto": frag["texto"]})
+        puntuados.append(
+            {
+                "archivo": frag["archivo"],
+                "linea_inicio": frag["linea_inicio"],
+                "similitud": round(similitud, 4),
+                "texto": frag["texto"],
+            }
+        )
     puntuados.sort(key=lambda f: f["similitud"], reverse=True)
     return puntuados[:max_resultados]
 
 
-def _seleccionar_archivos_con_embeddings(consulta: str, directorio: str = ".",
-                                         max_archivos: int = 3,
-                                         umbral: float = 0.6) -> List[str]:
+def _seleccionar_archivos_con_embeddings(
+    consulta: str, directorio: str = ".", max_archivos: int = 3, umbral: float = 0.6
+) -> list[str]:
     """Selecciona archivos relevantes por similitud semántica.
 
     Agrupa las similitudes por archivo (sumando sus fragmentos), filtra por
@@ -8982,16 +9685,14 @@ def _seleccionar_archivos_con_embeddings(consulta: str, directorio: str = ".",
     ``max_archivos``, rellena con los mejores candidatos de la heurística
     local (``escanear_repositorio``) que no estén ya incluidos.
     """
-    resultados = _buscar_semanticamente(consulta, directorio,
-                                        max_resultados=50)
+    resultados = _buscar_semanticamente(consulta, directorio, max_resultados=50)
     puntuaciones: dict = {}
     for frag in resultados:
-        puntuaciones[frag["archivo"]] = (
-            puntuaciones.get(frag["archivo"], 0.0) + frag["similitud"])
-    ordenados = sorted(puntuaciones.items(), key=lambda kv: kv[1],
-                       reverse=True)
-    seleccion = [archivo for archivo, puntuacion in ordenados
-                 if puntuacion >= umbral][:max_archivos]
+        puntuaciones[frag["archivo"]] = puntuaciones.get(frag["archivo"], 0.0) + frag["similitud"]
+    ordenados = sorted(puntuaciones.items(), key=lambda kv: kv[1], reverse=True)
+    seleccion = [archivo for archivo, puntuacion in ordenados if puntuacion >= umbral][
+        :max_archivos
+    ]
 
     if len(seleccion) < max_archivos:
         try:
@@ -9004,24 +9705,66 @@ def _seleccionar_archivos_con_embeddings(consulta: str, directorio: str = ".",
             if candidato not in seleccion:
                 seleccion.append(candidato)
     return seleccion
+
+
 # ---------------------------------------------------------------------------
 # Editor web y visualización de dependencias — v1.2.0
 # ---------------------------------------------------------------------------
 # Mapa extensión → lenguaje de Monaco Editor (resaltado de sintaxis).
 _MAPA_LENGUAJE_MONACO = {
-    ".py": "python", ".pyi": "python", ".js": "javascript", ".mjs": "javascript",
-    ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript",
-    ".dart": "dart", ".go": "go", ".rs": "rust", ".java": "java",
-    ".kt": "kotlin", ".rb": "ruby", ".php": "php", ".c": "c", ".cpp": "cpp",
-    ".h": "cpp", ".hpp": "cpp", ".hxx": "cpp", ".cs": "csharp",
-    ".swift": "swift", ".md": "markdown", ".json": "json", ".yaml": "yaml",
-    ".yml": "yaml", ".toml": "ini", ".html": "html", ".css": "css",
-    ".sh": "shell", ".bash": "shell", ".sql": "sql", ".xml": "xml",
+    ".py": "python",
+    ".pyi": "python",
+    ".js": "javascript",
+    ".mjs": "javascript",
+    ".jsx": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".dart": "dart",
+    ".go": "go",
+    ".rs": "rust",
+    ".java": "java",
+    ".kt": "kotlin",
+    ".rb": "ruby",
+    ".php": "php",
+    ".c": "c",
+    ".cpp": "cpp",
+    ".h": "cpp",
+    ".hpp": "cpp",
+    ".hxx": "cpp",
+    ".cs": "csharp",
+    ".swift": "swift",
+    ".md": "markdown",
+    ".json": "json",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".toml": "ini",
+    ".html": "html",
+    ".css": "css",
+    ".sh": "shell",
+    ".bash": "shell",
+    ".sql": "sql",
+    ".xml": "xml",
 }
 # Extensiones de código consideradas al construir el grafo de dependencias.
 _GRP_EXT_DEPS = {
-    ".py", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".dart", ".go", ".rs",
-    ".java", ".kt", ".rb", ".php", ".c", ".cpp", ".h", ".hpp", ".cs",
+    ".py",
+    ".js",
+    ".mjs",
+    ".ts",
+    ".tsx",
+    ".jsx",
+    ".dart",
+    ".go",
+    ".rs",
+    ".java",
+    ".kt",
+    ".rb",
+    ".php",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".cs",
     ".swift",
 }
 
@@ -9032,7 +9775,7 @@ def _comando_para_monaco(archivo: str) -> str:
     return _MAPA_LENGUAJE_MONACO.get(ext, "plaintext")
 
 
-def _extraer_dependencias(contenido: str, lenguaje: str) -> List[str]:
+def _extraer_dependencias(contenido: str, lenguaje: str) -> list[str]:
     """Extrae las referencias de importación de ``contenido`` para ``lenguaje``.
 
     Devuelve una lista ordenada y sin duplicados de módulos/símbolos importados.
@@ -9043,16 +9786,18 @@ def _extraer_dependencias(contenido: str, lenguaje: str) -> List[str]:
 
     if lenguaje == "python":
         for m in re.finditer(
-                r"^\s*(?:from\s+([\w.]+)\s+import|\bimport\s+([\w.]+))",
-                contenido, re.M):
+            r"^\s*(?:from\s+([\w.]+)\s+import|\bimport\s+([\w.]+))", contenido, re.M
+        ):
             modulo = (m.group(1) or m.group(2) or "").split(".")[0]
             if modulo:
                 dependencias.add(modulo)
     elif lenguaje in ("javascript", "typescript"):
         for m in re.finditer(
-                r"(?:from\s+['\"]([^'\"]+)['\"]"
-                r"|require\(\s*['\"]([^'\"]+)['\"]\s*\))", contenido):
-            modulo = (m.group(1) or m.group(2) or "")
+            r"(?:from\s+['\"]([^'\"]+)['\"]"
+            r"|require\(\s*['\"]([^'\"]+)['\"]\s*\))",
+            contenido,
+        ):
+            modulo = m.group(1) or m.group(2) or ""
             if modulo:
                 dependencias.add(modulo)
     elif lenguaje == "dart":
@@ -9141,8 +9886,7 @@ def _grafo_dependencias(directorio="."):
     nodos = []
     for camino in archivos:
         rel = camino.relative_to(raiz).as_posix()
-        nodos.append({"id": rel, "etiqueta": camino.name,
-                      "lenguaje": _comando_para_monaco(rel)})
+        nodos.append({"id": rel, "etiqueta": camino.name, "lenguaje": _comando_para_monaco(rel)})
         por_ruta[rel] = camino.name
         por_stem.setdefault(camino.stem, rel)
     enlaces = []
@@ -9155,8 +9899,7 @@ def _grafo_dependencias(directorio="."):
             continue
         lenguaje = _comando_para_monaco(rel)
         for dep in _extraer_dependencias(contenido, lenguaje):
-            destino = _resolver_dependencia(rel, camino, dep, por_ruta,
-                                            por_stem, raiz)
+            destino = _resolver_dependencia(rel, camino, dep, por_ruta, por_stem, raiz)
             if destino and destino != rel and destino in por_ruta:
                 clave = (rel, destino)
                 if clave not in vistos:
@@ -9181,8 +9924,9 @@ def _buscar_en_codigo(tema, directorio=".", max_resultados=50):
     elif herramienta == "grep":
         comando = f'grep -rn -i -m 5 "{tema}" .'
     else:
-        comando = (f'findstr /s /n /i "{tema}" '
-                   "*.py *.dart *.js *.ts *.go *.rs *.java *.kt *.rb *.php")
+        comando = (
+            f'findstr /s /n /i "{tema}" *.py *.dart *.js *.ts *.go *.rs *.java *.kt *.rb *.php'
+        )
     codigo, stdout, _stderr = _ejecutar_comando(comando, directorio, timeout=60)
     if codigo != 0 or not stdout:
         return []
@@ -9194,35 +9938,99 @@ def _buscar_en_codigo(tema, directorio=".", max_resultados=50):
 
 # Categorías en orden de aparición; cada opción se muestra una sola vez.
 CATEGORIAS_AYUDA = (
-    ("Modos de ejecución",
-     ("--plan", "--auto", "--editor", "--modo-edicion", "--validar", "--no-validar-sintaxis", "--max-intentos-validacion",
-      "--max-context-tokens", "--editor-fallback", "--mostrar-razonamiento",
-      "--mostrar-diff",
-      "--asesor", "--asesor-auto", "--asesor-umbral", "--modelo-ligero",
-      "--asesor-profundo", "--graph-rag", "--graph-rag-lsp",
-      "--lsp-profundidad", "--lsp-simbolos-max", "--multi-agent",
-      "--api", "--api-puerto", "--api-host", "--api-token", "--api-generate-key",
-      "--chat", "--web", "--web-puerto", "--demo", "--tui",
-      "--init", "--init-claude", "--historial", "--historial-limpiar",
-      "--diagnostico", "--reparar", "--bienvenida")),
-    ("Selección de archivos",
-     ("consulta", "--local", "--iniciar-proyecto", "--no-validar-proyecto",
-      "--experto", "--vista-previa", "--carpetas", "--max-archivos", "--candidatos")),
-    ("Proveedores de IA",
-     ("--provider", "--model", "--no-persist")),
-    ("Permisos y seguridad",
-     ("--confirmar", "--no-confirmar")),
-    ("Git y control de versiones",
-     ("--git-commit", "--no-git-commit", "--branch")),
-    ("Planificador y bucles",
-     ("--paralelo", "--max-intentos", "--test-loop", "--server-loop",
-      "--manual-loop", "--comando-test", "--sandbox", "--no-sandbox",
-      "--sandbox-session", "--sandbox-session-clean", "--sandbox-imagen",
-      "--sandbox-comando", "--dispositivo", "--url-defecto",
-      "--max-iteraciones")),
-    ("Otros",
-     ("consulta", "--directorio", "--aider-opciones", "--depurar",
-      "--setup-path", "--version", "-h", "--help")),
+    (
+        "Modos de ejecución",
+        (
+            "--plan",
+            "--auto",
+            "--editor",
+            "--modo-edicion",
+            "--validar",
+            "--no-validar-sintaxis",
+            "--max-intentos-validacion",
+            "--max-context-tokens",
+            "--editor-fallback",
+            "--mostrar-razonamiento",
+            "--mostrar-diff",
+            "--asesor",
+            "--asesor-auto",
+            "--asesor-umbral",
+            "--modelo-ligero",
+            "--asesor-profundo",
+            "--graph-rag",
+            "--graph-rag-lsp",
+            "--lsp-profundidad",
+            "--lsp-simbolos-max",
+            "--multi-agent",
+            "--api",
+            "--api-puerto",
+            "--api-host",
+            "--api-token",
+            "--api-generate-key",
+            "--chat",
+            "--web",
+            "--web-puerto",
+            "--demo",
+            "--tui",
+            "--init",
+            "--init-claude",
+            "--historial",
+            "--historial-limpiar",
+            "--diagnostico",
+            "--reparar",
+            "--bienvenida",
+        ),
+    ),
+    (
+        "Selección de archivos",
+        (
+            "consulta",
+            "--local",
+            "--iniciar-proyecto",
+            "--no-validar-proyecto",
+            "--experto",
+            "--vista-previa",
+            "--carpetas",
+            "--max-archivos",
+            "--candidatos",
+        ),
+    ),
+    ("Proveedores de IA", ("--provider", "--model", "--no-persist")),
+    ("Permisos y seguridad", ("--confirmar", "--no-confirmar")),
+    ("Git y control de versiones", ("--git-commit", "--no-git-commit", "--branch")),
+    (
+        "Planificador y bucles",
+        (
+            "--paralelo",
+            "--max-intentos",
+            "--test-loop",
+            "--server-loop",
+            "--manual-loop",
+            "--comando-test",
+            "--sandbox",
+            "--no-sandbox",
+            "--sandbox-session",
+            "--sandbox-session-clean",
+            "--sandbox-imagen",
+            "--sandbox-comando",
+            "--dispositivo",
+            "--url-defecto",
+            "--max-iteraciones",
+        ),
+    ),
+    (
+        "Otros",
+        (
+            "consulta",
+            "--directorio",
+            "--aider-opciones",
+            "--depurar",
+            "--setup-path",
+            "--version",
+            "-h",
+            "--help",
+        ),
+    ),
 )
 
 # Alias/subcomandos que resuelve _preparar_argv_aliases().
@@ -9240,9 +10048,9 @@ EJEMPLOS_AYUDA = (
     'snapcontext fix "el botón de pago no funciona"',
     'snapcontext plan "añadir validación al formulario" --auto',
     'snapcontext review "revisar el login"',
-    'snapcontext interactive',
-    'snapcontext --chat',
-    'snapcontext --demo',
+    "snapcontext interactive",
+    "snapcontext --chat",
+    "snapcontext --demo",
     'snapcontext "..." --provider groq --model llama-3.3-70b-versatile',
 )
 
@@ -9266,7 +10074,7 @@ def action_toma_valor(accion) -> bool:
 def _construir_ayuda(parser: argparse.ArgumentParser) -> str:
     """Genera el texto completo de `--help`: uso, categorias, alias y ejemplos."""
     ancho = max(min(shutil.get_terminal_size().columns - 2, 100), 70)
-    lineas: List[str] = []
+    lineas: list[str] = []
     COL_IZQ = 30  # ancho de la columna izquierda (invocacion + padding)
 
     def titulo(texto: str) -> None:
@@ -9279,19 +10087,16 @@ def _construir_ayuda(parser: argparse.ArgumentParser) -> str:
         + _pintar(" - asistente de IA con contexto automatico", "gris")
     )
     lineas.append("")
-    lineas.append(
-        _pintar("Uso:", "negrita")
-        + ' snapcontext [alias] "<consulta>" [opciones]'
-    )
+    lineas.append(_pintar("Uso:", "negrita") + ' snapcontext [alias] "<consulta>" [opciones]')
 
     # -- Helpers de formateo -------------------------------------------------
-    def _envolver(texto: str) -> List[str]:
+    def _envolver(texto: str) -> list[str]:
         """Divide 'texto' en lineas de maximo (ancho - COL_IZQ) caracteres."""
         ancho_texto = max(ancho - COL_IZQ, 36)
         palabras = texto.split()
         if not palabras:
             return [""]
-        resultado: List[str] = []
+        resultado: list[str] = []
         actual = ""
         for palabra in palabras:
             if actual and len(actual) + 1 + len(palabra) > ancho_texto:
@@ -9321,7 +10126,7 @@ def _construir_ayuda(parser: argparse.ArgumentParser) -> str:
     # -- Mapa de acciones ----------------------------------------------------
     acciones_por_opcion: dict = {}
     accion_consulta = None
-    for accion in parser._actions:                     # noqa: SLF001
+    for accion in parser._actions:
         if not accion.option_strings:
             if accion.dest == "consulta":
                 accion_consulta = accion
@@ -9334,7 +10139,7 @@ def _construir_ayuda(parser: argparse.ArgumentParser) -> str:
     usadas: set = set()
 
     for categoria, opciones in CATEGORIAS_AYUDA:
-        lineas_cat: List[tuple] = []
+        lineas_cat: list[tuple] = []
 
         for op in opciones:
             if op == "consulta":
@@ -9360,9 +10165,9 @@ def _construir_ayuda(parser: argparse.ArgumentParser) -> str:
 
     # Opciones no categorizadas al final
     restantes = [
-        a for a in parser._actions
-        if a.option_strings
-        and not any(op in usadas for op in a.option_strings)
+        a
+        for a in parser._actions
+        if a.option_strings and not any(op in usadas for op in a.option_strings)
     ]
     if restantes:
         lineas.append("")
@@ -9379,9 +10184,7 @@ def _construir_ayuda(parser: argparse.ArgumentParser) -> str:
     for alias, descripcion in ALIAS_AYUDA:
         alias_raw = f"  {alias}"
         padding = max(COL_IZQ - len(alias_raw), 1)
-        lineas.append(
-            f"{_pintar(alias_raw, 'amarillo')}{chr(32) * padding}{descripcion}"
-        )
+        lineas.append(f"{_pintar(alias_raw, 'amarillo')}{chr(32) * padding}{descripcion}")
 
     # -- Ejemplos ------------------------------------------------------------
     titulo("Ejemplos")
@@ -9389,14 +10192,16 @@ def _construir_ayuda(parser: argparse.ArgumentParser) -> str:
         lineas.append(_pintar(f"  $ {ejemplo}", "verde"))
 
     lineas.append("")
-    lineas.append(_pintar(
-        "Variables de entorno: GEMINI_API_KEY / ANTHROPIC_API_KEY / "
-        "DEEPSEEK_API_KEY / GROQ_API_KEY · OLLAMA_URL · "
-        "SNAPCONTEXT_PROVIDER · SNAPCONTEXT_MODELO", "gris",
-    ))
+    lineas.append(
+        _pintar(
+            "Variables de entorno: GEMINI_API_KEY / ANTHROPIC_API_KEY / "
+            "DEEPSEEK_API_KEY / GROQ_API_KEY · OLLAMA_URL · "
+            "SNAPCONTEXT_PROVIDER · SNAPCONTEXT_MODELO",
+            "gris",
+        )
+    )
     lineas.append("")
     return "\n".join(lineas)
-
 
 
 def _mostrar_ayuda_resumida() -> None:
@@ -9405,7 +10210,7 @@ def _mostrar_ayuda_resumida() -> None:
     Más corta que --help: comandos de uso común con ejemplos listos para
     copiar y pegar.
     """
-    _ui_mostrar_banner(VERSION)   # v4.8.0: banner Rich en vez de print plano.
+    _ui_mostrar_banner(VERSION)  # v4.8.0: banner Rich en vez de print plano.
     lineas = [
         "Bienvenido a SnapContext — tu asistente de IA con contexto automático.",
         "",
@@ -9419,7 +10224,7 @@ def _mostrar_ayuda_resumida() -> None:
         "  snapcontext --reparar        Arreglar una instalación rota",
         "  snapcontext --demo           Demo autónoma (sin API key)",
         "  snapcontext --chat           Conversar con el proveedor de IA",
-        "  snapcontext --plan \"tarea\"   Planificar y ejecutar paso a paso",
+        '  snapcontext --plan "tarea"   Planificar y ejecutar paso a paso',
         "  snapcontext --help           Ayuda completa agrupada",
         "",
         _pintar("Ejemplos:", _CYAN),
@@ -9427,8 +10232,8 @@ def _mostrar_ayuda_resumida() -> None:
         '  snapcontext "añadir login" --test-loop',
         '  snapcontext "revisar pago" --vista-previa   # solo ver, no editar',
         "",
-        _pintar("Sin API key", _CYAN) +
-        ": SnapContext usa Ollama local automáticamente (modo offline).",
+        _pintar("Sin API key", _CYAN)
+        + ": SnapContext usa Ollama local automáticamente (modo offline).",
         "Instala Ollama desde https://ollama.com y ejecuta: ollama pull llama3.2",
         "",
     ]
@@ -9438,14 +10243,17 @@ def _mostrar_ayuda_resumida() -> None:
 class _AyudaAccion(argparse.Action):
     """Muestra la ayuda agrupada por categorías y termina."""
 
-    def __init__(self, option_strings, dest=argparse.SUPPRESS,
-                 default=argparse.SUPPRESS, help=None):  # noqa: A002
-        super().__init__(option_strings=option_strings, dest=dest,
-                         default=default, nargs=0, help=help)
+    def __init__(
+        self, option_strings, dest=argparse.SUPPRESS, default=argparse.SUPPRESS, help=None
+    ):
+        super().__init__(
+            option_strings=option_strings, dest=dest, default=default, nargs=0, help=help
+        )
 
     def __call__(self, parser, namespace, valores, opcion=None):
         global _AYUDA_CON_COLOR
         import presentacion as _pres
+
         _AYUDA_CON_COLOR = _pres._AYUDA_CON_COLOR = _colores_activos()
         sys.stdout.write(_construir_ayuda(parser))
         parser.exit()
@@ -9461,34 +10269,34 @@ class _AyudaAccion(argparse.Action):
 # v6.34.5: análisis del asesor extraído a :mod:`seguridad` (refactor fase
 # 1). Se re-exportan con los nombres originales para no romper la API
 # interna ni los tests.
-from seguridad import (                                   # noqa: E402
-    ASESOR_EXTENSIONES,
-    ASESOR_CARPETAS_IGNORADAS,
-    ASESOR_UMBRALES_DEFECTO,
-    _NOMBRES_CORTOS_VALIDOS,
-    _NOMBRES_SUGERIDOS,
-    _PRIORIDAD_ORDEN,
-    _PATRONES_OBSOLETOS,
-    _VULNERABILIDADES_PATRONES,
-    _SECRETES_RE,
-    _RENDIMIENTO_PATRONES,
-    _asesor_umbrales,
-    _detectar_funciones_largas,
-    _detectar_clases_grandes,
-    _detectar_nombres_cortos,
-    _detectar_patrones_obsoletos,
-    _normalizar_linea_duplicado,
-    _detectar_duplicados,
-    _detectar_vulnerabilidades,
-    _detectar_rendimiento,
-    _asesor_analizar,
-    _asesor_analizar_por_tipo,
-    _analizar_seguridad,
+from seguridad import (  # noqa: E402
+    ASESOR_CARPETAS_IGNORADAS,  # noqa: F401  (re-export: API interna y tests)
+    ASESOR_EXTENSIONES,  # noqa: F401  (re-export: API interna y tests)
+    ASESOR_UMBRALES_DEFECTO,  # noqa: F401  (re-export: API interna y tests)
+    _NOMBRES_CORTOS_VALIDOS,  # noqa: F401  (re-export: API interna y tests)
+    _NOMBRES_SUGERIDOS,  # noqa: F401  (re-export: API interna y tests)
+    _PATRONES_OBSOLETOS,  # noqa: F401  (re-export: API interna y tests)
+    _PRIORIDAD_ORDEN,  # noqa: F401  (re-export: API interna y tests)
+    _RENDIMIENTO_PATRONES,  # noqa: F401  (re-export: API interna y tests)
+    _SECRETES_RE,  # noqa: F401  (re-export: API interna y tests)
+    _VULNERABILIDADES_PATRONES,  # noqa: F401  (re-export: API interna y tests)
     _analizar_rendimiento,
+    _analizar_seguridad,
+    _asesor_analizar,
+    _asesor_analizar_por_tipo,  # noqa: F401  (re-export: API interna y tests)
+    _asesor_umbrales,  # noqa: F401  (re-export: API interna y tests)
+    _detectar_clases_grandes,  # noqa: F401  (re-export: API interna y tests)
+    _detectar_duplicados,  # noqa: F401  (re-export: API interna y tests)
+    _detectar_funciones_largas,  # noqa: F401  (re-export: API interna y tests)
+    _detectar_nombres_cortos,  # noqa: F401  (re-export: API interna y tests)
+    _detectar_patrones_obsoletos,  # noqa: F401
+    _detectar_rendimiento,  # noqa: F401  (re-export: API interna y tests)
+    _detectar_vulnerabilidades,  # noqa: F401
+    _normalizar_linea_duplicado,  # noqa: F401
 )
 
 
-def _asesor_mostrar(sugerencias: List[dict]) -> None:
+def _asesor_mostrar(sugerencias: list[dict]) -> None:
     """Muestra las sugerencias en la CLI con colores por prioridad."""
     if not sugerencias:
         exito("Asesor: sin sugerencias. El código está limpio. ✔")
@@ -9497,19 +10305,22 @@ def _asesor_mostrar(sugerencias: List[dict]) -> None:
     color_prioridad = {"alta": _ROJO, "media": _AMARILLO, "baja": _CYAN}
     for indice, sugg in enumerate(sugerencias, start=1):
         color = color_prioridad.get(sugg.get("prioridad"), _CYAN)
-        _emitir(sys.stdout, _pintar(
-            f"  {indice}. [{sugg['prioridad'].upper()}] "
-            f"{sugg['archivo']}:{sugg['linea']} — {sugg['descripcion']}",
-            color))
+        _emitir(
+            sys.stdout,
+            _pintar(
+                f"  {indice}. [{sugg['prioridad'].upper()}] "
+                f"{sugg['archivo']}:{sugg['linea']} — {sugg['descripcion']}",
+                color,
+            ),
+        )
         _emitir(sys.stdout, _pintar(f"       → {sugg['solucion']}", _VERDE))
         if sugg.get("auto"):
-            _emitir(sys.stdout, _pintar(
-                "       (aplicable automáticamente con --asesor-auto)",
-                _CYAN))
+            _emitir(
+                sys.stdout, _pintar("       (aplicable automáticamente con --asesor-auto)", _CYAN)
+            )
 
 
-def _asesor_aplicar_automaticas(sugerencias: List[dict],
-                                directorio: str = ".") -> int:
+def _asesor_aplicar_automaticas(sugerencias: list[dict], directorio: str = ".") -> int:
     """Aplica solo las sugerencias marcadas ``auto=True`` (--asesor-auto).
 
     Cada cambio se valida con ``_validar_sintaxis`` antes de escribir; si la
@@ -9532,30 +10343,32 @@ def _asesor_aplicar_automaticas(sugerencias: List[dict],
             continue
         exito_val, err = _validar_sintaxis(sugg["archivo"], nuevo, str(raiz))
         if not exito_val:
-            aviso(f"[asesor-auto] Cambio descartado en {sugg['archivo']} "
-                  f"(validación falló: {err}).")
+            aviso(
+                f"[asesor-auto] Cambio descartado en {sugg['archivo']} (validación falló: {err})."
+            )
             continue
         try:
             archivo.write_text(nuevo, encoding="utf-8")
         except OSError as exc:
             aviso(f"[asesor-auto] No se pudo escribir {sugg['archivo']}: {exc}")
             continue
-        exito(f"[asesor-auto] Aplicado en {sugg['archivo']}:"
-              f"{sugg['linea']} — {sugg['solucion']}")
+        exito(f"[asesor-auto] Aplicado en {sugg['archivo']}:{sugg['linea']} — {sugg['solucion']}")
         aplicadas += 1
     return aplicadas
 
 
 def _ejecutar_asesor(args: argparse.Namespace) -> int:
     """Modo asesor (`--asesor` / `--sugerir` / `--asesor-auto`)."""
-    from agentes import AgenteAsesor      # import diferido (evita ciclos)
+    from agentes import AgenteAsesor  # import diferido (evita ciclos)
+
     directorio = getattr(args, "directorio", ".") or "."
     agente = AgenteAsesor()
     info("🧠 Asesor de código proactivo analizando el proyecto...")
     sugerencias = agente.analizar(
         directorio,
         umbral_funcion=getattr(args, "asesor_umbral", None),
-        profundo=getattr(args, "asesor_profundo", False))
+        profundo=getattr(args, "asesor_profundo", False),
+    )
     agente.mostrar(sugerencias)
     if getattr(args, "asesor_auto", False):
         aplicadas = agente.aplicar_automaticas(sugerencias, directorio)
@@ -9564,16 +10377,19 @@ def _ejecutar_asesor(args: argparse.Namespace) -> int:
         else:
             info("Ninguna sugerencia era aplicable automáticamente.")
     else:
-        info("Modo informativo: no se modificó ningún archivo "
-             "(usa --asesor-auto para aplicar mejoras seguras).")
+        info(
+            "Modo informativo: no se modificó ningún archivo "
+            "(usa --asesor-auto para aplicar mejoras seguras)."
+        )
     return 0
 
 
 def crear_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="snapcontext",
-        add_help=False,   # -h/--help se gestionan con _AyudaAccion (agrupada)
-        description=_LOGO_SMALL + (
+        add_help=False,  # -h/--help se gestionan con _AyudaAccion (agrupada)
+        description=_LOGO_SMALL
+        + (
             "SnapContext — Asistente de IA para desarrollo con Flutter/Supabase. "
             "Escanea el repo, el proveedor de IA (Gemini, Ollama, DeepSeek o "
             "Groq) elige los archivos relevantes y Aider realiza los cambios."
@@ -9589,10 +10405,10 @@ def crear_parser() -> argparse.ArgumentParser:
             '  snapcontext fix "el botón de pago no funciona"\n'
             '  snapcontext review "revisar código"\n'
             '  snapcontext server "iniciar servidor"\n'
-            '  snapcontext interactive\n'
-            '  snapcontext --chat\n'
-            '  snapcontext --historial\n'
-            '  snapcontext --demo\n'
+            "  snapcontext interactive\n"
+            "  snapcontext --chat\n"
+            "  snapcontext --historial\n"
+            "  snapcontext --demo\n"
             '  snapcontext "..." --provider groq --model llama-3.3-70b-versatile\n'
             "Variables de entorno: clave según --provider (GEMINI_API_KEY / "
             "ANTHROPIC_API_KEY / DEEPSEEK_API_KEY / GROQ_API_KEY), OLLAMA_URL "
@@ -9602,284 +10418,383 @@ def crear_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "consulta", type=str, nargs="?", default=None,
+        "consulta",
+        type=str,
+        nargs="?",
+        default=None,
         help="La tarea a resolver (pásala entre comillas). Omitible con --init.",
     )
     parser.add_argument(
-        "--init", action="store_true",
+        "--init",
+        action="store_true",
         help="Asistente de configuración inicial: claves API, proveedor y "
-             "modelo favorito (se guarda en ~/.snapcontext/config.json). "
-             "Independiente de la consulta y el escaneo.",
+        "modelo favorito (se guarda en ~/.snapcontext/config.json). "
+        "Independiente de la consulta y el escaneo.",
     )
     parser.add_argument(
-        "--directorio", default=".",
+        "--directorio",
+        default=".",
         help="Repositorio donde trabajar (por defecto: raíz git detectada desde "
-             "el directorio actual).",
+        "el directorio actual).",
     )
     parser.add_argument(
-        "--carpetas", nargs="+", default=None,
+        "--carpetas",
+        nargs="+",
+        default=None,
         help="Carpetas a escanear (por defecto: lib supabase).",
     )
     parser.add_argument(
-        "--max-archivos", type=int, default=MAX_ARCHIVOS_DEFECTO,
+        "--max-archivos",
+        type=int,
+        default=MAX_ARCHIVOS_DEFECTO,
         help="Número de archivos que recibe Aider (por defecto: 3).",
     )
     parser.add_argument(
-        "--candidatos", type=int, default=MAX_CANDIDATOS_DEFECTO,
+        "--candidatos",
+        type=int,
+        default=MAX_CANDIDATOS_DEFECTO,
         help="Máximo de candidatos que recibe Gemini (por defecto: 80).",
     )
     parser.add_argument(
-        "--provider", choices=sorted(PROVEEDORES), default=None,
+        "--provider",
+        choices=sorted(PROVEEDORES),
+        default=None,
         help="Proveedor de IA que elige los archivos (gemini | ollama | "
-             "deepseek | groq). Si no se indica -y tampoco --local-, se usa el "
-             "guardado en ~/.snapcontext/config.json o, si es el primer uso, "
-             "se muestra un menú interactivo (questionary); con --no-persist "
-             "se fuerza siempre el menú. Env: SNAPCONTEXT_PROVIDER.",
+        "deepseek | groq). Si no se indica -y tampoco --local-, se usa el "
+        "guardado en ~/.snapcontext/config.json o, si es el primer uso, "
+        "se muestra un menú interactivo (questionary); con --no-persist "
+        "se fuerza siempre el menú. Env: SNAPCONTEXT_PROVIDER.",
     )
     parser.add_argument(
-        "--no-persist", action="store_true",
+        "--no-persist",
+        action="store_true",
         help="Ignora la configuracion guardada (~/.snapcontext/config.json) y "
-             "fuerza el menú interactivo de proveedor (si no hay --local).",
+        "fuerza el menú interactivo de proveedor (si no hay --local).",
     )
     parser.add_argument(
-        "--model", "--modelo", dest="modelo", default=MODELO_DEFECTO,
+        "--model",
+        "--modelo",
+        dest="modelo",
+        default=MODELO_DEFECTO,
         help="Modelo del proveedor. Si no se indica, se usa el modelo por "
-             "defecto de cada proveedor (o SNAPCONTEXT_MODELO).",
+        "defecto de cada proveedor (o SNAPCONTEXT_MODELO).",
     )
     parser.add_argument(
-        "--local", action="store_true",
+        "--local",
+        action="store_true",
         help="Selección local por heurística, sin llamar a Gemini "
-             "(útil para probar offline). También desactiva la validación "
-             "de carpeta de proyecto.",
+        "(útil para probar offline). También desactiva la validación "
+        "de carpeta de proyecto.",
     )
     parser.add_argument(
-        "--multi-agent", dest="multi_agent", action="store_true", default=False,
+        "--multi-agent",
+        dest="multi_agent",
+        action="store_true",
+        default=False,
         help="Sistema multi-agente (v6.0.0): un Supervisor coordina a un "
-             "Arquitecto (plan), un Programador (editor propio) y un Tester "
-             "(pruebas) con bucle de realimentación. Env: "
-             "SNAPCONTEXT_MULTI_AGENT=1.",
+        "Arquitecto (plan), un Programador (editor propio) y un Tester "
+        "(pruebas) con bucle de realimentación. Env: "
+        "SNAPCONTEXT_MULTI_AGENT=1.",
     )
     parser.add_argument(
-        "--sub-agents", dest="sub_agents", action="store_true", default=False,
+        "--sub-agents",
+        dest="sub_agents",
+        action="store_true",
+        default=False,
         help="Sub-agentes din\u00e1micos (v6.13.0): el Supervisor instancia "
-             "agentes especializados bajo demanda (scout, debugger, "
-             "frontender, tester, documentador) con contexto aislado y los "
-             "ejecuta en paralelo. Requiere --multi-agent.",
+        "agentes especializados bajo demanda (scout, debugger, "
+        "frontender, tester, documentador) con contexto aislado y los "
+        "ejecuta en paralelo. Requiere --multi-agent.",
     )
     parser.add_argument(
-        "--max-parallel", dest="max_parallel", type=int, default=3,
+        "--max-parallel",
+        dest="max_parallel",
+        type=int,
+        default=3,
         help="N\u00famero m\u00e1ximo de sub-agentes en paralelo "
-             "(por defecto 3). Usar con --sub-agents.",
+        "(por defecto 3). Usar con --sub-agents.",
     )
     parser.add_argument(
-        "--sub-agente-nuevo", dest="sub_agente_nuevo", nargs=2,
-        metavar=("NOMBRE", "DESCRIPCION"), default=None,
+        "--sub-agente-nuevo",
+        dest="sub_agente_nuevo",
+        nargs=2,
+        metavar=("NOMBRE", "DESCRIPCION"),
+        default=None,
         help="v6.20.0: registra un sub-agente din\u00e1mico nuevo "
-             "(<nombre> + <descripcion>) para usarlo bajo demanda, como plugin.",
+        "(<nombre> + <descripcion>) para usarlo bajo demanda, como plugin.",
     )
     parser.add_argument(
-        "--sub-agente-listar", dest="sub_agente_listar", action="store_true",
+        "--sub-agente-listar",
+        dest="sub_agente_listar",
+        action="store_true",
         default=False,
         help="v6.20.0: lista los sub-agentes din\u00e1micos registrados y sale.",
     )
     parser.add_argument(
-        "--lsp", dest="lsp", action="store_true", default=False,
+        "--lsp",
+        dest="lsp",
+        action="store_true",
+        default=False,
         help="LSP (v6.14.0): activa herramientas lsp_definicion / "
-             "lsp_referencias / lsp_tipo en el agente (pyright, tsserver, "
-             "gopls, rust-analyzer...). Cliente perezoso y con cach\u00e9. "
-             "Env: SNAPCONTEXT_LSP=1.",
+        "lsp_referencias / lsp_tipo en el agente (pyright, tsserver, "
+        "gopls, rust-analyzer...). Cliente perezoso y con cach\u00e9. "
+        "Env: SNAPCONTEXT_LSP=1.",
     )
     parser.add_argument(
-        "--graph-rag", dest="graph_rag", action="store_true", default=False,
+        "--graph-rag",
+        dest="graph_rag",
+        action="store_true",
+        default=False,
         help="Grafo de conocimiento (v5.5.0): combina AST + embeddings y "
-             "amplía el contexto con archivos relacionados (imports, "
-             "llamadas, herencia). Env: SNAPCONTEXT_GRAPH_RAG=1.",
+        "amplía el contexto con archivos relacionados (imports, "
+        "llamadas, herencia). Env: SNAPCONTEXT_GRAPH_RAG=1.",
     )
     parser.add_argument(
-        "--graph-rag-lsp", dest="graph_rag_lsp", action="store_true",
+        "--graph-rag-lsp",
+        dest="graph_rag_lsp",
+        action="store_true",
         default=False,
         help="Integración Graph RAG + LSP (v6.33.0): inyecta símbolos precisos "
-             "(definiciones, referencias) en lugar de archivos completos. "
-             "Requiere --graph-rag y --lsp. Env: SNAPCONTEXT_GRAPH_RAG_LSP=1.",
+        "(definiciones, referencias) en lugar de archivos completos. "
+        "Requiere --graph-rag y --lsp. Env: SNAPCONTEXT_GRAPH_RAG_LSP=1.",
     )
     parser.add_argument(
-        "--lsp-profundidad", dest="lsp_profundidad", type=int, default=None,
-        help="Profundidad de expansión en Graph RAG para LSP (v6.33). "
-             "Por defecto: 2.",
+        "--lsp-profundidad",
+        dest="lsp_profundidad",
+        type=int,
+        default=None,
+        help="Profundidad de expansión en Graph RAG para LSP (v6.33). Por defecto: 2.",
     )
     parser.add_argument(
-        "--lsp-simbolos-max", dest="lsp_simbolos_max", type=int, default=None,
-        help="Número máximo de símbolos a inyectar vía LSP (v6.33). "
-             "Por defecto: 10.",
+        "--lsp-simbolos-max",
+        dest="lsp_simbolos_max",
+        type=int,
+        default=None,
+        help="Número máximo de símbolos a inyectar vía LSP (v6.33). Por defecto: 10.",
     )
     parser.add_argument(
-        "--iniciar-proyecto", "--no-validar", dest="iniciar_proyecto",
+        "--iniciar-proyecto",
+        "--no-validar",
+        dest="iniciar_proyecto",
         action="store_true",
         help="Desactiva por completo la validación de carpeta de proyecto: "
-             "trabaja en el directorio actual (o --directorio) aunque esté "
-             "vacío. Ideal para empezar un proyecto desde cero.",
+        "trabaja en el directorio actual (o --directorio) aunque esté "
+        "vacío. Ideal para empezar un proyecto desde cero.",
     )
     parser.add_argument(
-        "--no-validar-proyecto", dest="no_validar_proyecto",
+        "--no-validar-proyecto",
+        dest="no_validar_proyecto",
         action="store_true",
         help="Omite la verificación temprana de directorio de proyecto "
-             "(mostrada al inicio cuando no se detectan archivos de proyecto). "
-             "Para usuarios avanzados que quieren saltar este aviso.",
+        "(mostrada al inicio cuando no se detectan archivos de proyecto). "
+        "Para usuarios avanzados que quieren saltar este aviso.",
     )
     parser.add_argument(
-        "--vista-previa", action="store_true",
+        "--vista-previa",
+        action="store_true",
         help="Solo muestra los archivos seleccionados y sale, sin ejecutar Aider.",
     )
     # v6.10.0: modo navegador (Playwright) — ver/depurar interfaces visuales.
     parser.add_argument(
-        "--browser", dest="browser", action="store_true", default=False,
+        "--browser",
+        dest="browser",
+        action="store_true",
+        default=False,
         help="(v6.10.0) Activa el modo navegador: el agente puede abrir "
-             "URLs, tomar capturas de pantalla, hacer clic, escribir y "
-             "analizar la interfaz visual (requiere 'pip install "
-             "snapcontext[browser]' y 'playwright install chromium').",
+        "URLs, tomar capturas de pantalla, hacer clic, escribir y "
+        "analizar la interfaz visual (requiere 'pip install "
+        "snapcontext[browser]' y 'playwright install chromium').",
     )
     parser.add_argument(
-        "--browser-headed", dest="browser_headed", action="store_true",
+        "--browser-headed",
+        dest="browser_headed",
+        action="store_true",
         default=False,
         help="(v6.10.0) Muestra la ventana del navegador (por defecto es "
-             "headless, sin interfaz gráfica).",
+        "headless, sin interfaz gráfica).",
     )
-        # v6.16.0: Prompt Caching (activado por defecto; métricas en --depurar).
+    # v6.16.0: Prompt Caching (activado por defecto; métricas en --depurar).
     parser.add_argument(
-        "--prompt-caching", dest="prompt_caching", action="store_true",
+        "--prompt-caching",
+        dest="prompt_caching",
+        action="store_true",
         default=PROMPT_CACHING_DEFECTO,
         help="(v6.16.0) Activa el Prompt Caching para proveedores compatibles "
-             "(Anthropic, DeepSeek): mantiene en caché el mensaje del sistema, "
-             "las herramientas MCP y CLAUDE.md. Activado por defecto. Con "
-             "--depurar se muestran métricas de tokens cacheados. Se "
-             "desactiva con --no-prompt-caching, SNAPCONTEXT_PROMPT_CACHING=0 "
-             "o 'prompt_caching': false en config.json.",
+        "(Anthropic, DeepSeek): mantiene en caché el mensaje del sistema, "
+        "las herramientas MCP y CLAUDE.md. Activado por defecto. Con "
+        "--depurar se muestran métricas de tokens cacheados. Se "
+        "desactiva con --no-prompt-caching, SNAPCONTEXT_PROMPT_CACHING=0 "
+        "o 'prompt_caching': false en config.json.",
     )
     parser.add_argument(
-        "--no-prompt-caching", dest="prompt_caching", action="store_false",
+        "--no-prompt-caching",
+        dest="prompt_caching",
+        action="store_false",
         help="(v6.16.0) Desactiva el Prompt Caching (no añade marcas "
-             "cache_control). Sin efecto para proveedores que no lo soportan.",
+        "cache_control). Sin efecto para proveedores que no lo soportan.",
     )
     # v6.31.0: Prompt Caching por Capas (activado por defecto si el caching
     # básico está activo; --no-prompt-caching-capas usa el caching de v6.16.0).
     parser.add_argument(
-        "--prompt-caching-capas", dest="prompt_caching_capas",
-        action=argparse.BooleanOptionalAction, default=None,
+        "--prompt-caching-capas",
+        dest="prompt_caching_capas",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="(v6.31.0) Activa/desactiva la estructuración del Prompt Caching "
-             "por Capas inmutables: estática (system + herramientas MCP), "
-             "semi-estática (GraphRAG, CLAUDE.md, reglas) y volátil (mensajes "
-             "recientes, tool_results, diffs). Maximiza el prefijo idéntico "
-             "entre peticiones. Por defecto: activado si --prompt-caching lo "
-             "está (o 'prompt_caching.capas_activo' de config.json); con "
-             "--no-prompt-caching-capas se usa el caching básico de v6.16.0.",
+        "por Capas inmutables: estática (system + herramientas MCP), "
+        "semi-estática (GraphRAG, CLAUDE.md, reglas) y volátil (mensajes "
+        "recientes, tool_results, diffs). Maximiza el prefijo idéntico "
+        "entre peticiones. Por defecto: activado si --prompt-caching lo "
+        "está (o 'prompt_caching.capas_activo' de config.json); con "
+        "--no-prompt-caching-capas se usa el caching básico de v6.16.0.",
     )
     # v6.32.0: Pruning proactivo de contexto (edición quirúrgica del historial).
     parser.add_argument(
-        "--prune-context", dest="prune_context",
-        action=argparse.BooleanOptionalAction, default=None,
+        "--prune-context",
+        dest="prune_context",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="(v6.32.0) Activa/desactiva el pruning proactivo: poda resultados "
-             "extensos de herramientas (logs, salidas, diffs) reemplazándolos "
-             "por un resumen de una línea. Por defecto: activado (o 'pruning.activo' "
-             "de config.json); con --no-prune-context se desactiva.",
+        "extensos de herramientas (logs, salidas, diffs) reemplazándolos "
+        "por un resumen de una línea. Por defecto: activado (o 'pruning.activo' "
+        "de config.json); con --no-prune-context se desactiva.",
     )
     parser.add_argument(
-        "--prune-umbral", dest="prune_umbral", type=int, default=None,
+        "--prune-umbral",
+        dest="prune_umbral",
+        type=int,
+        default=None,
         help="(v6.32.0) Número máximo de líneas antes de podar un resultado "
-             "(por defecto: 10). Un valor menor poda más agresivamente.",
+        "(por defecto: 10). Un valor menor poda más agresivamente.",
     )
     # v6.34.0: Soporte para Intel XPU (GPU Intel Arc) vía IPEX.
     parser.add_argument(
-        "--xpu-model", dest="xpu_model", type=str, default=None,
+        "--xpu-model",
+        dest="xpu_model",
+        type=str,
+        default=None,
         help="(v6.34.0) Modelo de Hugging Face para inferencia en Intel XPU "
-             "(por defecto: 'Qwen/Qwen3.5-35B-A3B' o el valor en config.json).",
+        "(por defecto: 'Qwen/Qwen3.5-35B-A3B' o el valor en config.json).",
     )
     parser.add_argument(
-        "--xpu-max-tokens", dest="xpu_max_tokens", type=int, default=None,
+        "--xpu-max-tokens",
+        dest="xpu_max_tokens",
+        type=int,
+        default=None,
         help="(v6.34.0) Número máximo de tokens a generar (por defecto: 500).",
     )
     parser.add_argument(
-        "--xpu-temperature", dest="xpu_temperature", type=float, default=None,
+        "--xpu-temperature",
+        dest="xpu_temperature",
+        type=float,
+        default=None,
         help="(v6.34.0) Temperatura para la inferencia (por defecto: 0.7).",
     )
     # v6.9.0: benchmark de rendimiento por fases.
     parser.add_argument(
-        "--benchmark", action="store_true",
+        "--benchmark",
+        action="store_true",
         help="(v6.9.0) Mide y muestra en una tabla el tiempo de cada fase "
-             "(inicio, escaneo, selección, plan, edición, pruebas y total). "
-             "No necesita API key.",
+        "(inicio, escaneo, selección, plan, edición, pruebas y total). "
+        "No necesita API key.",
     )
     parser.add_argument(
-        "--experto", "--expert", action="store_true",
+        "--experto",
+        "--expert",
+        action="store_true",
         help="Modo experto: revisar la selección y añadir/eliminar archivos "
-             "antes de ejecutar Aider.",
+        "antes de ejecutar Aider.",
     )
     parser.add_argument(
-        "--aider-opciones", default="",
+        "--aider-opciones",
+        default="",
         help='Opciones extra para Aider entre comillas (p. ej. "--model sonnet").',
     )
     parser.add_argument(
-        "--asesor", "--sugerir", dest="asesor", action="store_true",
+        "--asesor",
+        "--sugerir",
+        dest="asesor",
+        action="store_true",
         help="Asesor de código proactivo (v3.5.0): analiza el proyecto y "
-             "muestra sugerencias de mejora sin modificar código.",
+        "muestra sugerencias de mejora sin modificar código.",
     )
     parser.add_argument(
-        "--asesor-auto", dest="asesor_auto", action="store_true",
+        "--asesor-auto",
+        dest="asesor_auto",
+        action="store_true",
         help="Como --asesor, pero aplica automáticamente las mejoras seguras "
-             "(renombrar símbolos); cada cambio se valida antes de guardarse. "
-             "Las demás sugerencias solo se muestran.",
+        "(renombrar símbolos); cada cambio se valida antes de guardarse. "
+        "Las demás sugerencias solo se muestran.",
     )
     parser.add_argument(
-        "--asesor-umbral", dest="asesor_umbral", type=int, default=None,
+        "--asesor-umbral",
+        dest="asesor_umbral",
+        type=int,
+        default=None,
         help="Umbral de líneas por función para el asesor (por defecto 20; "
-             "también configurable en config.json clave 'asesor').",
+        "también configurable en config.json clave 'asesor').",
     )
     parser.add_argument(
-        "--api", "--api-server", dest="api", action="store_true",
+        "--api",
+        "--api-server",
+        dest="api",
+        action="store_true",
         help="API pública (v3.6.0): arranca el servidor HTTP REST en "
-             "http://host:puerto con documentación OpenAPI en /docs. "
-             "Requiere las dependencias web: pip install snapcontext[web].",
+        "http://host:puerto con documentación OpenAPI en /docs. "
+        "Requiere las dependencias web: pip install snapcontext[web].",
     )
     parser.add_argument(
-        "--api-puerto", dest="api_puerto", type=int, default=8001,
+        "--api-puerto",
+        dest="api_puerto",
+        type=int,
+        default=8001,
         help="Puerto del servidor de la API (por defecto 8001; la web usa "
-             "8000 para no interferir).",
+        "8000 para no interferir).",
     )
     parser.add_argument(
-        "--api-host", dest="api_host", default="127.0.0.1",
+        "--api-host",
+        dest="api_host",
+        default="127.0.0.1",
         help="Host de escucha de la API (por defecto 127.0.0.1).",
     )
     parser.add_argument(
-        "--api-token", dest="api_token", default=None,
+        "--api-token",
+        dest="api_token",
+        default=None,
         help="Token/API key exigido en los endpoints /api/v1/* (header "
-             "X-API-Key). Si se omite, se usa —o genera y guarda— el de "
-             "config.json clave 'api_key'.",
+        "X-API-Key). Si se omite, se usa —o genera y guarda— el de "
+        "config.json clave 'api_key'.",
     )
     parser.add_argument(
-        "--api-generate-key", dest="api_generate_key", action="store_true",
+        "--api-generate-key",
+        dest="api_generate_key",
+        action="store_true",
         help="Genera una API key segura, la guarda en config.json "
-             "('api_key') y la muestra por pantalla. No arranca el servidor.",
+        "('api_key') y la muestra por pantalla. No arranca el servidor.",
     )
     bucle = parser.add_mutually_exclusive_group()
     bucle.add_argument(
-        "--test-loop", action="store_true",
-        help="Tras Aider ejecuta las pruebas y repite si fallan "
-             "(bucle agéntico básico).",
+        "--test-loop",
+        action="store_true",
+        help="Tras Aider ejecuta las pruebas y repite si fallan (bucle agéntico básico).",
     )
     bucle.add_argument(
-        "--server-loop", action="store_true",
+        "--server-loop",
+        action="store_true",
         help="Bucle agéntico con servidor Flutter en MODO AUTOMÁTICO: "
-             "reintenta hasta --max-intentos y pregunta s/n al usuario.",
+        "reintenta hasta --max-intentos y pregunta s/n al usuario.",
     )
     bucle.add_argument(
-        "--manual-loop", action="store_true",
-        help="Bucle agéntico con servidor Flutter en MODO MANUAL: "
-             "el usuario decide en cada paso.",
+        "--manual-loop",
+        action="store_true",
+        help="Bucle agéntico con servidor Flutter en MODO MANUAL: el usuario decide en cada paso.",
     )
     parser.add_argument(
-        "--comando-test", default=None,
-        help='Comando de pruebas del bucle. Si se omite se detecta '
-             'automáticamente según el lenguaje del proyecto '
-             '(p. ej. "go test ./...", "pytest", "flutter test").',
+        "--comando-test",
+        default=None,
+        help="Comando de pruebas del bucle. Si se omite se detecta "
+        "automáticamente según el lenguaje del proyecto "
+        '(p. ej. "go test ./...", "pytest", "flutter test").',
     )
     # v4.3.0/v5.4.0: sandbox Docker, ahora inteligente.
     #   --sandbox        → fuerza el contenedor para TODO (como siempre).
@@ -9888,515 +10803,657 @@ def crear_parser() -> argparse.ArgumentParser:
     #   Sin ninguno      → modo inteligente: solo se encapsulan los comandos
     #                      peligrosos detectados (sandbox_utils).
     parser.add_argument(
-        "--sandbox", action="store_true",
+        "--sandbox",
+        action="store_true",
         help="(v4.3.0) Ejecuta TODOS los comandos y pruebas dentro de un "
-             "contenedor Docker aislado (monta el proyecto en /workspace). "
-             "Si Docker no está disponible, falla con error claro. "
-             "(v5.4.0) Sin este flag, el sandbox se activa de forma "
-             "inteligente SOLO ante comandos peligrosos.",
+        "contenedor Docker aislado (monta el proyecto en /workspace). "
+        "Si Docker no está disponible, falla con error claro. "
+        "(v5.4.0) Sin este flag, el sandbox se activa de forma "
+        "inteligente SOLO ante comandos peligrosos.",
     )
     parser.add_argument(
-        "--no-sandbox", dest="no_sandbox", action="store_true",
+        "--no-sandbox",
+        dest="no_sandbox",
+        action="store_true",
         help="(v5.4.0) Desactiva el sandboxing inteligente: ningún comando se "
-             "ejecuta en Docker, incluso si se detecta peligro. Tiene "
-             "prioridad sobre --sandbox y sobre SNAPCONTEXT_SANDBOX=1. "
-             "Equivalente a la variable SNAPCONTEXT_SANDBOX=0.",
+        "ejecuta en Docker, incluso si se detecta peligro. Tiene "
+        "prioridad sobre --sandbox y sobre SNAPCONTEXT_SANDBOX=1. "
+        "Equivalente a la variable SNAPCONTEXT_SANDBOX=0.",
     )
     parser.add_argument(
-        "--sandbox-session", dest="sandbox_session", action="store_true",
+        "--sandbox-session",
+        dest="sandbox_session",
+        action="store_true",
         help="(v6.4.0) Persistencia de Docker por sesión: crea UN contenedor "
-             "al inicio de la tarea y lo reutiliza para todos los comandos "
-             "(mantiene estado: `npm install` → `npm test`, `pip install` → "
-             "`pytest`). Se destruye al finalizar (o con Ctrl+C). Sin este "
-             "flag se usa `docker run --rm` (comportamiento histórico).",
+        "al inicio de la tarea y lo reutiliza para todos los comandos "
+        "(mantiene estado: `npm install` → `npm test`, `pip install` → "
+        "`pytest`). Se destruye al finalizar (o con Ctrl+C). Sin este "
+        "flag se usa `docker run --rm` (comportamiento histórico).",
     )
     parser.add_argument(
-        "--sandbox-session-clean", dest="sandbox_session_clean",
+        "--sandbox-session-clean",
+        dest="sandbox_session_clean",
         action="store_true",
         help="(v6.4.0) Elimina los contenedores de sesión huérfanos "
-             "(snap-session-*) de sesiones anteriores y sale. Con "
-             "--auto los borra sin preguntar.",
+        "(snap-session-*) de sesiones anteriores y sale. Con "
+        "--auto los borra sin preguntar.",
     )
     parser.add_argument(
-        "--sandbox-imagen", dest="sandbox_imagen", default=None,
+        "--sandbox-imagen",
+        dest="sandbox_imagen",
+        default=None,
         help="Imagen Docker del sandbox (por defecto: python:3.11-slim o "
-             "SNAPCONTEXT_SANDBOX_IMAGE).",
+        "SNAPCONTEXT_SANDBOX_IMAGE).",
     )
     parser.add_argument(
-        "--sandbox-comando", dest="sandbox_comando", default=None,
-        help='Comando de preparación dentro del contenedor antes del comando '
-             'principal (ej.: "apt update && apt install -y make").',
+        "--sandbox-comando",
+        dest="sandbox_comando",
+        default=None,
+        help="Comando de preparación dentro del contenedor antes del comando "
+        'principal (ej.: "apt update && apt install -y make").',
     )
     parser.add_argument(
-        "--max-iteraciones", type=int, default=MAX_ITERACIONES_TEST_DEFECTO,
+        "--max-iteraciones",
+        type=int,
+        default=MAX_ITERACIONES_TEST_DEFECTO,
         help="Máximo de iteraciones del bucle de pruebas.",
     )
     # v6.29.0: Sistema de autocorreccion (bucle pruebas + correccion).
     parser.add_argument(
-        "--autocorregir", dest="autocorregir",
-        action=argparse.BooleanOptionalAction, default=True,
+        "--autocorregir",
+        dest="autocorregir",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="(v6.29.0) Activa el bucle de autocorreccion: ejecuta pruebas, "
-             "analiza errores y aplica correcciones automaticamente hasta "
-             "que pasen o se alcance --max-ciclos. Activado por defecto.",
+        "analiza errores y aplica correcciones automaticamente hasta "
+        "que pasen o se alcance --max-ciclos. Activado por defecto.",
     )
     parser.add_argument(
-        "--max-ciclos", dest="max_ciclos", type=int, default=3,
+        "--max-ciclos",
+        dest="max_ciclos",
+        type=int,
+        default=3,
         metavar="N",
-        help="(v6.29.0) Numero maximo de iteraciones de autocorreccion "
-             "(por defecto: 3).",
+        help="(v6.29.0) Numero maximo de iteraciones de autocorreccion (por defecto: 3).",
     )
     parser.add_argument(
-        "--max-intentos", type=int, default=3,
-        help="Intentos máximos del bucle automático --server-loop "
-             "(por defecto: 3).",
+        "--max-intentos",
+        type=int,
+        default=3,
+        help="Intentos máximos del bucle automático --server-loop (por defecto: 3).",
     )
     parser.add_argument(
-        "--dispositivo", default="web-server",
-        help='Dispositivo/plataforma de "flutter run" '
-             "(por defecto: web-server).",
+        "--dispositivo",
+        default="web-server",
+        help='Dispositivo/plataforma de "flutter run" (por defecto: web-server).',
     )
     parser.add_argument(
-        "--url-defecto", default="http://localhost:5000",
+        "--url-defecto",
+        default="http://localhost:5000",
         help="URL para abrir el navegador si Flutter no reporta una "
-             "(por defecto: http://localhost:5000).",
+        "(por defecto: http://localhost:5000).",
     )
     parser.add_argument(
-        "--depurar", action="store_true", help="Logs de depuración.",
+        "--depurar",
+        action="store_true",
+        help="Logs de depuración.",
     )
     parser.add_argument(
-        "--version", action=_VersionAction, nargs=0,
+        "--version",
+        action=_VersionAction,
+        nargs=0,
     )
     parser.add_argument(
-        "--setup-path", action="store_true",
+        "--setup-path",
+        action="store_true",
         help="Configura automáticamente el PATH del usuario para Windows: añade la "
-             "carpeta de ejecutable al PATH persistente. Útil si instalaste con "
-             "'pip install snapcontext' sin usar el one-liner. Solo funciona en Windows.",
+        "carpeta de ejecutable al PATH persistente. Útil si instalaste con "
+        "'pip install snapcontext' sin usar el one-liner. Solo funciona en Windows.",
     )
     parser.add_argument(
-        "--diagnostico", action="store_true",
+        "--diagnostico",
+        action="store_true",
         help="(v3.1.0) Revisa la instalación: Python, paquete, dependencias "
-             "opcionales, PATH, proveedor de IA (API key / Ollama) y memoria "
-             "SQLite, con resumen en colores y soluciones sugeridas.",
+        "opcionales, PATH, proveedor de IA (API key / Ollama) y memoria "
+        "SQLite, con resumen en colores y soluciones sugeridas.",
     )
     parser.add_argument(
-        "--reparar", action="store_true",
+        "--reparar",
+        action="store_true",
         help="(v3.1.0) Repara una instalación rota: limpia entornos uv "
-             "corruptos, reinstala SnapContext con pip, recrea la base de "
-             "datos SQLite si está corrupta y ajusta el PATH (Windows).",
+        "corruptos, reinstala SnapContext con pip, recrea la base de "
+        "datos SQLite si está corrupta y ajusta el PATH (Windows).",
     )
     parser.add_argument(
-        "--bienvenida", action="store_true",
+        "--bienvenida",
+        action="store_true",
         help="(v3.1.0) Muestra el tutorial interactivo de primeros pasos.",
     )
     parser.add_argument(
-        "--web", action="store_true",
+        "--web",
+        action="store_true",
         help="Inicia la interfaz web en http://localhost:8000 (FastAPI + WebSockets "
-             "con logs en tiempo real). Requiere: pip install snapcontext[web].",
+        "con logs en tiempo real). Requiere: pip install snapcontext[web].",
     )
     parser.add_argument(
-        "--web-puerto", type=int, default=8000,
+        "--web-puerto",
+        type=int,
+        default=8000,
         help="Puerto para la interfaz web (por defecto: 8000). Requiere --web.",
     )
     # v6.12.0: TUI inmersiva con Textual (grupo opcional [tui]).
     parser.add_argument(
-        "--tui", action="store_true",
+        "--tui",
+        action="store_true",
         help="Inicia la TUI inmersiva en la terminal (Textual): pestañas de "
-             "logs, árbol de archivos, control del agente y visor de diffs. "
-             "Requiere: pip install snapcontext[tui].",
+        "logs, árbol de archivos, control del agente y visor de diffs. "
+        "Requiere: pip install snapcontext[tui].",
     )
     # v6.27.0: TUI interactiva (edicion de plan + visualizacion del grafo).
     parser.add_argument(
-        "--tui-plan-editor", dest="tui_plan_editor",
-        action=argparse.BooleanOptionalAction, default=True,
+        "--tui-plan-editor",
+        dest="tui_plan_editor",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="(v6.27.0) Permite editar el plan del agente en la TUI "
-             "(reordenar, eliminar, insertar pasos). Requiere --tui. "
-             "Activado por defecto; desactivar con --no-tui-plan-editor.",
+        "(reordenar, eliminar, insertar pasos). Requiere --tui. "
+        "Activado por defecto; desactivar con --no-tui-plan-editor.",
     )
     parser.add_argument(
-        "--tui-grafo", dest="tui_grafo",
-        action=argparse.BooleanOptionalAction, default=True,
+        "--tui-grafo",
+        dest="tui_grafo",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="(v6.27.0) Muestra el grafo de dependencias (GraphRAG) en "
-             "una pestana de la TUI. Requiere --tui. Activado por defecto; "
-             "desactivar con --no-tui-grafo.",
+        "una pestana de la TUI. Requiere --tui. Activado por defecto; "
+        "desactivar con --no-tui-grafo.",
     )
     # v6.7.0: expansión MCP — conexión perezosa a base de datos.
     parser.add_argument(
-        "--db-url", default=None,
+        "--db-url",
+        default=None,
         help="(v6.7.0) URL de la base de datos para las herramientas MCP "
-             "(db_query/db_schema). Ej: sqlite:///ruta/db.sqlite, "
-             "postgresql://user:pass@localhost/db, mysql://user:pass@host/db.",
+        "(db_query/db_schema). Ej: sqlite:///ruta/db.sqlite, "
+        "postgresql://user:pass@localhost/db, mysql://user:pass@host/db.",
     )
     parser.add_argument(
-        "--db-driver", default=None,
+        "--db-driver",
+        default=None,
         choices=("sqlite", "postgresql", "mysql"),
-        help="(v6.7.0) Fuerza el driver de la base de datos (por defecto se "
-             "deduce de --db-url).",
+        help="(v6.7.0) Fuerza el driver de la base de datos (por defecto se deduce de --db-url).",
     )
     # v6.8.0: omnicanalidad avanzada — GitHub webhooks y tareas asíncronas.
     parser.add_argument(
-        "--github-webhook-secreto", default=None,
+        "--github-webhook-secreto",
+        default=None,
         help="(v6.8.0) Secreto para validar firmas HMAC de webhooks de GitHub.",
     )
     parser.add_argument(
-        "--github-token", default=None,
+        "--github-token",
+        default=None,
         help="(v6.8.0) Token de GitHub (PAT) para interactuar con la API (comentar PRs, diffs).",
     )
     parser.add_argument(
-        "--webhook-url", default=None,
+        "--webhook-url",
+        default=None,
         help="(v6.8.0) URL pública del webhook de SnapContext para registrar en servicios externos.",
     )
     parser.add_argument(
-        "--web-interactive", action="store_true",
+        "--web-interactive",
+        action="store_true",
         help="(v6.5.0) Activa el centro de control web interactivo además de la "
-             "web actual: timeline de ReAct en tiempo real (Pensamiento→Acción→"
-             "Observación), diff viewer Monaco para resolver conflictos de "
-             "parches y panel de estado del agente en http://localhost:8000/"
-             "interactive. Requiere --web.",
+        "web actual: timeline de ReAct en tiempo real (Pensamiento→Acción→"
+        "Observación), diff viewer Monaco para resolver conflictos de "
+        "parches y panel de estado del agente en http://localhost:8000/"
+        "interactive. Requiere --web.",
     )
     parser.add_argument(
-        "--demo", action="store_true",
+        "--demo",
+        action="store_true",
         help="Ejecuta una demo autónoma de SnapContext: crea un proyecto de prueba "
-             "temporal, muestra la selección de archivos (--vista-previa --local) y "
-             "el bucle de pruebas completo, sin necesidad de API key.",
+        "temporal, muestra la selección de archivos (--vista-previa --local) y "
+        "el bucle de pruebas completo, sin necesidad de API key.",
     )
     parser.add_argument(
-        "--chat", action="store_true",
+        "--chat",
+        action="store_true",
         help="Abre el modo chat interactivo (REPL): conversa con el proveedor de IA, "
-             "cambia de proveedor (/provider), selecciona archivos (/seleccion) y "
-             "consulta el historial (/historial). No necesita consulta.",
+        "cambia de proveedor (/provider), selecciona archivos (/seleccion) y "
+        "consulta el historial (/historial). No necesita consulta.",
     )
     parser.add_argument(
-        "--historial", action="store_true",
+        "--historial",
+        action="store_true",
         help="Muestra las últimas 20 tareas guardadas en ~/.snapcontext/historial.json.",
     )
     parser.add_argument(
-        "--historial-limpiar", action="store_true",
+        "--historial-limpiar",
+        action="store_true",
         help="Borra el historial persistente (~/.snapcontext/historial.json) y sale.",
     )
     parser.add_argument(
-        "--plan", action="store_true",
+        "--plan",
+        action="store_true",
         help="Usar el planificador estático (modo legacy) — útil para scripts "
-             "que requieren pasos predefinidos: pide al proveedor de IA que "
-             "descomponga la tarea en pasos y los ejecuta secuencialmente con "
-             "control continuar/reintentar/saltar. Requiere consulta.",
+        "que requieren pasos predefinidos: pide al proveedor de IA que "
+        "descomponga la tarea en pasos y los ejecuta secuencialmente con "
+        "control continuar/reintentar/saltar. Requiere consulta.",
     )
     parser.add_argument(
-        "--react", action="store_true",
+        "--react",
+        action="store_true",
         help="Usar el modo ReAct (razonamiento dinámico) — este es el "
-             "comportamiento por defecto si no se usa --plan; el flag se "
-             "conserva por compatibilidad pero ya es redundante.",
+        "comportamiento por defecto si no se usa --plan; el flag se "
+        "conserva por compatibilidad pero ya es redundante.",
     )
     parser.add_argument(
-        "--react-max-iter", dest="react_max_iter", type=int, default=15,
+        "--react-max-iter",
+        dest="react_max_iter",
+        type=int,
+        default=15,
         metavar="N",
         help="En modo --react, tope de iteraciones del bucle (por defecto: 15).",
     )
 
     parser.add_argument(
-        "--git-commit", action=argparse.BooleanOptionalAction, default=True,
+        "--git-commit",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="En modo --plan, hace 'git add . && git commit' tras cada paso exitoso "
-             "(por defecto: activado; desactivar con --no-git-commit).",
+        "(por defecto: activado; desactivar con --no-git-commit).",
     )
     # v6.20.0 — Git profundo: revert nativo y mensaje manual de commit.
     parser.add_argument(
-        "--git-revert", dest="git_revert", nargs="?", const=-1, default=None,
-        type=int, metavar="STEP",
+        "--git-revert",
+        dest="git_revert",
+        nargs="?",
+        const=-1,
+        default=None,
+        type=int,
+        metavar="STEP",
         help="Revierte el paso indicado (id de la tabla 'pasos') con "
-             "'git revert'. Sin valor, revierte el último paso commiteado.",
+        "'git revert'. Sin valor, revierte el último paso commiteado.",
     )
     parser.add_argument(
-        "--git-mensaje", dest="git_mensaje", default=None, metavar="TEXTO",
+        "--git-mensaje",
+        dest="git_mensaje",
+        default=None,
+        metavar="TEXTO",
         help="Mensaje manual para los commits automáticos por paso "
-             "(si se omite, se genera con IA en formato Conventional Commits).",
+        "(si se omite, se genera con IA en formato Conventional Commits).",
     )
     parser.add_argument(
-        "--branch", dest="branch", default=None, metavar="NOMBRE",
+        "--branch",
+        dest="branch",
+        default=None,
+        metavar="NOMBRE",
         help="En modo --plan, crea y cambia a una rama git nueva antes de ejecutar "
-             "los pasos (p. ej. --branch fix/checkout).",
+        "los pasos (p. ej. --branch fix/checkout).",
     )
     parser.add_argument(
-        "--confirmar", action=argparse.BooleanOptionalAction, default=True,
+        "--confirmar",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="Pide confirmación (s/n/todos/nunca) antes de acciones sensibles "
-             "(pasos del planificador, /run y /edit del chat). Por defecto "
-             "activado; desactivar con --no-confirmar para modo automático.",
+        "(pasos del planificador, /run y /edit del chat). Por defecto "
+        "activado; desactivar con --no-confirmar para modo automático.",
     )
     parser.add_argument(
-        "--init-claude", action="store_true",
+        "--init-claude",
+        action="store_true",
         help="Escanea el proyecto (estructura, dependencias, git) y genera una "
-             "memoria persistente CLAUDE.md (o SNAPCONTEXT.md) usando el "
-             "proveedor de IA; sin conexión usa una plantilla básica.",
+        "memoria persistente CLAUDE.md (o SNAPCONTEXT.md) usando el "
+        "proveedor de IA; sin conexión usa una plantilla básica.",
     )
     parser.add_argument(
-        "--auto", action="store_true", default=False,
+        "--auto",
+        action="store_true",
+        default=False,
         help="Modo autónomo para --plan: salta las confirmaciones paso a paso "
-             "(siguiendo respetando permisos.json) y reintenta automáticamente "
-             "cada paso fallido hasta 3 veces antes de continuar. Con "
-             "--no-confirmar no añade diferencia adicional.",
+        "(siguiendo respetando permisos.json) y reintenta automáticamente "
+        "cada paso fallido hasta 3 veces antes de continuar. Con "
+        "--no-confirmar no añade diferencia adicional.",
     )
     parser.add_argument(
-        "--paralelo", type=int, default=1, metavar="N",
+        "--paralelo",
+        type=int,
+        default=1,
+        metavar="N",
         help="En modo --plan --auto: ejecuta hasta N pasos sin dependencias "
-             "mutuas en paralelo (por defecto 1 = secuencial). Los logs de cada "
-             "paso llevan su identificador [paso N]. Los pasos con campo "
-             "'dependencias' esperan a que sus dependencias tengan éxito y "
-             "las condiciones que referencien resultados de pasos previos o "
-             "variables MCP bloquean al paso hasta estar disponibles.",
+        "mutuas en paralelo (por defecto 1 = secuencial). Los logs de cada "
+        "paso llevan su identificador [paso N]. Los pasos con campo "
+        "'dependencias' esperan a que sus dependencias tengan éxito y "
+        "las condiciones que referencien resultados de pasos previos o "
+        "variables MCP bloquean al paso hasta estar disponibles.",
     )
     parser.add_argument(
-        "--editor", choices=["aider", "propio"], default="propio",
+        "--editor",
+        choices=["aider", "propio"],
+        default="propio",
         help="Editor a usar para aplicar cambios: 'propio' (por defecto "
-             "desde v4.1.0; editor integrado con estrategias AST → parche → "
-             "sobrescritura, validación sintáctica y backups) o 'aider' "
-             "(requiere Aider instalado).",
+        "desde v4.1.0; editor integrado con estrategias AST → parche → "
+        "sobrescritura, validación sintáctica y backups) o 'aider' "
+        "(requiere Aider instalado).",
     )
     # v6.22.0: hooks / lifecycle events — activación y listado.
     parser.add_argument(
-        "--hooks", action=argparse.BooleanOptionalAction, default=True,
+        "--hooks",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="Activa/desactiva el sistema de hooks/lifecycle events (v6.22.0). "
-             "Por defecto: activado; desactivar con --no-hooks.",
+        "Por defecto: activado; desactivar con --no-hooks.",
     )
     # v6.24.0: orquestación inteligente de modelos (model_router.py).
     parser.add_argument(
-        "--model-routing", dest="model_routing",
-        action=argparse.BooleanOptionalAction, default=True,
+        "--model-routing",
+        dest="model_routing",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="Activa/desactiva el enrutamiento inteligente de modelos "
-             "(v6.24.0): cada categoría de tarea (indexacion, busqueda_semantica, "
-             "planificacion_simple, edicion_critica, razonamiento_complejo, "
-             "chat_general) usa el modelo configurado en la sección "
-             "'model_routing' de ~/.snapcontext/config.json. Sin configuración "
-             "se usa el modelo por defecto, como siempre. Los flags --model y "
-             "--provider tienen prioridad máxima; desactivar con "
-             "--no-model-routing.",
+        "(v6.24.0): cada categoría de tarea (indexacion, busqueda_semantica, "
+        "planificacion_simple, edicion_critica, razonamiento_complejo, "
+        "chat_general) usa el modelo configurado en la sección "
+        "'model_routing' de ~/.snapcontext/config.json. Sin configuración "
+        "se usa el modelo por defecto, como siempre. Los flags --model y "
+        "--provider tienen prioridad máxima; desactivar con "
+        "--no-model-routing.",
     )
     # v6.30.0: enrutamiento híbrido Local-Nube (fallback entre modelos).
     parser.add_argument(
-        "--model-fallback", dest="model_fallback",
-        action=argparse.BooleanOptionalAction, default=None,
+        "--model-fallback",
+        dest="model_fallback",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="Activa/desactiva el fallback entre modelos del enrutamiento "
-             "híbrido Local-Nube (v6.30.0): las tareas simples usan modelos "
-             "locales (Ollama) y escalan a la nube (Gemini, Claude, DeepSeek) "
-             "cuando la tarea es compleja o el modelo falla (timeout, error "
-             "de API; los errores de autenticación no se reintentan). Por "
-             "defecto: activado (o según 'fallback_automatico' de "
-             "config.json); desactivar con --no-model-fallback.",
+        "híbrido Local-Nube (v6.30.0): las tareas simples usan modelos "
+        "locales (Ollama) y escalan a la nube (Gemini, Claude, DeepSeek) "
+        "cuando la tarea es compleja o el modelo falla (timeout, error "
+        "de API; los errores de autenticación no se reintentan). Por "
+        "defecto: activado (o según 'fallback_automatico' de "
+        "config.json); desactivar con --no-model-fallback.",
     )
     parser.add_argument(
-        "--complejidad-umbral", dest="complejidad_umbral", type=int,
-        default=None, metavar="N",
+        "--complejidad-umbral",
+        dest="complejidad_umbral",
+        type=int,
+        default=None,
+        metavar="N",
         help="Longitud mínima (en palabras) de la consulta para considerarla "
-             "compleja y escalar a modelos cloud (v6.30.0; por defecto 100, "
-             "o el 'umbral_complejidad.longitud_consulta' de config.json).",
+        "compleja y escalar a modelos cloud (v6.30.0; por defecto 100, "
+        "o el 'umbral_complejidad.longitud_consulta' de config.json).",
     )
     parser.add_argument(
-        "--model-prioridad-local", dest="model_prioridad_local", nargs="+",
-        metavar="PROVEEDOR/MODELO", default=None,
+        "--model-prioridad-local",
+        dest="model_prioridad_local",
+        nargs="+",
+        metavar="PROVEEDOR/MODELO",
+        default=None,
         help="Orden de prioridad de modelos locales (v6.30.0), p. ej. "
-             "--model-prioridad-local ollama/qwen3.5:9b ollama/llama3.2. "
-             "Sobrescribe 'prioridad_local' de config.json.",
+        "--model-prioridad-local ollama/qwen3.5:9b ollama/llama3.2. "
+        "Sobrescribe 'prioridad_local' de config.json.",
     )
     parser.add_argument(
-        "--model-prioridad-nube", dest="model_prioridad_nube", nargs="+",
-        metavar="PROVEEDOR/MODELO", default=None,
+        "--model-prioridad-nube",
+        dest="model_prioridad_nube",
+        nargs="+",
+        metavar="PROVEEDOR/MODELO",
+        default=None,
         help="Orden de prioridad de modelos cloud (v6.30.0), p. ej. "
-             "--model-prioridad-nube gemini/gemini-2.5-pro "
-             "anthropic/claude-3.7-sonnet. Sobrescribe 'prioridad_nube' de "
-             "config.json.",
+        "--model-prioridad-nube gemini/gemini-2.5-pro "
+        "anthropic/claude-3.7-sonnet. Sobrescribe 'prioridad_nube' de "
+        "config.json.",
     )
     parser.add_argument(
-        "--hook-list", dest="hook_list", action="store_true",
+        "--hook-list",
+        dest="hook_list",
+        action="store_true",
         help="Lista los hooks registrados por evento y sale (v6.22.0).",
     )
     parser.add_argument(
-        "--modelo-ligero", dest="modelo_ligero", action="store_true",
+        "--modelo-ligero",
+        dest="modelo_ligero",
+        action="store_true",
         help="Usa prompts concisos en el editor propio (pensados para "
-             "modelos pequeños); se activa automáticamente con Ollama.",
+        "modelos pequeños); se activa automáticamente con Ollama.",
     )
     parser.add_argument(
-        "--asesor-profundo", dest="asesor_profundo", action="store_true",
+        "--asesor-profundo",
+        dest="asesor_profundo",
+        action="store_true",
         help="Asesor exhaustivo (v4.2.0): añade análisis de seguridad 🗝 "
-             "(inyección SQL, command injection, path traversal, secretos, "
-             "eval/exec, XSS) y rendimiento ⚡ al asesor básico.",
+        "(inyección SQL, command injection, path traversal, secretos, "
+        "eval/exec, XSS) y rendimiento ⚡ al asesor básico.",
     )
     parser.add_argument(
         "--modo-edicion",
-        choices=["sobrescribir", "parche", "auto", "ast"], default="auto",
+        choices=["sobrescribir", "parche", "auto", "ast"],
+        default="auto",
         help="Estrategia del editor propio: 'auto' (intenta aplicar parche unificado, "
-             "fallback a sobrescritura), 'parche' (solo parches unificados), "
-             "'sobrescribir' (sobrescritura completa del archivo) o 'ast' "
-             "(edición basada en el árbol sintáctico con fallback a sobrescritura).",
+        "fallback a sobrescritura), 'parche' (solo parches unificados), "
+        "'sobrescribir' (sobrescritura completa del archivo) o 'ast' "
+        "(edición basada en el árbol sintáctico con fallback a sobrescritura).",
     )
     parser.add_argument(
-        "--validar", dest="validar", action="store_const", const=True,
+        "--validar",
+        dest="validar",
+        action="store_const",
+        const=True,
         default=True,
         help="Valida la sintaxis del código antes de guardar en el editor propio "
-             "(por defecto activado).",
+        "(por defecto activado).",
     )
     parser.add_argument(
-        "--no-validar-sintaxis", dest="validar", action="store_const",
+        "--no-validar-sintaxis",
+        dest="validar",
+        action="store_const",
         const=False,
         help="Desactiva la validación de sintaxis en el editor propio "
-             "(comportamiento previo a v3.4.0). Nota: su nombre no es "
-             "'--no-validar' porque ese alias ya está reservado por "
-             "--iniciar-proyecto.",
+        "(comportamiento previo a v3.4.0). Nota: su nombre no es "
+        "'--no-validar' porque ese alias ya está reservado por "
+        "--iniciar-proyecto.",
     )
     parser.add_argument(
-        "--max-intentos-validacion", type=int,
-        default=MAX_INTENTOS_VALIDACION, metavar="N",
+        "--max-intentos-validacion",
+        type=int,
+        default=MAX_INTENTOS_VALIDACION,
+        metavar="N",
         help=f"Intentos máximos de validación de sintaxis antes de cancelar la "
-             f"edición (por defecto: {MAX_INTENTOS_VALIDACION}).",
+        f"edición (por defecto: {MAX_INTENTOS_VALIDACION}).",
     )
     # v6.1.0 — Manejo de contexto inteligente (modelos con poca ventana).
     parser.add_argument(
-        "--max-context-tokens", type=int, default=MAX_CONTEXT_TOKENS,
+        "--max-context-tokens",
+        type=int,
+        default=MAX_CONTEXT_TOKENS,
         metavar="N",
         help=f"Límite máximo de tokens estimados a enviar al proveedor en una "
-             f"sola petición de edición (por defecto: {MAX_CONTEXT_TOKENS}). Los "
-             f"archivos más grandes se envían con contexto selectivo (resumen "
-             f"AST + bloque objetivo), evitando los fallos por ventana de "
-             f"contexto de los modelos pequeños (p. ej. deepseek-r1:14b).",
+        f"sola petición de edición (por defecto: {MAX_CONTEXT_TOKENS}). Los "
+        f"archivos más grandes se envían con contexto selectivo (resumen "
+        f"AST + bloque objetivo), evitando los fallos por ventana de "
+        f"contexto de los modelos pequeños (p. ej. deepseek-r1:14b).",
     )
     parser.add_argument(
-        "--mostrar-razonamiento", dest="mostrar_razonamiento",
+        "--mostrar-razonamiento",
+        dest="mostrar_razonamiento",
         action="store_true",
         help="v6.2.0: muestra el razonamiento del modelo (chain-of-thought) "
-             "antes de cada acción/respuesta en chat, planificador, editor y "
-             "ReAct. También activable con la variable de entorno "
-             "SNAPCONTEXT_MOSTRAR_RAZONAMIENTO=1.")
+        "antes de cada acción/respuesta en chat, planificador, editor y "
+        "ReAct. También activable con la variable de entorno "
+        "SNAPCONTEXT_MOSTRAR_RAZONAMIENTO=1.",
+    )
     # v6.3.0 — Revisión interactiva del parche antes de aplicar.
     parser.add_argument(
-        "--mostrar-diff", dest="mostrar_diff", action="store_true",
+        "--mostrar-diff",
+        dest="mostrar_diff",
+        action="store_true",
         help="v6.3.0: muestra el diff propuesto (coloreado) antes de aplicar "
-             "un parche y pregunta si aplicarlo, cancelarlo o editarlo "
-             "manualmente. En modo --auto muestra el diff sin bloquear. Sin "
-             "este flag el parche se aplica sin preguntar (como siempre).",
+        "un parche y pregunta si aplicarlo, cancelarlo o editarlo "
+        "manualmente. En modo --auto muestra el diff sin bloquear. Sin "
+        "este flag el parche se aplica sin preguntar (como siempre).",
     )
     parser.add_argument(
-        "--editor-fallback", dest="editor_fallback", action="store_true",
+        "--editor-fallback",
+        dest="editor_fallback",
+        action="store_true",
         help="v6.1.0: si el editor propio falla (por contexto o por estrategia), "
-             "intenta automáticamente Aider como respaldo para los archivos "
-             "fallidos (requiere 'aider' en el PATH; si no, muestra una "
-             "sugerencia clara).",
+        "intenta automáticamente Aider como respaldo para los archivos "
+        "fallidos (requiere 'aider' en el PATH; si no, muestra una "
+        "sugerencia clara).",
     )
     # Aprendizaje autónomo / memoria avanzada (v3.0.0)
     parser.add_argument(
-        "--daemon", action="store_true",
+        "--daemon",
+        action="store_true",
         help="Ejecuta el daemon en segundo plano: corre el curador cada "
-             "--daemon-intervalo horas y procesa la cola de skills pendientes.",
+        "--daemon-intervalo horas y procesa la cola de skills pendientes.",
     )
     parser.add_argument(
-        "--daemon-intervalo", type=int,
-        default=DAEMON_INTERVALO_HORAS_DEFECTO, metavar="HORAS",
+        "--daemon-intervalo",
+        type=int,
+        default=DAEMON_INTERVALO_HORAS_DEFECTO,
+        metavar="HORAS",
         help="Horas entre pasadas del curador cuando el daemon está activo "
-             "(por defecto 168 = 7 días).",
+        "(por defecto 168 = 7 días).",
     )
     # v6.28.0: Gestor de sesiones persistentes (Agente Fantasma).
     parser.add_argument(
-        "--new-session", dest="new_session", nargs="?", const=True,
-        default=None, metavar="CONSULTA",
+        "--new-session",
+        dest="new_session",
+        nargs="?",
+        const=True,
+        default=None,
+        metavar="CONSULTA",
         help="(v6.28.0) Crea una nueva sesion persistente y devuelve su ID. "
-             "Si se proporciona CONSULTA, la ejecuta en la nueva sesion.",
+        "Si se proporciona CONSULTA, la ejecuta en la nueva sesion.",
     )
     parser.add_argument(
-        "--attach", dest="attach", default=None, metavar="ID",
+        "--attach",
+        dest="attach",
+        default=None,
+        metavar="ID",
         help="(v6.28.0) Conecta a una sesion existente (por ID).",
     )
     parser.add_argument(
-        "--session-timeout", dest="session_timeout", type=int, default=3600,
+        "--session-timeout",
+        dest="session_timeout",
+        type=int,
+        default=3600,
         metavar="SEGUNDOS",
         help="(v6.28.0) Tiempo de inactividad antes de eliminar una sesion "
-             "(por defecto: 3600 = 1 hora).",
+        "(por defecto: 3600 = 1 hora).",
     )
     parser.add_argument(
-        "--list-sessions", dest="list_sessions", action="store_true",
+        "--list-sessions",
+        dest="list_sessions",
+        action="store_true",
         default=False,
         help="(v6.28.0) Lista las sesiones activas y sale.",
     )
     parser.add_argument(
-        "--curador", action="store_true",
+        "--curador",
+        action="store_true",
         help="Ejecuta una pasada única del curador (archiva skills antiguos, "
-             "fusiona duplicados) y termina.",
+        "fusiona duplicados) y termina.",
     )
     parser.add_argument(
-        "--skills", action="store_true",
-        help="Lista los skills aprendidos guardados en la memoria SQLite y "
-             "termina.",
+        "--skills",
+        action="store_true",
+        help="Lista los skills aprendidos guardados en la memoria SQLite y termina.",
     )
     parser.add_argument(
-        "--sin-aprendizaje", action="store_true",
+        "--sin-aprendizaje",
+        action="store_true",
         help="Desactiva el aprendizaje continuo (no genera ni refuerza "
-             "skills al terminar las tareas).",
+        "skills al terminar las tareas).",
     )
     parser.add_argument(
-        "--skills-dinamicos", dest="skills_dinamicos",
-        action="store_true", default=True,
+        "--skills-dinamicos",
+        dest="skills_dinamicos",
+        action="store_true",
+        default=True,
         help="(v6.6.0) Skills dinámicos: extrae reglas abstractas de planes "
-             "exitosos y las reutiliza en el planificador (activado por "
-             "defecto).",
+        "exitosos y las reutiliza en el planificador (activado por "
+        "defecto).",
     )
     parser.add_argument(
-        "--sin-skills-dinamicos", dest="skills_dinamicos",
+        "--sin-skills-dinamicos",
+        dest="skills_dinamicos",
         action="store_false",
-        help="Desactiva los skills dinámicos (no extrae ni aplica reglas "
-             "abstractas).",
+        help="Desactiva los skills dinámicos (no extrae ni aplica reglas abstractas).",
     )
     parser.add_argument(
-        "--inyectar-reglas", action="store_true",
+        "--inyectar-reglas",
+        action="store_true",
         help="(v6.6.0) Fuerza la inyección de todas las reglas aprendidas en "
-             "CLAUDE.md/SNAPCONTEXT.md (sección '## Reglas aprendidas') y "
-             "termina.",
+        "CLAUDE.md/SNAPCONTEXT.md (sección '## Reglas aprendidas') y "
+        "termina.",
     )
-            # v6.26.0: Memoria a largo plazo (historial de decisiones en SQLite).
+    # v6.26.0: Memoria a largo plazo (historial de decisiones en SQLite).
     parser.add_argument(
-        "--memoria", dest="memoria",
-        action=argparse.BooleanOptionalAction, default=True,
+        "--memoria",
+        dest="memoria",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="Activa/desactiva la memoria a largo plazo (v6.26.0): guarda "
-             "decisiones pasadas en SQLite y las reutiliza para enriquecer "
-             "el contexto. Activado por defecto; desactivar con --no-memoria.",
+        "decisiones pasadas en SQLite y las reutiliza para enriquecer "
+        "el contexto. Activado por defecto; desactivar con --no-memoria.",
     )
     parser.add_argument(
-        "--memoria-limite", dest="memoria_limite", type=int, default=100,
+        "--memoria-limite",
+        dest="memoria_limite",
+        type=int,
+        default=100,
         metavar="N",
-        help="Numero maximo de decisiones a guardar en el historial "
-             "(por defecto: 100).",
+        help="Numero maximo de decisiones a guardar en el historial (por defecto: 100).",
     )
     parser.add_argument(
-        "--memoria-ver", dest="memoria_ver", action="store_true",
+        "--memoria-ver",
+        dest="memoria_ver",
+        action="store_true",
         default=False,
         help="Muestra las ultimas decisiones guardadas y sale (v6.26.0).",
     )
 
-# v6.25.0: QA Tester adversarial (revision destructiva de codigo).
+    # v6.25.0: QA Tester adversarial (revision destructiva de codigo).
     parser.add_argument(
-        "--qa-tester", dest="qa_tester",
-        action=argparse.BooleanOptionalAction, default=True,
+        "--qa-tester",
+        dest="qa_tester",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="Activa/desactiva el QA Tester adversarial (v6.25.0): revisa "
-             "automaticamente el codigo generado por el Programador buscando "
-             "errores de seguridad, rendimiento, logica y estilo. Activado por "
-             "defecto; desactivar con --no-qa-tester.",
+        "automaticamente el codigo generado por el Programador buscando "
+        "errores de seguridad, rendimiento, logica y estilo. Activado por "
+        "defecto; desactivar con --no-qa-tester.",
     )
     parser.add_argument(
-        "--qa-iteraciones", dest="qa_iteraciones", type=int, default=2,
+        "--qa-iteraciones",
+        dest="qa_iteraciones",
+        type=int,
+        default=2,
         metavar="N",
-        help="Numero maximo de iteraciones Programador <-> QA Tester "
-             "(por defecto: 2).",
+        help="Numero maximo de iteraciones Programador <-> QA Tester (por defecto: 2).",
     )
     parser.add_argument(
-        "--qa-severidad", dest="qa_severidad",
-        choices=["baja", "media", "alta"], default="media",
+        "--qa-severidad",
+        dest="qa_severidad",
+        choices=["baja", "media", "alta"],
+        default="media",
         help="Nivel de exigencia del QA Tester: 'baja' (solo errores criticos), "
-             "'media' (errores y advertencias) o 'alta' (revision exhaustiva). "
-             "Por defecto: 'media'.",
+        "'media' (errores y advertencias) o 'alta' (revision exhaustiva). "
+        "Por defecto: 'media'.",
     )
 
-# Ayuda agrupada por categorías (-h/--help) — v1.7.
+    # Ayuda agrupada por categorías (-h/--help) — v1.7.
     parser.add_argument(
-        "-h", "--help", action=_AyudaAccion,
+        "-h",
+        "--help",
+        action=_AyudaAccion,
         help="Muestra esta ayuda agrupada por categorías, con alias y ejemplos.",
     )
     return parser
 
 
-def _preparar_argv_aliases(argv: Optional[List[str]]) -> List[str]:
+def _preparar_argv_aliases(argv: list[str] | None) -> list[str]:
     """Convierte el primer token en un alias de comando común.
 
     Sintaxis ``snapcontext <alias> "mensaje"``:
@@ -10426,16 +11483,13 @@ def _preparar_argv_aliases(argv: Optional[List[str]]) -> List[str]:
 
 # v6.34.5: subsistema PATH extraído a :mod:`instalador` (fase 2 del
 # refactor). Se re-exportan aquí para mantener la API interna intacta.
-from instalador import (_candidatos_carpetas_scripts,  # noqa: E402
-                        _guardar_path_windows, _localizar_carpeta_scripts,
-                        configurar_path, snapcontext_en_path)
+from instalador import configurar_path, snapcontext_en_path
 
 
 # ---------------------------------------------------------------------------
 # Diagnóstico y reparación (v3.1.0)
 # ---------------------------------------------------------------------------
-def _diagnostico_item(nombre: str, ok: bool, detalle: str,
-                      solucion: Optional[str] = None) -> bool:
+def _diagnostico_item(nombre: str, ok: bool, detalle: str, solucion: str | None = None) -> bool:
     """Imprime una línea de diagnóstico con color según el estado."""
     if ok:
         exito(f"{nombre}: {detalle}")
@@ -10447,17 +11501,15 @@ def _diagnostico_item(nombre: str, ok: bool, detalle: str,
     return ok
 
 
-def _comprobar_dependencias_opcionales() -> List[tuple]:
+def _comprobar_dependencias_opcionales() -> list[tuple]:
     """Devuelve (modulo, instalado, instalacion) para dependencias opcionales."""
     modulos = [
         ("questionary", "questionary", "pip install snapcontext[interactive]"),
         ("fastapi", "fastapi", "pip install snapcontext[web]"),
         ("uvicorn", "uvicorn", "pip install snapcontext[web]"),
-        ("sentence_transformers", "sentence-transformers",
-         "pip install sentence-transformers"),
+        ("sentence_transformers", "sentence-transformers", "pip install sentence-transformers"),
         ("openai", "openai", "pip install openai"),
-        ("google.generativeai", "google-generativeai",
-         "pip install google-generativeai"),
+        ("google.generativeai", "google-generativeai", "pip install google-generativeai"),
         ("aider", "aider-chat", "pip install aider-chat"),
     ]
     resultados = []
@@ -10476,23 +11528,20 @@ def _estado_memoria() -> dict:
     Devuelve {'ok': bool, 'skills': int, 'error': str|None}.
     """
     if not os.path.exists(DB_PATH):
-        return {"ok": False, "skills": 0,
-                "error": f"No existe {DB_PATH} (se crea al primer uso)."}
+        return {"ok": False, "skills": 0, "error": f"No existe {DB_PATH} (se crea al primer uso)."}
     try:
         import sqlite3
+
         con = sqlite3.connect(str(DB_PATH))
         try:
             try:
                 resultado = con.execute("PRAGMA quick_check").fetchone()
                 if not resultado or resultado[0] != "ok":
-                    return {"ok": False, "skills": 0,
-                            "error": "La base de datos está corrupta."}
+                    return {"ok": False, "skills": 0, "error": "La base de datos está corrupta."}
             except sqlite3.DatabaseError:
-                return {"ok": False, "skills": 0,
-                        "error": "La base de datos está corrupta."}
+                return {"ok": False, "skills": 0, "error": "La base de datos está corrupta."}
             try:
-                skills = con.execute(
-                    "SELECT COUNT(*) FROM skills").fetchone()[0]
+                skills = con.execute("SELECT COUNT(*) FROM skills").fetchone()[0]
             except sqlite3.Error:
                 skills = 0
             return {"ok": True, "skills": skills, "error": None}
@@ -10517,11 +11566,11 @@ def _ejecutar_diagnostico(args: argparse.Namespace) -> int:
     version_py = sys.version.split()[0]
     en_path = any(shutil.which(cmd) for cmd in ("python", "python3", "py"))
     if not _diagnostico_item(
-            "Python", en_path,
-            f"v{version_py} ({sys.executable})" if en_path
-            else "no se encontró 'python' en el PATH",
-            "Instala Python 3.9+ desde https://python.org y marca "
-            "'Add to PATH'"):
+        "Python",
+        en_path,
+        f"v{version_py} ({sys.executable})" if en_path else "no se encontró 'python' en el PATH",
+        "Instala Python 3.9+ desde https://python.org y marca 'Add to PATH'",
+    ):
         problemas += 1
 
     # 2) Instalación de SnapContext
@@ -10530,13 +11579,20 @@ def _ejecutar_diagnostico(args: argparse.Namespace) -> int:
     else:
         try:
             from importlib.metadata import version as _meta_version
+
             instalada = _meta_version("snapcontext")
-            exito(f"SnapContext: instalado (v{instalada}). "
-                  "`python -m snapcontext --version` disponible.")
+            exito(
+                f"SnapContext: instalado (v{instalada}). "
+                "`python -m snapcontext --version` disponible."
+            )
         except Exception:
             aviso("SnapContext no consta como paquete instalado.")
-            print(_pintar("    → Solución: pip install snapcontext "
-                          "(o python -m pip install -e .)", _AMARILLO))
+            print(
+                _pintar(
+                    "    → Solución: pip install snapcontext (o python -m pip install -e .)",
+                    _AMARILLO,
+                )
+            )
             avisos += 1
 
     # 3) Dependencias opcionales
@@ -10553,9 +11609,13 @@ def _ejecutar_diagnostico(args: argparse.Namespace) -> int:
         exito("PATH: el comando 'snapcontext' es accesible.")
     else:
         aviso("PATH: 'snapcontext' no es accesible como comando global.")
-        print(_pintar("    → Solución: ejecuta 'snapcontext --setup-path' "
-                      "(Windows) o reinstala con install.ps1/install.sh",
-                      _AMARILLO))
+        print(
+            _pintar(
+                "    → Solución: ejecuta 'snapcontext --setup-path' "
+                "(Windows) o reinstala con install.ps1/install.sh",
+                _AMARILLO,
+            )
+        )
         avisos += 1
 
     # 5) Proveedor de IA / modo offline
@@ -10565,17 +11625,23 @@ def _ejecutar_diagnostico(args: argparse.Namespace) -> int:
         estado_ol = _estado_ollama()
         if estado_ol["modelos"]:
             ligero = _elegir_modelo_ligero(estado_ol["modelos"])
-            exito("Proveedor de IA: sin API key, pero Ollama está listo "
-                  f"(modo offline con '{ligero}').")
+            exito(
+                "Proveedor de IA: sin API key, pero Ollama está listo "
+                f"(modo offline con '{ligero}')."
+            )
         elif estado_ol["instalado"]:
             aviso("Ollama instalado pero sin modelos descargados.")
             print(_pintar("    → Solución: ollama pull llama3.2", _AMARILLO))
             avisos += 1
         else:
             error("No se encontró una API key ni Ollama.")
-            print(_pintar("    → Solución: instala Ollama desde "
-                          "https://ollama.com o ejecuta 'snapcontext --init'.",
-                          _ROJO))
+            print(
+                _pintar(
+                    "    → Solución: instala Ollama desde "
+                    "https://ollama.com o ejecuta 'snapcontext --init'.",
+                    _ROJO,
+                )
+            )
             problemas += 1
 
     # 6) Memoria (SQLite + skills)
@@ -10584,8 +11650,7 @@ def _ejecutar_diagnostico(args: argparse.Namespace) -> int:
         exito(f"Memoria: base de datos OK ({memoria['skills']} skills).")
     elif memoria["error"] and "corrupta" in (memoria["error"] or ""):
         error(f"Memoria: {memoria['error']}")
-        print(_pintar("    → Solución: ejecuta 'snapcontext --reparar'",
-                      _ROJO))
+        print(_pintar("    → Solución: ejecuta 'snapcontext --reparar'", _ROJO))
         problemas += 1
     else:
         aviso(f"Memoria: {memoria['error']}")
@@ -10593,9 +11658,11 @@ def _ejecutar_diagnostico(args: argparse.Namespace) -> int:
 
     print()
     if problemas:
-        error(f"Diagnóstico completado con {problemas} problema(s) y "
-              f"{avisos} aviso(s). Ejecuta 'snapcontext --reparar' si lo "
-              "necesitas.")
+        error(
+            f"Diagnóstico completado con {problemas} problema(s) y "
+            f"{avisos} aviso(s). Ejecuta 'snapcontext --reparar' si lo "
+            "necesitas."
+        )
         return 1
     if avisos:
         aviso(f"Diagnóstico completado: todo funcional, {avisos} aviso(s).")
@@ -10624,17 +11691,23 @@ def _limpiar_entorno_uv_corrupto() -> bool:
 
 def _reinstalar_snapcontext() -> bool:
     """Reinstala SnapContext con pip (con fallback a `uv pip`)."""
-    comando = [sys.executable, "-m", "pip", "install", "--upgrade",
-               "--force-reinstall", "--no-deps", "snapcontext"]
+    comando = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "--force-reinstall",
+        "--no-deps",
+        "snapcontext",
+    ]
     info("Reinstalando SnapContext con pip...")
     try:
-        proc = subprocess.run(comando, capture_output=True, text=True,
-                              timeout=600)
+        proc = subprocess.run(comando, capture_output=True, text=True, timeout=600)
         if proc.returncode == 0:
             exito("SnapContext reinstalado correctamente.")
             return True
-        aviso("pip devolvió un error: " +
-              ((proc.stderr or proc.stdout or "").strip()[-300:]))
+        aviso("pip devolvió un error: " + ((proc.stderr or proc.stdout or "").strip()[-300:]))
     except (OSError, subprocess.SubprocessError) as exc:
         aviso(f"No se pudo ejecutar pip: {exc}")
     return False
@@ -10652,8 +11725,7 @@ def _reparar_memoria_si_corrupta() -> bool:
                 copia.unlink()
             DB_PATH.rename(copia)
             _db_init()
-            aviso(f"Base de datos corrupta respaldada como '{copia.name}' "
-                  "y recreada.")
+            aviso(f"Base de datos corrupta respaldada como '{copia.name}' y recreada.")
             return True
         except OSError as exc:
             error(f"No se pudo reparar la base de datos: {exc}")
@@ -10663,7 +11735,7 @@ def _reparar_memoria_si_corrupta() -> bool:
         _db_init()
         exito("Memoria inicializada.")
         return True
-    except Exception as exc:                       # pragma: no cover
+    except Exception as exc:  # pragma: no cover
         error(f"No se pudo inicializar la memoria: {exc}")
         return False
 
@@ -10689,8 +11761,7 @@ def _ejecutar_reparacion(args: argparse.Namespace) -> int:
         ok_global = False
 
     if sys.platform.startswith("win") and not snapcontext_en_path():
-        aviso("El comando 'snapcontext' sigue sin estar en el PATH; "
-              "ejecutando --setup-path...")
+        aviso("El comando 'snapcontext' sigue sin estar en el PATH; ejecutando --setup-path...")
         if configurar_path() != 0:
             ok_global = False
     elif snapcontext_en_path():
@@ -10757,13 +11828,10 @@ def _ejecutar_demo() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="snapcontext-demo-"))
     try:
         _crear_demo_proyecto(tmp)
-        consulta = ("Corrige la función saludar para que devuelva el saludo "
-                    "correcto")
+        consulta = "Corrige la función saludar para que devuelva el saludo correcto"
 
         args = crear_parser().parse_args(
-            _preparar_argv_aliases(
-                [consulta, "--directorio", str(tmp), "--local", "--depurar"]
-            )
+            _preparar_argv_aliases([consulta, "--directorio", str(tmp), "--local", "--depurar"])
         )
 
         # FASE 1: mostrar la selección de archivos (sin tocar código).
@@ -10776,9 +11844,9 @@ def _ejecutar_demo() -> int:
         # Tras la fase 1, args ya trae carpetas/extensiones ajustadas por tipo.
         carpetas = list(args.carpetas or CARPETAS_DEFECTO)
         extensiones = getattr(args, "extensiones", None)
-        seleccion = listar_archivos_candidatos(
-            tmp, carpetas, extensiones=extensiones
-        )[: args.max_archivos]
+        seleccion = listar_archivos_candidatos(tmp, carpetas, extensiones=extensiones)[
+            : args.max_archivos
+        ]
 
         # FASE 2: bucle de pruebas completo (Editor → Tester) offline.
         info("── FASE 2 · Bucle de pruebas (Editor → Tester) ──")
@@ -10787,13 +11855,16 @@ def _ejecutar_demo() -> int:
         orch = Orquestador()
         orch.agente_editor.ejecutar_aider = _crear_demo_editor(tmp)
         comando_test = [
-            sys.executable, "-c",
+            sys.executable,
+            "-c",
             "from src.main import saludar; "
             "assert saludar('Mundo') == 'Hola, Mundo', 'saludo incorrecto'; "
             "print('prueba superada')",
         ]
         ok = orch._bucle_test(
-            consulta, seleccion, str(tmp),
+            consulta,
+            seleccion,
+            str(tmp),
             opciones_aider="",
             comando_test=comando_test,
             max_iteraciones=3,
@@ -10816,8 +11887,7 @@ def _ejecutar_demo() -> int:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _registrar_historial_async(args: argparse.Namespace, codigo: int,
-                               duracion: float) -> None:
+def _registrar_historial_async(args: argparse.Namespace, codigo: int, duracion: float) -> None:
     """Guarda la tarea en el historial en un hilo secundario (no bloquea)."""
     entrada = {
         "fecha": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -10826,10 +11896,9 @@ def _registrar_historial_async(args: argparse.Namespace, codigo: int,
         "resultado": "éxito" if codigo == 0 else "fallo",
         "duracion": round(duracion, 2),
     }
-    hilo = threading.Thread(target=_guardar_historial,
-                            args=(entrada,), daemon=True)
+    hilo = threading.Thread(target=_guardar_historial, args=(entrada,), daemon=True)
     hilo.start()
-    hilo.join(timeout=5)   # espera breve: evita perder la entrada al salir
+    hilo.join(timeout=5)  # espera breve: evita perder la entrada al salir
 
 
 def flujo_principal(args: argparse.Namespace) -> int:
@@ -10841,13 +11910,16 @@ def flujo_principal(args: argparse.Namespace) -> int:
     """
     global DEPURAR
     import presentacion as _pres
+
     DEPURAR = _pres.DEPURAR = args.depurar
     # Al ejecutar como `python -m snapcontext` el archivo vive como `__main__`,
     # pero agentes/orquestador hacen `import snapcontext` (copia de módulo). Se
     # sincroniza el flag en el módulo compartido para que los logs salgan.
     import snapcontext as _snap_sync
+
     _snap_sync.DEPURAR = args.depurar
     from orquestador import Orquestador  # import diferido para evitar ciclos
+
     inicio = time.monotonic()
     codigo = 1
     try:
@@ -10863,9 +11935,11 @@ def flujo_principal(args: argparse.Namespace) -> int:
             try:
                 _actualizar_claude_md_automatico(
                     f"Tarea completada: {getattr(args, 'consulta', '')}",
-                    directorio=getattr(args, "directorio", ".") or ".")
-            except Exception as exc:        # nunca romper la salida
+                    directorio=getattr(args, "directorio", ".") or ".",
+                )
+            except Exception as exc:  # nunca romper la salida
                 depurar(f"[memoria] actualización falló: {exc}")
+
 
 def conectar_db_inicial(args: argparse.Namespace) -> int:
     """Conecta perezosamente a la base de datos si se pasó ``--db-url`` (v6.7.0).
@@ -10879,13 +11953,12 @@ def conectar_db_inicial(args: argparse.Namespace) -> int:
     info("🐜 Conectando a base de datos...")
     try:
         import mcp_tools_db as dbt
-    except Exception as exc:                    # noqa: BLE001
+    except Exception as exc:
         aviso(f"⚠️ Herramientas de base de datos no disponibles: {exc}")
         return 2
     try:
-        resultado = dbt.db_connect(url,
-                                   driver=getattr(args, "db_driver", None))
-    except Exception as exc:                    # noqa: BLE001
+        resultado = dbt.db_connect(url, driver=getattr(args, "db_driver", None))
+    except Exception as exc:
         error(f"⚠️ Error de conexión: {exc}")
         return 1
     if resultado.get("ok"):
@@ -10926,8 +11999,9 @@ def iniciar_servidor_web(args: argparse.Namespace) -> int:
         if interactiva:
             try:
                 from web.interactive import desactivar as _desactivar_hub
+
                 _desactivar_hub()
-            except Exception:                # noqa: BLE001 — limpieza best-effort
+            except Exception:
                 pass
     return 0
 
@@ -10954,15 +12028,20 @@ def iniciar_api(args: argparse.Namespace) -> int:
         configuracion = cargar_configuracion()
         if not (configuracion.get("api_key") or "").strip():
             _generar_clave_api()
-            aviso("No había API key: se generó una nueva y se guardó en "
-                  "config.json ('api_key'). Consulta con --api-generate-key.")
-    info(f"API de SnapContext en http://{host}:{puerto} "
-         f"(docs interactivas en /docs y /redoc). Ctrl+C para salir...")
+            aviso(
+                "No había API key: se generó una nueva y se guardó en "
+                "config.json ('api_key'). Consulta con --api-generate-key."
+            )
+    info(
+        f"API de SnapContext en http://{host}:{puerto} "
+        f"(docs interactivas en /docs y /redoc). Ctrl+C para salir..."
+    )
     try:
         arrancar_api(puerto=puerto, host=host, token=token)
     except KeyboardInterrupt:
         info("API detenida.")
     return 0
+
 
 def _ejecutar_benchmark(args: argparse.Namespace) -> int:
     """``--benchmark``: mide y muestra el tiempo de cada fase (v6.9.0).
@@ -10978,11 +12057,11 @@ def _ejecutar_benchmark(args: argparse.Namespace) -> int:
     Muestra una tabla con `rich` (fallo a print plano si no está instalado).
     """
     import time as _t
-    directorio = getattr(args, "directorio", None) or "."
-    filas: List[tuple] = []
 
-    filas.append(("Inicio (import + CLI)",
-                  _t.perf_counter() - _TIEMPO_INICIO_MODULO))
+    directorio = getattr(args, "directorio", None) or "."
+    filas: list[tuple] = []
+
+    filas.append(("Inicio (import + CLI)", _t.perf_counter() - _TIEMPO_INICIO_MODULO))
 
     _t0 = _t.perf_counter()
     crear_parser()
@@ -10992,9 +12071,9 @@ def _ejecutar_benchmark(args: argparse.Namespace) -> int:
     carpetas = list(getattr(args, "carpetas", None) or CARPETAS_DEFECTO)
     try:
         candidatos = listar_archivos_candidatos(
-            directorio, carpetas,
-            extensiones=getattr(args, "extensiones", None))
-    except Exception:                                # noqa: BLE001
+            directorio, carpetas, extensiones=getattr(args, "extensiones", None)
+        )
+    except Exception:
         candidatos = []
     filas.append(("Escaneo de archivos", _t.perf_counter() - _t0))
 
@@ -11004,8 +12083,9 @@ def _ejecutar_benchmark(args: argparse.Namespace) -> int:
         if _embeddings_disponibles():
             _indexar_proyecto(directorio)
             seleccion = _seleccionar_archivos_con_embeddings(
-                "(benchmark)", directorio, max_archivos=3)
-    except Exception:                                # noqa: BLE001
+                "(benchmark)", directorio, max_archivos=3
+            )
+    except Exception:
         pass
     filas.append(("Selección (embeddings/heurística)", _t.perf_counter() - _t0))
 
@@ -11013,7 +12093,7 @@ def _ejecutar_benchmark(args: argparse.Namespace) -> int:
     try:
         prompt = PROMPT_PLAN.format(consulta="(benchmark)")
         _enriquecer_prompt_con_reglas(prompt, "(benchmark)")
-    except Exception:                                # noqa: BLE001
+    except Exception:
         pass
     filas.append(("Generación de plan (prompt+contexto)", _t.perf_counter() - _t0))
 
@@ -11023,9 +12103,10 @@ def _ejecutar_benchmark(args: argparse.Namespace) -> int:
 
     _t0 = _t.perf_counter()
     try:
-        import detector_tests as _det                 # noqa: F401
+        import detector_tests as _det
+
         _det = _det
-    except Exception:                                # noqa: BLE001
+    except Exception:
         pass
     filas.append(("Detección de pruebas", _t.perf_counter() - _t0))
 
@@ -11039,12 +12120,11 @@ def _ejecutar_benchmark(args: argparse.Namespace) -> int:
 def _bench_fuzzy_edicion(directorio: str) -> bool:
     """Ejercita el fuzzy matching incremental sobre un archivo sintético."""
     import tempfile
+
     try:
         tmp = Path(tempfile.mkdtemp(prefix="sc_bench_"))
         linea = "    return valor * 2\n"
-        contenido = ("def calcular_bench(num):\n"
-                     + linea * 60
-                     + "    return procesar(num)\n")
+        contenido = "def calcular_bench(num):\n" + linea * 60 + "    return procesar(num)\n"
         archivo = tmp / "bench.py"
         archivo.write_text(contenido, encoding="utf-8")
         original = "    return procesar(num)\n"
@@ -11052,27 +12132,32 @@ def _bench_fuzzy_edicion(directorio: str) -> bool:
         parche = _generar_parche(original, nuevo, "bench.py")
         ok = _aplicar_hunks_incremental(parche, str(tmp))
         return ok
-    except Exception:                                # noqa: BLE001
+    except Exception:
         return False
 
 
-def _mostrar_tabla_benchmark(filas: List[tuple]) -> None:
+def _mostrar_tabla_benchmark(filas: list[tuple]) -> None:
     """Pinta la tabla de tiempos con `rich` (o print plano sin él)."""
     try:
         from rich.console import Console
         from rich.table import Table
+
         console = Console()
-        tabla = Table(title=f"⚡ Benchmark de rendimiento — SnapContext {VERSION}",
-                      title_style="bold cyan", header_style="bold magenta")
+        tabla = Table(
+            title=f"⚡ Benchmark de rendimiento — SnapContext {VERSION}",
+            title_style="bold cyan",
+            header_style="bold magenta",
+        )
         tabla.add_column("Fase", style="cyan")
         tabla.add_column("Tiempo (s)", justify="right")
         for nombre, seg in filas:
             tabla.add_row(nombre, f"{seg:.4f}")
         console.print(tabla)
-    except Exception:                                # noqa: BLE001 — sin rich
+    except Exception:
         _emitir(sys.stdout, f"⚡ Benchmark de rendimiento — SnapContext {VERSION}")
         for nombre, seg in filas:
             _emitir(sys.stdout, f"  {nombre:<40} {seg:.4f} s")
+
 
 def _ejecutar_tui(args: argparse.Namespace) -> int:
     """Modo TUI inmersiva (v6.12.0): ``snapcontext --tui [consulta]``.
@@ -11085,45 +12170,46 @@ def _ejecutar_tui(args: argparse.Namespace) -> int:
     """
     try:
         import tui_app
-    except Exception as exc:                     # noqa: BLE001
+    except Exception as exc:
         error(f"No se pudo cargar la TUI: {exc}")
         return 2
     if not getattr(tui_app, "TEXTUAL_DISPONIBLE", False):
-        error("Textual no está instalado. Instala el grupo opcional:\n"
-              "    pip install snapcontext[tui]\n"
-              "    (o directamente: pip install 'textual>=0.50.0')")
+        error(
+            "Textual no está instalado. Instala el grupo opcional:\n"
+            "    pip install snapcontext[tui]\n"
+            "    (o directamente: pip install 'textual>=0.50.0')"
+        )
         return 2
     consulta = str(getattr(args, "consulta", "") or "")
     print("🖥️ Interfaz TUI inmersiva (Textual) — Ctrl+C para salir")
     # Import tardío: evita ciclos y mantiene el CLI tradicional intacto.
     import tui_hub
+
     tui_hub.reiniciar()
     tui_hub.activar()
 
     def _trabajo_agente() -> None:
         try:
             _ejecutar_modo_tarea(args)
-        except Exception as exc:                 # noqa: BLE001 — reportar en TUI
+        except Exception as exc:
             try:
                 tui_hub.enviar_log("error", f"Error del agente: {exc}")
                 tui_hub.enviar_fin(False, str(exc))
-            except Exception:                    # noqa: BLE001
+            except Exception:
                 pass
 
-    hilo = threading.Thread(target=_trabajo_agente, daemon=True,
-                            name="snap-tui-agente")
+    hilo = threading.Thread(target=_trabajo_agente, daemon=True, name="snap-tui-agente")
     try:
-        codigo = tui_app.ejecutar_tui(consulta=consulta, tarea=hilo,
-                                      version=VERSION)
+        codigo = tui_app.ejecutar_tui(consulta=consulta, tarea=hilo, version=VERSION)
         return int(codigo or 0)
-    except Exception as exc:                     # noqa: BLE001
+    except Exception as exc:
         error(f"La TUI falló: {exc}")
         return 1
     finally:
         tui_hub.desactivar()
 
 
-def _ejecutar_comando_hook(argv: Optional[list] = None) -> int:
+def _ejecutar_comando_hook(argv: list | None = None) -> int:
     """Gateway ``snapcontext hook list`` (v6.22.0).
 
     Por ahora la única subacción es ``list``, que vuelca los hooks registrados
@@ -11131,7 +12217,7 @@ def _ejecutar_comando_hook(argv: Optional[list] = None) -> int:
     """
     try:
         import hooks as _hooks
-    except Exception as exc:                             # noqa: BLE001
+    except Exception as exc:
         error(f"No se pudo importar el módulo de hooks: {exc}")
         return 1
     if not argv or argv[0].lower() == "list":
@@ -11142,12 +12228,11 @@ def _ejecutar_comando_hook(argv: Optional[list] = None) -> int:
         else:
             info("No hay hooks registrados.")
         return 0
-    error(f"Subcomando hook desconocido: {argv[0]!r}. "
-          "Uso: 'snapcontext hook list'.")
+    error(f"Subcomando hook desconocido: {argv[0]!r}. Uso: 'snapcontext hook list'.")
     return 1
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     # Instala los manejadores de Ctrl+C / SIGTERM (cierre limpio, subprocesos
     # incluidos) antes de hacer nada. Es seguro en Windows y Linux/macOS.
     _registrar_manejadores_senales()
@@ -11192,17 +12277,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         CONFIRMAR_ACCIONES = getattr(args, "confirmar", True)
         # v6.24.0: enrutamiento de modelos. Los flags explícitos --model /
         # --provider desactivan el enrutado (prioridad máxima del usuario).
-        _explicito = bool(getattr(args, "modelo", None)
-                          or getattr(args, "provider", None))
-        _configurar_model_routing(
-            bool(getattr(args, "model_routing", True)), explicito=_explicito)
+        _explicito = bool(getattr(args, "modelo", None) or getattr(args, "provider", None))
+        _configurar_model_routing(bool(getattr(args, "model_routing", True)), explicito=_explicito)
         # v6.30.0: enrutamiento híbrido Local-Nube (fallback + umbrales CLI).
         _mf_flag = getattr(args, "model_fallback", None)
         if _mf_flag is None:
             try:
-                _mf_flag = bool(_cargar_configuracion_routing().get(
-                    "fallback_automatico", True))
-            except Exception:                            # noqa: BLE001
+                _mf_flag = bool(_cargar_configuracion_routing().get("fallback_automatico", True))
+            except Exception:
                 _mf_flag = True
         _configurar_model_fallback(bool(_mf_flag))
         _configurar_hibrido_cli(
@@ -11211,60 +12293,60 @@ def main(argv: Optional[List[str]] = None) -> int:
             prioridad_nube=getattr(args, "model_prioridad_nube", None),
         )
         # v6.31.0: Prompt Caching por Capas (None → entorno/config/defecto).
-        _configurar_prompt_caching_capas(
-            getattr(args, "prompt_caching_capas", None))
+        _configurar_prompt_caching_capas(getattr(args, "prompt_caching_capas", None))
         # v6.32.0: Pruning proactivo de contexto (None → config/defecto activado).
         _configurar_pruning(getattr(args, "prune_context", None))
         _configurar_umbral_pruning(getattr(args, "prune_umbral", None))
         # v4.8.0: sincroniza el modo no interactivo de la capa UI (--auto).
         _ui_configurar_auto(bool(getattr(args, "auto", False)))
-# v4.8.0: sincroniza el modo no interactivo de la capa UI (--auto).
+        # v4.8.0: sincroniza el modo no interactivo de la capa UI (--auto).
         _ui_configurar_auto(bool(getattr(args, "auto", False)))
         # v6.4.0: `--sandbox-session-clean` limpia contenedores huérfanos y sale.
         if getattr(args, "sandbox_session_clean", False):
-            _limpiar_sesiones_huérfanas(
-                auto=bool(getattr(args, "auto", False)))
+            _limpiar_sesiones_huérfanas(auto=bool(getattr(args, "auto", False)))
             return 0
         # v4.3.0/v5.4.0: política de sandbox. --no-sandbox gana sobre todo;
         # después --sandbox explícito; y SNAPCONTEXT_SANDBOX=1 activa el
         # contenedor para todo (no estricto: si falta Docker se continúa sin
         # él, los comandos peligrosos los gestiona _decidir_ejecucion_sandbox).
-        if getattr(args, "no_sandbox", False) or \
-                os.environ.get("SNAPCONTEXT_SANDBOX") == "0":
+        if getattr(args, "no_sandbox", False) or os.environ.get("SNAPCONTEXT_SANDBOX") == "0":
             _configurar_no_sandbox(True)
         elif getattr(args, "sandbox_session", False):
             if not _docker_disponible():
                 raise RuntimeError(
                     "--sandbox-session solicita Docker pero no está disponible "
                     "(¿instalado? ¿el daemon está en ejecución?). Instala Docker "
-                    "Desktop o inicia el servicio 'docker'.")
+                    "Desktop o inicia el servicio 'docker'."
+                )
             _activar_sandbox(
                 imagen=getattr(args, "sandbox_imagen", None),
                 comando_prep=getattr(args, "sandbox_comando", None),
-                estricto=True)
+                estricto=True,
+            )
             _SESION_DOCKER_SOLICITADA = True
         elif getattr(args, "sandbox", False):
             _activar_sandbox(
                 imagen=getattr(args, "sandbox_imagen", None),
                 comando_prep=getattr(args, "sandbox_comando", None),
-                estricto=True)
+                estricto=True,
+            )
         elif os.environ.get("SNAPCONTEXT_SANDBOX") == "1":
             _activar_sandbox(
                 imagen=getattr(args, "sandbox_imagen", None),
                 comando_prep=getattr(args, "sandbox_comando", None),
-                estricto=False)
+                estricto=False,
+            )
         # v5.0.0: arranca el daemon del curador proactivo en segundo plano
         # (hilo demonio; nunca bloquea el CLI). Se omite si se corre bajo un
         # test runner y se puede desactivar con CURADOR_DAEMON=0.
         try:
             import curador_proactivo as _cp
+
             _argv0 = (sys.argv[0] or "").lower()
-            _en_tests = any(x in _argv0 for x in (
-                "unittest", "pytest", "py.test"))
-            if (os.environ.get("CURADOR_DAEMON", "1") == "1"
-                    and not _en_tests):
+            _en_tests = any(x in _argv0 for x in ("unittest", "pytest", "py.test"))
+            if os.environ.get("CURADOR_DAEMON", "1") == "1" and not _en_tests:
                 _cp.iniciar_daemon_fondo()
-        except Exception:                        # noqa: BLE001 — nunca bloquea
+        except Exception:
             pass
         # v5.6.0: verificación temprana de directorio de proyecto.
         # Si el directorio actual no parece ser raíz de un proyecto y no se ha
@@ -11282,15 +12364,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         # comando pedido. Solo en terminales interactivos (nunca en tests,
         # CI o scripts) para evitar bloqueos.
         if _primer_uso_pendiente() and _entrada_interactiva():
-            info("😹 Parece que es tu primera vez con SnapContext. "
-                 "Mostrando el tutorial (--bienvenida)...")
+            info(
+                "😹 Parece que es tu primera vez con SnapContext. "
+                "Mostrando el tutorial (--bienvenida)..."
+            )
             print()
             _tutorial_interactivo()
             _marcar_primer_uso_completado()
         # --init-claude es independiente: crea la memoria del proyecto y sale.
         if getattr(args, "init_claude", False):
-            _generar_claude_md(getattr(args, "provider", None),
-                               getattr(args, "modelo", None))
+            _generar_claude_md(getattr(args, "provider", None), getattr(args, "modelo", None))
             return 0
         # Memoria de proyecto (v0.15.0): carga CLAUDE.md/SNAPCONTEXT.md si
         # existe, para todos los modos que hablan con el agente.
@@ -11301,8 +12384,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         global SKILLS_DINAMICOS
         SKILLS_DINAMICOS = bool(getattr(args, "skills_dinamicos", True))
         if MEMORIA_PROYECTO:
-            info("🗜 Memoria de proyecto cargada ("
-                 + (_buscar_claude_md().name or "CLAUDE.md") + ").")
+            info(
+                "🗜 Memoria de proyecto cargada (" + (_buscar_claude_md().name or "CLAUDE.md") + ")."
+            )
         # --init es independiente: configura claves/proveedor y sale.
         if getattr(args, "init", False):
             return asistente_configuracion_inicial()
@@ -11330,8 +12414,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         # v6.20.0: git profundo — revert de un paso (independiente).
         if getattr(args, "git_revert", None) is not None:
             _paso = args.git_revert
-            return _ejecutar_revert(
-                None if _paso == -1 else str(_paso))
+            return _ejecutar_revert(None if _paso == -1 else str(_paso))
         # --demo ejecuta una demo autónoma (sin API key ni Aider) y termina.
         if getattr(args, "demo", False):
             return _ejecutar_demo()
@@ -11345,8 +12428,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         # Memoria avanzada / aprendizaje (v3.0.0). El daemon corre hasta Ctrl+C.
         if getattr(args, "daemon", False):
             _daemon_bucle(
-                intervalo_horas=getattr(args, "daemon_intervalo",
-                                        DAEMON_INTERVALO_HORAS_DEFECTO))
+                intervalo_horas=getattr(args, "daemon_intervalo", DAEMON_INTERVALO_HORAS_DEFECTO)
+            )
             return 0
         # --curador ejecuta una pasada única del curador y termina.
         if getattr(args, "curador", False):
@@ -11356,21 +12439,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         # CLAUDE.md/SNAPCONTEXT.md y termina (idempotente).
         if getattr(args, "inyectar_reglas", False):
             import skill_abstraction as _sa
-            añadidas = _sa.inyectar_todas_las_reglas(
-                getattr(args, "directorio", ".") or ".")
+
+            añadidas = _sa.inyectar_todas_las_reglas(getattr(args, "directorio", ".") or ".")
             info(f"🗜 Reglas inyectadas en CLAUDE.md: {añadidas} nueva(s).")
             return 0
         # v3.5.0/4.2.0: asesor de código (--asesor/--sugerir/--asesor-auto/
         # --asesor-profundo; el profundo implica ejecutar el análisis).
-        if (getattr(args, "asesor", False)
-                or getattr(args, "asesor_auto", False)
-                or getattr(args, "asesor_profundo", False)):
+        if (
+            getattr(args, "asesor", False)
+            or getattr(args, "asesor_auto", False)
+            or getattr(args, "asesor_profundo", False)
+        ):
             return _ejecutar_asesor(args)
         # v3.6.0: API pública — generar clave y/o arrancar el servidor REST.
         if getattr(args, "api_generate_key", False):
             clave = _generar_clave_api()
-            exito("API key generada y guardada en ~/.snapcontext/config.json "
-                  "('api_key'):")
+            exito("API key generada y guardada en ~/.snapcontext/config.json ('api_key'):")
             _emitir(sys.stdout, _pintar(f"    {clave}", _VERDE))
             return 0
         if getattr(args, "api", False):
@@ -11379,13 +12463,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         if getattr(args, "skills", False):
             filas = _skill_listar(incluir_archivados=True)
             if not filas:
-                info("Aún no hay skills aprendidos. Se crean al completar "
-                     "tareas con --plan.")
+                info("Aún no hay skills aprendidos. Se crean al completar tareas con --plan.")
             for f in filas:
                 estado = "archivado" if f["archivado"] else "activo"
-                exito(f"#{f['id']} [{estado}] {f['nombre']} "
-                      f"(confiabilidad {f['confiabilidad']:.2f}, "
-                      f"{f['usos']} usos, {f['fallos']} fallos)")
+                exito(
+                    f"#{f['id']} [{estado}] {f['nombre']} "
+                    f"(confiabilidad {f['confiabilidad']:.2f}, "
+                    f"{f['usos']} usos, {f['fallos']} fallos)"
+                )
                 if f["descripcion"]:
                     print(f"      {f['descripcion']}")
             return 0
@@ -11395,8 +12480,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _ejecutar_chat(
                 proveedor=getattr(args, "provider", None),
                 modelo=getattr(args, "modelo", None),
-                prompt_caching=getattr(args, "prompt_caching",
-                                       PROMPT_CACHING_DEFECTO),
+                prompt_caching=getattr(args, "prompt_caching", PROMPT_CACHING_DEFECTO),
             )
         # v5.2.0: el motor ReAct es el modo por defecto; --plan queda como
         # legacy para scripts. El flag --react se acepta (redundante).
@@ -11405,18 +12489,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         # solo si el usuario no eligió flags explícitos.
         args = _aplicar_modo_inteligente(args)
         # v6.24.0: mensaje de enrutamiento al inicio de la tarea.
-        if (_MODEL_ROUTING_ACTIVO and not _MODELO_EXPLICITO
-                and getattr(args, "consulta", None)):
+        if _MODEL_ROUTING_ACTIVO and not _MODELO_EXPLICITO and getattr(args, "consulta", None):
             try:
-                import model_router as _mr              # noqa: E402
+                import model_router as _mr
+
                 _cat = _mr.clasificar_tarea(args.consulta)
                 _p, _m = _mr.seleccionar_modelo(
-                    _cat,
-                    {"model_routing": _cargar_configuracion_routing()})
+                    _cat, {"model_routing": _cargar_configuracion_routing()}
+                )
                 if _p:
                     _m_ef = _m or PROVEEDORES[_p]["modelo_default"]
                     info(f"🧠 Modelo enrutado: {_cat} → {_p}/{_m_ef}")
-            except Exception:                            # noqa: BLE001
+            except Exception:
                 pass
         return _ejecutar_modo_tarea(args)
     except KeyboardInterrupt:

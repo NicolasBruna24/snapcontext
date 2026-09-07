@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests del Asesor de código proactivo (v3.5.0).
 
 Cubre los detectores estáticos, ``_asesor_analizar`` extremo a extremo sobre
@@ -35,24 +34,20 @@ class BaseAsesor(unittest.TestCase):
 class TestDetectores(BaseAsesor):
     def test_funcion_larga_detectada(self):
         cuerpo = "\n".join("    x = %d" % i for i in range(25))
-        hallazgos = sc._detectar_funciones_largas(
-            "def larga():\n" + cuerpo + "\n", 20)
+        hallazgos = sc._detectar_funciones_largas("def larga():\n" + cuerpo + "\n", 20)
         self.assertEqual(len(hallazgos), 1)
         self.assertEqual(hallazgos[0]["nombre"], "larga")
         self.assertEqual(hallazgos[0]["lineas"], 26)
 
     def test_funcion_corta_no_detectada(self):
-        self.assertEqual(
-            sc._detectar_funciones_largas("def f():\n    return 1\n", 20), [])
+        self.assertEqual(sc._detectar_funciones_largas("def f():\n    return 1\n", 20), [])
 
     def test_sintaxis_invalida_ignorada(self):
         self.assertEqual(sc._detectar_funciones_largas("def (\n", 5), [])
 
     def test_clase_grande_detectada(self):
-        metodos = "".join(f"    def m{i}(self):\n        pass\n"
-                          for i in range(12))
-        hallazgos = sc._detectar_clases_grandes(
-            "class Grande:\n" + metodos, 10)
+        metodos = "".join(f"    def m{i}(self):\n        pass\n" for i in range(12))
+        hallazgos = sc._detectar_clases_grandes("class Grande:\n" + metodos, 10)
         self.assertEqual(len(hallazgos), 1)
         self.assertEqual(hallazgos[0]["metodos"], 12)
 
@@ -62,36 +57,30 @@ class TestDetectores(BaseAsesor):
         self.assertEqual(hallazgos[0]["sugerido"], "datos")
 
     def test_indices_de_bucle_excluidos(self):
-        self.assertEqual(
-            sc._detectar_nombres_cortos("for i in range(3):\n    print(i)\n"),
-            [])
+        self.assertEqual(sc._detectar_nombres_cortos("for i in range(3):\n    print(i)\n"), [])
 
 
 class TestPatronesYDuplicados(BaseAsesor):
     def test_patrones_obsoletos(self):
-        codigo = ("try:\n    pass\nexcept:\n    pass\n"
-                  "if x == None:\n    pass\n")
+        codigo = "try:\n    pass\nexcept:\n    pass\nif x == None:\n    pass\n"
         hallazgos = sc._detectar_patrones_obsoletos(codigo)
         mensajes = [h["mensaje"] for h in hallazgos]
         self.assertTrue(any("except" in m for m in mensajes))
         self.assertTrue(any("is None" in m for m in mensajes))
 
     def test_comentarios_ignorados(self):
-        self.assertEqual(
-            sc._detectar_patrones_obsoletos("# if x == None\n"), [])
+        self.assertEqual(sc._detectar_patrones_obsoletos("# if x == None\n"), [])
 
     def test_duplicados_entre_archivos(self):
         bloque = "".join(f"linea_{i} = {i}\n" for i in range(8))
-        contenidos = {"a.py": bloque, "b.py": bloque,
-                      "c.py": "distinto = 1\n"}
+        contenidos = {"a.py": bloque, "b.py": bloque, "c.py": "distinto = 1\n"}
         hallazgos = sc._detectar_duplicados(contenidos, 6)
         self.assertEqual(len(hallazgos), 1)
         self.assertEqual(hallazgos[0]["archivo"], "b.py")
         self.assertIn("a.py", hallazgos[0]["original"])
 
     def test_sin_duplicados(self):
-        self.assertEqual(
-            sc._detectar_duplicados({"a.py": "x = 1\n"}, 6), [])
+        self.assertEqual(sc._detectar_duplicados({"a.py": "x = 1\n"}, 6), [])
 
 
 class TestAsesorAnalizar(BaseAsesor):
@@ -114,15 +103,19 @@ class TestAsesorAnalizar(BaseAsesor):
         self.assertEqual(sc._asesor_analizar(str(self.raiz)), [])
 
     def test_umbral_personalizado(self):
-        self._archivo("m.py", "def f():\n" + "    x = 1\n" * 12)   # 13 líneas
-        con_umbral_5 = [s for s in sc._asesor_analizar(
-            str(self.raiz), umbral_funcion=5)
-            if s["tipo"] == "funcion_larga"]
-        self.assertEqual(len(con_umbral_5), 1)          # 13 > 5 → detectada
-        con_umbral_20 = [s for s in sc._asesor_analizar(
-            str(self.raiz), umbral_funcion=20)
-            if s["tipo"] == "funcion_larga"]
-        self.assertEqual(con_umbral_20, [])             # 13 < 20 → ignorada
+        self._archivo("m.py", "def f():\n" + "    x = 1\n" * 12)  # 13 líneas
+        con_umbral_5 = [
+            s
+            for s in sc._asesor_analizar(str(self.raiz), umbral_funcion=5)
+            if s["tipo"] == "funcion_larga"
+        ]
+        self.assertEqual(len(con_umbral_5), 1)  # 13 > 5 → detectada
+        con_umbral_20 = [
+            s
+            for s in sc._asesor_analizar(str(self.raiz), umbral_funcion=20)
+            if s["tipo"] == "funcion_larga"
+        ]
+        self.assertEqual(con_umbral_20, [])  # 13 < 20 → ignorada
 
 
 class TestFlags(BaseAsesor):
@@ -139,31 +132,37 @@ class TestFlags(BaseAsesor):
         self.assertTrue(args2.asesor)
 
     def test_flag_asesor_auto_y_umbral(self):
-        args = sc.crear_parser().parse_args(
-            ["--asesor-auto", "--asesor-umbral", "30"])
+        args = sc.crear_parser().parse_args(["--asesor-auto", "--asesor-umbral", "30"])
         self.assertTrue(args.asesor_auto)
         self.assertEqual(args.asesor_umbral, 30)
 
 
 class TestPlanificador(BaseAsesor):
     def test_accion_asesor_valida_en_pasos(self):
-        pasos = sc._normalizar_pasos({"pasos": [
-            {"descripcion": "analizar deuda", "accion": "asesor"}]})
+        pasos = sc._normalizar_pasos(
+            {"pasos": [{"descripcion": "analizar deuda", "accion": "asesor"}]}
+        )
         self.assertEqual(len(pasos), 1)
         self.assertEqual(pasos[0]["accion"], "asesor")
 
     def test_paso_asesor_presenta_sugerencias(self):
         args = mock.MagicMock(auto=False, confirmar=True)
-        sugerencias = [{"descripcion": "función larga", "archivo": "m.py",
-                        "linea": 3, "solucion": "extráela",
-                        "prioridad": "media"}]
-        with mock.patch.object(sc, "_asesor_analizar",
-                               return_value=sugerencias) as analiza, \
-                mock.patch.object(sc, "_confirmar_accion",
-                                  return_value=True) as confirma:
+        sugerencias = [
+            {
+                "descripcion": "función larga",
+                "archivo": "m.py",
+                "linea": 3,
+                "solucion": "extráela",
+                "prioridad": "media",
+            }
+        ]
+        with (
+            mock.patch.object(sc, "_asesor_analizar", return_value=sugerencias) as analiza,
+            mock.patch.object(sc, "_confirmar_accion", return_value=True) as confirma,
+        ):
             ok, detalle = sc._ejecutar_paso_plan(
-                {"accion": "asesor", "descripcion": "analizar"}, args,
-                str(self.raiz))
+                {"accion": "asesor", "descripcion": "analizar"}, args, str(self.raiz)
+            )
         self.assertTrue(ok)
         self.assertIn("1 sugerencia", detalle)
         self.assertIn("1 aceptada", detalle)
@@ -173,44 +172,53 @@ class TestPlanificador(BaseAsesor):
 
     def test_paso_asesor_auto_solo_informa(self):
         args = mock.MagicMock(auto=True, confirmar=False)
-        sugerencias = [{"descripcion": "duplicado", "archivo": "m.py",
-                        "linea": 3, "solucion": "extrae",
-                        "prioridad": "media"}]
-        with mock.patch.object(sc, "_asesor_analizar",
-                               return_value=sugerencias), \
-                mock.patch.object(sc, "_confirmar_accion") as confirma:
+        sugerencias = [
+            {
+                "descripcion": "duplicado",
+                "archivo": "m.py",
+                "linea": 3,
+                "solucion": "extrae",
+                "prioridad": "media",
+            }
+        ]
+        with (
+            mock.patch.object(sc, "_asesor_analizar", return_value=sugerencias),
+            mock.patch.object(sc, "_confirmar_accion") as confirma,
+        ):
             ok, detalle = sc._ejecutar_paso_plan(
-                {"accion": "asesor", "descripcion": "analizar"}, args,
-                str(self.raiz))
+                {"accion": "asesor", "descripcion": "analizar"}, args, str(self.raiz)
+            )
         self.assertTrue(ok)
         confirma.assert_not_called()
 
     def test_paso_asesor_sin_sugerencias_es_exito(self):
         args = mock.MagicMock(auto=False)
-        with mock.patch.object(sc, "_asesor_analizar", return_value=[]), \
-                mock.patch.object(sc, "_confirmar_accion", return_value=True):
+        with (
+            mock.patch.object(sc, "_asesor_analizar", return_value=[]),
+            mock.patch.object(sc, "_confirmar_accion", return_value=True),
+        ):
             ok, detalle = sc._ejecutar_paso_plan(
-                {"accion": "asesor", "descripcion": "analizar"}, args,
-                str(self.raiz))
+                {"accion": "asesor", "descripcion": "analizar"}, args, str(self.raiz)
+            )
         self.assertTrue(ok)
         self.assertEqual(detalle, "sin sugerencias")
 
 
 class TestAplicarAutomaticas(BaseAsesor):
     SUGERENCIA_RENOMBRE = {
-        "tipo": "nombre_poco_descriptivo", "auto": True,
-        "archivo": "m.py", "linea": 1,
+        "tipo": "nombre_poco_descriptivo",
+        "auto": True,
+        "archivo": "m.py",
+        "linea": 1,
         "descripcion": "El nombre 'd' no es descriptivo.",
         "solucion": "Renómbralo a 'datos'.",
         "prioridad": "baja",
-        "operaciones": [{"tipo": "renombrar", "nombre": "d",
-                         "nuevo": "datos"}],
+        "operaciones": [{"tipo": "renombrar", "nombre": "d", "nuevo": "datos"}],
     }
 
     def test_aplica_renombre_validado(self):
         ruta = self._archivo("m.py", "d = {}\nd['a'] = 1\nprint(d)\n")
-        aplicadas = sc._asesor_aplicar_automaticas(
-            [dict(self.SUGERENCIA_RENOMBRE)], str(self.raiz))
+        aplicadas = sc._asesor_aplicar_automaticas([dict(self.SUGERENCIA_RENOMBRE)], str(self.raiz))
         self.assertEqual(aplicadas, 1)
         contenido = ruta.read_text(encoding="utf-8")
         self.assertIn("datos = {}", contenido)
@@ -219,10 +227,8 @@ class TestAplicarAutomaticas(BaseAsesor):
     def test_descarta_cambio_si_validacion_falla(self):
         ruta = self._archivo("m.py", "d = 1\n")
         sugerencia = dict(self.SUGERENCIA_RENOMBRE)
-        with mock.patch.object(sc, "_validar_sintaxis",
-                               return_value=(False, "SyntaxError")):
-            aplicadas = sc._asesor_aplicar_automaticas(
-                [sugerencia], str(self.raiz))
+        with mock.patch.object(sc, "_validar_sintaxis", return_value=(False, "SyntaxError")):
+            aplicadas = sc._asesor_aplicar_automaticas([sugerencia], str(self.raiz))
         self.assertEqual(aplicadas, 0)
         self.assertEqual(ruta.read_text(encoding="utf-8"), "d = 1\n")
 
@@ -230,15 +236,12 @@ class TestAplicarAutomaticas(BaseAsesor):
         self._archivo("m.py", "d = 1\n")
         sugerencia = dict(self.SUGERENCIA_RENOMBRE)
         sugerencia["auto"] = False
-        self.assertEqual(
-            sc._asesor_aplicar_automaticas([sugerencia], str(self.raiz)), 0)
+        self.assertEqual(sc._asesor_aplicar_automaticas([sugerencia], str(self.raiz)), 0)
 
     def test_sugerencia_sin_operaciones_se_ignora(self):
         self._archivo("m.py", "x = 1\n")
-        sugerencia = {"tipo": "funcion_larga", "auto": True,
-                      "archivo": "m.py", "linea": 1}
-        self.assertEqual(
-            sc._asesor_aplicar_automaticas([sugerencia], str(self.raiz)), 0)
+        sugerencia = {"tipo": "funcion_larga", "auto": True, "archivo": "m.py", "linea": 1}
+        self.assertEqual(sc._asesor_aplicar_automaticas([sugerencia], str(self.raiz)), 0)
 
 
 class TestAgenteYChat(BaseAsesor):
@@ -246,14 +249,14 @@ class TestAgenteYChat(BaseAsesor):
         agente = AgenteAsesor()
         self._archivo("m.py", "d = 1\n")
         sugerencias = agente.analizar(str(self.raiz))
-        self.assertTrue(any(s["tipo"] == "nombre_poco_descriptivo"
-                            for s in sugerencias))
+        self.assertTrue(any(s["tipo"] == "nombre_poco_descriptivo" for s in sugerencias))
         # mostrar() no debe lanzar excepciones (con y sin sugerencias).
         agente.mostrar(sugerencias)
         agente.mostrar([])
 
     def test_orquestador_tiene_agente_asesor(self):
         from orquestador import Orquestador
+
         orch = Orquestador()
         self.assertTrue(hasattr(orch, "agente_asesor"))
 

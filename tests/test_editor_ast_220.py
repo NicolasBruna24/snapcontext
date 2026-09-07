@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la Fase 3 del Editor Propio (Edición basada en AST) — v2.2.0."""
 
 import shutil
@@ -59,28 +58,28 @@ class TestEditorAST(unittest.TestCase):
         self.assertTrue(any(i["tipo"] == "from" for i in resumen["imports"]))
 
     def test_renombrar_identificador(self):
-        nuevo = sc._renombrar_identificador(
-            "def foo():\n    return foo\n", "foo", "bar")
+        nuevo = sc._renombrar_identificador("def foo():\n    return foo\n", "foo", "bar")
         self.assertIn("def bar", nuevo)
         self.assertIn("return bar", nuevo)
         self.assertNotIn("foo", nuevo)
 
     def test_interpretar_operaciones_json_y_fenced(self):
         ops = sc._interpretar_operaciones_ast(
-            '```json\n[{"tipo": "renombrar", "nombre": "x", "nuevo": "y"}]\n```')
+            '```json\n[{"tipo": "renombrar", "nombre": "x", "nuevo": "y"}]\n```'
+        )
         self.assertEqual(ops[0]["tipo"], "renombrar")
         # Sin JSON → se trata como código completo
         ops2 = sc._interpretar_operaciones_ast("def fn(): return 1\n")
         self.assertEqual(ops2[0]["tipo"], "completo")
 
     def test_editor_ast_renombrar(self):
-        archivo = self._escribir(
-            "modulo.py", "def foo():\n    x = 1\n    return foo(x)\n")
+        archivo = self._escribir("modulo.py", "def foo():\n    x = 1\n    return foo(x)\n")
         with mock.patch.object(
-                sc, "_enviar_al_proveedor",
-                return_value='[{"tipo": "renombrar", "nombre": "foo", "nuevo": "bar"}]'):
-            ok = sc._editor_ast(archivo, "renombrar foo a bar",
-                                directorio=str(self.raiz))
+            sc,
+            "_enviar_al_proveedor",
+            return_value='[{"tipo": "renombrar", "nombre": "foo", "nuevo": "bar"}]',
+        ):
+            ok = sc._editor_ast(archivo, "renombrar foo a bar", directorio=str(self.raiz))
         self.assertTrue(ok)
         contenido = (self.raiz / archivo).read_text(encoding="utf-8")
         self.assertIn("def bar", contenido)
@@ -90,29 +89,30 @@ class TestEditorAST(unittest.TestCase):
     def test_editor_ast_completo(self):
         archivo = self._escribir("modulo.py", "def fn():\n    return 1\n")
         with mock.patch.object(
-                sc, "_enviar_al_proveedor",
-                return_value='[{"tipo": "completo", "codigo": "def fn(): return 2\\n"}]'):
-            ok = sc._editor_ast(archivo, "cambiar retorno a 2",
-                                directorio=str(self.raiz))
+            sc,
+            "_enviar_al_proveedor",
+            return_value='[{"tipo": "completo", "codigo": "def fn(): return 2\\n"}]',
+        ):
+            ok = sc._editor_ast(archivo, "cambiar retorno a 2", directorio=str(self.raiz))
         self.assertTrue(ok)
         contenido = (self.raiz / archivo).read_text(encoding="utf-8")
         self.assertIn("def fn(): return 2", contenido)
 
     def test_editor_ast_archivo_no_existe(self):
-        self.assertFalse(sc._editor_ast("no_existe.py", "tarea",
-                                        directorio=str(self.raiz)))
+        self.assertFalse(sc._editor_ast("no_existe.py", "tarea", directorio=str(self.raiz)))
 
     def test_editor_ast_sin_ast_disponible(self):
         # .txt no tiene analizador AST → delega (devuelve False)
         self._escribir("notas.txt", "hola")
-        self.assertFalse(sc._editor_ast("notas.txt", "tarea",
-                                        directorio=str(self.raiz)))
+        self.assertFalse(sc._editor_ast("notas.txt", "tarea", directorio=str(self.raiz)))
 
     def test_editor_ast_respuesta_vacia(self):
         archivo = self._escribir("modulo.py", "def fn():\n    return 1\n")
         with mock.patch.object(sc, "_enviar_al_proveedor", return_value=""):
             ok = sc._editor_ast(archivo, "tarea", directorio=str(self.raiz))
         self.assertFalse(ok)
+
+
 class TestAgenteEditorAST(unittest.TestCase):
     def setUp(self):
         self.tmp_dir = tempfile.mkdtemp()
@@ -134,29 +134,31 @@ class TestAgenteEditorAST(unittest.TestCase):
         agente = AgenteEditorPropio()
         archivo = "modulo.py"
         (self.raiz / archivo).write_text("def fn(): return 1\n", encoding="utf-8")
-        with mock.patch.object(sc, "_editor_ast", return_value=False), \
-             mock.patch.object(sc, "_enviar_al_proveedor",
-                               return_value="def fn(): return 2\n"), \
-             mock.patch.object(agente, "sobrescribir", return_value=True) as sob_mock:
-            ok = agente.ejecutar([archivo], "cambiar retorno a 2",
-                                 directorio=str(self.raiz), modo_edicion="ast")
+        with (
+            mock.patch.object(sc, "_editor_ast", return_value=False),
+            mock.patch.object(sc, "_enviar_al_proveedor", return_value="def fn(): return 2\n"),
+            mock.patch.object(agente, "sobrescribir", return_value=True) as sob_mock,
+        ):
+            ok = agente.ejecutar(
+                [archivo], "cambiar retorno a 2", directorio=str(self.raiz), modo_edicion="ast"
+            )
         self.assertTrue(ok)
-        sob_mock.assert_called_once_with(archivo, "def fn(): return 2\n",
-                                         str(self.raiz))
+        sob_mock.assert_called_once_with(archivo, "def fn(): return 2\n", str(self.raiz))
 
     def test_cadena_modos(self):
         agente = AgenteEditorPropio()
-        self.assertEqual(agente._cadena_modos("m.py", "x", "sobrescribir"),
-                         ["sobrescribir"])
+        self.assertEqual(agente._cadena_modos("m.py", "x", "sobrescribir"), ["sobrescribir"])
         self.assertEqual(agente._cadena_modos("m.py", "x", "parche"), ["parche"])
-        self.assertEqual(agente._cadena_modos("m.py", "x", "ast"),
-                         ["ast", "sobrescribir"])
+        self.assertEqual(agente._cadena_modos("m.py", "x", "ast"), ["ast", "sobrescribir"])
         # auto: estructural → AST primero
-        self.assertEqual(agente._cadena_modos("m.py", "renombrar la funcion", "auto"),
-                         ["ast", "parche", "sobrescribir"])
+        self.assertEqual(
+            agente._cadena_modos("m.py", "renombrar la funcion", "auto"),
+            ["ast", "parche", "sobrescribir"],
+        )
         # auto: tarea simple → parche → sobrescritura
-        self.assertEqual(agente._cadena_modos("m.py", "cambiar retorno a 2", "auto"),
-                         ["parche", "sobrescribir"])
+        self.assertEqual(
+            agente._cadena_modos("m.py", "cambiar retorno a 2", "auto"), ["parche", "sobrescribir"]
+        )
 
     def test_tarea_estructura(self):
         self.assertTrue(_tarea_estructura("renombra la variable foo"))

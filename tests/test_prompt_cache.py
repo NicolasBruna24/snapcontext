@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la v6.33.0: Prompt Caching por Capas.
 
 Cubre:
@@ -22,17 +21,15 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import prompt_cache as pc          # noqa: E402
-import snapcontext as sc           # noqa: E402
+import prompt_cache as pc
+import snapcontext as sc
 
 _EPHEMERAL = {"type": "ephemeral"}
 
 _MENSAJES_MIXTOS = [
     {"role": "system", "content": "Eres un asistente de código."},
-    {"role": "user", "content": "HERRAMIENTAS MCP: editar_archivo, "
-                                "ejecutar_comando"},
-    {"role": "user", "content": "Memoria del proyecto (CLAUDE.md): "
-                                "reglas del repositorio"},
+    {"role": "user", "content": "HERRAMIENTAS MCP: editar_archivo, ejecutar_comando"},
+    {"role": "user", "content": "Memoria del proyecto (CLAUDE.md): reglas del repositorio"},
     {"role": "user", "content": "Arregla el login, por favor"},
     {"role": "assistant", "content": "Vale, lo reviso ahora mismo."},
 ]
@@ -80,12 +77,12 @@ class _FakeAnthropic:
 # 1) Detección de capas
 class TestDeteccionCapas(unittest.TestCase):
     def test_system_es_estatica(self):
-        self.assertTrue(pc.es_capa_estatica(
-            {"role": "system", "content": "Eres un asistente."}))
+        self.assertTrue(pc.es_capa_estatica({"role": "system", "content": "Eres un asistente."}))
 
     def test_herramientas_son_estaticas(self):
-        self.assertTrue(pc.es_capa_estatica(
-            {"role": "user", "content": "HERRAMIENTAS MCP: editar_archivo"}))
+        self.assertTrue(
+            pc.es_capa_estatica({"role": "user", "content": "HERRAMIENTAS MCP: editar_archivo"})
+        )
 
     def test_claude_md_es_semi_estatica(self):
         mensaje = {"role": "user", "content": "Memoria (CLAUDE.md)"}
@@ -93,14 +90,18 @@ class TestDeteccionCapas(unittest.TestCase):
         self.assertFalse(pc.es_capa_estatica(mensaje))
 
     def test_graph_rag_es_semi_estatica(self):
-        self.assertTrue(pc.es_capa_semi_estatica(
-            {"role": "user",
-             "content": "GRAFO DE DEPENDENCIAS del proyecto:\na -> b"}))
+        self.assertTrue(
+            pc.es_capa_semi_estatica(
+                {"role": "user", "content": "GRAFO DE DEPENDENCIAS del proyecto:\na -> b"}
+            )
+        )
 
     def test_reglas_son_semi_estaticas(self):
-        self.assertTrue(pc.es_capa_semi_estatica(
-            {"role": "user",
-             "content": "Reglas del repositorio: usa type hints"}))
+        self.assertTrue(
+            pc.es_capa_semi_estatica(
+                {"role": "user", "content": "Reglas del repositorio: usa type hints"}
+            )
+        )
 
     def test_usuario_normal_es_volatil(self):
         mensaje = {"role": "user", "content": "arregla el login"}
@@ -109,8 +110,7 @@ class TestDeteccionCapas(unittest.TestCase):
         self.assertFalse(pc.es_capa_semi_estatica(mensaje))
 
     def test_asistente_es_volatil(self):
-        self.assertTrue(pc.es_capa_volatil(
-            {"role": "assistant", "content": "hecho"}))
+        self.assertTrue(pc.es_capa_volatil({"role": "assistant", "content": "hecho"}))
 
     def test_prioridad_estatica_sobre_semi(self):
         """Un 'system' que también trae CLAUDE.md cuenta como estático."""
@@ -120,11 +120,15 @@ class TestDeteccionCapas(unittest.TestCase):
 
     def test_capas_configurables(self):
         """El usuario puede mover 'tools' a la capa semi-estática."""
-        config = {"prompt_caching": {"capas": {
-            "estatica": ["system"],
-            "semi_estatica": ["tools", "claude_md"],
-            "volatil": ["user_messages"],
-        }}}
+        config = {
+            "prompt_caching": {
+                "capas": {
+                    "estatica": ["system"],
+                    "semi_estatica": ["tools", "claude_md"],
+                    "volatil": ["user_messages"],
+                }
+            }
+        }
         mensaje = {"role": "user", "content": "HERRAMIENTAS MCP: grep"}
         self.assertFalse(pc.es_capa_estatica(mensaje, config))
         self.assertTrue(pc.es_capa_semi_estatica(mensaje, config))
@@ -138,9 +142,9 @@ class TestDeteccionCapas(unittest.TestCase):
 class TestClasificarMensajes(unittest.TestCase):
     def test_reparto_y_orden_relativo(self):
         capas = pc.clasificar_mensajes(_MENSAJES_MIXTOS)
-        self.assertEqual(len(capas["estatica"]), 2)       # system + tools
+        self.assertEqual(len(capas["estatica"]), 2)  # system + tools
         self.assertEqual(len(capas["semi_estatica"]), 1)  # CLAUDE.md
-        self.assertEqual(len(capas["volatil"]), 2)        # user + assistant
+        self.assertEqual(len(capas["volatil"]), 2)  # user + assistant
         self.assertEqual(capas["estatica"][0]["role"], "system")
         self.assertIn("HERRAMIENTAS", capas["estatica"][1]["content"])
         self.assertIn("CLAUDE.md", capas["semi_estatica"][0]["content"])
@@ -149,7 +153,8 @@ class TestClasificarMensajes(unittest.TestCase):
 
     def test_primer_mensaje_sin_role_es_estatico(self):
         capas = pc.clasificar_mensajes(
-            [{"content": "prompt sin role"}, {"role": "user", "content": "x"}])
+            [{"content": "prompt sin role"}, {"role": "user", "content": "x"}]
+        )
         self.assertEqual(len(capas["estatica"]), 1)
         self.assertEqual(len(capas["volatil"]), 1)
 
@@ -159,9 +164,9 @@ class TestClasificarMensajes(unittest.TestCase):
         self.assertEqual(_MENSAJES_MIXTOS, copia)
 
     def test_lista_vacia(self):
-        self.assertEqual(pc.clasificar_mensajes([]),
-                         {"estatica": [], "semi_estatica": [],
-                          "volatil": []})
+        self.assertEqual(
+            pc.clasificar_mensajes([]), {"estatica": [], "semi_estatica": [], "volatil": []}
+        )
 
 
 # 3) Ensamblado del prompt estructurado
@@ -171,11 +176,14 @@ class TestEnsamblarPromptEstructurado(unittest.TestCase):
             "Eres un asistente.",
             [{"role": "user", "content": "HERRAMIENTAS MCP: editar_archivo"}],
             [{"role": "user", "content": "Memoria (CLAUDE.md)"}],
-            [{"role": "user", "content": "arregla el login"},
-             {"role": "assistant", "content": "ok"}],
+            [
+                {"role": "user", "content": "arregla el login"},
+                {"role": "assistant", "content": "ok"},
+            ],
         )
-        self.assertEqual([m["role"] for m in salida],
-                         ["system", "user", "user", "user", "assistant"])
+        self.assertEqual(
+            [m["role"] for m in salida], ["system", "user", "user", "user", "assistant"]
+        )
         self.assertIn("asistente", salida[0]["content"])
         self.assertIn("HERRAMIENTAS", salida[1]["content"])
         self.assertIn("CLAUDE.md", salida[2]["content"])
@@ -188,28 +196,29 @@ class TestEnsamblarPromptEstructurado(unittest.TestCase):
             [{"role": "user", "content": "CLAUDE.md"}],
             [{"role": "user", "content": "tarea"}],
         )
-        self.assertEqual(salida[0]["cache_control"], _EPHEMERAL)   # estática
-        self.assertEqual(salida[1]["cache_control"], _EPHEMERAL)   # estática
-        self.assertEqual(salida[2]["cache_control"], _EPHEMERAL)   # semi
-        self.assertNotIn("cache_control", salida[3])               # volátil
+        self.assertEqual(salida[0]["cache_control"], _EPHEMERAL)  # estática
+        self.assertEqual(salida[1]["cache_control"], _EPHEMERAL)  # estática
+        self.assertEqual(salida[2]["cache_control"], _EPHEMERAL)  # semi
+        self.assertNotIn("cache_control", salida[3])  # volátil
 
     def test_sistema_str_se_envuelve_como_system(self):
-        salida = pc.ensamblar_prompt_estructurado(
-            "prompt del sistema", None, None, None)
-        self.assertEqual(salida,
-                         [{"role": "system", "content": "prompt del sistema",
-                           "cache_control": _EPHEMERAL}])
+        salida = pc.ensamblar_prompt_estructurado("prompt del sistema", None, None, None)
+        self.assertEqual(
+            salida,
+            [{"role": "system", "content": "prompt del sistema", "cache_control": _EPHEMERAL}],
+        )
 
     def test_sistema_vacio_se_ignora(self):
-        self.assertEqual(pc.ensamblar_prompt_estructurado(
-            "", None, None, None), [])
+        self.assertEqual(pc.ensamblar_prompt_estructurado("", None, None, None), [])
 
     def test_acepta_dict_y_lista(self):
         salida = pc.ensamblar_prompt_estructurado(
             {"role": "system", "content": "sis"},
             {"role": "user", "content": "HERRAMIENTAS MCP"},
-            [{"role": "user", "content": "CLAUDE.md"},
-             {"role": "user", "content": "reglas del repositorio"}],
+            [
+                {"role": "user", "content": "CLAUDE.md"},
+                {"role": "user", "content": "reglas del repositorio"},
+            ],
             [{"role": "user", "content": "tarea"}],
         )
         self.assertEqual(len(salida), 5)
@@ -230,31 +239,34 @@ class TestEnsamblarPromptEstructurado(unittest.TestCase):
 
     def test_capa_volatil_preserva_orden_relativo(self):
         salida = pc.ensamblar_prompt_estructurado(
-            "sis", None, None,
-            [{"role": "user", "content": "primero"},
-             {"role": "assistant", "content": "segundo"},
-             {"role": "user", "content": "tercero"}])
-        self.assertEqual([m["content"] for m in salida[1:]],
-                         ["primero", "segundo", "tercero"])
+            "sis",
+            None,
+            None,
+            [
+                {"role": "user", "content": "primero"},
+                {"role": "assistant", "content": "segundo"},
+                {"role": "user", "content": "tercero"},
+            ],
+        )
+        self.assertEqual([m["content"] for m in salida[1:]], ["primero", "segundo", "tercero"])
 
 
 # 4) Métricas por capa (modo --depurar)
 class TestMetricasCapas(unittest.TestCase):
     def test_tokens_por_capa(self):
         mensajes = [
-            {"role": "system", "content": "abcd"},                       # 1
-            {"role": "user", "content": "HERRAMIENTAS MCP: abcdefgh"},   # 6
-            {"role": "user", "content": "CLAUDE.md abcde"},              # 3 (13 chars)
-            {"role": "user", "content": "abcd"},                         # 1
+            {"role": "system", "content": "abcd"},  # 1
+            {"role": "user", "content": "HERRAMIENTAS MCP: abcdefgh"},  # 6
+            {"role": "user", "content": "CLAUDE.md abcde"},  # 3 (13 chars)
+            {"role": "user", "content": "abcd"},  # 1
         ]
         m = pc.metricas_capas(mensajes)
-        self.assertEqual(m["estatica"], 7)       # 1 + 6
+        self.assertEqual(m["estatica"], 7)  # 1 + 6
         self.assertEqual(m["semi_estatica"], 3)  # "CLAUDE.md abcde" = 13 chars → 3
         self.assertEqual(m["volatil"], 1)
 
     def test_lista_vacia_cero_tokens(self):
-        self.assertEqual(pc.metricas_capas([]),
-                         {"estatica": 0, "semi_estatica": 0, "volatil": 0})
+        self.assertEqual(pc.metricas_capas([]), {"estatica": 0, "semi_estatica": 0, "volatil": 0})
 
     def test_heuristica_1_token_4_chars(self):
         self.assertEqual(pc.contar_tokens("abcd"), 1)
@@ -287,15 +299,16 @@ class TestResolverPromptCachingCapas(unittest.TestCase):
         self.assertTrue(sc._resolver_prompt_caching_capas(None))
 
     def test_config_capas_activo_false_desactiva(self):
-        with mock.patch.object(sc, "cargar_configuracion",
-                               return_value={"prompt_caching": {
-                                   "activo": True, "capas_activo": False}}):
+        with mock.patch.object(
+            sc,
+            "cargar_configuracion",
+            return_value={"prompt_caching": {"activo": True, "capas_activo": False}},
+        ):
             self.assertFalse(sc._resolver_prompt_caching_capas(None))
 
     def test_config_prompt_caching_bool_ignorado(self):
         """`prompt_caching: false` (v6.16.0) no toca el estado de las capas."""
-        with mock.patch.object(sc, "cargar_configuracion",
-                               return_value={"prompt_caching": False}):
+        with mock.patch.object(sc, "cargar_configuracion", return_value={"prompt_caching": False}):
             self.assertTrue(sc._resolver_prompt_caching_capas(None))
 
     def test_estado_global_tiene_prioridad(self):
@@ -304,24 +317,26 @@ class TestResolverPromptCachingCapas(unittest.TestCase):
         self.assertFalse(sc._capas_caching_activo())
         sc._configurar_prompt_caching_capas(True)
         self.assertTrue(sc._capas_caching_activo())
-        sc._configurar_prompt_caching_capas(None)      # vuelve a resolver
+        sc._configurar_prompt_caching_capas(None)  # vuelve a resolver
         self.assertTrue(sc._capas_caching_activo())
 
     def test_tolerancia_dict_en_resolver_basico(self):
         """prompt_caching como dict (v6.33.0): 'activo' manda; bool intacto."""
-        with mock.patch.object(sc, "cargar_configuracion",
-                               return_value={"prompt_caching": {
-                                   "activo": False, "capas": {}}}):
+        with mock.patch.object(
+            sc,
+            "cargar_configuracion",
+            return_value={"prompt_caching": {"activo": False, "capas": {}}},
+        ):
             self.assertFalse(sc._resolver_prompt_caching(None))
-        with mock.patch.object(sc, "cargar_configuracion",
-                               return_value={"prompt_caching": {
-                                   "activo": True, "capas": {}}}):
+        with mock.patch.object(
+            sc,
+            "cargar_configuracion",
+            return_value={"prompt_caching": {"activo": True, "capas": {}}},
+        ):
             self.assertTrue(sc._resolver_prompt_caching(None))
-        with mock.patch.object(sc, "cargar_configuracion",
-                               return_value={"prompt_caching": False}):
+        with mock.patch.object(sc, "cargar_configuracion", return_value={"prompt_caching": False}):
             self.assertFalse(sc._resolver_prompt_caching(None))
-        with mock.patch.object(sc, "cargar_configuracion",
-                               return_value={"prompt_caching": True}):
+        with mock.patch.object(sc, "cargar_configuracion", return_value={"prompt_caching": True}):
             self.assertTrue(sc._resolver_prompt_caching(None))
 
 
@@ -332,11 +347,9 @@ class TestFlagPromptCachingCapasCLI(unittest.TestCase):
         self.assertIsNone(args.prompt_caching_capas)
 
     def test_flag_explicito_activa(self):
-        args = sc.crear_parser().parse_args(
-            ["consulta", "--prompt-caching-capas"])
+        args = sc.crear_parser().parse_args(["consulta", "--prompt-caching-capas"])
         self.assertTrue(args.prompt_caching_capas)
 
     def test_flag_no_capas_desactiva(self):
-        args = sc.crear_parser().parse_args(
-            ["consulta", "--no-prompt-caching-capas"])
+        args = sc.crear_parser().parse_args(["consulta", "--no-prompt-caching-capas"])
         self.assertFalse(args.prompt_caching_capas)

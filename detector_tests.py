@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Detección automática de pruebas de SnapContext — v5.3.0.
 
 Permite al agente ReAct y al planificador (``--test-loop``) ejecutar las
@@ -20,13 +19,11 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
-
 
 # Registro de lenguajes/frameworks soportados.
 #   "comando"  : comando de prueba exacto a ejecutar.
 #   "estructura": {carpeta, patron} de tests.
-_LENGUAJES: Dict[str, Dict[str, str]] = {
+_LENGUAJES: dict[str, dict[str, str]] = {
     "go": {
         "comando": "go test ./...",
         "estructura": {"carpeta": "", "patron": "*_test.go"},
@@ -83,7 +80,7 @@ _COMANDOS = {L: info["comando"] for L, info in _LENGUAJES.items()}
 # Archivos cuya sola presencia en la raíz identifica el lenguaje.
 # Extensible: añade `"mi_archivo": "mi-lenguaje"` para soportar un nuevo
 # lenguaje basado en un único archivo identificador.
-_DETECCION_POR_ARCHIVO: Dict[str, str] = {
+_DETECCION_POR_ARCHIVO: dict[str, str] = {
     "go.mod": "go",
     "Cargo.toml": "rust",
     "pom.xml": "java-maven",
@@ -91,21 +88,23 @@ _DETECCION_POR_ARCHIVO: Dict[str, str] = {
     "pubspec.yaml": "flutter",
     "Gemfile": "ruby",
     "mix.exs": "elixir",
-    "Cargo.lock": "rust",          # refuerzo, por si no hay Cargo.toml en la raíz
+    "Cargo.lock": "rust",  # refuerzo, por si no hay Cargo.toml en la raíz
 }
 
 # Archivos cuyo identificador puede depender (opcionalmente) de su contenido.
 # Cada regla: {archivo, marcador, lenguaje}. Si `marcador` está vacío, la sola
 # presencia del archivo basta. Se evalúan en orden de prioridad.
-_REGLAS_CONTENIDO: List[Dict[str, str]] = [
+_REGLAS_CONTENIDO: list[dict[str, str]] = [
     {"archivo": "yarn.lock", "marcador": "", "lenguaje": "node-yarn"},
     {"archivo": "package.json", "marcador": "", "lenguaje": "node-npm"},
     {
-        "archivo": "pyproject.toml", "marcador": "pytest",
+        "archivo": "pyproject.toml",
+        "marcador": "pytest",
         "lenguaje": "python-pytest",
     },
     {
-        "archivo": "pyproject.toml", "marcador": "",
+        "archivo": "pyproject.toml",
+        "marcador": "",
         "lenguaje": "python-unittest",
     },
 ]

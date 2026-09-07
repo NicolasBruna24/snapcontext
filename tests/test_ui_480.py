@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests v4.8.0: capa de presentación profesional con Rich (ui.py).
 
 No se hacen snapshots de colores (frágiles). En su lugar se usa
@@ -29,22 +28,20 @@ class TestModoAuto(unittest.TestCase):
     def test_preguntar_interactivo_en_auto_devuelve_c(self):
         """En --auto nunca se pregunta: se devuelve 'c' (contrato v4.7.0)."""
         ui.configurar_auto(True)
-        with mock.patch.object(ui.Prompt, "ask",
-                               side_effect=AssertionError("Prompt en auto")), \
-                mock.patch("builtins.input",
-                           side_effect=AssertionError("input() en auto")):
+        with (
+            mock.patch.object(ui.Prompt, "ask", side_effect=AssertionError("Prompt en auto")),
+            mock.patch("builtins.input", side_effect=AssertionError("input() en auto")),
+        ):
+            self.assertEqual(ui.preguntar_interactivo(None, "Continuar con el cambio?"), "c")
             self.assertEqual(
-                ui.preguntar_interactivo(None, "Continuar con el cambio?"), "c")
-            self.assertEqual(
-                ui.preguntar_interactivo(ui.OPCIONES_IMPACTO_DEFECTO,
-                                         "¿Qué hago?", "a"), "a")
+                ui.preguntar_interactivo(ui.OPCIONES_IMPACTO_DEFECTO, "¿Qué hago?", "a"), "a"
+            )
 
     def test_mostrar_progreso_auto_devuelve_iterable_sin_envolver(self):
         """En --auto la barra de progreso está silenciada (mismo iterable)."""
         ui.configurar_auto(True)
         datos = [1, 2, 3]
-        with mock.patch("ui.track",
-                        side_effect=AssertionError("track en auto")):
+        with mock.patch("ui.track", side_effect=AssertionError("track en auto")):
             self.assertIs(ui.mostrar_progreso(datos, "Escaneando..."), datos)
 
     def test_es_auto_refleja_configurar_auto(self):
@@ -62,7 +59,7 @@ class TestRichDisponible(unittest.TestCase):
 
     def setUp(self):
         ui.configurar_auto(False)
-        self.assertEqual(True, ui.RICH_DISPONIBLE)   # prerequisito del entorno
+        self.assertEqual(True, ui.RICH_DISPONIBLE)  # prerequisito del entorno
 
     def tearDown(self):
         ui.configurar_auto(False)
@@ -93,9 +90,8 @@ class TestRichDisponible(unittest.TestCase):
         self.assertEqual(synth.lexer.name.lower(), "diff")
 
     def test_mostrar_tabla_impacto_construye_columnas_y_filas(self):
-        dependencias = {"main.py": ["utils.py", "config.py"],
-                        "otro.py": ["utils.py"]}
-        criticas = {"main.py"}   # filas críticas → amarillo
+        dependencias = {"main.py": ["utils.py", "config.py"], "otro.py": ["utils.py"]}
+        criticas = {"main.py"}  # filas críticas → amarillo
         with mock.patch("ui._console") as consola:
             ui.mostrar_tabla_impacto(dependencias, criticas=criticas)
         consola.print.assert_called_once()
@@ -126,8 +122,7 @@ class TestRichDisponible(unittest.TestCase):
 
     def test_repo_url_usado_tambien_sin_rich(self):
         """Sin `rich` el fallback plano también usa REPO_URL."""
-        with mock.patch("ui.RICH_DISPONIBLE", False), \
-                mock.patch("builtins.print") as print_mock:
+        with mock.patch("ui.RICH_DISPONIBLE", False), mock.patch("builtins.print") as print_mock:
             ui.mostrar_banner("4.8.0")
         texto = " ".join(str(c.args[0]) for c in print_mock.call_args_list)
         self.assertIn(ui.REPO_URL, texto)
@@ -137,20 +132,19 @@ class TestRichDisponible(unittest.TestCase):
         previo = ui.REPO_URL
         try:
             with mock.patch.dict(
-                    os.environ,
-                    {"SNAPCONTEXT_REPO": "https://github.com/mi-fork/snapcontext"}):
+                os.environ, {"SNAPCONTEXT_REPO": "https://github.com/mi-fork/snapcontext"}
+            ):
                 recargado = importlib.reload(ui)
-            self.assertEqual(
-                recargado.REPO_URL,
-                "https://github.com/mi-fork/snapcontext")
+            self.assertEqual(recargado.REPO_URL, "https://github.com/mi-fork/snapcontext")
         finally:
-            ui.REPO_URL = previo   # restaura por si el env quedó seteada
+            ui.REPO_URL = previo  # restaura por si el env quedó seteada
 
     def test_preguntar_interactivo_usa_prompt_y_devuelve_tecla(self):
-        with mock.patch("ui._console") as consola, \
-                mock.patch.object(ui.Prompt, "ask", return_value="s") as ask:
-            resultado = ui.preguntar_interactivo(
-                ui.OPCIONES_IMPACTO_DEFECTO, "Cambio con impacto")
+        with (
+            mock.patch("ui._console") as consola,
+            mock.patch.object(ui.Prompt, "ask", return_value="s") as ask,
+        ):
+            resultado = ui.preguntar_interactivo(ui.OPCIONES_IMPACTO_DEFECTO, "Cambio con impacto")
         self.assertEqual(resultado, "s")
         # Se muestra el menú [c]/[a]/[s] y se pide con Prompt.ask.
         consola.print.assert_called_once()
@@ -163,34 +157,33 @@ class TestRichDisponible(unittest.TestCase):
         with mock.patch("ui.track", return_value=envuelto) as track:
             resultado = ui.mostrar_progreso(datos, "Procesando...")
         self.assertIs(resultado, envuelto)
-        track.assert_called_once_with(
-            datos, description="Procesando...", console=ui._console)
+        track.assert_called_once_with(datos, description="Procesando...", console=ui._console)
 
 
 class TestFallbackSinRich(unittest.TestCase):
     """Sin `rich` instalado la UI degrada a print()/input() plano."""
 
     def test_mostrar_estado_fallback_a_print_plano(self):
-        with mock.patch("ui.RICH_DISPONIBLE", False), \
-                mock.patch("builtins.print") as print_mock:
+        with mock.patch("ui.RICH_DISPONIBLE", False), mock.patch("builtins.print") as print_mock:
             ui.mostrar_estado("mensaje", emoji="⚙️")
         print_mock.assert_called_once_with("⚙️ mensaje")
 
     def test_preguntar_fallback_a_input_plano(self):
-        with mock.patch("ui.RICH_DISPONIBLE", False), \
-                mock.patch("builtins.input", return_value="s"):
-            self.assertEqual(
-                ui.preguntar_interactivo(ui.OPCIONES_IMPACTO_DEFECTO, "¿Qué?"),
-                "s")
+        with (
+            mock.patch("ui.RICH_DISPONIBLE", False),
+            mock.patch("builtins.input", return_value="s"),
+        ):
+            self.assertEqual(ui.preguntar_interactivo(ui.OPCIONES_IMPACTO_DEFECTO, "¿Qué?"), "s")
 
     def test_preguntar_fallback_input_invalido_devuelve_defecto(self):
-        with mock.patch("ui.RICH_DISPONIBLE", False), \
-                mock.patch("builtins.input", return_value="zzz"):
+        with (
+            mock.patch("ui.RICH_DISPONIBLE", False),
+            mock.patch("builtins.input", return_value="zzz"),
+        ):
             self.assertEqual(
-                ui.preguntar_interactivo(ui.OPCIONES_IMPACTO_DEFECTO,
-                                         "¿Qué?", defecto="c"), "c")
+                ui.preguntar_interactivo(ui.OPCIONES_IMPACTO_DEFECTO, "¿Qué?", defecto="c"), "c"
+            )
 
 
 if __name__ == "__main__":
     unittest.main()
-

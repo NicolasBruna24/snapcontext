@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Integración Graph RAG + LSP (v6.33.0) — contexto preciso por símbolos.
 
@@ -14,25 +13,25 @@ Es 100 % opcional (``--graph-rag-lsp``): sin el flag el comportamiento es
 idéntico al actual. Las llamadas al LSP son perezosas y con caché.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 __all__ = [
-    "simbolos_defecto",
-    "obtener_contexto_preciso",
-    "inyectar_contexto_preciso",
-    "configuracion_graph_lsp",
     "GraphLSPIntegrator",
+    "configuracion_graph_lsp",
+    "inyectar_contexto_preciso",
+    "obtener_contexto_preciso",
+    "simbolos_defecto",
 ]
 
 # Configuración por defecto.
-simbolos_defecto: Dict[str, Any] = {
+simbolos_defecto: dict[str, Any] = {
     "activo": False,
     "profundidad": 2,
     "simbolos_max": 10,
 }
 
 
-def configuracion_graph_lsp(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def configuracion_graph_lsp(config: dict[str, Any] | None = None) -> dict[str, Any]:
     """Devuelve la configuración efectiva Graph RAG + LSP (v6.33.0).
 
     Fusiona los valores por defecto con ``config["graph_lsp"]`` si existe.
@@ -70,22 +69,22 @@ class GraphLSPIntegrator:
 
     def __init__(
         self,
-        grafo: Optional[Dict[str, Any]] = None,
-        config: Optional[Dict[str, Any]] = None,
-        proveedor_lsp: Optional[Any] = None,
+        grafo: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
+        proveedor_lsp: Any | None = None,
     ):
         self.grafo = grafo or {}
         self.config = configuracion_graph_lsp(config)
         self.proveedor_lsp = proveedor_lsp
-        self._cache_simbolos: Dict[str, Any] = {}
+        self._cache_simbolos: dict[str, Any] = {}
 
     def obtener_contexto_preciso(
         self,
         archivo: str,
-        linea: Optional[int] = None,
+        linea: int | None = None,
         tipo: str = "funcion",
-        max_simbolos: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
+        max_simbolos: int | None = None,
+    ) -> list[dict[str, Any]]:
         """Obtiene símbolos precisos de un archivo (v6.33.0).
 
         Usa LSP para definiciones/referencias y Graph RAG para expandir el
@@ -97,7 +96,7 @@ class GraphLSPIntegrator:
         cache_key = f"{archivo}:{linea}:{tipo}:{max_sim}:{profundidad}"
         if cache_key in self._cache_simbolos:
             return self._cache_simbolos[cache_key]
-        simbolos: List[Dict[str, Any]] = []
+        simbolos: list[dict[str, Any]] = []
         lsp = self._obtener_simbolos_lsp(archivo, linea)
         if lsp:
             simbolos.extend(lsp)
@@ -115,15 +114,16 @@ class GraphLSPIntegrator:
     def _obtener_simbolos_lsp(
         self,
         archivo: str,
-        linea: Optional[int],
-    ) -> List[Dict[str, Any]]:
+        linea: int | None,
+    ) -> list[dict[str, Any]]:
         """Obtiene símbolos vía LSP con caché (v6.33.0)."""
         cache_key = f"{archivo}:{linea}"
         if cache_key in self._cache_simbolos:
             return self._cache_simbolos[cache_key]
-        simbolos: List[Dict[str, Any]] = []
+        simbolos: list[dict[str, Any]] = []
         try:
             import lsp_client as lsp
+
             if self.proveedor_lsp is not None and hasattr(self.proveedor_lsp, "obtener_simbolos"):
                 crudos = self.proveedor_lsp.obtener_simbolos(archivo, linea)
             elif hasattr(lsp, "obtener_simbolos"):
@@ -134,13 +134,15 @@ class GraphLSPIntegrator:
                 if isinstance(raw, dict):
                     simbolos.append(raw)
                 elif isinstance(raw, (list, tuple)) and len(raw) >= 2:
-                    simbolos.append({
-                        "nombre": str(raw[0]),
-                        "linea": int(raw[1]) if len(raw) > 1 else 0,
-                        "archivo": archivo,
-                        "tipo": str(raw[2]) if len(raw) > 2 else "simbolo",
-                        "relevancia": int(raw[3]) if len(raw) > 3 else 0,
-                    })
+                    simbolos.append(
+                        {
+                            "nombre": str(raw[0]),
+                            "linea": int(raw[1]) if len(raw) > 1 else 0,
+                            "archivo": archivo,
+                            "tipo": str(raw[2]) if len(raw) > 2 else "simbolo",
+                            "relevancia": int(raw[3]) if len(raw) > 3 else 0,
+                        }
+                    )
         except Exception:
             pass
         self._cache_simbolos[cache_key] = simbolos
@@ -151,29 +153,31 @@ class GraphLSPIntegrator:
         archivo: str,
         profundidad: int,
         max_sim: int,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Usa Graph RAG para expandir contexto con dependencias (v6.33.0)."""
-        simbolos: List[Dict[str, Any]] = []
+        simbolos: list[dict[str, Any]] = []
         try:
             import graph_rag as gr
+
             if not self.grafo or not hasattr(gr, "expandir_contexto"):
                 return simbolos
             vecinos = []
             if hasattr(gr, "obtener_vecinos"):
                 vecinos = gr.obtener_vecinos(self.grafo, archivo, profundidad)
             elif hasattr(gr, "expandir_contexto"):
-                vecinos = gr.expandir_contexto([archivo], self.grafo,
-                                                max_adicionales=max_sim)
+                vecinos = gr.expandir_contexto([archivo], self.grafo, max_adicionales=max_sim)
                 vecinos = [v for v in vecinos if v != archivo]
             for vecino in vecinos[:max_sim]:
-                simbolos.append({
-                    "nombre": vecino,
-                    "archivo": vecino,
-                    "linea": 1,
-                    "tipo": "dependencia",
-                    "contenido": "",
-                    "relevancia": 1,
-                })
+                simbolos.append(
+                    {
+                        "nombre": vecino,
+                        "archivo": vecino,
+                        "linea": 1,
+                        "tipo": "dependencia",
+                        "contenido": "",
+                        "relevancia": 1,
+                    }
+                )
         except Exception:
             pass
         return simbolos
@@ -181,7 +185,7 @@ class GraphLSPIntegrator:
     def inyectar_contexto_preciso(
         self,
         contexto_actual: str,
-        simbolos: List[Dict[str, Any]],
+        simbolos: list[dict[str, Any]],
     ) -> str:
         """Inyecta símbolos precisos en el contexto (v6.33.0).
 
@@ -214,22 +218,21 @@ class GraphLSPIntegrator:
 # ---------------------------------------------------------------------------
 def obtener_contexto_preciso(
     archivo: str,
-    linea: Optional[int] = None,
+    linea: int | None = None,
     tipo: str = "funcion",
-    grafo: Optional[Dict[str, Any]] = None,
+    grafo: dict[str, Any] | None = None,
     max_simbolos: int = 10,
-    config: Optional[Dict[str, Any]] = None,
-    proveedor_lsp: Optional[Any] = None,
-) -> List[Dict[str, Any]]:
+    config: dict[str, Any] | None = None,
+    proveedor_lsp: Any | None = None,
+) -> list[dict[str, Any]]:
     """Función standalone: obtiene símbolos precisos (v6.33.0)."""
-    integ = GraphLSPIntegrator(grafo=grafo, config=config,
-                               proveedor_lsp=proveedor_lsp)
+    integ = GraphLSPIntegrator(grafo=grafo, config=config, proveedor_lsp=proveedor_lsp)
     return integ.obtener_contexto_preciso(archivo, linea, tipo, max_simbolos)
 
 
 def inyectar_contexto_preciso(
     contexto_actual: str,
-    simbolos: List[Dict[str, Any]],
+    simbolos: list[dict[str, Any]],
 ) -> str:
     """Función standalone: inyecta símbolos precisos (v6.33.0)."""
     integ = GraphLSPIntegrator()

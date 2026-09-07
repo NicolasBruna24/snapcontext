@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests v6.4.0: mejora del editor de parches (fuzzy matching, resincronización
 de bloques, flag --mostrar-diff y mensajes de error claros)."""
 
@@ -13,9 +12,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import agentes as ag          # noqa: E402
-import snapcontext as sc      # noqa: E402
-import ui                     # noqa: E402
+import snapcontext as sc
 
 
 class TestVariantesYFuzzy(unittest.TestCase):
@@ -35,11 +32,13 @@ class TestVariantesYFuzzy(unittest.TestCase):
         return (Path(self.tmp) / nombre).read_text(encoding="utf-8")
 
     def test_espacios_e_indentacion_cambiada_aplica(self):
-        base = ("def calcular(items):\n"
-                "    total = 0\n"
-                "    for it in items:\n"
-                "        total += it\n"
-                "    return total\n")
+        base = (
+            "def calcular(items):\n"
+            "    total = 0\n"
+            "    for it in items:\n"
+            "        total += it\n"
+            "    return total\n"
+        )
         nuevo = base.replace("    return total\n", "    return total + 1\n")
         # El usuario reindentó una línea de contexto (más espacios): la
         # coincidencia exacta de v4.6.0 fallaba; la variante por espacios OK.
@@ -53,13 +52,9 @@ class TestVariantesYFuzzy(unittest.TestCase):
         self.assertIn("            total += it\n", resultado)
 
     def test_comentario_anadido_en_contexto_aplica(self):
-        base = ("def carga():\n"
-                "    datos = leer()\n"
-                "    return procesar(datos)\n")
-        nuevo = base.replace("    return procesar(datos)\n",
-                             "    return procesar(datos) or None\n")
-        real = base.replace("    datos = leer()\n",
-                            "    datos = leer()  # ahora con caché\n")
+        base = "def carga():\n    datos = leer()\n    return procesar(datos)\n"
+        nuevo = base.replace("    return procesar(datos)\n", "    return procesar(datos) or None\n")
+        real = base.replace("    datos = leer()\n", "    datos = leer()  # ahora con caché\n")
         nombre = self._escribir("g.py", real)
         parche = sc._generar_parche(base, nuevo, nombre)
         self.assertTrue(sc._aplicar_hunks_incremental(parche, self.tmp))
@@ -81,14 +76,11 @@ class TestVariantesYFuzzy(unittest.TestCase):
         self.assertNotIn("viejo", resultado)
 
     def test_variable_renombrada_en_contexto_aplica(self):
-        base = ("def totalizar(precios):\n"
-                "    suma = sum(precios)\n"
-                "    return redondear(suma)\n")
+        base = "def totalizar(precios):\n    suma = sum(precios)\n    return redondear(suma)\n"
         nuevo = base.replace("    return redondear(suma)\n", "    return redondear(suma, 2)\n")
         # El usuario renombró una variable de contexto; el emparejamiento
         # difuso (etapa 3) lo tolera y el bloque se conserva del archivo.
-        real = base.replace("    suma = sum(precios)\n",
-                            "    suma = sum(precios_brutos)\n")
+        real = base.replace("    suma = sum(precios)\n", "    suma = sum(precios_brutos)\n")
         nombre = self._escribir("i.py", real)
         parche = sc._generar_parche(base, nuevo, nombre)
         self.assertTrue(sc._aplicar_hunks_incremental(parche, self.tmp))
@@ -110,8 +102,7 @@ class TestVariantesYFuzzy(unittest.TestCase):
         # hunk1 inserta una línea tras la 1; hunk2 cambia la última. El
         # segundo hunk se declara contra la numeración ORIGINAL y debe
         # reajustarse gracias al desplazamiento acumulado.
-        nuevo = (lineas[0] + "insertada\n" + "".join(lineas[1:8])
-                 + "FINAL\n")
+        nuevo = lineas[0] + "insertada\n" + "".join(lineas[1:8]) + "FINAL\n"
         nombre = self._escribir("k.py", original)
         parche = sc._generar_parche(original, nuevo, nombre)
         self.assertEqual(len(sc._parsear_hunks(parche)), 2)
@@ -123,14 +114,10 @@ class TestVariantesYFuzzy(unittest.TestCase):
         # difusa línea a línea falla (ratio ~0.74 < 0.90) pero el bloque
         # completo es muy similar (>= 0.80), por lo que la resincronización
         # a nivel de bloque (etapa 4) recoloca el hunk conservando el resto.
-        bloque = ("def exportar():\n"
-                  "    filas = recoger()\n"
-                  "    escribir(filas)\n"
-                  "    return True\n")
+        bloque = "def exportar():\n    filas = recoger()\n    escribir(filas)\n    return True\n"
         base = "import os\n" + bloque
         nuevo = base.replace("    return True\n", "    return False\n")
-        real = base.replace("    filas = recoger()\n",
-                            "    filas = recolectar()\n")
+        real = base.replace("    filas = recoger()\n", "    filas = recolectar()\n")
         nombre = self._escribir("exp.py", real)
         parche = sc._generar_parche(base, nuevo, nombre)
         self.assertTrue(sc._aplicar_hunks_incremental(parche, self.tmp))
@@ -142,18 +129,16 @@ class TestVariantesYFuzzy(unittest.TestCase):
     def test_resincronizacion_bajo_umbral_falla_limpio(self):
         # Si ni el bloque se parece (ratio < 0.80), se aborta con el mensaje
         # claro y el archivo queda intacto.
-        original = ("class Uno:\n"
-                    "    pass\n"
-                    "\n"
-                    "class Dos:\n"
-                    "    pass\n")
+        original = "class Uno:\n    pass\n\nclass Dos:\n    pass\n"
         nombre = self._escribir("bl.py", original)
-        parche = ("--- a/bl.py\n+++ b/bl.py\n"
-                  "@@ -1,3 +1,3 @@\n"
-                  " class Uno:\n"
-                  "-    metodo_inexistente_absoluto()\n"
-                  "+    otro_metodo()\n"
-                  "     pass\n")
+        parche = (
+            "--- a/bl.py\n+++ b/bl.py\n"
+            "@@ -1,3 +1,3 @@\n"
+            " class Uno:\n"
+            "-    metodo_inexistente_absoluto()\n"
+            "+    otro_metodo()\n"
+            "     pass\n"
+        )
         with mock.patch.object(sc, "error"):
             ok = sc._aplicar_hunks_incremental(parche, self.tmp)
         self.assertFalse(ok)
@@ -165,8 +150,7 @@ class TestVariantesYFuzzy(unittest.TestCase):
         self.assertEqual(norm, "x = 1 # nota")
         self.assertEqual(sincom, "x = 1")
         # Las URLs con '//' no se rompen al quitar comentarios.
-        self.assertEqual(sc._variantes_linea("url = 'https://x.y'")[2],
-                         "url = 'https://x.y'")
+        self.assertEqual(sc._variantes_linea("url = 'https://x.y'")[2], "url = 'https://x.y'")
 
     def test_lineas_equivalentes(self):
         self.assertTrue(sc._lineas_equivalentes("a = 1", "  a = 1  "))
@@ -174,14 +158,14 @@ class TestVariantesYFuzzy(unittest.TestCase):
         self.assertFalse(sc._lineas_equivalentes("a = 1", "a = 2"))
 
     def test_contar_cambios_parche(self):
-        parche = ("--- a/m.py\n+++ b/m.py\n@@ -1,2 +1,2 @@\n"
-                  "-a\n+A\n b\n")
+        parche = "--- a/m.py\n+++ b/m.py\n@@ -1,2 +1,2 @@\n-a\n+A\n b\n"
         self.assertEqual(sc._contar_cambios_parche(parche), (1, 1))
 
     def test_umbral_difuso_expuesto(self):
         self.assertEqual(sc.UMBRAL_DIFUSO_HUNKS, 0.85)
         self.assertEqual(sc.UMBRAL_DIFUSO_LINEA, 0.90)
         self.assertEqual(sc.UMBRAL_DIFUSO_BLOQUE, 0.80)
+
 
 class TestMostrarDiffInteractivo(unittest.TestCase):
     """Flag --mostrar-diff y preview interactivo (v6.4.0)."""
@@ -205,24 +189,26 @@ class TestMostrarDiffInteractivo(unittest.TestCase):
     def test_mostrar_diff_aplica(self):
         # --mostrar-diff + preguntar "a" → el parche se aplica.
         parche = self.parche
-        self.assertTrue(sc._aplicar_parche_con_resolucion(
-            parche, self.tmp, mostrar_diff=True,
-            preguntar=self._entrada("a")))
+        self.assertTrue(
+            sc._aplicar_parche_con_resolucion(
+                parche, self.tmp, mostrar_diff=True, preguntar=self._entrada("a")
+            )
+        )
         self.assertIn("r = z * 2\n", self.path.read_text(encoding="utf-8"))
 
     def test_mostrar_diff_cancela(self):
         parche = self.parche
         ok = sc._aplicar_parche_con_resolucion(
-            parche, self.tmp, mostrar_diff=True,
-            preguntar=self._entrada("c"))
+            parche, self.tmp, mostrar_diff=True, preguntar=self._entrada("c")
+        )
         self.assertFalse(ok)
         self.assertEqual(self.path.read_text(encoding="utf-8"), self.base)
 
     def test_mostrar_diff_edita_manualmente(self):
         parche = self.parche
         ok = sc._aplicar_parche_con_resolucion(
-            parche, self.tmp, mostrar_diff=True,
-            preguntar=self._entrada("e"))
+            parche, self.tmp, mostrar_diff=True, preguntar=self._entrada("e")
+        )
         self.assertFalse(ok)
         self.assertEqual(self.path.read_text(encoding="utf-8"), self.base)
 
@@ -233,14 +219,17 @@ class TestMostrarDiffInteractivo(unittest.TestCase):
         base = "def foo():\n    return 1\n"
         path = Path(self.tmp) / "b.py"
         path.write_text(base, encoding="utf-8")
-        parche = ("--- a/b.py\n+++ b/b.py\n@@ -1,2 +1,2 @@\n"
-                  " class Otro:\n"
-                  "-    metodo_inexistente_absoluto()\n"
-                  "+    otro_metodo()\n")
-        with mock.patch.object(sc, "_mostrar_diff_parche") as m, \
-             mock.patch.object(sc, "error") as e:
-            ok = sc._aplicar_hunks_incremental(
-                parche, self.tmp, mostrar_diff=True)
+        parche = (
+            "--- a/b.py\n+++ b/b.py\n@@ -1,2 +1,2 @@\n"
+            " class Otro:\n"
+            "-    metodo_inexistente_absoluto()\n"
+            "+    otro_metodo()\n"
+        )
+        with (
+            mock.patch.object(sc, "_mostrar_diff_parche") as m,
+            mock.patch.object(sc, "error") as e,
+        ):
+            ok = sc._aplicar_hunks_incremental(parche, self.tmp, mostrar_diff=True)
             self.assertFalse(ok)
             self.assertTrue(m.called)
             self.assertTrue(e.called)

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Herramientas MCP nativas de APIs externas (v6.7.0).
 
 Expone herramientas de inspección HTTP para el agente ReAct y el
@@ -19,7 +18,7 @@ cabeceras sensibles ocultas en las respuestas y nunca lanza: devuelve
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 MAX_CUERPO = 200_000
@@ -28,8 +27,7 @@ TIMEOUT_DEFECTO = 15.0
 _METODOS = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
 
 # Cabeceras que no se devuelven tal cual (contienen secretos).
-_CABECERAS_SENSIBLES = {"authorization", "cookie", "set-cookie",
-                        "x-api-key", "proxy-authorization"}
+_CABECERAS_SENSIBLES = {"authorization", "cookie", "set-cookie", "x-api-key", "proxy-authorization"}
 
 
 def _validar_url(url: str) -> str:
@@ -47,32 +45,37 @@ def _validar_url(url: str) -> str:
 
 def _httpx():
     try:
-        import httpx                          # type: ignore
+        import httpx  # type: ignore
+
         return httpx
-    except ImportError as exc:                # pragma: no cover
+    except ImportError as exc:  # pragma: no cover
         raise RuntimeError(
             "Las herramientas de API necesitan httpx: "
-            "pip install snapcontext[web] (o pip install httpx)") from exc
+            "pip install snapcontext[web] (o pip install httpx)"
+        ) from exc
 
 
-def _filtrar_cabeceras(cabeceras: Any) -> Dict[str, str]:
+def _filtrar_cabeceras(cabeceras: Any) -> dict[str, str]:
     """Copia cabeceras ocultando las sensibles."""
-    salida: Dict[str, str] = {}
+    salida: dict[str, str] = {}
     try:
         for clave, valor in dict(cabeceras).items():
             if str(clave).lower() in _CABECERAS_SENSIBLES:
                 salida[str(clave)] = "***"
             else:
                 salida[str(clave)] = str(valor)[:200]
-    except Exception:                         # noqa: BLE001
+    except Exception:
         pass
     return salida
 
 
-def api_request(url: str, metodo: str = "GET",
-                headers: Optional[Dict[str, str]] = None,
-                body: str = "", timeout: float = TIMEOUT_DEFECTO
-                ) -> Dict[str, Any]:
+def api_request(
+    url: str,
+    metodo: str = "GET",
+    headers: dict[str, str] | None = None,
+    body: str = "",
+    timeout: float = TIMEOUT_DEFECTO,
+) -> dict[str, Any]:
     """Ejecuta una petición HTTP y devuelve status, cabeceras y cuerpo.
 
     Si la respuesta es JSON válido se incluye en ``json``; el texto siempre
@@ -86,38 +89,40 @@ def api_request(url: str, metodo: str = "GET",
         httpx = _httpx()
         cabeceras = {str(k): str(v)[:500] for k, v in (headers or {}).items()}
         inicio = time.monotonic()
-        with httpx.Client(timeout=max(1.0, float(timeout)),
-                          follow_redirects=True) as cliente:
+        with httpx.Client(timeout=max(1.0, float(timeout)), follow_redirects=True) as cliente:
             respuesta = cliente.request(
-                metodo, url, headers=cabeceras,
-                content=str(body) if body else None)
+                metodo, url, headers=cabeceras, content=str(body) if body else None
+            )
         duracion = round(time.monotonic() - inicio, 3)
     except RuntimeError as exc:
         return {"ok": False, "error": str(exc)}
-    except Exception as exc:                  # noqa: BLE001 — herramienta
+    except Exception as exc:
         return {"ok": False, "error": f"Error en la petición: {exc}"}
     texto = respuesta.text[:MAX_CUERPO]
-    salida: Dict[str, Any] = {
-        "ok": True, "status": respuesta.status_code,
+    salida: dict[str, Any] = {
+        "ok": True,
+        "status": respuesta.status_code,
         "headers": _filtrar_cabeceras(respuesta.headers),
-        "body": texto, "tiempo": duracion, "url": str(respuesta.url),
+        "body": texto,
+        "tiempo": duracion,
+        "url": str(respuesta.url),
     }
     tipo = respuesta.headers.get("content-type", "")
     if "json" in tipo.lower():
         try:
             salida["json"] = respuesta.json()
-        except Exception:                     # noqa: BLE001
+        except Exception:
             pass
     return salida
 
 
-def api_inspect(url: str, timeout: float = TIMEOUT_DEFECTO) -> Dict[str, Any]:
+def api_inspect(url: str, timeout: float = TIMEOUT_DEFECTO) -> dict[str, Any]:
     """GET de análisis: status, tiempo de respuesta, tamaño y metadatos."""
     resultado = api_request(url, "GET", timeout=timeout)
     if not resultado.get("ok"):
         return resultado
     cuerpo = resultado.get("body") or ""
-    salida: Dict[str, Any] = {
+    salida: dict[str, Any] = {
         "ok": True,
         "status": resultado.get("status"),
         "tiempo": resultado.get("tiempo"),
@@ -137,5 +142,12 @@ def reiniciar() -> None:
     return None
 
 
-__all__ = ["api_request", "api_inspect", "reiniciar", "MAX_CUERPO",
-           "TIMEOUT_DEFECTO", "_validar_url", "_filtrar_cabeceras"]
+__all__ = [
+    "MAX_CUERPO",
+    "TIMEOUT_DEFECTO",
+    "_filtrar_cabeceras",
+    "_validar_url",
+    "api_inspect",
+    "api_request",
+    "reiniciar",
+]

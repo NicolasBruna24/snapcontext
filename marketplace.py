@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Marketplace MCP (v6.21.0) — repositorio central de plugins instalables.
 
 Capa de ecosistema sobre el sistema de plugins local (v4.0.0):
@@ -27,14 +26,13 @@ import sys
 import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 # Índice central (JSON). Puede sobrescribirse con la variable de entorno
 # SNAPCONTEXT_MARKETPLACE_INDEX (útil para tests y despliegues privados).
 URL_INDEX = os.environ.get(
     "SNAPCONTEXT_MARKETPLACE_INDEX",
-    "https://raw.githubusercontent.com/NicolasBruna24/snapcontext-plugins/"
-    "main/index.json")
+    "https://raw.githubusercontent.com/NicolasBruna24/snapcontext-plugins/main/index.json",
+)
 
 RUTA_CACHE = Path.home() / ".snapcontext" / "marketplace_cache.json"
 TTL_CACHE_SEG = 3600  # 1 hora de validez de la caché local
@@ -43,39 +41,39 @@ TTL_CACHE_SEG = 3600  # 1 hora de validez de la caché local
 def _sc():
     """Import perezoso de snapcontext (evita dependencia circular)."""
     import snapcontext
+
     return snapcontext
 
 
 def _aviso(texto: str) -> None:
     try:
         _sc().aviso(texto)
-    except Exception:                                    # noqa: BLE001
+    except Exception:
         print(f"⚠ {texto}")
 
 
 def _info(texto: str) -> None:
     try:
         _sc().info(texto)
-    except Exception:                                    # noqa: BLE001
+    except Exception:
         print(texto)
 
 
 def _exito(texto: str) -> None:
     try:
         _sc().exito(texto)
-    except Exception:                                    # noqa: BLE001
+    except Exception:
         print(texto)
 
 
 def _error(texto: str) -> None:
     try:
         _sc().error(texto)
-    except Exception:                                    # noqa: BLE001
+    except Exception:
         print(f"✖ {texto}")
 
 
-def obtener_index(forzar: bool = False,
-                  url: Optional[str] = None) -> List[dict]:
+def obtener_index(forzar: bool = False, url: str | None = None) -> list[dict]:
     """Devuelve la lista de plugins del índice central.
 
     Usa la caché local (``~/.snapcontext/marketplace_cache.json``) si tiene
@@ -91,38 +89,39 @@ def obtener_index(forzar: bool = False,
             moment = datetime.fromisoformat(datos.get("descargado", ""))
             if ahora - moment < timedelta(seconds=TTL_CACHE_SEG):
                 return list(datos.get("index") or [])
-        except Exception:                                # noqa: BLE001
-            pass                                         # caché corrupta: red
+        except Exception:
+            pass  # caché corrupta: red
     _info("📦 Descargando índice de plugins...")
     try:
         with urllib.request.urlopen(ruta_url, timeout=15) as respuesta:
             indice = json.loads(respuesta.read().decode("utf-8"))
         if not isinstance(indice, list):
             indice = list((indice or {}).get("plugins") or [])
-    except Exception as exc:                             # noqa: BLE001
+    except Exception as exc:
         # Red caída o índice inaccesible: caché caducada si existe.
         if RUTA_CACHE.exists():
             try:
                 datos = json.loads(RUTA_CACHE.read_text(encoding="utf-8"))
-                _aviso(f"No se pudo actualizar el índice ({exc}); "
-                       "se usa la caché local.")
+                _aviso(f"No se pudo actualizar el índice ({exc}); se usa la caché local.")
                 return list(datos.get("index") or [])
-            except Exception:                            # noqa: BLE001
+            except Exception:
                 pass
         _aviso(f"No se pudo descargar el índice de plugins: {exc}")
         return []
     try:
         RUTA_CACHE.parent.mkdir(parents=True, exist_ok=True)
-        RUTA_CACHE.write_text(json.dumps(
-            {"descargado": ahora.isoformat(), "index": indice},
-            ensure_ascii=False, indent=2), encoding="utf-8")
+        RUTA_CACHE.write_text(
+            json.dumps(
+                {"descargado": ahora.isoformat(), "index": indice}, ensure_ascii=False, indent=2
+            ),
+            encoding="utf-8",
+        )
     except OSError:
-        pass                                             # caché best-effort
+        pass  # caché best-effort
     return list(indice)
 
 
-def buscar_plugins(termino: str, index: Optional[List[dict]] = None
-                   ) -> List[dict]:
+def buscar_plugins(termino: str, index: list[dict] | None = None) -> list[dict]:
     """Busca plugins del índice por nombre, descripción, autor o tags."""
     if index is None:
         index = obtener_index()
@@ -133,30 +132,32 @@ def buscar_plugins(termino: str, index: Optional[List[dict]] = None
     for entrada in index:
         if not isinstance(entrada, dict):
             continue
-        texto = " ".join([
-            str(entrada.get("nombre", "")),
-            str(entrada.get("name", "")),
-            str(entrada.get("descripcion", "")),
-            str(entrada.get("description", "")),
-            str(entrada.get("autor", "")),
-            str(entrada.get("author", "")),
-            " ".join(str(t) for t in (entrada.get("tags") or [])),
-        ]).lower()
+        texto = " ".join(
+            [
+                str(entrada.get("nombre", "")),
+                str(entrada.get("name", "")),
+                str(entrada.get("descripcion", "")),
+                str(entrada.get("description", "")),
+                str(entrada.get("autor", "")),
+                str(entrada.get("author", "")),
+                " ".join(str(t) for t in (entrada.get("tags") or [])),
+            ]
+        ).lower()
         if termino in texto:
             resultados.append(entrada)
     return resultados
 
 
-def resolver_plugin(nombre: str, index: Optional[List[dict]] = None
-                    ) -> Optional[dict]:
+def resolver_plugin(nombre: str, index: list[dict] | None = None) -> dict | None:
     """Resuelve un nombre de plugin contra el índice → entrada o ``None``."""
     if index is None:
         index = obtener_index()
     objetivo = nombre.strip().lower()
     for entrada in index:
-        if isinstance(entrada, dict) and str(
-                entrada.get("nombre", entrada.get("name", ""))).lower() == \
-                objetivo:
+        if (
+            isinstance(entrada, dict)
+            and str(entrada.get("nombre", entrada.get("name", ""))).lower() == objetivo
+        ):
             return entrada
     return None
 
@@ -165,8 +166,13 @@ def _parece_ruta_o_repo(origen: str) -> bool:
     """True si ``origen`` es una ruta local, URL o slug (no un nombre simple)."""
     if Path(origen).expanduser().exists():
         return True
-    return ("://" in origen or "/" in origen or "\\" in origen
-            or ":" in origen or origen.lower().endswith(".zip"))
+    return (
+        "://" in origen
+        or "/" in origen
+        or "\\" in origen
+        or ":" in origen
+        or origen.lower().endswith(".zip")
+    )
 
 
 def instalar_plugin(nombre_o_url: str) -> int:
@@ -189,8 +195,7 @@ def instalar_plugin(nombre_o_url: str) -> int:
     if entrada is None:
         _error(f"Plugin '{origen}' no encontrado en el marketplace.")
         return 1
-    destino = (entrada.get("repositorio") or entrada.get("repository")
-               or entrada.get("url") or "")
+    destino = entrada.get("repositorio") or entrada.get("repository") or entrada.get("url") or ""
     if not destino:
         _error(f"El plugin '{origen}' no declara repositorio en el índice.")
         return 1
@@ -205,14 +210,14 @@ def instalar_plugin(nombre_o_url: str) -> int:
     return codigo
 
 
-def _leer_manifest(nombre: str) -> Optional[dict]:
+def _leer_manifest(nombre: str) -> dict | None:
     """Lee el ``plugin.json`` de un plugin instalado (o ``None``)."""
     try:
         instalados = _sc()._plugins_instalados()
         for clave, manifest in instalados.items():
             if clave.lower() == nombre.strip().lower():
                 return manifest
-    except Exception:                                    # noqa: BLE001
+    except Exception:
         pass
     return None
 
@@ -232,15 +237,18 @@ def instalar_dependencias(manifest: dict, nombre: str = "") -> bool:
         try:
             proc = subprocess.run(
                 [sys.executable, "-m", "pip", "install", "--user", dep],
-                capture_output=True, text=True, timeout=300)
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
             if proc.returncode != 0:
                 raise RuntimeError((proc.stderr or proc.stdout or "")[-300:])
-        except Exception as exc:                          # noqa: BLE001
+        except Exception as exc:
             _error(f"❌ Error instalando dependencia '{dep}': {exc}")
             _aviso(f"El plugin '{nombre}' se deshabilita por seguridad.")
             try:
                 _sc()._plugin_cambiar_estado(nombre, habilitar=False)
-            except Exception:                             # noqa: BLE001
+            except Exception:
                 pass
             return False
     return True
@@ -251,21 +259,22 @@ def desinstalar_plugin(nombre: str) -> int:
     return int(_sc()._plugin_remove(nombre))
 
 
-def listar_plugins() -> List[dict]:
+def listar_plugins() -> list[dict]:
     """Lista los plugins instalados con su estado (habilitado/deshabilitado)."""
     sc = _sc()
     resultado = []
     for clave, manifest in (sc._plugins_instalados() or {}).items():
-        resultado.append({
-            "nombre": clave,
-            "version": manifest.get("version", ""),
-            "descripcion": manifest.get("description",
-                                        manifest.get("descripcion", "")),
-            "habilitado": bool(manifest.get("enabled", True)),
-            "herramientas": [t.get("name") for t in
-                             (manifest.get("tools") or [])
-                             if isinstance(t, dict)],
-        })
+        resultado.append(
+            {
+                "nombre": clave,
+                "version": manifest.get("version", ""),
+                "descripcion": manifest.get("description", manifest.get("descripcion", "")),
+                "habilitado": bool(manifest.get("enabled", True)),
+                "herramientas": [
+                    t.get("name") for t in (manifest.get("tools") or []) if isinstance(t, dict)
+                ],
+            }
+        )
     return resultado
 
 
@@ -280,8 +289,7 @@ def deshabilitar_plugin(nombre: str) -> int:
 def actualizar_plugin(nombre: str = "") -> int:
     """Actualiza un plugin (o todos los instalados si ``nombre`` es vacío)."""
     sc = _sc()
-    nombres = ([nombre] if nombre
-               else list((sc._plugins_instalados() or {}).keys()))
+    nombres = [nombre] if nombre else list((sc._plugins_instalados() or {}).keys())
     if not nombres:
         _aviso("No hay plugins instalados para actualizar.")
         return 0
@@ -292,22 +300,20 @@ def actualizar_plugin(nombre: str = "") -> int:
     return codigo_global
 
 
-def cargar_plugins_instalados() -> Dict[str, List[dict]]:
+def cargar_plugins_instalados() -> dict[str, list[dict]]:
     """Garantiza dependencias y devuelve las herramientas MCP habilitadas.
 
     No registra nada duplicado: el registro en el sistema MCP ocurre de forma
     perezosa vía ``snapcontext._plugins_herramientas`` (idempotente por diseño).
     """
     sc = _sc()
-    herramientas: Dict[str, List[dict]] = {}
+    herramientas: dict[str, list[dict]] = {}
     for clave, manifest in (sc._plugins_instalados() or {}).items():
         if not manifest.get("enabled", True):
             continue
         if not instalar_dependencias(manifest, nombre=clave):
             continue
-        tools = [t for t in (manifest.get("tools") or [])
-                 if isinstance(t, dict) and t.get("name")]
+        tools = [t for t in (manifest.get("tools") or []) if isinstance(t, dict) and t.get("name")]
         if tools:
             herramientas[clave] = tools
     return herramientas
-

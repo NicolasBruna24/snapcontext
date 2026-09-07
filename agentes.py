@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Módulo de Agentes de SnapContext.
 
@@ -19,7 +18,7 @@ logs de depuración visibles con ``--depurar`` (marcas ``[Agente…]``).
 """
 
 import subprocess
-from typing import List, Optional, Union
+from typing import Union
 
 # v6.1.0 — Manejo de contexto inteligente: por encima de este umbral (tokens)
 # se envía contexto selectivo (resumen AST + bloques) en lugar del archivo
@@ -34,6 +33,7 @@ def _es_error_contexto(exc: Exception) -> bool:
     compartida con el planificador y otros módulos).
     """
     import context_utils
+
     return context_utils.es_error_contexto(exc)
 
 
@@ -49,21 +49,45 @@ def _tarea_estructura(tarea: str) -> bool:
 
     t = _u.normalize("NFD", tarea.lower())
     t = "".join(c for c in t if not _u.combining(c))
-    claves = ("refactor", "renombra", "renombrar", "extra", "extraer",
-              "mueve", "mover", "inserta", "insertar", "nueva funcion",
-              "crear funcion", "funcion", "extraccion",
-              # v5.6.0: símbolos estructurales multi-lenguaje (structs de Go/
-              # Rust, clases Java/TS, métodos, campos…).
-              "struct", "clase", "class", "metodo", "interface", "campo",
-              "interfaz", "enum")
+    claves = (
+        "refactor",
+        "renombra",
+        "renombrar",
+        "extra",
+        "extraer",
+        "mueve",
+        "mover",
+        "inserta",
+        "insertar",
+        "nueva funcion",
+        "crear funcion",
+        "funcion",
+        "extraccion",
+        # v5.6.0: símbolos estructurales multi-lenguaje (structs de Go/
+        # Rust, clases Java/TS, métodos, campos…).
+        "struct",
+        "clase",
+        "class",
+        "metodo",
+        "interface",
+        "campo",
+        "interfaz",
+        "enum",
+    )
     return any(k in t for k in claves)
 
 
-def _construir_prompt_edicion(modo: str, mensaje: str, archivo: str,
-                              contenido_actual: str, lenguaje: str,
-                              conciso: bool, error_msj: str = "",
-                              truncado: Optional[bool] = None,
-                              contexto: Optional[str] = None) -> tuple:
+def _construir_prompt_edicion(
+    modo: str,
+    mensaje: str,
+    archivo: str,
+    contenido_actual: str,
+    lenguaje: str,
+    conciso: bool,
+    error_msj: str = "",
+    truncado: bool | None = None,
+    contexto: str | None = None,
+) -> tuple:
     """Construye el prompt de edición para el proveedor (v4.7.0 / v6.1.0).
 
     Devuelve ``(prompt, truncado)``:
@@ -93,13 +117,13 @@ def _construir_prompt_edicion(modo: str, mensaje: str, archivo: str,
         reintento = (
             f"\nTu intento anterior produjo un error de sintaxis que debes "
             f"corregir:\n{error_msj}\n\n"
-            f"Mantén el objetivo de la tarea pero arregla ese error.\n")
+            f"Mantén el objetivo de la tarea pero arregla ese error.\n"
+        )
 
     if modo == "parche":
         if truncado:
             if contexto is None:
-                contexto = sc._extraer_contexto_selectivo(contenido_actual,
-                                                          mensaje, archivo)
+                contexto = sc._extraer_contexto_selectivo(contenido_actual, mensaje, archivo)
             prompt = (
                 f"Genera un parche unificado (unified diff) que modifique SOLO "
                 f"el bloque mostrado para cumplir con la tarea.\n"
@@ -141,8 +165,7 @@ def _construir_prompt_edicion(modo: str, mensaje: str, archivo: str,
     # modo == "sobrescribir"
     if truncado:
         if contexto is None:
-            contexto = sc._extraer_contexto_selectivo(contenido_actual,
-                                                      mensaje, archivo)
+            contexto = sc._extraer_contexto_selectivo(contenido_actual, mensaje, archivo)
         prompt = (
             f"Tarea: {mensaje}\n"
             f"El archivo {archivo} ({lenguaje}, {num_lineas} líneas) es "
@@ -173,6 +196,7 @@ def _construir_prompt_edicion(modo: str, mensaje: str, archivo: str,
         )
     return prompt, False
 
+
 class AgenteContexto:
     """Agente de Contexto: selecciona los archivos relevantes para la consulta.
 
@@ -185,10 +209,10 @@ class AgenteContexto:
         self,
         consulta: str,
         directorio: str = ".",
-        carpetas: Optional[List[str]] = None,
-        extensiones: Optional[List[str]] = None,
+        carpetas: list[str] | None = None,
+        extensiones: list[str] | None = None,
         max_candidatos: int = 80,
-    ) -> List[str]:
+    ) -> list[str]:
         """Escanea ``directorio`` y devuelve los ``max_candidatos`` archivos más
         relevantes para ``consulta`` usando heurística local (sin llamar a la IA).
 
@@ -211,21 +235,19 @@ class AgenteContexto:
             extensiones=extensiones,
             max_candidatos=max_candidatos,
         )
-        sc.depurar(
-            f"[AgenteContexto] {len(resultado)} candidato(s) relevante(s) localmente."
-        )
+        sc.depurar(f"[AgenteContexto] {len(resultado)} candidato(s) relevante(s) localmente.")
         return resultado
 
     def seleccionar_archivos(
         self,
         consulta: str,
         directorio: str,
-        carpetas: Optional[List[str]],
+        carpetas: list[str] | None,
         max_archivos: int,
         provider: str,
         modelo: str,
-        extensiones: Optional[List[str]] = None,
-    ) -> List[str]:
+        extensiones: list[str] | None = None,
+    ) -> list[str]:
         """Pipeline completo del agente de contexto: escanea el repositorio y
         pide al proveedor IA ``provider`` que se quede con las ``max_archivos``
         rutas más relevantes para ``consulta``.
@@ -257,6 +279,7 @@ class AgenteContexto:
             max_archivos=max_archivos,
         )
 
+
 # __PARTE2__
 class AgenteEditor:
     """Agente Editor: recibe órdenes exactas y ejecuta Aider.
@@ -268,7 +291,7 @@ class AgenteEditor:
 
     def ejecutar_aider(
         self,
-        archivos: List[str],
+        archivos: list[str],
         mensaje: str,
         directorio: str,
         opciones: str = "",
@@ -279,29 +302,25 @@ class AgenteEditor:
         """
         import snapcontext as sc
 
-        sc.depurar(
-            f"[AgenteEditor] Aider sobre {len(archivos)} archivo(s) en '{directorio}'"
-        )
+        sc.depurar(f"[AgenteEditor] Aider sobre {len(archivos)} archivo(s) en '{directorio}'")
         return sc.ejecutar_aider(archivos, mensaje, directorio, opciones)
 
 
-def _prompts_concisos(proveedor: Optional[str],
-                      modelo_ligero: bool = False) -> bool:
+def _prompts_concisos(proveedor: str | None, modelo_ligero: bool = False) -> bool:
     """v4.1.0: ¿usar prompts concisos? Con Ollama o ``--modelo-ligero``."""
     if modelo_ligero:
         return True
     return str(proveedor or "").strip().lower() == "ollama"
 
 
-def _proveedor_efectivo(proveedor: Optional[str]) -> str:
+def _proveedor_efectivo(proveedor: str | None) -> str:
     """Resuelve el proveedor: explícito → config.json → defecto."""
     import snapcontext as sc
 
     if proveedor:
         return proveedor
     try:
-        return sc.cargar_configuracion().get("provider") or \
-            sc.PROVEEDOR_DEFECTO
+        return sc.cargar_configuracion().get("provider") or sc.PROVEEDOR_DEFECTO
     except Exception:
         return sc.PROVEEDOR_DEFECTO
 
@@ -328,16 +347,14 @@ class AgenteEditorPropio:
         """
         import snapcontext as sc
 
-        sc.depurar(
-            f"[AgenteEditorPropio] Sobrescribiendo '{archivo}' en '{directorio}'"
-        )
+        sc.depurar(f"[AgenteEditorPropio] Sobrescribiendo '{archivo}' en '{directorio}'")
         return sc._editor_sobrescribir(archivo, contenido, directorio=directorio)
 
     def aplicar_parche(
         self,
         parche: str,
         directorio: str = ".",
-        contenido_esperado: Optional[str] = None,
+        contenido_esperado: str | None = None,
         mostrar_diff: bool = False,
     ) -> bool:
         """Aplica un parche unificado en ``directorio`` (v3.3.0).
@@ -355,12 +372,13 @@ class AgenteEditorPropio:
 
         sc.depurar(f"[AgenteEditorPropio] Aplicando parche en '{directorio}'")
         return sc._aplicar_parche_con_resolucion(
-            parche, directorio=directorio,
+            parche,
+            directorio=directorio,
             contenido_esperado=contenido_esperado,
-            mostrar_diff=mostrar_diff)
+            mostrar_diff=mostrar_diff,
+        )
 
-    def _cadena_modos(self, archivo: str, mensaje: str,
-                      modo_edicion: str) -> List[str]:
+    def _cadena_modos(self, archivo: str, mensaje: str, modo_edicion: str) -> list[str]:
         """Devuelve la cadena de estrategias de edición a intentar para un archivo.
 
         - 'sobrescribir' → solo sobrescritura.
@@ -382,11 +400,16 @@ class AgenteEditorPropio:
             return ["ast", "parche", "sobrescribir"]
         return ["parche", "sobrescribir"]
 
-    def editar_ast(self, archivo: str, tarea: str,
-                   directorio: str = ".", modelo: Optional[str] = None,
-                   conciso: bool = False,
-                   max_context_tokens: Optional[int] = None,
-                   mostrar_razonamiento: bool = False) -> bool:
+    def editar_ast(
+        self,
+        archivo: str,
+        tarea: str,
+        directorio: str = ".",
+        modelo: str | None = None,
+        conciso: bool = False,
+        max_context_tokens: int | None = None,
+        mostrar_razonamiento: bool = False,
+    ) -> bool:
         """Edita ``archivo`` con base en su AST usando el proveedor de IA.
 
         Desde v6.1.0 ``max_context_tokens`` permite recortar el contenido
@@ -399,15 +422,20 @@ class AgenteEditorPropio:
         pref = sc.cargar_configuracion()
         proveedor = pref.get("provider") or sc.PROVEEDOR_DEFECTO
         sc.depurar(f"[AgenteEditorPropio] Editando por AST '{archivo}' en '{directorio}'")
-        return sc._editor_ast(archivo, tarea, directorio=directorio,
-                              proveedor=proveedor, modelo=modelo,
-                              conciso=conciso,
-                              max_context_tokens=max_context_tokens,
-                              mostrar_razonamiento=mostrar_razonamiento)
+        return sc._editor_ast(
+            archivo,
+            tarea,
+            directorio=directorio,
+            proveedor=proveedor,
+            modelo=modelo,
+            conciso=conciso,
+            max_context_tokens=max_context_tokens,
+            mostrar_razonamiento=mostrar_razonamiento,
+        )
 
-    def _preparar_contenido_envio(self, archivo: str, mensaje: str,
-                                  contenido_actual: str,
-                                  max_context_tokens: Optional[int]):
+    def _preparar_contenido_envio(
+        self, archivo: str, mensaje: str, contenido_actual: str, max_context_tokens: int | None
+    ):
         """Decide el contenido que se enviará al proveedor (v6.1.0).
 
         Basándose en el tamaño en tokens (``context_utils.estimar_tokens``),
@@ -420,37 +448,36 @@ class AgenteEditorPropio:
         import context_utils as ctx
         import snapcontext as sc
 
-        limite = max_context_tokens if max_context_tokens is not None \
-            else MAX_CONTEXT_TOKENS
+        limite = max_context_tokens if max_context_tokens is not None else MAX_CONTEXT_TOKENS
         n = ctx.estimar_tokens(contenido_actual or "")
         if n <= int(limite or 0) or n == 0:
             return contenido_actual, False, None, n
         lenguaje = sc._lenguaje_archivo(archivo, contenido_actual) or "?"
         objetivo = ctx.objetivo_en_mensaje(contenido_actual, lenguaje, mensaje)
         reducido = ctx.seleccionar_contexto(
-            contenido_actual, lenguaje, objetivo=objetivo,
-            max_tokens=int(limite))
+            contenido_actual, lenguaje, objetivo=objetivo, max_tokens=int(limite)
+        )
         if objetivo:
-            sc.info(f"ℹ Archivo grande ({n} tokens). Usando contexto selectivo "
-                    f"(bloque: '{objetivo}')...")
+            sc.info(
+                f"ℹ Archivo grande ({n} tokens). Usando contexto selectivo "
+                f"(bloque: '{objetivo}')..."
+            )
         else:
-            sc.info(f"ℹ Archivo grande ({n} tokens). Usando contexto "
-                    "selectivo...")
+            sc.info(f"ℹ Archivo grande ({n} tokens). Usando contexto selectivo...")
         return reducido, True, objetivo, n
 
-    def _ejecutar_con_aider(self, archivos: List[str], mensaje: str,
-                            directorio: str) -> bool:
+    def _ejecutar_con_aider(self, archivos: list[str], mensaje: str, directorio: str) -> bool:
         """Fallback automático a Aider cuando el editor propio falla (v6.1.0)."""
         import snapcontext as sc
 
         if not archivos:
             return True
         if shutil.which("aider") is None:
-            sc.aviso("Aider no está instalado para el fallback. "
-                     "Instálalo con:  pip install aider-chat")
+            sc.aviso(
+                "Aider no está instalado para el fallback. Instálalo con:  pip install aider-chat"
+            )
             return False
-        sc.aviso("⚠ El editor propio no pudo editar este archivo. "
-                 "Usando Aider como fallback...")
+        sc.aviso("⚠ El editor propio no pudo editar este archivo. Usando Aider como fallback...")
         try:
             return sc.ejecutar_aider(archivos, mensaje, directorio)
         except Exception as exc:
@@ -496,19 +523,26 @@ class AgenteEditorPropio:
             if posicion < 0:
                 continue
 
-            resultado[posicion:posicion + n_borrados] = nuevos
+            resultado[posicion : posicion + n_borrados] = nuevos
             desplazamiento += len(nuevos) - n_borrados
             aplicados += 1
 
         return "\n".join(resultado) + "\n", aplicados
 
-    def _aplicar_modo_parche(self, archivo: str, mensaje: str,
-                             contenido_actual: str, modelo: Optional[str],
-                             directorio: str, validar: bool = True,
-                             max_intentos_validacion: int = 3,
-                             conciso: bool = False, auto: bool = False,
-                             max_context_tokens: Optional[int] = None,
-                             mostrar_diff: bool = False) -> bool:
+    def _aplicar_modo_parche(
+        self,
+        archivo: str,
+        mensaje: str,
+        contenido_actual: str,
+        modelo: str | None,
+        directorio: str,
+        validar: bool = True,
+        max_intentos_validacion: int = 3,
+        conciso: bool = False,
+        auto: bool = False,
+        max_context_tokens: int | None = None,
+        mostrar_diff: bool = False,
+    ) -> bool:
         """Intenta editar `archivo` pidiendo un parche unificado al proveedor.
 
         v6.1.0: si el archivo supera ``max_context_tokens`` se envía contexto
@@ -522,106 +556,145 @@ class AgenteEditorPropio:
         pref = sc.cargar_configuracion()
         proveedor = pref.get("provider") or sc.PROVEEDOR_DEFECTO
         lenguaje = sc._lenguaje_archivo(archivo, contenido_actual) or "?"
-        num_lineas = (contenido_actual.count("\n") + 1
-                      if contenido_actual else 0)
+        num_lineas = contenido_actual.count("\n") + 1 if contenido_actual else 0
         max_val = max(1, int(max_intentos_validacion))
 
         # v6.1.0: contenido a enviar (completo o contexto selectivo por tokens).
-        contenido_envio, truncado, _objetivo, _n_tokens = \
-            self._preparar_contenido_envio(archivo, mensaje, contenido_actual,
-                                           max_context_tokens)
+        contenido_envio, truncado, _objetivo, _n_tokens = self._preparar_contenido_envio(
+            archivo, mensaje, contenido_actual, max_context_tokens
+        )
 
         error_msj = ""
         for intento in range(1, max_val + 1):
             prompt, _truncado = _construir_prompt_edicion(
-                "parche", mensaje, archivo, contenido_envio, lenguaje,
-                conciso, error_msj=error_msj, truncado=truncado)
+                "parche",
+                mensaje,
+                archivo,
+                contenido_envio,
+                lenguaje,
+                conciso,
+                error_msj=error_msj,
+                truncado=truncado,
+            )
             try:
                 respuesta = sc._enviar_al_proveedor(
-                    proveedor, modelo, [{"role": "user", "content": prompt}],
-                    categoria="edicion_critica")
+                    proveedor,
+                    modelo,
+                    [{"role": "user", "content": prompt}],
+                    categoria="edicion_critica",
+                )
             except RuntimeError as exc:
                 if truncado and _es_error_contexto(exc):
                     # El modelo real puede tener más contexto que la estimación.
-                    sc.info("⚠ El proveedor falló por límite de contexto. "
-                            "Reintentando con el archivo completo...")
+                    sc.info(
+                        "⚠ El proveedor falló por límite de contexto. "
+                        "Reintentando con el archivo completo..."
+                    )
                     contenido_envio = contenido_actual
                     truncado = False
                     prompt_completo, _c = _construir_prompt_edicion(
-                        "parche", mensaje, archivo, contenido_actual, lenguaje,
-                        conciso, error_msj=error_msj, truncado=False)
+                        "parche",
+                        mensaje,
+                        archivo,
+                        contenido_actual,
+                        lenguaje,
+                        conciso,
+                        error_msj=error_msj,
+                        truncado=False,
+                    )
                     respuesta = sc._enviar_al_proveedor(
-                        proveedor, modelo,
+                        proveedor,
+                        modelo,
                         [{"role": "user", "content": prompt_completo}],
-                        categoria="edicion_critica")
+                        categoria="edicion_critica",
+                    )
                 else:
-                    sc.error(f"[EditorPropio] El proveedor falló en modo "
-                             f"parche: {exc}")
+                    sc.error(f"[EditorPropio] El proveedor falló en modo parche: {exc}")
                     return False
             respuesta, _raz = sc._procesar_razonamiento(
-                respuesta,
-                activo=getattr(self, "_mostrar_razonamiento", False))
+                respuesta, activo=getattr(self, "_mostrar_razonamiento", False)
+            )
             diff_limpio = respuesta
             if "--- " in diff_limpio and "+++ " in diff_limpio:
                 idx_inicio = diff_limpio.find("--- ")
                 diff_limpio = diff_limpio[idx_inicio:]
                 if "```" in diff_limpio:
-                    diff_limpio = diff_limpio[:diff_limpio.find("```")]
-            if not ("--- " in diff_limpio and "+++ " in diff_limpio
-                    and "@@" in diff_limpio):
+                    diff_limpio = diff_limpio[: diff_limpio.find("```")]
+            if not ("--- " in diff_limpio and "+++ " in diff_limpio and "@@" in diff_limpio):
                 return False
 
             if not validar:
                 # v3.3.0: validación previa + resolución de conflictos.
-                return self._aplicar_con_conflicto(
-                    archivo, diff_limpio, directorio, contenido_actual,
-                    preview=None, auto=auto,
-                    mostrar_diff=mostrar_diff) == "ok"
+                return (
+                    self._aplicar_con_conflicto(
+                        archivo,
+                        diff_limpio,
+                        directorio,
+                        contenido_actual,
+                        preview=None,
+                        auto=auto,
+                        mostrar_diff=mostrar_diff,
+                    )
+                    == "ok"
+                )
 
             # v3.4.0: validar la sintaxis del contenido resultante.
-            preview, aplicados = self._aplicar_parche_preview(
-                diff_limpio, contenido_actual)
+            preview, aplicados = self._aplicar_parche_preview(diff_limpio, contenido_actual)
             if aplicados == 0:
                 # No se pudo reproducir en memoria → se omite la validación.
-                return self._aplicar_con_conflicto(
-                    archivo, diff_limpio, directorio, contenido_actual,
-                    preview=None, auto=auto,
-                    mostrar_diff=mostrar_diff) == "ok"
+                return (
+                    self._aplicar_con_conflicto(
+                        archivo,
+                        diff_limpio,
+                        directorio,
+                        contenido_actual,
+                        preview=None,
+                        auto=auto,
+                        mostrar_diff=mostrar_diff,
+                    )
+                    == "ok"
+                )
 
             sc.info(f"Validando sintaxis de {archivo}...")
             exito, err = sc._validar_sintaxis(archivo, preview, directorio)
             if not exito:
                 error_msj = err
                 if intento < max_val:
-                    sc.error(
-                        f"Error de sintaxis: {err}. "
-                        f"Reintentando ({intento}/{max_val})...")
+                    sc.error(f"Error de sintaxis: {err}. Reintentando ({intento}/{max_val})...")
                     continue
-                sc.error(
-                    f"No se pudo validar tras {max_val} intentos. "
-                    f"Edición cancelada.")
+                sc.error(f"No se pudo validar tras {max_val} intentos. Edición cancelada.")
                 return False
             sc.exito("Sintaxis válida.")
             resultado = self._aplicar_con_conflicto(
-                archivo, diff_limpio, directorio, contenido_actual,
-                preview=preview, auto=auto, mostrar_diff=mostrar_diff)
+                archivo,
+                diff_limpio,
+                directorio,
+                contenido_actual,
+                preview=preview,
+                auto=auto,
+                mostrar_diff=mostrar_diff,
+            )
             if resultado == "ok":
                 return True
             if resultado == "cancelar":
                 return False
             # "reintentar": el usuario pidió reintentar con el proveedor.
-            error_msj = ("el parche no se aplicó limpiamente; "
-                         "genera un diff corregido y completo")
+            error_msj = "el parche no se aplicó limpiamente; genera un diff corregido y completo"
             if intento >= max_val:
                 return False
             sc.info(f"Reintentando parche ({intento}/{max_val})...")
         return False
 
-    def _aplicar_con_conflicto(self, archivo: str, diff: str,
-                               directorio: str, contenido_actual: str,
-                               preview: Optional[str] = None,
-                               auto: bool = False,
-                               mostrar_diff: bool = False) -> str:
+    def _aplicar_con_conflicto(
+        self,
+        archivo: str,
+        diff: str,
+        directorio: str,
+        contenido_actual: str,
+        preview: str | None = None,
+        auto: bool = False,
+        mostrar_diff: bool = False,
+    ) -> str:
         """Aplica el parche resolviendo conflictos de forma interactiva.
 
         Devuelve ``"ok"``, ``"reintentar"`` o ``"cancelar"``.
@@ -634,9 +707,9 @@ class AgenteEditorPropio:
         """
         import snapcontext as sc
 
-        ok = self.aplicar_parche(diff, directorio,
-                                 contenido_esperado=contenido_actual,
-                                 mostrar_diff=mostrar_diff)
+        ok = self.aplicar_parche(
+            diff, directorio, contenido_esperado=contenido_actual, mostrar_diff=mostrar_diff
+        )
         if ok or auto:
             return "ok" if ok else "reintentar"
         # v6.5.0: con la UI web interactiva activa (--web-interactive), el
@@ -644,18 +717,20 @@ class AgenteEditorPropio:
         # menú de terminal. Si el usuario no responde, se pasa a "reintentar".
         try:
             import web.interactive as _wi
+
             if _wi.esta_activo():
                 respuesta = _wi.enviar_conflicto_diff(
-                    archivo, contenido_actual,
-                    preview if preview is not None else diff)
-                if respuesta is not None and \
-                        respuesta.get("decision") == "aceptar":
+                    archivo, contenido_actual, preview if preview is not None else diff
+                )
+                if respuesta is not None and respuesta.get("decision") == "aceptar":
                     nuevo = respuesta.get("contenido")
                     if nuevo and self.sobrescribir(archivo, nuevo, directorio):
                         return "ok"
-                _wi.enviar_log("info",
-                               f"Conflicto de '{archivo}' no resuelto en la "
-                               "web; se pasa a la siguiente estrategia.")
+                _wi.enviar_log(
+                    "info",
+                    f"Conflicto de '{archivo}' no resuelto en la "
+                    "web; se pasa a la siguiente estrategia.",
+                )
                 return "reintentar"
         except ImportError:
             pass
@@ -665,14 +740,11 @@ class AgenteEditorPropio:
                 # Aplicar de todas formas: usa el preview ya calculado si lo
                 # hay; si no, reintenta el parche sin comprobación previa.
                 if preview is not None:
-                    return ("ok" if self.sobrescribir(archivo, preview,
-                                                      directorio)
-                            else "cancelar")
+                    return "ok" if self.sobrescribir(archivo, preview, directorio) else "cancelar"
                 ok2 = self.aplicar_parche(diff, directorio)
                 if ok2:
                     return "ok"
-                sc.error("El parche sigue sin aplicarse incluso sin "
-                         "comprobación previa.")
+                sc.error("El parche sigue sin aplicarse incluso sin comprobación previa.")
                 continue
             if opcion == "v":
                 print("--- Diff propuesto ---")
@@ -684,12 +756,18 @@ class AgenteEditorPropio:
             sc.info(f"Se conserva la versión original de '{archivo}'.")
             return "cancelar"
 
-    def _aplicar_modo_sobrescribir(self, archivo: str, mensaje: str,
-                                   contenido_actual: str, modelo: Optional[str],
-                                   directorio: str, validar: bool = True,
-                                   max_intentos_validacion: int = 3,
-                                   conciso: bool = False,
-                                   max_context_tokens: Optional[int] = None) -> bool:
+    def _aplicar_modo_sobrescribir(
+        self,
+        archivo: str,
+        mensaje: str,
+        contenido_actual: str,
+        modelo: str | None,
+        directorio: str,
+        validar: bool = True,
+        max_intentos_validacion: int = 3,
+        conciso: bool = False,
+        max_context_tokens: int | None = None,
+    ) -> bool:
         """Sobrescribe `archivo` con el código completo que devuelve el proveedor.
 
         v6.1.0: los archivos grandes usan contexto selectivo (bloque objetivo)
@@ -704,41 +782,61 @@ class AgenteEditorPropio:
         max_val = max(1, int(max_intentos_validacion))
 
         # v6.1.0: contenido a enviar (completo o contexto selectivo por tokens).
-        contenido_envio, truncado, _objetivo, _n_tokens = \
-            self._preparar_contenido_envio(archivo, mensaje, contenido_actual,
-                                           max_context_tokens)
+        contenido_envio, truncado, _objetivo, _n_tokens = self._preparar_contenido_envio(
+            archivo, mensaje, contenido_actual, max_context_tokens
+        )
 
         error_msj = ""
         nuevo_contenido = ""
         for intento in range(1, max_val + 1):
             prompt, _t = _construir_prompt_edicion(
-                "sobrescribir", mensaje, archivo, contenido_envio, lenguaje,
-                conciso, error_msj=error_msj, truncado=truncado)
+                "sobrescribir",
+                mensaje,
+                archivo,
+                contenido_envio,
+                lenguaje,
+                conciso,
+                error_msj=error_msj,
+                truncado=truncado,
+            )
             try:
                 respuesta = sc._enviar_al_proveedor(
-                    proveedor, modelo, [{"role": "user", "content": prompt}],
-                    categoria="edicion_critica")
+                    proveedor,
+                    modelo,
+                    [{"role": "user", "content": prompt}],
+                    categoria="edicion_critica",
+                )
             except RuntimeError as exc:
                 if truncado and _es_error_contexto(exc):
                     # El modelo real puede tener más contexto que la estimación.
-                    sc.info("⚠ El proveedor falló por límite de contexto. "
-                            "Reintentando con el archivo completo...")
+                    sc.info(
+                        "⚠ El proveedor falló por límite de contexto. "
+                        "Reintentando con el archivo completo..."
+                    )
                     contenido_envio = contenido_actual
                     truncado = False
                     prompt_completo, _c = _construir_prompt_edicion(
-                        "sobrescribir", mensaje, archivo, contenido_actual,
-                        lenguaje, conciso, error_msj=error_msj, truncado=False)
+                        "sobrescribir",
+                        mensaje,
+                        archivo,
+                        contenido_actual,
+                        lenguaje,
+                        conciso,
+                        error_msj=error_msj,
+                        truncado=False,
+                    )
                     respuesta = sc._enviar_al_proveedor(
-                        proveedor, modelo,
+                        proveedor,
+                        modelo,
                         [{"role": "user", "content": prompt_completo}],
-                        categoria="edicion_critica")
+                        categoria="edicion_critica",
+                    )
                 else:
-                    sc.error(f"[EditorPropio] El proveedor falló en modo "
-                             f"sobrescribir: {exc}")
+                    sc.error(f"[EditorPropio] El proveedor falló en modo sobrescribir: {exc}")
                     return False
             respuesta, _raz = sc._procesar_razonamiento(
-                respuesta,
-                activo=getattr(self, "_mostrar_razonamiento", False))
+                respuesta, activo=getattr(self, "_mostrar_razonamiento", False)
+            )
             nuevo_contenido = respuesta
             if nuevo_contenido.startswith("```"):
                 lineas = nuevo_contenido.splitlines()
@@ -748,28 +846,35 @@ class AgenteEditorPropio:
                 # v4.7.0: el modelo devuelve solo el bloque modificado entre
                 # marcadores; se reinserta en el archivo original.
                 import re as _re
+
                 m = _re.search(
                     r"<<<ANTES>>>\s*\n(.*?)\n?\s*<<<DESPUES>>>\s*\n(.*?)\n?\s*<<<FIN>>>",
-                    nuevo_contenido, _re.S)
+                    nuevo_contenido,
+                    _re.S,
+                )
                 if m:
-                    empotrado = sc._splicear_bloque(
-                        contenido_actual, m.group(1), m.group(2))
+                    empotrado = sc._splicear_bloque(contenido_actual, m.group(1), m.group(2))
                     if empotrado is not None:
                         nuevo_contenido = empotrado
-                        sc.info("[EditorPropio] Bloque reinsertado en el "
-                                "archivo original (contexto selectivo).")
+                        sc.info(
+                            "[EditorPropio] Bloque reinsertado en el "
+                            "archivo original (contexto selectivo)."
+                        )
                     else:
-                        sc.error("[EditorPropio] No se pudo ubicar el bloque "
-                                 "devuelto dentro del archivo original.")
-                        nuevo_contenido = ""   # fuerza reintento/fallo limpio
+                        sc.error(
+                            "[EditorPropio] No se pudo ubicar el bloque "
+                            "devuelto dentro del archivo original."
+                        )
+                        nuevo_contenido = ""  # fuerza reintento/fallo limpio
                 else:
-                    sc.error("[EditorPropio] La respuesta no contenía los "
-                             "marcadores <<<ANTES>>>/<<<DESPUES>>>/<<<FIN>>>.")
+                    sc.error(
+                        "[EditorPropio] La respuesta no contenía los "
+                        "marcadores <<<ANTES>>>/<<<DESPUES>>>/<<<FIN>>>."
+                    )
                     nuevo_contenido = ""
             # v4.7.0: NUNCA escribir una respuesta vacía (borraría el archivo).
             if not nuevo_contenido.strip():
-                sc.error("[EditorPropio] Contenido resultante vacío; no se "
-                         "escribe el archivo.")
+                sc.error("[EditorPropio] Contenido resultante vacío; no se escribe el archivo.")
                 if intento < max_val:
                     error_msj = "la respuesta estaba vacía o no se pudo ubicar"
                     continue
@@ -785,13 +890,9 @@ class AgenteEditorPropio:
                 break
             error_msj = err
             if intento < max_val:
-                sc.error(
-                    f"Error de sintaxis: {err}. "
-                    f"Reintentando ({intento}/{max_val})...")
+                sc.error(f"Error de sintaxis: {err}. Reintentando ({intento}/{max_val})...")
             else:
-                sc.error(
-                    f"No se pudo validar tras {max_val} intentos. "
-                    f"Edición cancelada.")
+                sc.error(f"No se pudo validar tras {max_val} intentos. Edición cancelada.")
                 return False
 
         return self.sobrescribir(archivo, nuevo_contenido, directorio)
@@ -822,39 +923,50 @@ class AgenteEditorPropio:
             arch_norm = str(arch).replace("\\", "/").lstrip("./")
             if not arch_norm:
                 continue
-            dependientes = sorted({
-                e.get("origen") for e in enlaces
-                if str(e.get("destino") or "").replace("\\", "/").lstrip("./")
-                == arch_norm
-                and str(e.get("origen") or "").replace("\\", "/").lstrip("./")
-                not in [str(a).replace("\\", "/").lstrip("./")
-                        for a in archivos]})
+            dependientes = sorted(
+                {
+                    e.get("origen")
+                    for e in enlaces
+                    if str(e.get("destino") or "").replace("\\", "/").lstrip("./") == arch_norm
+                    and str(e.get("origen") or "").replace("\\", "/").lstrip("./")
+                    not in [str(a).replace("\\", "/").lstrip("./") for a in archivos]
+                }
+            )
             if not dependientes:
                 continue
             lista = ", ".join(dependientes)
-            sc.aviso(f"⚠️ Atención: El cambio en '{arch}' afecta a los "
-                     f"siguientes archivos: [{lista}].")
+            sc.aviso(
+                f"⚠️ Atención: El cambio en '{arch}' afecta a los siguientes archivos: [{lista}]."
+            )
             try:
                 # v4.8.0: presentación Rich centralizada en ui.py. La lógica y
                 # el contrato ('c'/'a'/'s') no cambian; solo la presentación.
                 from ui import mostrar_tabla_impacto, preguntar_interactivo
+
                 mostrar_tabla_impacto({arch: list(dependientes)})
-            except Exception as exc:      # sin ui/rich → solo aviso plano
+            except Exception as exc:  # sin ui/rich → solo aviso plano
                 sc.depurar(f"[impacto] UI Rich no disponible: {exc}")
             if auto:
-                continue          # --auto: solo advierte y continúa.
+                continue  # --auto: solo advierte y continúa.
             try:
                 from ui import preguntar_interactivo
+
                 respuesta = preguntar_interactivo(
                     None,
                     f"Cambio en '{arch}' con impacto cruzado en "
                     f"{len(dependientes)} archivo(s). ¿Qué quieres hacer?",
-                    defecto="c")
+                    defecto="c",
+                )
             except Exception as exc:
                 sc.depurar(f"[impacto] UI Rich no disponible: {exc}")
-                respuesta = input(
-                    "¿Continuar (c), abortar (a) o añadir los archivos "
-                    "dependientes a esta edición (s)? [c/a/s] ").strip().lower()
+                respuesta = (
+                    input(
+                        "¿Continuar (c), abortar (a) o añadir los archivos "
+                        "dependientes a esta edición (s)? [c/a/s] "
+                    )
+                    .strip()
+                    .lower()
+                )
             if respuesta.startswith("a"):
                 return None
             if respuesta.startswith("s"):
@@ -863,19 +975,25 @@ class AgenteEditorPropio:
                         objetivos.append(dep)
                         anadidos.append(dep)
         if anadidos:
-            sc.info(f"[impacto] Archivos añadidos a la edición por impacto: "
-                    f"{', '.join(anadidos)}")
+            sc.info(f"[impacto] Archivos añadidos a la edición por impacto: {', '.join(anadidos)}")
         return objetivos
 
-    def _editar_archivo_en_cadena(self, arch: str, mensaje: str,
-                                  modo_edicion: str, estrategia_aprendida,
-                                  raiz, modelo: Optional[str],
-                                  conciso: bool, validar: bool,
-                                  max_intentos_validacion: int,
-                                  auto: bool,
-                                  max_context_tokens: Optional[int] = None,
-                                  mostrar_razonamiento: bool = False,
-                                  mostrar_diff: bool = False) -> bool:
+    def _editar_archivo_en_cadena(
+        self,
+        arch: str,
+        mensaje: str,
+        modo_edicion: str,
+        estrategia_aprendida,
+        raiz,
+        modelo: str | None,
+        conciso: bool,
+        validar: bool,
+        max_intentos_validacion: int,
+        auto: bool,
+        max_context_tokens: int | None = None,
+        mostrar_razonamiento: bool = False,
+        mostrar_diff: bool = False,
+    ) -> bool:
         """Edita un único archivo recorriendo su cadena de estrategias.
 
         Lógica extraída de ``ejecutar()`` en v4.6.0 para soportar el rollback
@@ -883,15 +1001,15 @@ class AgenteEditorPropio:
         Desde v6.3.0 ``mostrar_diff`` pide confirmación antes de aplicar
         parches (flag ``--mostrar-diff``).
         """
-        import snapcontext as sc
         from pathlib import Path
+
+        import snapcontext as sc
 
         camino = (Path(raiz) / arch).resolve()
         contenido_actual = ""
         if camino.is_file():
             try:
-                contenido_actual = camino.read_text(encoding="utf-8",
-                                                    errors="replace")
+                contenido_actual = camino.read_text(encoding="utf-8", errors="replace")
             except Exception:
                 pass
 
@@ -908,38 +1026,48 @@ class AgenteEditorPropio:
             cadena.insert(0, estrategia_aprendida)
         conseguido = False
         for estrategia in cadena:
-            sc.info(f"Editor propio: usando estrategia "
-                    f"{estrategia.upper()} para '{arch}'...")
+            sc.info(f"Editor propio: usando estrategia {estrategia.upper()} para '{arch}'...")
             try:
                 if estrategia == "ast":
-                    conseguido = self.editar_ast(arch, mensaje,
-                                                 str(raiz), modelo,
-                                                 conciso=conciso,
-                                                 max_context_tokens=max_context_tokens,
-                                                 mostrar_razonamiento=getattr(
-                                                     self,
-                                                     "_mostrar_razonamiento",
-                                                     False))
+                    conseguido = self.editar_ast(
+                        arch,
+                        mensaje,
+                        str(raiz),
+                        modelo,
+                        conciso=conciso,
+                        max_context_tokens=max_context_tokens,
+                        mostrar_razonamiento=getattr(self, "_mostrar_razonamiento", False),
+                    )
                 elif estrategia == "parche":
                     conseguido = self._aplicar_modo_parche(
-                        arch, mensaje, contenido_actual, modelo, str(raiz),
-                        validar=validar,
-                        max_intentos_validacion=max_intentos_validacion,
-                        conciso=conciso, auto=auto,
-                        max_context_tokens=max_context_tokens,
-                        mostrar_diff=getattr(self, "_mostrar_diff", False))
-                elif estrategia == "sobrescribir":
-                    conseguido = self._aplicar_modo_sobrescribir(
-                        arch, mensaje, contenido_actual, modelo, str(raiz),
+                        arch,
+                        mensaje,
+                        contenido_actual,
+                        modelo,
+                        str(raiz),
                         validar=validar,
                         max_intentos_validacion=max_intentos_validacion,
                         conciso=conciso,
-                        max_context_tokens=max_context_tokens)
+                        auto=auto,
+                        max_context_tokens=max_context_tokens,
+                        mostrar_diff=getattr(self, "_mostrar_diff", False),
+                    )
+                elif estrategia == "sobrescribir":
+                    conseguido = self._aplicar_modo_sobrescribir(
+                        arch,
+                        mensaje,
+                        contenido_actual,
+                        modelo,
+                        str(raiz),
+                        validar=validar,
+                        max_intentos_validacion=max_intentos_validacion,
+                        conciso=conciso,
+                        max_context_tokens=max_context_tokens,
+                    )
                 else:
                     conseguido = False
             except Exception as exc:
-                sc.depurar(
-                    f"[AgenteEditorPropio] {estrategia} falló para '{arch}': {exc}")
+                sc.depurar(f"[AgenteEditorPropio] {estrategia} falló para '{arch}': {exc}")
                 conseguido = False
             if conseguido:
                 break
@@ -947,8 +1075,7 @@ class AgenteEditorPropio:
         if conseguido:
             # v3.3.0 — Aprendizaje: guardar/reforzar el patrón de edición.
             patron = sc._editor_clasificar_tarea(mensaje)
-            sid = sc._skill_editor_guardar(
-                mensaje, arch, patron, estrategia=estrategia)
+            sid = sc._skill_editor_guardar(mensaje, arch, patron, estrategia=estrategia)
             if sid is not None:
                 try:
                     sc._skill_registrar_exito(sid)
@@ -966,27 +1093,27 @@ class AgenteEditorPropio:
             f"  Motivo: ninguna estrategia produjo un cambio válido "
             f"(revisa la salida anterior).\n"
             f"  Sugerencia: prueba con '--editor aider' o revisa la "
-            f"tarea manualmente.")
+            f"tarea manualmente."
+        )
         try:
-            sc._registrar_fallo_editor(arch, mensaje, cadena,
-                                       "sin cambio válido")
+            sc._registrar_fallo_editor(arch, mensaje, cadena, "sin cambio válido")
         except Exception:
             pass
         return False
 
     def ejecutar(
         self,
-        archivos: List[str],
+        archivos: list[str],
         mensaje: str,
         directorio: str = ".",
         modo_edicion: str = "auto",
-        modelo: Optional[str] = None,
+        modelo: str | None = None,
         validar: bool = True,
         max_intentos_validacion: int = 3,
-        proveedor: Optional[str] = None,
+        proveedor: str | None = None,
         modelo_ligero: bool = False,
         auto: bool = False,
-        max_context_tokens: Optional[int] = None,
+        max_context_tokens: int | None = None,
         editor_fallback: bool = False,
         mostrar_razonamiento: bool = False,
         mostrar_diff: bool = False,
@@ -1016,16 +1143,16 @@ class AgenteEditorPropio:
         - ``mostrar_diff``: muestra el diff propuesto y pide confirmación
           antes de aplicar cada parche (flag ``--mostrar-diff``).
         """
-        import snapcontext as sc
         from pathlib import Path
+
+        import snapcontext as sc
 
         # v6.3.0: el flag se guarda en la instancia para que las estrategias
         # de la cadena (parche) puedan consultarlo.
         self._mostrar_diff = bool(mostrar_diff)
         raiz = Path(directorio).resolve()
         todo_ok = True
-        conciso = _prompts_concisos(
-            _proveedor_efectivo(proveedor), modelo_ligero)
+        conciso = _prompts_concisos(_proveedor_efectivo(proveedor), modelo_ligero)
         if conciso:
             sc.info("Editor propio: usando prompts concisos (modelo ligero).")
 
@@ -1036,19 +1163,18 @@ class AgenteEditorPropio:
         try:
             estrategia_aprendida = sc._skill_editor_estrategia(mensaje)
             if estrategia_aprendida:
-                sc.info("[skills] Reutilizando patrón de edición aprendido: "
-                        f"'{estrategia_aprendida}'.")
+                sc.info(
+                    f"[skills] Reutilizando patrón de edición aprendido: '{estrategia_aprendida}'."
+                )
         except Exception as exc:
             sc.depurar(f"[skills] Búsqueda de skill falló: {exc}")
 
         # v4.7.0 — Análisis de Impacto Previo: advierte de archivos que
         # dependen de los que se van a editar y permite abortar o ampliar la
         # edición a esos dependientes (con --auto solo advierte).
-        objetivos_impacto = self._analizar_impacto_previo(
-            archivos, directorio, auto)
+        objetivos_impacto = self._analizar_impacto_previo(archivos, directorio, auto)
         if objetivos_impacto is None:
-            sc.info("Edición cancelada por el usuario tras el análisis "
-                    "de impacto.")
+            sc.info("Edición cancelada por el usuario tras el análisis de impacto.")
             return False
         archivos = objetivos_impacto
 
@@ -1056,7 +1182,7 @@ class AgenteEditorPropio:
         # nada se guarda el estado de cada archivo (contenido y existencia).
         # Si CUALQUIER archivo falla o se lanza una excepción, se restauran
         # TODOS los archivos a su estado original (atomicidad).
-        snapshots = []                          # [(ruta_str, bytes, existia)]
+        snapshots = []  # [(ruta_str, bytes, existia)]
         for arch in archivos:
             camino = (raiz / arch).resolve()
             existia = camino.is_file()
@@ -1065,24 +1191,32 @@ class AgenteEditorPropio:
                 try:
                     contenido_bytes = camino.read_bytes()
                 except Exception as exc:
-                    sc.depurar(f"[AgenteEditorPropio] No se pudo leer "
-                               f"'{arch}' para el snapshot: {exc}")
+                    sc.depurar(
+                        f"[AgenteEditorPropio] No se pudo leer '{arch}' para el snapshot: {exc}"
+                    )
             snapshots.append((str(camino), contenido_bytes, existia))
 
         fallo_excepcion = None
-        fallidos: List[str] = []
+        fallidos: list[str] = []
         for arch in archivos:
             try:
                 conseguido = self._editar_archivo_en_cadena(
-                    arch, mensaje, modo_edicion, estrategia_aprendida,
-                    raiz, modelo, conciso, validar,
-                    max_intentos_validacion, auto,
+                    arch,
+                    mensaje,
+                    modo_edicion,
+                    estrategia_aprendida,
+                    raiz,
+                    modelo,
+                    conciso,
+                    validar,
+                    max_intentos_validacion,
+                    auto,
                     max_context_tokens=max_context_tokens,
                     mostrar_razonamiento=mostrar_razonamiento,
-                    mostrar_diff=mostrar_diff)
+                    mostrar_diff=mostrar_diff,
+                )
             except Exception as exc:
-                sc.depurar(f"[AgenteEditorPropio] Excepción editando "
-                           f"'{arch}': {exc}")
+                sc.depurar(f"[AgenteEditorPropio] Excepción editando '{arch}': {exc}")
                 conseguido = False
                 fallo_excepcion = exc
             if not conseguido:
@@ -1092,14 +1226,13 @@ class AgenteEditorPropio:
         # v6.1.0 — Fallback automático a Aider cuando el editor propio falla.
         if fallidos and editor_fallback:
             if self._ejecutar_con_aider(fallidos, mensaje, str(raiz)):
-                todo_ok = True        # Aider cubrió todos los fallidos.
+                todo_ok = True  # Aider cubrió todos los fallidos.
                 fallo_excepcion = None
 
         # v4.6.0 — Rollback transaccional: si algo falló, se restaura TODO.
         if not todo_ok or fallo_excepcion is not None:
             if fallo_excepcion is not None:
-                sc.error(f"✖ Excepción durante la edición múltiple: "
-                         f"{fallo_excepcion}")
+                sc.error(f"✖ Excepción durante la edición múltiple: {fallo_excepcion}")
             self._rollback(snapshots)
             return False
 
@@ -1114,11 +1247,14 @@ class AgenteEditorPropio:
         se eliminan; los que sí, se reescriben con su contenido original.
         Nunca lanza excepciones (los errores se reportan sin abortar).
         """
-        import snapcontext as sc
         from pathlib import Path
 
-        sc.error("[EditorPropio] Edición incompleta; revirtiendo TODOS los "
-                 "archivos al estado original (rollback v4.6.0)...")
+        import snapcontext as sc
+
+        sc.error(
+            "[EditorPropio] Edición incompleta; revirtiendo TODOS los "
+            "archivos al estado original (rollback v4.6.0)..."
+        )
         restaurados = 0
         for ruta_str, contenido_bytes, existia in snapshots:
             camino = Path(ruta_str)
@@ -1130,12 +1266,13 @@ class AgenteEditorPropio:
                     camino.write_bytes(contenido_bytes)
                 restaurados += 1
             except Exception as exc:
-                sc.error(f"[EditorPropio] No se pudo revertir '{ruta_str}': "
-                         f"{exc}. Copia manual disponible en "
-                         "~/.snapcontext/backups/.")
+                sc.error(
+                    f"[EditorPropio] No se pudo revertir '{ruta_str}': "
+                    f"{exc}. Copia manual disponible en "
+                    "~/.snapcontext/backups/."
+                )
         if restaurados == len(snapshots):
-            sc.info("[EditorPropio] Rollback completado: todos los archivos "
-                    "fueron restaurados.")
+            sc.info("[EditorPropio] Rollback completado: todos los archivos fueron restaurados.")
 
 
 class AgenteEditorAST:
@@ -1148,16 +1285,15 @@ class AgenteEditorAST:
 
     def editar(
         self,
-        archivos: List[str],
+        archivos: list[str],
         mensaje: str,
         directorio: str = ".",
-        modelo: Optional[str] = None,
+        modelo: str | None = None,
     ) -> bool:
         """Aplica a cada archivo una edición guiada por AST. Devuelve bool."""
         todo = True
         for archivo in archivos:
-            if not self.editar_archivo(archivo, mensaje,
-                                       directorio=directorio, modelo=modelo):
+            if not self.editar_archivo(archivo, mensaje, directorio=directorio, modelo=modelo):
                 todo = False
         return todo
 
@@ -1166,7 +1302,7 @@ class AgenteEditorAST:
         archivo: str,
         tarea: str,
         directorio: str = ".",
-        modelo: Optional[str] = None,
+        modelo: str | None = None,
     ) -> bool:
         """Edita un único archivo con AST. Devuelve ``True`` si tuvo éxito."""
         import snapcontext as sc
@@ -1174,8 +1310,9 @@ class AgenteEditorAST:
         pref = sc.cargar_configuracion()
         proveedor = pref.get("provider") or sc.PROVEEDOR_DEFECTO
         sc.depurar(f"[AgenteEditorAST] AST sobre '{archivo}' en '{directorio}'")
-        return sc._editor_ast(archivo, tarea, directorio=directorio,
-                              proveedor=proveedor, modelo=modelo)
+        return sc._editor_ast(
+            archivo, tarea, directorio=directorio, proveedor=proveedor, modelo=modelo
+        )
 
 
 class AgenteTester:
@@ -1186,7 +1323,7 @@ class AgenteTester:
     """
 
     def ejecutar_pruebas(
-        self, comando: List[str], directorio: str
+        self, comando: list[str], directorio: str
     ) -> "subprocess.CompletedProcess":
         """Ejecuta ``comando`` (lista de argv) en ``directorio`` capturando la salida.
 
@@ -1197,17 +1334,11 @@ class AgenteTester:
         sc.depurar(f"[AgenteTester] Ejecutando pruebas: {' '.join(comando)}")
         # v4.3.0: con --sandbox activo las pruebas corren en el contenedor.
         if sc.sandbox_activo():
-            codigo, stdout, stderr = sc._ejecutar_pruebas_argv(
-                comando, directorio)
-            return subprocess.CompletedProcess(
-                comando, codigo, stdout=stdout, stderr=stderr)
-        return subprocess.run(
-            comando, cwd=directorio, capture_output=True, text=True
-        )
+            codigo, stdout, stderr = sc._ejecutar_pruebas_argv(comando, directorio)
+            return subprocess.CompletedProcess(comando, codigo, stdout=stdout, stderr=stderr)
+        return subprocess.run(comando, cwd=directorio, capture_output=True, text=True)
 
-    def analizar_error(
-        self, salida: Union["subprocess.CompletedProcess", str]
-    ) -> str:
+    def analizar_error(self, salida: Union["subprocess.CompletedProcess", str]) -> str:
         """Normaliza la salida de unas pruebas que fallaron para entregársela a Aider.
 
         Acepta el ``CompletedProcess`` devuelto por :meth:`ejecutar_pruebas` o un
@@ -1247,15 +1378,13 @@ class AgenteAprendizaje:
 
         return sc._db_init()
 
-    def buscar_skill(self, consulta: str,
-                     umbral: float = 0.75) -> Optional[dict]:
+    def buscar_skill(self, consulta: str, umbral: float = 0.75) -> dict | None:
         """Busca un skill similar a ``consulta`` (embeddings o fallback)."""
         import snapcontext as sc
 
         return sc._skill_buscar(consulta, umbral=umbral)
 
-    def generar_skill(self, consulta: str, resultados: List[dict],
-                      raiz: str = ".") -> Optional[int]:
+    def generar_skill(self, consulta: str, resultados: list[dict], raiz: str = ".") -> int | None:
         """Genera y guarda un skill a partir de una tarea exitosa."""
         import snapcontext as sc
 
@@ -1273,14 +1402,18 @@ class AgenteAprendizaje:
 
         return sc._skill_registrar_fallo(skill_id)
 
-    def aprender_de_tarea(self, consulta: str, todo_ok: bool,
-                          resultados: List[dict], raiz: str = ".",
-                          detalle: str = "") -> Optional[int]:
+    def aprender_de_tarea(
+        self,
+        consulta: str,
+        todo_ok: bool,
+        resultados: list[dict],
+        raiz: str = ".",
+        detalle: str = "",
+    ) -> int | None:
         """Gancho principal: registra la tarea y aprende de ella."""
         import snapcontext as sc
 
-        return sc._aprender_de_tarea(consulta, todo_ok, resultados,
-                                     raiz=raiz, detalle=detalle)
+        return sc._aprender_de_tarea(consulta, todo_ok, resultados, raiz=raiz, detalle=detalle)
 
     def encolar_skill(self, skill_id: int) -> int:
         """Encola un skill para ejecución en segundo plano por el daemon."""
@@ -1288,15 +1421,13 @@ class AgenteAprendizaje:
 
         return sc._cola_encolar(skill_id)
 
-    def curar(self, dias_sin_uso: int = 30,
-              umbral_fusion: float = 0.90) -> dict:
+    def curar(self, dias_sin_uso: int = 30, umbral_fusion: float = 0.90) -> dict:
         """Ejecuta el curador autónomo y devuelve el resumen de acciones."""
         import snapcontext as sc
 
-        return sc._curador_ejecutar(dias_sin_uso=dias_sin_uso,
-                                    umbral_fusion=umbral_fusion)
+        return sc._curador_ejecutar(dias_sin_uso=dias_sin_uso, umbral_fusion=umbral_fusion)
 
-    def listar_skills(self, incluir_archivados: bool = False) -> List[dict]:
+    def listar_skills(self, incluir_archivados: bool = False) -> list[dict]:
         """Lista los skills almacenados en la memoria persistente."""
         import snapcontext as sc
 
@@ -1312,38 +1443,36 @@ class AgenteAsesor:
     aplicarse con ``--asesor-auto`` y siempre se validan antes de guardarse.
     """
 
-    def analizar(self, directorio: str = ".",
-                 umbral_funcion: Optional[int] = None,
-                 profundo: bool = False) -> List[dict]:
+    def analizar(
+        self, directorio: str = ".", umbral_funcion: int | None = None, profundo: bool = False
+    ) -> list[dict]:
         """Ejecuta el análisis estático y devuelve la lista de sugerencias.
 
         Con ``profundo=True`` añade seguridad 🔒 y rendimiento ⚡ (v4.2.0).
         """
         import snapcontext as sc
 
-        return sc._asesor_analizar(directorio, umbral_funcion=umbral_funcion,
-                                   profundo=profundo)
+        return sc._asesor_analizar(directorio, umbral_funcion=umbral_funcion, profundo=profundo)
 
-    def analizar_seguridad(self, directorio: str = ".") -> List[dict]:
+    def analizar_seguridad(self, directorio: str = ".") -> list[dict]:
         """Solo vulnerabilidades de seguridad (v4.2.0)."""
         import snapcontext as sc
 
         return sc._analizar_seguridad(directorio)
 
-    def analizar_rendimiento(self, directorio: str = ".") -> List[dict]:
+    def analizar_rendimiento(self, directorio: str = ".") -> list[dict]:
         """Solo sugerencias de rendimiento (v4.2.0)."""
         import snapcontext as sc
 
         return sc._analizar_rendimiento(directorio)
 
-    def mostrar(self, sugerencias: List[dict]) -> None:
+    def mostrar(self, sugerencias: list[dict]) -> None:
         """Muestra las sugerencias en la CLI con colores."""
         import snapcontext as sc
 
         sc._asesor_mostrar(sugerencias)
 
-    def aplicar_automaticas(self, sugerencias: List[dict],
-                            directorio: str = ".") -> int:
+    def aplicar_automaticas(self, sugerencias: list[dict], directorio: str = ".") -> int:
         """Aplica las mejoras seguras (auto=True); devuelve cuántas se aplicaron."""
         import snapcontext as sc
 

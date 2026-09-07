@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de las herramientas MCP — v0.14.0."""
 
 import json
@@ -18,14 +17,13 @@ class BaseMCP(unittest.TestCase):
 
     def setUp(self):
         import tempfile
+
         self.tmp = tempfile.TemporaryDirectory()
         self.dir_tmp = Path(self.tmp.name)
         parches = [
             mock.patch.object(sc, "CONFIG_DIR", self.dir_tmp),
-            mock.patch.object(sc, "PERMISOS_PATH",
-                              self.dir_tmp / "permisos.json"),
-            mock.patch.object(sc, "MCP_TOOLS_PATH",
-                              self.dir_tmp / "mcp_tools.json"),
+            mock.patch.object(sc, "PERMISOS_PATH", self.dir_tmp / "permisos.json"),
+            mock.patch.object(sc, "MCP_TOOLS_PATH", self.dir_tmp / "mcp_tools.json"),
         ]
         for p in parches:
             p.start()
@@ -39,28 +37,46 @@ class BaseMCP(unittest.TestCase):
         proyecto = self.dir_tmp / "proyecto"
         proyecto.mkdir(exist_ok=True)
         (proyecto / "saludo.py").write_text(
-            "import os\n\n\nclass Saludo:\n"
-            "    def hola(self, nombre):\n        return nombre\n",
-            encoding="utf-8")
+            "import os\n\n\nclass Saludo:\n    def hola(self, nombre):\n        return nombre\n",
+            encoding="utf-8",
+        )
         return proyecto
 
 
 class TestCargaHerramientas(BaseMCP):
     def test_predefinidas_presentes(self):
         herramientas = sc._cargar_herramientas_mcp()
-        for esperada in ("grep", "read_file", "list_files", "ast",
-                         "git_status", "git_diff", "execute_command"):
+        for esperada in (
+            "grep",
+            "read_file",
+            "list_files",
+            "ast",
+            "git_status",
+            "git_diff",
+            "execute_command",
+        ):
             self.assertIn(esperada, herramientas)
         self.assertTrue(herramientas["execute_command"]["requiere_permiso"])
         self.assertFalse(herramientas["grep"]["requiere_permiso"])
 
     def test_herramientas_de_usuario(self):
-        (self.dir_tmp / "mcp_tools.json").write_text(json.dumps({"tools": [
-            {"nombre": "build", "descripcion": "Compilar",
-             "comando": "npm run build", "requiere_permiso": True},
-            {"nombre": "", "comando": "invalida"},          # se ignora
-            {"nombre": "sin_comando"},                       # se ignora
-        ]}), encoding="utf-8")
+        (self.dir_tmp / "mcp_tools.json").write_text(
+            json.dumps(
+                {
+                    "tools": [
+                        {
+                            "nombre": "build",
+                            "descripcion": "Compilar",
+                            "comando": "npm run build",
+                            "requiere_permiso": True,
+                        },
+                        {"nombre": "", "comando": "invalida"},  # se ignora
+                        {"nombre": "sin_comando"},  # se ignora
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
         herramientas = sc._cargar_herramientas_mcp()
         self.assertIn("build", herramientas)
         self.assertEqual(herramientas["build"]["comando"], "npm run build")
@@ -105,8 +121,7 @@ class TestHerramientasLectura(BaseMCP):
         self.assertTrue(res["ok"])
         self.assertIn("os", res["imports"])
         self.assertEqual(res["clases"][0]["nombre"], "Saludo")
-        self.assertIn("hola", [f["nombre"] for f in res["funciones"]]
-                      + res["clases"][0]["metodos"])
+        self.assertIn("hola", [f["nombre"] for f in res["funciones"]] + res["clases"][0]["metodos"])
 
     def test_ast_sintaxis_invalida(self):
         malo = self.dir_tmp / "malo.py"
@@ -128,8 +143,7 @@ class TestExecuteCommand(BaseMCP):
         res = sc._tool_execute_command(eco, ".")
         self.assertTrue(res["ok"])
         self.assertEqual(res["codigo_retorno"], 0)
-        fallo = ("cmd /c exit 7" if sys.platform.startswith("win")
-                 else "exit 7")
+        fallo = "cmd /c exit 7" if sys.platform.startswith("win") else "exit 7"
         res2 = sc._tool_execute_command(fallo, ".")
         self.assertFalse(res2["ok"])
         self.assertEqual(res2["codigo_retorno"], 7)
@@ -148,15 +162,17 @@ class TestDispatcherMCP(BaseMCP):
     def test_lectura_no_pide_permiso(self):
         with mock.patch.object(sc, "_confirmar_accion") as conf:
             llamada = sc._ejecutar_herramienta_mcp(
-                "read_file", {"ruta": str(self.proyecto / "saludo.py")})
+                "read_file", {"ruta": str(self.proyecto / "saludo.py")}
+            )
         conf.assert_not_called()
         self.assertTrue(llamada["ok"])
 
     def test_execute_command_requiere_permiso_denegado(self):
-        with mock.patch.object(sc, "_confirmar_accion", return_value=False), \
-             mock.patch.object(sc, "_ejecutar_comando") as ej:
-            llamada = sc._ejecutar_herramienta_mcp(
-                "execute_command", {"comando": "cmd /c echo x"})
+        with (
+            mock.patch.object(sc, "_confirmar_accion", return_value=False),
+            mock.patch.object(sc, "_ejecutar_comando") as ej,
+        ):
+            llamada = sc._ejecutar_herramienta_mcp("execute_command", {"comando": "cmd /c echo x"})
         ej.assert_not_called()
         self.assertFalse(llamada["ok"])
         self.assertIn("denegado", llamada["error"])
@@ -165,23 +181,33 @@ class TestDispatcherMCP(BaseMCP):
         with mock.patch.object(sc, "_confirmar_accion", return_value=True):
             llamada = sc._ejecutar_herramienta_mcp(
                 "execute_command",
-                {"comando": "cmd /c echo ok" if sys.platform.startswith("win")
-                 else "echo ok"})
+                {"comando": "cmd /c echo ok" if sys.platform.startswith("win") else "echo ok"},
+            )
         self.assertTrue(llamada["ok"])
 
     def test_herramienta_de_usuario_se_ejecuta(self):
-        (self.dir_tmp / "mcp_tools.json").write_text(json.dumps({"tools": [
-            {"nombre": "saluda", "comando":
-             "cmd /c echo hola-mcp" if sys.platform.startswith("win")
-             else "echo hola-mcp"}]}), encoding="utf-8")
+        (self.dir_tmp / "mcp_tools.json").write_text(
+            json.dumps(
+                {
+                    "tools": [
+                        {
+                            "nombre": "saluda",
+                            "comando": "cmd /c echo hola-mcp"
+                            if sys.platform.startswith("win")
+                            else "echo hola-mcp",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
         with mock.patch.object(sc, "_confirmar_accion", return_value=True):
             llamada = sc._ejecutar_herramienta_mcp("saluda", {})
         self.assertTrue(llamada["ok"])
         self.assertIn("hola-mcp", llamada["resultado"]["stdout"])
 
     def test_excepcion_blinde_resultado(self):
-        with mock.patch.object(sc, "_tool_grep",
-                               side_effect=RuntimeError("boom")):
+        with mock.patch.object(sc, "_tool_grep", side_effect=RuntimeError("boom")):
             llamada = sc._ejecutar_herramienta_mcp("grep", {"patron": "x"})
         self.assertFalse(llamada["ok"])
         self.assertIn("boom", llamada["resultado"]["error"])
@@ -189,21 +215,24 @@ class TestDispatcherMCP(BaseMCP):
 
 class TestFormatoYAutoContexto(BaseMCP):
     def test_formatear_ok_y_error(self):
-        error = sc._formatear_resultado_mcp(
-            {"ok": False, "herramienta": "grep", "error": "nada"})
+        error = sc._formatear_resultado_mcp({"ok": False, "herramienta": "grep", "error": "nada"})
         self.assertIn("✖ grep", error)
         bien = sc._formatear_resultado_mcp(
-            {"ok": True, "herramienta": "git_status",
-             "resultado": {"rama": "main", "total_cambios": 0,
-                           "cambios": []}})
+            {
+                "ok": True,
+                "herramienta": "git_status",
+                "resultado": {"rama": "main", "total_cambios": 0, "cambios": []},
+            }
+        )
         self.assertIn("rama: main", bien)
 
     def test_auto_contexto_dispara_grep(self):
-        with mock.patch.object(sc, "_ejecutar_herramienta_mcp",
-                               return_value={"ok": True, "herramienta": "grep",
-                                             "resultado": {"total": 0}}) as ej:
-            contexto = sc._contexto_automatico_mcp(
-                "busca donde se usa checkout")
+        with mock.patch.object(
+            sc,
+            "_ejecutar_herramienta_mcp",
+            return_value={"ok": True, "herramienta": "grep", "resultado": {"total": 0}},
+        ) as ej:
+            contexto = sc._contexto_automatico_mcp("busca donde se usa checkout")
         self.assertTrue(contexto)
         ej.assert_called_once()
         self.assertEqual(ej.call_args[0][0], "grep")
@@ -222,4 +251,3 @@ class TestVersionMCPCli(BaseMCP):
 
 if __name__ == "__main__":
     unittest.main()
-

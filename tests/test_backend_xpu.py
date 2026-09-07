@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la v6.34.0: Soporte para Intel XPU (GPU Intel Arc).
 
 Cubre:
@@ -18,7 +17,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import backend_xpu as xpu  # noqa: E402
+import backend_xpu as xpu
 
 
 class TestXpuDisponible(unittest.TestCase):
@@ -75,8 +74,8 @@ class TestXPUInference(unittest.TestCase):
     def test_init_valores_custom(self):
         """Los valores personalizados se guardan."""
         motor = xpu.XPUInference(
-            model_name="test-model", device="xpu",
-            max_tokens=1000, temperature=0.5)
+            model_name="test-model", device="xpu", max_tokens=1000, temperature=0.5
+        )
         self.assertEqual(motor.model_name, "test-model")
         self.assertEqual(motor.max_tokens, 1000)
         self.assertEqual(motor.temperature, 0.5)
@@ -110,14 +109,17 @@ class TestXPUInference(unittest.TestCase):
         fake_model = mock.MagicMock()
         fake_model_cls.from_pretrained.return_value = fake_model
 
-        with mock.patch.dict(sys.modules, {
-            "torch": fake_torch,
-            "ipex": fake_ipex,
-            "transformers": mock.MagicMock(
-                AutoTokenizer=fake_tokenizer_cls,
-                AutoModelForCausalLM=fake_model_cls,
-            ),
-        }):
+        with mock.patch.dict(
+            sys.modules,
+            {
+                "torch": fake_torch,
+                "ipex": fake_ipex,
+                "transformers": mock.MagicMock(
+                    AutoTokenizer=fake_tokenizer_cls,
+                    AutoModelForCausalLM=fake_model_cls,
+                ),
+            },
+        ):
             motor._cargar_modelo()
             self.assertTrue(motor.cargado)
             fake_ipex.optimize.assert_called_once()
@@ -183,23 +185,27 @@ class TestFlagsCLI(unittest.TestCase):
     def test_xpu_flag_provider(self):
         """El flag --provider xpu es reconocido."""
         import snapcontext as sc
+
         args = sc.crear_parser().parse_args(["consulta", "--provider", "xpu"])
         self.assertEqual(args.provider, "xpu")
 
     def test_xpu_model_flag(self):
         """El flag --xpu-model es reconocido."""
         import snapcontext as sc
+
         args = sc.crear_parser().parse_args(["consulta", "--xpu-model", "test"])
         self.assertEqual(args.xpu_model, "test")
 
     def test_xpu_max_tokens_flag(self):
         """El flag --xpu-max-tokens es reconocido."""
         import snapcontext as sc
+
         args = sc.crear_parser().parse_args(["consulta", "--xpu-max-tokens", "1000"])
         self.assertEqual(args.xpu_max_tokens, 1000)
 
     def test_xpu_temperature_flag(self):
         """El flag --xpu-temperature es reconocido."""
         import snapcontext as sc
+
         args = sc.crear_parser().parse_args(["consulta", "--xpu-temperature", "0.5"])
         self.assertEqual(args.xpu_temperature, 0.5)

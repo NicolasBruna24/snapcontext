@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """QA Tester adversarial — v6.25.0.
 
 Sub-agente especializado en revisión destructiva de código:
@@ -16,13 +15,13 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 __all__ = [
-    "revisar_codigo",
-    "generar_pruebas",
-    "aplicar_correcciones",
     "QA_Tester",
+    "aplicar_correcciones",
+    "generar_pruebas",
+    "revisar_codigo",
 ]
 
 # Severidad: controla cuán exigente es el revisor.
@@ -56,24 +55,34 @@ def _detectar_lenguaje(archivo: str) -> str:
     """Detecta el lenguaje de programación por extensión."""
     ext = archivo.rsplit(".", 1)[-1].lower() if "." in archivo else ""
     mapa = {
-        "py": "python", "js": "javascript", "ts": "typescript",
-        "java": "java", "go": "go", "rs": "rust",
-        "c": "c", "cpp": "cpp", "cs": "csharp",
-        "rb": "ruby", "php": "php", "swift": "swift",
-        "kt": "kotlin", "scala": "scala",
+        "py": "python",
+        "js": "javascript",
+        "ts": "typescript",
+        "java": "java",
+        "go": "go",
+        "rs": "rust",
+        "c": "c",
+        "cpp": "cpp",
+        "cs": "csharp",
+        "rb": "ruby",
+        "php": "php",
+        "swift": "swift",
+        "kt": "kotlin",
+        "scala": "scala",
     }
     return mapa.get(ext, "python")
 
 
 def _llamar_llm(
     proveedor: str,
-    modelo: Optional[str],
+    modelo: str | None,
     mensaje: str,
     categoria: str = "edicion_critica",
 ) -> str:
     """Llama al LLM usando el sistema de enrutamiento de v6.24.0."""
     try:
         import snapcontext as sc
+
         if hasattr(sc, "enrutar_tarea") and getattr(sc, "_MODEL_ROUTING_ACTIVO", False):
             ruta = sc.enrutar_tarea(mensaje, {"accion": categoria})
             if ruta.get("enrutado"):
@@ -83,11 +92,11 @@ def _llamar_llm(
             proveedor, modelo, [{"role": "user", "content": mensaje}]
         )
         return str(respuesta)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return f"Error llamando al LLM: {exc}"
 
 
-def _extraer_json(texto: str) -> Optional[dict]:
+def _extraer_json(texto: str) -> dict | None:
     """Extrae el primer objeto JSON válido de texto."""
     if not texto:
         return None
@@ -97,7 +106,7 @@ def _extraer_json(texto: str) -> Optional[dict]:
     if inicio == -1 or fin == -1 or fin <= inicio:
         return None
     try:
-        datos = json.loads(limpio[inicio:fin + 1])
+        datos = json.loads(limpio[inicio : fin + 1])
     except json.JSONDecodeError:
         return None
     return datos if isinstance(datos, dict) else None
@@ -105,8 +114,8 @@ def _extraer_json(texto: str) -> Optional[dict]:
 
 def revisar_codigo(
     codigo: str,
-    contexto: Dict[str, Any],
-) -> Dict[str, Any]:
+    contexto: dict[str, Any],
+) -> dict[str, Any]:
     """Revisa código usando el LLM y devuelve hallazgos."""
     archivo = contexto.get("archivo", "desconocido")
     lenguaje = contexto.get("lenguaje") or _detectar_lenguaje(archivo)
@@ -151,7 +160,7 @@ def revisar_codigo(
 
 def generar_pruebas(
     codigo: str,
-    hallazgos: List[Dict[str, Any]],
+    hallazgos: list[dict[str, Any]],
     lenguaje: str = "python",
 ) -> str:
     """Genera pruebas específicas para los hallazgos encontrados."""
@@ -159,8 +168,7 @@ def generar_pruebas(
         return ""
 
     lista_hallazgos = "\n".join(
-        f"- [{h.get('tipo', 'desconocido')}] {h.get('descripcion', '')}"
-        for h in hallazgos
+        f"- [{h.get('tipo', 'desconocido')}] {h.get('descripcion', '')}" for h in hallazgos
     )
 
     prompt = f"""Genera pruebas unitarias en {lenguaje} para verificar los siguientes
@@ -178,17 +186,16 @@ Responde SOLO con el código de las pruebas (sin explicaciones)."""
 
     try:
         import snapcontext as sc
-        respuesta = sc._enviar_al_proveedor(
-            "gemini", None, [{"role": "user", "content": prompt}]
-        )
+
+        respuesta = sc._enviar_al_proveedor("gemini", None, [{"role": "user", "content": prompt}])
         return str(respuesta)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return ""
 
 
 def aplicar_correcciones(
     codigo: str,
-    sugerencias: List[str],
+    sugerencias: list[str],
 ) -> str:
     """Aplica correcciones sugeridas al código."""
     if not sugerencias:
@@ -203,7 +210,7 @@ def aplicar_correcciones(
             if buscar and buscar in corregido:
                 corregido = corregido.replace(buscar, reemplazar)
         else:
-            corregido += f"\n# [QA Tester sugerencia {i+1}]: {sugerencia}\n"
+            corregido += f"\n# [QA Tester sugerencia {i + 1}]: {sugerencia}\n"
 
     return corregido
 
@@ -214,7 +221,7 @@ class QA_Tester:
     def __init__(
         self,
         proveedor: str = "gemini",
-        modelo: Optional[str] = None,
+        modelo: str | None = None,
         severidad: str = "media",
         max_iteraciones: int = 2,
     ) -> None:
@@ -227,7 +234,7 @@ class QA_Tester:
         self,
         codigo: str,
         archivo: str = "desconocido",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Revisa código y devuelve hallazgos."""
         contexto = {
             "archivo": archivo,
@@ -241,7 +248,7 @@ class QA_Tester:
         self,
         codigo: str,
         archivo: str = "desconocido",
-    ) -> Tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         """Revisa, genera pruebas y aplica correcciones iterativamente."""
         codigo_actual = codigo
         resultado = None

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Herramientas MCP nativas de bases de datos (v6.7.0).
 
 Expone herramientas de **solo lectura** para que el agente ReAct, el
@@ -23,7 +22,7 @@ from __future__ import annotations
 import re
 import sqlite3
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 MAX_FILAS = 200
 MAX_CELDA = 500
@@ -38,7 +37,7 @@ _CANDADO = threading.Lock()
 
 # Hook de confirmación inyectable (para tests); por defecto pregunta en
 # terminal. Debe devolver True/False.
-_CONFIRMAR: Optional[Any] = None
+_CONFIRMAR: Any | None = None
 
 
 def _confirmar_defecto(consulta: str) -> bool:
@@ -53,11 +52,11 @@ def _pedir_confirmacion(consulta: str) -> bool:
     func = _CONFIRMAR if _CONFIRMAR is not None else _confirmar_defecto
     try:
         return bool(func(consulta))
-    except Exception:                        # noqa: BLE001 — blindaje
+    except Exception:
         return False
 
 
-def fijar_confirmador(funcion: Optional[Any]) -> None:
+def fijar_confirmador(funcion: Any | None) -> None:
     """Inyecta el callback de confirmación (uso en tests / UI)."""
     global _CONFIRMAR
     _CONFIRMAR = funcion
@@ -89,26 +88,30 @@ def es_consulta_solo_lectura(consulta: str) -> bool:
     return primera.group(0).lower() in PALABRAS_LECTURA
 
 
-def _detectar_driver(url: str, driver: Optional[str] = None) -> str:
+def _detectar_driver(url: str, driver: str | None = None) -> str:
     """Resuelve el driver: explícito → prefijo de URL → error."""
     if driver:
         return driver.lower()
     bajo = url.lower()
     for prefijo in ("sqlite", "postgresql", "postgres", "mysql"):
         if bajo.startswith(prefijo):
-            return "sqlite" if prefijo == "sqlite" else (
-                "postgresql" if prefijo.startswith("postgres") else "mysql")
+            return (
+                "sqlite"
+                if prefijo == "sqlite"
+                else ("postgresql" if prefijo.startswith("postgres") else "mysql")
+            )
     raise ValueError(
         "No se pudo detectar el driver de la URL. Usa --db-driver "
         "(sqlite, postgresql, mysql) o una URL con prefijo "
-        "sqlite:///, postgresql:// o mysql://")
+        "sqlite:///, postgresql:// o mysql://"
+    )
 
 
 def _ruta_sqlite(url: str) -> str:
     """Extrae la ruta de archivo de una URL sqlite:/// (o ruta directa)."""
     for prefijo in ("sqlite:///", "sqlite://"):
         if url.lower().startswith(prefijo):
-            return url[len(prefijo):]
+            return url[len(prefijo) :]
     return url
 
 
@@ -118,7 +121,7 @@ def _conectar_driver(url: str, driver: str):
         return sqlite3.connect(_ruta_sqlite(url), timeout=10)
     if driver in ("postgresql", "postgres"):
         try:
-            import psycopg2                     # type: ignore
+            import psycopg2  # type: ignore
         except ImportError as exc:
             raise RuntimeError(
                 "PostgreSQL necesita la dependencia opcional psycopg2: "
@@ -127,7 +130,7 @@ def _conectar_driver(url: str, driver: str):
         return psycopg2.connect(url)
     if driver == "mysql":
         try:
-            import pymysql                      # type: ignore
+            import pymysql  # type: ignore
         except ImportError as exc:
             raise RuntimeError(
                 "MySQL necesita la dependencia opcional pymysql: "
@@ -137,7 +140,7 @@ def _conectar_driver(url: str, driver: str):
     raise ValueError(f"Driver no soportado: {driver}")
 
 
-def db_connect(url: str, driver: Optional[str] = None) -> Dict[str, Any]:
+def db_connect(url: str, driver: str | None = None) -> dict[str, Any]:
     """Conecta a la base de datos y guarda la conexión en la sesión.
 
     Devuelve ``{"ok": True, "mensaje": "Conectado a <driver>"}`` o
@@ -149,7 +152,7 @@ def db_connect(url: str, driver: Optional[str] = None) -> Dict[str, Any]:
             return {"ok": False, "error": "Falta la URL de la base de datos."}
         drv = _detectar_driver(url, driver)
         conexion = _conectar_driver(url, drv)
-    except Exception as exc:                 # noqa: BLE001 — herramienta
+    except Exception as exc:
         return {"ok": False, "error": f"Error de conexión: {exc}"}
     with _CANDADO:
         previa = _ESTADO.get("conexion")
@@ -159,18 +162,17 @@ def db_connect(url: str, driver: Optional[str] = None) -> Dict[str, Any]:
     if previa is not None:
         try:
             previa.close()
-        except Exception:                    # noqa: BLE001
+        except Exception:
             pass
     return {"ok": True, "mensaje": f"Conectado a {drv}", "driver": drv}
 
 
-def _conexion_activa() -> Optional[Any]:
+def _conexion_activa() -> Any | None:
     with _CANDADO:
         return _ESTADO.get("conexion")
 
 
-def db_query(consulta: str, auto: bool = False,
-             confirmar: Optional[Any] = None) -> Dict[str, Any]:
+def db_query(consulta: str, auto: bool = False, confirmar: Any | None = None) -> dict[str, Any]:
     """Ejecuta una consulta de SOLO LECTURA sobre la conexión de sesión.
 
     Valida estrictamente la consulta (``es_consulta_solo_lectura``); en modo
@@ -183,16 +185,18 @@ def db_query(consulta: str, auto: bool = False,
         return {"ok": False, "error": "No hay conexión activa. Usa db_connect."}
     try:
         consulta = str(consulta or "").strip()
-    except Exception:                        # noqa: BLE001
+    except Exception:
         return {"ok": False, "error": "Consulta inválida."}
     if not consulta:
         return {"ok": False, "error": "Consulta vacía."}
     if not es_consulta_solo_lectura(consulta):
         return {
             "ok": False,
-            "error": ("Solo se permiten consultas de lectura (SELECT, SHOW, "
-                      "DESCRIBE, EXPLAIN, PRAGMA). Consultas de modificación "
-                      "(INSERT/UPDATE/DELETE/DROP/...) están bloqueadas."),
+            "error": (
+                "Solo se permiten consultas de lectura (SELECT, SHOW, "
+                "DESCRIBE, EXPLAIN, PRAGMA). Consultas de modificación "
+                "(INSERT/UPDATE/DELETE/DROP/...) están bloqueadas."
+            ),
         }
     # Confirmación en modo interactivo (el auto no pregunta).
     if not auto:
@@ -200,72 +204,77 @@ def db_query(consulta: str, auto: bool = False,
         try:
             if not bool(pedir(consulta)):
                 return {"ok": False, "error": "Consulta cancelada por el usuario."}
-        except Exception:                    # noqa: BLE001
+        except Exception:
             return {"ok": False, "error": "Consulta cancelada."}
     try:
         cursor = conexion.execute(consulta)
-    except Exception as exc:                 # noqa: BLE001 — herramienta
+    except Exception as exc:
         return {"ok": False, "error": f"Error al ejecutar la consulta: {exc}"}
     try:
         columnas = [str(d[0]) for d in (cursor.description or [])]
         filas = cursor.fetchmany(MAX_FILAS + 1)
-    except Exception as exc:                 # noqa: BLE001
+    except Exception as exc:
         return {"ok": False, "error": f"Error al leer resultados: {exc}"}
     hay_mas = len(filas) > MAX_FILAS
     filas = filas[:MAX_FILAS]
     resultados = []
     for fila in filas:
-        resultados.append([
-            (str(v)[:MAX_CELDA] if v is not None else None) for v in fila])
-    salida = {"ok": True, "resultados": resultados, "columnas": columnas,
-              "filas": len(resultados)}
+        resultados.append([(str(v)[:MAX_CELDA] if v is not None else None) for v in fila])
+    salida = {"ok": True, "resultados": resultados, "columnas": columnas, "filas": len(resultados)}
     if hay_mas:
         salida["truncado"] = True
     return salida
 
 
-def db_schema() -> Dict[str, Any]:
+def db_schema() -> dict[str, Any]:
     """Devuelve el esquema completo: tablas con sus columnas (solo lectura)."""
     conexion = _conexion_activa()
     if conexion is None:
         return {"ok": False, "error": "No hay conexión activa. Usa db_connect."}
     try:
         driver = _ESTADO.get("driver", "")
-        tablas: List[Dict[str, Any]] = []
+        tablas: list[dict[str, Any]] = []
         if driver == "sqlite":
-            nombres = [r[0] for r in conexion.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' "
-                "AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+            nombres = [
+                r[0]
+                for r in conexion.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name NOT LIKE 'sqlite_%' ORDER BY name"
+                )
+            ]
             for nombre in nombres:
-                cols = [{"nombre": c[1], "tipo": c[2], "pk": bool(c[5])}
-                        for c in conexion.execute(
-                            f"PRAGMA table_info('{nombre}')")]
+                cols = [
+                    {"nombre": c[1], "tipo": c[2], "pk": bool(c[5])}
+                    for c in conexion.execute(f"PRAGMA table_info('{nombre}')")
+                ]
                 tablas.append({"nombre": nombre, "columnas": cols})
         elif driver == "mysql":
             nombres = [r[0] for r in conexion.execute("SHOW TABLES")]
             for nombre in nombres:
                 cur = conexion.execute(f"DESCRIBE `{nombre}`")
-                cols = [{"nombre": c[0], "tipo": c[1], "pk": c[3] == "PRI"}
-                        for c in cur.fetchall()]
+                cols = [{"nombre": c[0], "tipo": c[1], "pk": c[3] == "PRI"} for c in cur.fetchall()]
                 tablas.append({"nombre": nombre, "columnas": cols})
-        else:                                # postgresql
+        else:  # postgresql
             cur = conexion.execute(
                 "SELECT table_name FROM information_schema.tables "
-                "WHERE table_schema='public' ORDER BY table_name")
+                "WHERE table_schema='public' ORDER BY table_name"
+            )
             nombres = [r[0] for r in cur.fetchall()]
             for nombre in nombres:
                 cur = conexion.execute(
                     "SELECT column_name, data_type FROM "
                     "information_schema.columns WHERE table_name=%s "
-                    "ORDER BY ordinal_position", (nombre,))
+                    "ORDER BY ordinal_position",
+                    (nombre,),
+                )
                 cols = [{"nombre": c[0], "tipo": c[1]} for c in cur.fetchall()]
                 tablas.append({"nombre": nombre, "columnas": cols})
         return {"ok": True, "tablas": tablas}
-    except Exception as exc:                 # noqa: BLE001 — herramienta
+    except Exception as exc:
         return {"ok": False, "error": f"Error al obtener el esquema: {exc}"}
 
 
-def db_disconnect() -> Dict[str, Any]:
+def db_disconnect() -> dict[str, Any]:
     """Cierra la conexión de sesión (idempotente)."""
     with _CANDADO:
         conexion = _ESTADO.get("conexion")
@@ -275,19 +284,18 @@ def db_disconnect() -> Dict[str, Any]:
     if conexion is not None:
         try:
             conexion.close()
-        except Exception:                    # noqa: BLE001
+        except Exception:
             pass
     return {"ok": True, "mensaje": "Conexión cerrada."}
 
 
-def descripcion_herramientas() -> List[str]:
+def descripcion_herramientas() -> list[str]:
     """Líneas de descripción para el prompt del agente (solo si conectado)."""
     return [
         "db_query(consulta): ejecuta una consulta SQL de SOLO LECTURA "
         "(SELECT/SHOW/DESCRIBE/EXPLAIN/PRAGMA) sobre la base de datos "
         "conectada y devuelve filas y columnas.",
-        "db_schema(): devuelve el esquema de la base de datos conectada "
-        "(tablas y columnas).",
+        "db_schema(): devuelve el esquema de la base de datos conectada (tablas y columnas).",
     ]
 
 
@@ -299,8 +307,8 @@ def contexto_para_prompt(max_tablas: int = 15) -> str:
     lineas = ["Esquema de la base de datos conectada:"]
     for tabla in esquema["tablas"][:max_tablas]:
         cols = ", ".join(
-            f"{c['nombre']} {c.get('tipo', '')}".strip()
-            for c in tabla.get("columnas", [])[:12])
+            f"{c['nombre']} {c.get('tipo', '')}".strip() for c in tabla.get("columnas", [])[:12]
+        )
         lineas.append(f"- {tabla['nombre']}({cols})")
     return "\n".join(lineas)
 
@@ -309,5 +317,3 @@ def reiniciar() -> None:
     """Cierra conexión y restablece el estado (uso en tests)."""
     db_disconnect()
     fijar_confirmador(None)
-
-

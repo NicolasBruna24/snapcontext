@@ -10,22 +10,17 @@ import os
 import secrets
 import subprocess
 import sys
-import webbrowser
 from pathlib import Path
-from typing import List, Optional
 
-from presentacion import (  # noqa: E402
+from presentacion import (
     _CYAN,
     _emitir,
     _pintar,
     aviso,
-    depurar,
     error,
     exito,
     info,
 )
-
-
 
 # --- PROVEEDOR_DEFECTO (487-487) ---
 PROVEEDOR_DEFECTO = os.environ.get("SNAPCONTEXT_PROVIDER", "gemini")
@@ -48,7 +43,7 @@ PROVEEDORES = {
     "ollama": {
         "nombre": "Ollama",
         "tipo": "openai",
-        "clave_env": "OLLAMA_API_KEY",       # opcional: servidor local
+        "clave_env": "OLLAMA_API_KEY",  # opcional: servidor local
         "requiere_clave": False,
         "url_env": "OLLAMA_URL",
         "url_default": "http://localhost:11434",
@@ -59,7 +54,7 @@ PROVEEDORES = {
         "tipo": "openai",
         "clave_env": "DEEPSEEK_API_KEY",
         "requiere_clave": True,
-        "base_url": "https://api.deepseek.com",     # API compatible con OpenAI
+        "base_url": "https://api.deepseek.com",  # API compatible con OpenAI
         "modelo_default": "deepseek-chat",
         # v6.11.0: DeepSeek soporta marcas cache_control (ephemeral).
         "soporta_caching": True,
@@ -74,10 +69,10 @@ PROVEEDORES = {
     },
     "anthropic": {
         "nombre": "Claude",
-        "tipo": "anthropic",                 # SDK oficial `anthropic`
+        "tipo": "anthropic",  # SDK oficial `anthropic`
         "clave_env": "ANTHROPIC_API_KEY",
         "requiere_clave": True,
-        "url_base": None,                    # se usa la URL oficial por defecto
+        "url_base": None,  # se usa la URL oficial por defecto
         "modelo_default": "claude-3-5-sonnet-20241022",
         # v6.11.0: Anthropic (Claude) soporta marcas cache_control (ephemeral).
         "soporta_caching": True,
@@ -85,7 +80,7 @@ PROVEEDORES = {
     # v6.34.0: soporte para GPUs Intel XPU (Intel Arc) vía IPEX.
     "xpu": {
         "nombre": "Intel XPU",
-        "tipo": "xpu",                       # backend local con IPEX
+        "tipo": "xpu",  # backend local con IPEX
         "clave_env": None,
         "requiere_clave": False,
         "modelo_default": "Qwen/Qwen3.5-35B-A3B",
@@ -105,6 +100,7 @@ MENSAJE_ANTHROPIC_FALTANTE = (
     "Instálala con:  pip install snapcontext[anthropic]\n"
     "  (o directamente: pip install anthropic>=0.30.0)"
 )
+
 
 # --- cargar_configuracion (1258-1284) ---
 def cargar_configuracion() -> dict:
@@ -135,9 +131,11 @@ def cargar_configuracion() -> dict:
         pass  # Opcional: continuar sin la configuración previa
     return {}
 
+
 # --- guardar_configuracion (1287-1314) ---
-def guardar_configuracion(provider: str, model: Optional[str] = None,
-                          api_keys: Optional[dict] = None) -> bool:
+def guardar_configuracion(
+    provider: str, model: str | None = None, api_keys: dict | None = None
+) -> bool:
     """Guarda el proveedor preferido, modelo opcional y claves API.
 
     Recibe además `api_keys` (dict {proveedor: clave}) que se mezcla con las
@@ -158,9 +156,7 @@ def guardar_configuracion(provider: str, model: Optional[str] = None,
             datos["api_keys"] = claves
 
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        CONFIG_PATH.write_text(
-            json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        CONFIG_PATH.write_text(json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8")
         return True
     except OSError:
         return False
@@ -202,8 +198,7 @@ def _actualizar_clave_configuracion(clave: str, valor) -> bool:
         datos = cargar_configuracion()
         datos[clave] = valor
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        CONFIG_PATH.write_text(
-            json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8")
+        CONFIG_PATH.write_text(json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8")
         _asegurar_permisos_config()
         return True
     except OSError:
@@ -217,21 +212,23 @@ def _generar_clave_api(guardar: bool = True) -> str:
     Si ``guardar`` es True, la persiste en ``~/.snapcontext/config.json``
     bajo la clave ``"api_key"``.
     """
-    import secrets
 
     clave = secrets.token_urlsafe(32)
     if guardar:
         _actualizar_clave_configuracion("api_key", clave)
     return clave
 
+
 # --- _importar_questionary (1348-1354) ---
 def _importar_questionary():
     """Devuelve el módulo 'questionary' o None si no está instalado."""
     try:
         import questionary
+
         return questionary
     except ImportError:  # pragma: no cover
         return None
+
 
 # --- _listar_modelos_ollama (1357-1385) ---
 def _listar_modelos_ollama() -> tuple:
@@ -241,9 +238,7 @@ def _listar_modelos_ollama() -> tuple:
     modelo. Si `ollama` no está o falla, devuelve ([], mensaje de error).
     """
     try:
-        proc = subprocess.run(
-            ["ollama", "list"], capture_output=True, text=True, timeout=60
-        )
+        proc = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=60)
     except FileNotFoundError:
         return [], "No se encontró 'ollama' en el PATH. ¿Está instalado?"
     except subprocess.TimeoutExpired:
@@ -255,14 +250,15 @@ def _listar_modelos_ollama() -> tuple:
         fallo = (proc.stderr or proc.stdout or "").strip()
         return [], fallo or "El comando 'ollama list' devolvió un error."
 
-    modelos: List[str] = []
+    modelos: list[str] = []
     for num_linea, linea in enumerate((proc.stdout or "").splitlines()):
-        if num_linea == 0:          # cabecera: ID  NAME  SIZE  MODIFIED
+        if num_linea == 0:  # cabecera: ID  NAME  SIZE  MODIFIED
             continue
         partes = linea.split()
         if partes:
             modelos.append(partes[0])
     return modelos, None
+
 
 # --- seleccionar_proveedor_interactivo (1388-1445) ---
 def seleccionar_proveedor_interactivo() -> tuple:
@@ -294,10 +290,13 @@ def seleccionar_proveedor_interactivo() -> tuple:
             questionary.Choice("DeepSeek (API)", value="deepseek"),
             questionary.Choice("Groq (API)", value="groq"),
         ]
-        proveedor = questionary.select(
-            "🤗 Selecciona el proveedor de IA:",
-            choices=opciones,
-        ).ask() or PROVEEDOR_DEFECTO
+        proveedor = (
+            questionary.select(
+                "🤗 Selecciona el proveedor de IA:",
+                choices=opciones,
+            ).ask()
+            or PROVEEDOR_DEFECTO
+        )
 
         # Ollama → auto-detección de modelos locales (Mejora 2).
         if proveedor == "ollama":
@@ -312,8 +311,7 @@ def seleccionar_proveedor_interactivo() -> tuple:
             if error:
                 aviso(f"No se pudieron listar modelos de Ollama: {error}")
             else:
-                aviso("Ollama no tiene modelos instalados. "
-                      "Prueba: ollama pull llama3.2")
+                aviso("Ollama no tiene modelos instalados. Prueba: ollama pull llama3.2")
             usar_gemini = questionary.confirm(
                 "¿Quieres usar Gemini por defecto? (No = volver al proveedor)"
             ).ask()
@@ -323,6 +321,7 @@ def seleccionar_proveedor_interactivo() -> tuple:
             continue
 
         return (proveedor, None)
+
 
 # --- _preguntar_guardar_config (1448-1461) ---
 def _preguntar_guardar_config() -> bool:
@@ -334,14 +333,11 @@ def _preguntar_guardar_config() -> bool:
     questionary = _importar_questionary()
     if questionary is None:
         return False
-    return bool(
-        questionary.confirm(
-            "¿Guardar este proveedor como predeterminado?"
-        ).ask()
-    )
+    return bool(questionary.confirm("¿Guardar este proveedor como predeterminado?").ask())
+
 
 # --- _probar_conexion_proveedor (1464-1526) ---
-def _probar_conexion_proveedor(provider: str, model: Optional[str] = None) -> bool:
+def _probar_conexion_proveedor(provider: str, model: str | None = None) -> bool:
     """Comprueba la conexión con la API del proveedor elegido (usado por --init).
 
     Reutiliza la clave guardada en la configuración o, como plan B, la variable
@@ -354,8 +350,9 @@ def _probar_conexion_proveedor(provider: str, model: Optional[str] = None) -> bo
         if _importar_genai() is None:
             aviso("Falta google-generativeai. Instala: pip install google-generativeai")
             return False
-        clave = (api_keys.get("gemini") or "").strip() \
-            or os.environ.get("GEMINI_API_KEY", "").strip()
+        clave = (api_keys.get("gemini") or "").strip() or os.environ.get(
+            "GEMINI_API_KEY", ""
+        ).strip()
         if not clave:
             aviso("No se encontró ninguna clave de Gemini.")
             return False
@@ -371,8 +368,9 @@ def _probar_conexion_proveedor(provider: str, model: Optional[str] = None) -> bo
         if _importar_anthropic() is None:
             aviso(MENSAJE_ANTHROPIC_FALTANTE)
             return False
-        clave = (api_keys.get("anthropic") or "").strip() \
-            or os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        clave = (api_keys.get("anthropic") or "").strip() or os.environ.get(
+            "ANTHROPIC_API_KEY", ""
+        ).strip()
         if not clave:
             aviso("No se encontró ninguna clave de Anthropic.")
             return False
@@ -391,8 +389,7 @@ def _probar_conexion_proveedor(provider: str, model: Optional[str] = None) -> bo
     if _importar_openai() is None:
         aviso(MENSAJE_OPENAI_FALTANTE)
         return False
-    clave = (api_keys.get(provider) or "").strip() \
-        or os.environ.get(cfg["clave_env"], "").strip()
+    clave = (api_keys.get(provider) or "").strip() or os.environ.get(cfg["clave_env"], "").strip()
     base_url = _resolver_url_openai(cfg)
     try:
         cliente = openai.OpenAI(api_key=clave or "ollama", base_url=base_url)
@@ -404,6 +401,7 @@ def _probar_conexion_proveedor(provider: str, model: Optional[str] = None) -> bo
         return True
     except Exception:
         return False
+
 
 # --- asistente_configuracion_inicial (1529-1641) ---
 def asistente_configuracion_inicial() -> int:
@@ -421,9 +419,10 @@ def asistente_configuracion_inicial() -> int:
         )
         return 1
 
-    if CONFIG_PATH.exists() and not questionary.confirm(
-        "¿Ya existe una configuración. ¿Quieres sobrescribirla?"
-    ).ask():
+    if (
+        CONFIG_PATH.exists()
+        and not questionary.confirm("¿Ya existe una configuración. ¿Quieres sobrescribirla?").ask()
+    ):
         aviso("Configuración no modificada.")
         return 0
 
@@ -437,9 +436,7 @@ def asistente_configuracion_inicial() -> int:
     if clave and clave.strip():
         api_keys["gemini"] = clave.strip()
 
-    if questionary.confirm(
-        "¿Quieres configurar otros proveedores (Groq, DeepSeek)?"
-    ).ask():
+    if questionary.confirm("¿Quieres configurar otros proveedores (Groq, DeepSeek)?").ask():
         for prov in ("groq", "deepseek"):
             env = PROVEEDORES[prov]["clave_env"]
             # CORRECCIÓN 0.6.0: Usar questionary.password() en lugar de text(password=True)
@@ -467,16 +464,12 @@ def asistente_configuracion_inicial() -> int:
             return 1
 
     # ── v3.1.0: Ollama, proyecto de prueba y tutorial ─────────────────────
-    if questionary.confirm(
-        "¿Quieres configurar Ollama (modo offline, sin API key)?"
-    ).ask():
+    if questionary.confirm("¿Quieres configurar Ollama (modo offline, sin API key)?").ask():
         estado_ol = _estado_ollama()
         if estado_ol["modelos"]:
             ligero = _elegir_modelo_ligero(estado_ol["modelos"])
             exito(f"Ollama ya está listo (modelo más ligero: '{ligero}').")
-            if questionary.confirm(
-                "¿Usar Ollama como proveedor por defecto?"
-            ).ask():
+            if questionary.confirm("¿Usar Ollama como proveedor por defecto?").ask():
                 guardar_configuracion("ollama", ligero, api_keys)
                 proveedor, modelo = "ollama", ligero
                 exito(f"Proveedor guardado: ollama / {ligero}.")
@@ -486,21 +479,22 @@ def asistente_configuracion_inicial() -> int:
             info("  ollama pull llama3.2")
             try:
                 import webbrowser
-                if questionary.confirm(
-                    "¿Abrir https://ollama.com en el navegador?"
-                ).ask():
+
+                if questionary.confirm("¿Abrir https://ollama.com en el navegador?").ask():
                     webbrowser.open("https://ollama.com")
             except Exception:
                 pass
 
-    if questionary.confirm(
-        "¿Quieres crear un proyecto de prueba para empezar?"
-    ).ask():
+    if questionary.confirm("¿Quieres crear un proyecto de prueba para empezar?").ask():
         try:
-            destino = input(_pintar(
-                "Carpeta del proyecto de prueba "
-                "(Enter = ./snapcontext-prueba): ", _CYAN)).strip() or \
-                "snapcontext-prueba"
+            destino = (
+                input(
+                    _pintar(
+                        "Carpeta del proyecto de prueba (Enter = ./snapcontext-prueba): ", _CYAN
+                    )
+                ).strip()
+                or "snapcontext-prueba"
+            )
         except EOFError:
             destino = ""
         if destino:
@@ -509,16 +503,16 @@ def asistente_configuracion_inicial() -> int:
                 _crear_demo_proyecto(ruta)
                 exito(f"Proyecto de prueba creado en: {ruta}")
                 info("Pruébalo con:")
-                info(f'  cd "{ruta}" && snapcontext '
-                     '"describe este proyecto" --vista-previa --local')
+                info(
+                    f'  cd "{ruta}" && snapcontext "describe este proyecto" --vista-previa --local'
+                )
             except OSError as exc:
                 error(f"No se pudo crear el proyecto: {exc}")
 
-    if questionary.confirm(
-        "¿Quieres ejecutar el tutorial interactivo ahora (--bienvenida)?"
-    ).ask():
+    if questionary.confirm("¿Quieres ejecutar el tutorial interactivo ahora (--bienvenida)?").ask():
         return _tutorial_interactivo()
     return 0
+
 
 # --- hay_api_key_configurada (1647-1664) ---
 def hay_api_key_configurada() -> bool:
@@ -540,6 +534,7 @@ def hay_api_key_configurada() -> bool:
             return True
     return False
 
+
 # --- _estado_ollama (1667-1674) ---
 def _estado_ollama() -> dict:
     """Devuelve {'instalado': bool, 'modelos': [str], 'error': str|None}."""
@@ -550,8 +545,9 @@ def _estado_ollama() -> dict:
         "error": fallo,
     }
 
+
 # --- _elegir_modelo_ligero (1677-1693) ---
-def _elegir_modelo_ligero(modelos: List[str]) -> Optional[str]:
+def _elegir_modelo_ligero(modelos: list[str]) -> str | None:
     """Elige el modelo más ligero disponible según MODELOS_LIGEROS_OLLAMA.
 
     Devuelve None si la lista está vacía.
@@ -569,44 +565,55 @@ def _elegir_modelo_ligero(modelos: List[str]) -> Optional[str]:
                 return m
     return modelos[0]
 
+
 # --- _tutorial_interactivo (12567-12603) ---
 def _tutorial_interactivo() -> int:
     """Tutorial interactivo (--bienvenida): guía de primeros pasos."""
     info("=== SnapContext · Tutorial interactivo ===")
     pasos = [
-        ("1. Comprueba tu instalación",
-         "  Ejecuta 'snapcontext --version' y 'snapcontext --diagnostico'\n"
-         "  para verificar que todo está listo."),
-        ("2. Configura tu cerebro",
-         "  Sin API key, SnapContext usa Ollama local automáticamente.\n"
-         "  Con clave: 'snapcontext --init' guarda tu proveedor favorito."),
-        ("3. Tu primera tarea",
-         '  En tu proyecto ejecuta:\n'
-         '    snapcontext "describe brevemente este proyecto" --vista-previa\n'
-         "  Verás qué archivos seleccionaría la IA sin tocar nada."),
-        ("4. Deja que trabaje",
-         "  Quita --vista-previa y SnapContext usará Aider para editar.\n"
-         "  Añade --test-loop para que verifique con tus pruebas."),
-        ("5. Aprende más",
-         "  'snapcontext --help' (ayuda agrupada), 'snapcontext --demo'\n"
-         '  y \'snapcontext --plan "tarea"\' (planificador).'),
+        (
+            "1. Comprueba tu instalación",
+            "  Ejecuta 'snapcontext --version' y 'snapcontext --diagnostico'\n"
+            "  para verificar que todo está listo.",
+        ),
+        (
+            "2. Configura tu cerebro",
+            "  Sin API key, SnapContext usa Ollama local automáticamente.\n"
+            "  Con clave: 'snapcontext --init' guarda tu proveedor favorito.",
+        ),
+        (
+            "3. Tu primera tarea",
+            "  En tu proyecto ejecuta:\n"
+            '    snapcontext "describe brevemente este proyecto" --vista-previa\n'
+            "  Verás qué archivos seleccionaría la IA sin tocar nada.",
+        ),
+        (
+            "4. Deja que trabaje",
+            "  Quita --vista-previa y SnapContext usará Aider para editar.\n"
+            "  Añade --test-loop para que verifique con tus pruebas.",
+        ),
+        (
+            "5. Aprende más",
+            "  'snapcontext --help' (ayuda agrupada), 'snapcontext --demo'\n"
+            "  y 'snapcontext --plan \"tarea\"' (planificador).",
+        ),
     ]
     for titulo, detalle in pasos:
         exito(titulo)
         print(detalle)
         print()
         try:
-            respuesta = input(
-                _pintar("  [Enter] continuar ('q' para salir)... ",
-                        _CYAN)).strip().lower()
+            respuesta = (
+                input(_pintar("  [Enter] continuar ('q' para salir)... ", _CYAN)).strip().lower()
+            )
         except EOFError:
             break
         if respuesta in ("q", "quit", "salir"):
-            info("Tutorial interrumpido. Puedes volver a verlo con "
-                 "'snapcontext --bienvenida'.")
+            info("Tutorial interrumpido. Puedes volver a verlo con 'snapcontext --bienvenida'.")
             return 0
     exito("¡Tutorial completado! Bienvenido a SnapContext 🎉")
     return 0
+
 
 # --- _crear_demo_proyecto (12609-12636) ---
 def _crear_demo_proyecto(directorio: Path) -> None:
@@ -627,8 +634,7 @@ def _crear_demo_proyecto(directorio: Path) -> None:
     (directorio / "requirements.txt").write_text("", encoding="utf-8")
     (directorio / "src" / "__init__.py").write_text("", encoding="utf-8")
     (directorio / "src" / "main.py").write_text(
-        "def saludar(nombre):\n"
-        '    return f"Hola, {name}"  # bug: debería ser {nombre}\n',
+        'def saludar(nombre):\n    return f"Hola, {name}"  # bug: debería ser {nombre}\n',
         encoding="utf-8",
     )
     (directorio / "tests" / "test_main.py").write_text(
@@ -637,4 +643,3 @@ def _crear_demo_proyecto(directorio: Path) -> None:
         '    assert saludar("Mundo") == "Hola, Mundo"\n',
         encoding="utf-8",
     )
-

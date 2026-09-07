@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la v2.3.0: pasos MCP en el planificador, condiciones dinámicas,
 contexto de resultados ({{resultado}}) y paralelismo con dependencias
 dinámicas."""
@@ -14,13 +13,21 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import snapcontext as sc  # noqa: E402
+import snapcontext as sc
 
 
 def _args_base(extra=None):
-    base = {"plan": True, "consulta": "tarea", "auto": True,
-            "paralelo": 1, "git_commit": False, "confirmar": False,
-            "branch": None, "modelo": None, "depurar": False}
+    base = {
+        "plan": True,
+        "consulta": "tarea",
+        "auto": True,
+        "paralelo": 1,
+        "git_commit": False,
+        "confirmar": False,
+        "branch": None,
+        "modelo": None,
+        "depurar": False,
+    }
     base.update(extra or {})
     return argparse.Namespace(**base)
 
@@ -33,10 +40,8 @@ class TestContextoPlan(unittest.TestCase):
 
     def test_variable_y_resultado(self):
         sc._contexto_plan_variable("salida", {"stdout": "hola"})
-        self.assertEqual(sc._CONTEXTO_PLAN["variables"]["resultado"],
-                         {"stdout": "hola"})
-        self.assertEqual(sc._CONTEXTO_PLAN["variables"]["salida"],
-                         {"stdout": "hola"})
+        self.assertEqual(sc._CONTEXTO_PLAN["variables"]["resultado"], {"stdout": "hola"})
+        self.assertEqual(sc._CONTEXTO_PLAN["variables"]["salida"], {"stdout": "hola"})
 
     def test_reiniciar(self):
         sc._contexto_plan_variable("x", 1)
@@ -47,8 +52,7 @@ class TestContextoPlan(unittest.TestCase):
 
     def test_resolver_marcadores(self):
         sc._contexto_plan_variable("nombre", "main")
-        self.assertEqual(sc._resolver_marcadores("rama {{nombre}}"),
-                         "rama main")
+        self.assertEqual(sc._resolver_marcadores("rama {{nombre}}"), "rama main")
         # clave desconocida: se deja tal cual
         self.assertEqual(sc._resolver_marcadores("{{nadie}}"), "{{nadie}}")
         # no-string pasa intacto
@@ -58,16 +62,25 @@ class TestContextoPlan(unittest.TestCase):
         sc._registrar_resultado_plan(2, True, "bien")
         self.assertEqual(sc._CONTEXTO_PLAN["pasos"]["2"]["resultado"], "ok")
         sc._registrar_resultado_plan(3, False, "mal")
-        self.assertEqual(sc._CONTEXTO_PLAN["pasos"]["3"]["resultado"],
-                         "fallo")
+        self.assertEqual(sc._CONTEXTO_PLAN["pasos"]["3"]["resultado"], "fallo")
 
 
 class TestNormalizarPasosMCP(unittest.TestCase):
     def test_paso_mcp_completo(self):
-        pasos = sc._normalizar_pasos({"pasos": [{
-            "descripcion": "buscar main", "accion": "mcp",
-            "herramienta": "grep", "args": {"patron": "def main"},
-            "variable": "coincidencias", "dependencias": [1]}]})
+        pasos = sc._normalizar_pasos(
+            {
+                "pasos": [
+                    {
+                        "descripcion": "buscar main",
+                        "accion": "mcp",
+                        "herramienta": "grep",
+                        "args": {"patron": "def main"},
+                        "variable": "coincidencias",
+                        "dependencias": [1],
+                    }
+                ]
+            }
+        )
         self.assertEqual(len(pasos), 1)
         paso = pasos[0]
         self.assertEqual(paso["accion"], "mcp")
@@ -76,9 +89,9 @@ class TestNormalizarPasosMCP(unittest.TestCase):
         self.assertEqual(paso["variable"], "coincidencias")
 
     def test_args_no_dict_se_descarta(self):
-        pasos = sc._normalizar_pasos([
-            {"descripcion": "p", "accion": "mcp", "herramienta": "grep",
-             "args": "no-soy-dict"}])
+        pasos = sc._normalizar_pasos(
+            [{"descripcion": "p", "accion": "mcp", "herramienta": "grep", "args": "no-soy-dict"}]
+        )
         self.assertEqual(pasos[0]["args"], {})
 
     def test_accion_mcp_es_valida(self):
@@ -94,10 +107,8 @@ class TestCondicionesDinamicas(unittest.TestCase):
     def test_comparacion_pasos_ok(self):
         sc._registrar_resultado_plan(1, True, "hecho")
         self.assertTrue(sc._evaluar_condicion("pasos[1].resultado == 'ok'"))
-        self.assertFalse(
-            sc._evaluar_condicion("pasos[1].resultado == 'fallo'"))
-        self.assertTrue(
-            sc._evaluar_condicion("pasos[1].resultado != 'fallo'"))
+        self.assertFalse(sc._evaluar_condicion("pasos[1].resultado == 'fallo'"))
+        self.assertTrue(sc._evaluar_condicion("pasos[1].resultado != 'fallo'"))
 
     def test_paso_inexistente_es_false(self):
         self.assertFalse(sc._evaluar_condicion("pasos[9].resultado == 'ok'"))
@@ -119,18 +130,14 @@ class TestCondicionesDinamicas(unittest.TestCase):
             ruta = os.path.join(tmp, "mini.txt")
             with open(ruta, "w", encoding="utf-8") as fh:
                 fh.write("contenido util")
-            self.assertTrue(sc._evaluar_condicion(
-                "archivo_existe('mini.txt')", tmp))
-            self.assertTrue(sc._evaluar_condicion(
-                "archivo_contiene('mini.txt', 'util')", tmp))
-            self.assertFalse(
-                sc._evaluar_condicion("archivo_existe('nada.txt')", tmp))
+            self.assertTrue(sc._evaluar_condicion("archivo_existe('mini.txt')", tmp))
+            self.assertTrue(sc._evaluar_condicion("archivo_contiene('mini.txt', 'util')", tmp))
+            self.assertFalse(sc._evaluar_condicion("archivo_existe('nada.txt')", tmp))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
     def test_refs_de_condicion(self):
-        indices, nombres = sc._refs_de_condicion(
-            "pasos[2].resultado == 'ok'")
+        indices, nombres = sc._refs_de_condicion("pasos[2].resultado == 'ok'")
         self.assertEqual(indices, {1})
         nombres2 = sc._refs_de_condicion("resultados.salida != ''")[1]
         self.assertIn("salida", nombres2)
@@ -146,39 +153,48 @@ class TestPasoPlanMCP(unittest.TestCase):
         shutil.rmtree(self.dir_tmp, ignore_errors=True)
 
     def test_ejecutar_herramienta_mcp_ok(self):
-        paso = {"descripcion": "listar archivos", "accion": "mcp",
-                "herramienta": "list_files",
-                "args": {"max_archivos": 5}, "variable": "archivos"}
+        paso = {
+            "descripcion": "listar archivos",
+            "accion": "mcp",
+            "herramienta": "list_files",
+            "args": {"max_archivos": 5},
+            "variable": "archivos",
+        }
         resultado = {"ok": True, "archivos": ["a.py"]}
         with mock.patch.object(
-                sc, "_ejecutar_herramienta_mcp",
-                return_value={"ok": True, "herramienta": "list_files",
-                              "resultado": resultado}) as ejecutora:
-            ok, detalle = sc._ejecutar_paso_plan(
-                paso, _args_base(), self.dir_tmp)
+            sc,
+            "_ejecutar_herramienta_mcp",
+            return_value={"ok": True, "herramienta": "list_files", "resultado": resultado},
+        ) as ejecutora:
+            ok, detalle = sc._ejecutar_paso_plan(paso, _args_base(), self.dir_tmp)
         self.assertTrue(ok)
         self.assertIn("list_files", detalle)
         ejecutora.assert_called_once_with("list_files", {"max_archivos": 5})
-        self.assertEqual(sc._CONTEXTO_PLAN["variables"]["archivos"],
-                         resultado)
-        self.assertEqual(sc._CONTEXTO_PLAN["variables"]["resultado"],
-                         resultado)
+        self.assertEqual(sc._CONTEXTO_PLAN["variables"]["archivos"], resultado)
+        self.assertEqual(sc._CONTEXTO_PLAN["variables"]["resultado"], resultado)
 
     def test_ejecutar_herramienta_mcp_fallo(self):
-        paso = {"descripcion": "romper", "accion": "mcp",
-                "herramienta": "execute_command", "args": {}, "variable": ""}
+        paso = {
+            "descripcion": "romper",
+            "accion": "mcp",
+            "herramienta": "execute_command",
+            "args": {},
+            "variable": "",
+        }
         with mock.patch.object(
-                sc, "_ejecutar_herramienta_mcp",
-                return_value={"ok": False,
-                              "resultado": {"error": "comando invalido"}}):
+            sc,
+            "_ejecutar_herramienta_mcp",
+            return_value={"ok": False, "resultado": {"error": "comando invalido"}},
+        ):
             ok, _ = sc._ejecutar_paso_plan(paso, _args_base(), self.dir_tmp)
         self.assertFalse(ok)
 
     def test_mcp_sin_herramienta_falla(self):
         ok, detalle = sc._ejecutar_paso_plan(
-            {"descripcion": "vacio", "accion": "mcp", "args": {},
-             "variable": ""},
-            _args_base(), self.dir_tmp)
+            {"descripcion": "vacio", "accion": "mcp", "args": {}, "variable": ""},
+            _args_base(),
+            self.dir_tmp,
+        )
         self.assertFalse(ok)
         self.assertIn("herramienta", detalle)
 
@@ -188,21 +204,20 @@ class TestEjecutarToolExecuteCommand(unittest.TestCase):
 
     def test_firma_acepta_background_y_capture(self):
         import inspect
+
         firma = inspect.signature(sc._tool_execute_command)
         self.assertIn("background", firma.parameters)
         self.assertIn("capture_output", firma.parameters)
         self.assertIs(firma.parameters["capture_output"].default, True)
 
     def test_ejecuta_y_devuelve_salida(self):
-        comando = ("cmd /c echo hola" if sys.platform.startswith("win")
-                   else "echo hola")
+        comando = "cmd /c echo hola" if sys.platform.startswith("win") else "echo hola"
         res = sc._tool_execute_command(comando, ".")
         self.assertTrue(res["ok"])
         self.assertIn("hola", res.get("stdout", ""))
 
     def test_background_devuelve_pid(self):
-        with mock.patch.object(sc, "_lanzar_proceso_fondo",
-                               return_value={"ok": True, "pid": 4242}):
+        with mock.patch.object(sc, "_lanzar_proceso_fondo", return_value={"ok": True, "pid": 4242}):
             res = sc._tool_execute_command("algo", ".", background=True)
         self.assertTrue(res["ok"])
         self.assertEqual(res["pid"], 4242)
@@ -219,5 +234,3 @@ class TestVersionYFlags(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-

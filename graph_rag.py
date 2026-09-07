@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Grafo de conocimiento (Graph RAG) de SnapContext — v5.5.0.
 
 Combina **AST** (estructura: archivos, funciones, clases, imports, llamadas,
@@ -29,13 +28,26 @@ import ast
 import os
 import pickle
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
 
 # Directorios que nunca se analizan (ruido, dependencias, artefactos).
 _DIRECTORIOS_IGNORADOS = {
-    ".git", "__pycache__", ".venv", "venv", "env", "node_modules",
-    ".dart_tool", "build", "dist", ".idea", ".mypy_cache", ".pytest_cache",
-    ".tox", "site-packages", ".snapcontext", "_backups", "out",
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "env",
+    "node_modules",
+    ".dart_tool",
+    "build",
+    "dist",
+    ".idea",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".tox",
+    "site-packages",
+    ".snapcontext",
+    "_backups",
+    "out",
 }
 
 # Formato del cache: {"version": int, "fingerprint": {...}, "grafo": {...}}
@@ -47,7 +59,7 @@ def _ruta_cache_defecto() -> Path:
     return Path.home() / ".snapcontext" / "graph_cache.pkl"
 
 
-def graph_rag_activo(flag: Optional[bool] = None) -> bool:
+def graph_rag_activo(flag: bool | None = None) -> bool:
     """True si Graph RAG debe activarse.
 
     Prioridad: flag explícito (``--graph-rag``) > ``SNAPCONTEXT_GRAPH_RAG=1``.
@@ -60,9 +72,9 @@ def graph_rag_activo(flag: Optional[bool] = None) -> bool:
 # ---------------------------------------------------------------------------
 # Fingerprint (para invalidar el cache solo cuando cambia el código)
 # ---------------------------------------------------------------------------
-def _fingerprint(directorio: str) -> Dict[str, Tuple[int, int]]:
+def _fingerprint(directorio: str) -> dict[str, tuple[int, int]]:
     """{ruta_relativa: (mtime_ns, tamaño)} de todos los ``.py`` del proyecto."""
-    huella: Dict[str, Tuple[int, int]] = {}
+    huella: dict[str, tuple[int, int]] = {}
     raiz = Path(directorio)
     if not raiz.is_dir():
         return huella
@@ -73,18 +85,18 @@ def _fingerprint(directorio: str) -> Dict[str, Tuple[int, int]]:
             stat = camino.stat()
         except OSError:
             continue
-        huella[camino.relative_to(raiz).as_posix()] = (
-            stat.st_mtime_ns, stat.st_size)
+        huella[camino.relative_to(raiz).as_posix()] = (stat.st_mtime_ns, stat.st_size)
     return huella
 
 
-def _archivos_python(directorio: str) -> List[Path]:
+def _archivos_python(directorio: str) -> list[Path]:
     """Lista de ``.py`` del proyecto (sin dependencias ni artefactos)."""
     raiz = Path(directorio)
     if not raiz.is_dir():
         return []
     return [
-        camino for camino in sorted(raiz.rglob("*.py"))
+        camino
+        for camino in sorted(raiz.rglob("*.py"))
         if not any(part in _DIRECTORIOS_IGNORADOS for part in camino.parts)
     ]
 
@@ -92,15 +104,16 @@ def _archivos_python(directorio: str) -> List[Path]:
 # ---------------------------------------------------------------------------
 # Extracción de nodos y aristas (AST)
 # ---------------------------------------------------------------------------
-def _archivo_de_modulo(rel: str, modulo: str, archivos: Dict[str, str],
-                       paquetes: Dict[str, str]) -> Optional[str]:
+def _archivo_de_modulo(
+    rel: str, modulo: str, archivos: dict[str, str], paquetes: dict[str, str]
+) -> str | None:
     """Resuelve ``modulo`` (p. ej. ``servicios.pagos``) a un archivo del
     proyecto. Devuelve la ruta relativa o None si es externo."""
     if not modulo:
         return None
-    if modulo in paquetes:                       # paquete → su __init__.py
+    if modulo in paquetes:  # paquete → su __init__.py
         return paquetes[modulo]
-    if modulo in archivos:                       # módulo simple
+    if modulo in archivos:  # módulo simple
         return archivos[modulo]
     # Coincidencia por nombre de módulo final (p. ej. "from .pagos import X"
     # dentro del mismo paquete, o "import pagos" desde cualquier sitio).
@@ -127,9 +140,9 @@ def _extraer_nodos_y_aristas(directorio: str) -> dict:
     caminos = _archivos_python(directorio)
 
     # Mapas de resolución: módulo dotted y nombre de stem → ruta relativa.
-    archivos: Dict[str, str] = {}       # "servicios.pagos" → "servicios/pagos.py"
-    paquetes: Dict[str, str] = {}       # "servicios" → "servicios/__init__.py"
-    rels: List[str] = []
+    archivos: dict[str, str] = {}  # "servicios.pagos" → "servicios/pagos.py"
+    paquetes: dict[str, str] = {}  # "servicios" → "servicios/__init__.py"
+    rels: list[str] = []
     for camino in caminos:
         rel = camino.relative_to(raiz).as_posix()
         rels.append(rel)
@@ -139,79 +152,73 @@ def _extraer_nodos_y_aristas(directorio: str) -> dict:
         else:
             archivos[".".join(partes)] = rel
 
-    nodos: Dict[str, dict] = {}
-    aristas: List[dict] = []
-    vistos: Set[Tuple[str, str, str]] = set()
+    nodos: dict[str, dict] = {}
+    aristas: list[dict] = []
+    vistos: set[tuple[str, str, str]] = set()
 
     # Pasada 1: nodos de archivo + mapa global de definiciones (funciones y
     # clases de TODO el proyecto) para poder resolver herencia/llamadas
     # entre archivos (p. ej. class Perro(Animal) con Animal en otro módulo).
-    definiciones: Dict[str, List[str]] = {}   # nombre func/clase → ids nodo
-    arboles: Dict[str, ast.AST] = {}
+    definiciones: dict[str, list[str]] = {}  # nombre func/clase → ids nodo
+    arboles: dict[str, ast.AST] = {}
     for rel in rels:
         nodos[rel] = {"tipo": "archivo", "archivo": rel}
         try:
             contenido = (raiz / rel.replace("/", os.sep)).read_text(
-                encoding="utf-8", errors="replace")
+                encoding="utf-8", errors="replace"
+            )
             arbol = ast.parse(contenido)
         except (OSError, SyntaxError, ValueError):
-            continue                                   # sintaxis inválida
+            continue  # sintaxis inválida
         arboles[rel] = arbol
         for nodo in ast.walk(arbol):
             if isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 ident = f"{rel}::{nodo.name}"
-                nodos[ident] = {"tipo": "funcion", "archivo": rel,
-                                "linea": nodo.lineno}
+                nodos[ident] = {"tipo": "funcion", "archivo": rel, "linea": nodo.lineno}
                 definiciones.setdefault(nodo.name, []).append(ident)
             elif isinstance(nodo, ast.ClassDef):
                 ident = f"{rel}::{nodo.name}"
-                nodos[ident] = {"tipo": "clase", "archivo": rel,
-                                "linea": nodo.lineno}
+                nodos[ident] = {"tipo": "clase", "archivo": rel, "linea": nodo.lineno}
                 definiciones.setdefault(nodo.name, []).append(ident)
 
-    def _enlazar(origen: str, destino: Optional[str], tipo: str) -> None:
+    def _enlazar(origen: str, destino: str | None, tipo: str) -> None:
         if destino and destino != origen:
             clave = (origen, destino, tipo)
             if clave not in vistos:
                 vistos.add(clave)
-                aristas.append({"origen": origen, "destino": destino,
-                                "tipo": tipo})
+                aristas.append({"origen": origen, "destino": destino, "tipo": tipo})
 
     # Pasada 2: aristas (imports, llamadas, herencia). Para las llamadas se
     # rastrea la función contenedora (p. ej. cobrar → procesar) con un
     # recorrido recursivo que mantiene el contexto.
     for rel, arbol in arboles.items():
+
         def _visitar(nodo: ast.AST, contexto: str) -> None:
             if isinstance(nodo, ast.ClassDef):
                 for base in nodo.bases:
-                    nombre = getattr(base, "id", None) \
-                        or getattr(base, "attr", None)
+                    nombre = getattr(base, "id", None) or getattr(base, "attr", None)
                     if nombre and nombre in definiciones:
-                        _enlazar(f"{rel}::{nodo.name}",
-                                 definiciones[nombre][0], "herencia")
+                        _enlazar(f"{rel}::{nodo.name}", definiciones[nombre][0], "herencia")
                 for hijo in ast.iter_child_nodes(nodo):
                     _visitar(hijo, contexto)
                 return
             if isinstance(nodo, ast.Import):
                 for alias in nodo.names:
-                    _enlazar(rel, _archivo_de_modulo(
-                        rel, alias.name, archivos, paquetes), "import")
+                    _enlazar(rel, _archivo_de_modulo(rel, alias.name, archivos, paquetes), "import")
             elif isinstance(nodo, ast.ImportFrom):
-                _enlazar(rel, _archivo_de_modulo(
-                    rel, nodo.module or "", archivos, paquetes), "import")
+                _enlazar(
+                    rel, _archivo_de_modulo(rel, nodo.module or "", archivos, paquetes), "import"
+                )
             elif isinstance(nodo, ast.Call):
-                funcion = getattr(nodo.func, "id", None) \
-                    or getattr(nodo.func, "attr", None)
-                destino: Optional[str] = None
+                funcion = getattr(nodo.func, "id", None) or getattr(nodo.func, "attr", None)
+                destino: str | None = None
                 if funcion and funcion in definiciones:
                     destino = definiciones[funcion][0]
                 else:
                     # p. ej. pagos.procesar(...) → módulo pagos
-                    modulo = getattr(getattr(nodo.func, "value", None),
-                                     "id", None)
+                    modulo = getattr(getattr(nodo.func, "value", None), "id", None)
                     if modulo:
-                        destino = _archivo_de_modulo(
-                            rel, modulo, archivos, paquetes)
+                        destino = _archivo_de_modulo(rel, modulo, archivos, paquetes)
                 if destino:
                     _enlazar(contexto, destino, "llamada")
             for hijo in ast.iter_child_nodes(nodo):
@@ -231,9 +238,9 @@ def _mapas_resolucion(directorio):
     """``(archivos, paquetes, rels)``: mapas globales para resolver imports."""
     raiz = Path(directorio)
     caminos = _archivos_python(directorio)
-    archivos: Dict[str, str] = {}
-    paquetes: Dict[str, str] = {}
-    rels: List[str] = []
+    archivos: dict[str, str] = {}
+    paquetes: dict[str, str] = {}
+    rels: list[str] = []
     for camino in caminos:
         rel = camino.relative_to(raiz).as_posix()
         rels.append(rel)
@@ -245,79 +252,73 @@ def _mapas_resolucion(directorio):
     return archivos, paquetes, rels
 
 
-def _nodos_y_defs_archivo(raiz, rel: str) -> Tuple[dict, Dict[str, List[str]]]:
+def _nodos_y_defs_archivo(raiz, rel: str) -> tuple[dict, dict[str, list[str]]]:
     """(nodos, definiciones) de UN archivo (sin aristas)."""
     nodos: dict = {rel: {"tipo": "archivo", "archivo": rel}}
-    defs: Dict[str, List[str]] = {}
+    defs: dict[str, list[str]] = {}
     try:
-        contenido = (raiz / rel.replace("/", os.sep)).read_text(
-            encoding="utf-8", errors="replace")
+        contenido = (raiz / rel.replace("/", os.sep)).read_text(encoding="utf-8", errors="replace")
         arbol = ast.parse(contenido)
     except (OSError, SyntaxError, ValueError):
         return nodos, defs
     for nodo in ast.walk(arbol):
         if isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
             ident = f"{rel}::{nodo.name}"
-            nodos[ident] = {"tipo": "funcion", "archivo": rel,
-                            "linea": nodo.lineno}
+            nodos[ident] = {"tipo": "funcion", "archivo": rel, "linea": nodo.lineno}
             defs.setdefault(nodo.name, []).append(ident)
         elif isinstance(nodo, ast.ClassDef):
             ident = f"{rel}::{nodo.name}"
-            nodos[ident] = {"tipo": "clase", "archivo": rel,
-                            "linea": nodo.lineno}
+            nodos[ident] = {"tipo": "clase", "archivo": rel, "linea": nodo.lineno}
             defs.setdefault(nodo.name, []).append(ident)
     return nodos, defs
-def _aristas_archivo(raiz, rel: str, archivos: Dict[str, str],
-                     paquetes: Dict[str, str],
-                     definiciones: Dict[str, List[str]]) -> List[dict]:
+
+
+def _aristas_archivo(
+    raiz,
+    rel: str,
+    archivos: dict[str, str],
+    paquetes: dict[str, str],
+    definiciones: dict[str, list[str]],
+) -> list[dict]:
     """Aristas de UN archivo (import/llamada/herencia), v6.9.0 incremental."""
     try:
-        contenido = (raiz / rel.replace("/", os.sep)).read_text(
-            encoding="utf-8", errors="replace")
+        contenido = (raiz / rel.replace("/", os.sep)).read_text(encoding="utf-8", errors="replace")
         arbol = ast.parse(contenido)
     except (OSError, SyntaxError, ValueError):
         return []
-    aristas: List[dict] = []
-    vistos: Set[Tuple[str, str, str]] = set()
+    aristas: list[dict] = []
+    vistos: set[tuple[str, str, str]] = set()
 
-    def _enlazar(origen: str, destino: Optional[str], tipo: str) -> None:
+    def _enlazar(origen: str, destino: str | None, tipo: str) -> None:
         if destino and destino != origen:
             clave = (origen, destino, tipo)
             if clave not in vistos:
                 vistos.add(clave)
-                aristas.append({"origen": origen, "destino": destino,
-                                "tipo": tipo})
+                aristas.append({"origen": origen, "destino": destino, "tipo": tipo})
 
     def _visitar(nodo: ast.AST, contexto: str) -> None:
         if isinstance(nodo, ast.ClassDef):
             for base in nodo.bases:
-                nombre = getattr(base, "id", None) \
-                    or getattr(base, "attr", None)
+                nombre = getattr(base, "id", None) or getattr(base, "attr", None)
                 if nombre and nombre in definiciones:
-                    _enlazar(f"{rel}::{nodo.name}",
-                             definiciones[nombre][0], "herencia")
+                    _enlazar(f"{rel}::{nodo.name}", definiciones[nombre][0], "herencia")
             for hijo in ast.iter_child_nodes(nodo):
                 _visitar(hijo, contexto)
             return
         if isinstance(nodo, ast.Import):
             for alias in nodo.names:
-                _enlazar(rel, _archivo_de_modulo(
-                    rel, alias.name, archivos, paquetes), "import")
+                _enlazar(rel, _archivo_de_modulo(rel, alias.name, archivos, paquetes), "import")
         elif isinstance(nodo, ast.ImportFrom):
-            _enlazar(rel, _archivo_de_modulo(
-                rel, nodo.module or "", archivos, paquetes), "import")
+            _enlazar(rel, _archivo_de_modulo(rel, nodo.module or "", archivos, paquetes), "import")
         elif isinstance(nodo, ast.Call):
-            funcion = getattr(nodo.func, "id", None) \
-                or getattr(nodo.func, "attr", None)
-            destino: Optional[str] = None
+            funcion = getattr(nodo.func, "id", None) or getattr(nodo.func, "attr", None)
+            destino: str | None = None
             if funcion and funcion in definiciones:
                 destino = definiciones[funcion][0]
             else:
-                modulo = getattr(getattr(nodo.func, "value", None),
-                                 "id", None)
+                modulo = getattr(getattr(nodo.func, "value", None), "id", None)
                 if modulo:
-                    destino = _archivo_de_modulo(
-                        rel, modulo, archivos, paquetes)
+                    destino = _archivo_de_modulo(rel, modulo, archivos, paquetes)
             if destino:
                 _enlazar(contexto, destino, "llamada")
         for hijo in ast.iter_child_nodes(nodo):
@@ -343,12 +344,11 @@ def _grafo_incremental(directorio: str, cache: dict):
     viejo_por = cache.get("por_archivo") or {}
     archivos, paquetes, rels = _mapas_resolucion(directorio)
     # Archivos cuyo fingerprint cambió o aparecieron nuevos.
-    cambiados = {rel for rel in rels
-                 if huella.get(rel) != vieja_huella.get(rel)}
+    cambiados = {rel for rel in rels if huella.get(rel) != vieja_huella.get(rel)}
 
     # 1) nodos + definiciones (reutiliza los no cambiados, parsea los nuevos).
-    contribs: Dict[str, dict] = {}
-    definiciones: Dict[str, List[str]] = {}
+    contribs: dict[str, dict] = {}
+    definiciones: dict[str, list[str]] = {}
     for rel in rels:
         if rel not in cambiados and viejo_por.get(rel):
             contribs[rel] = viejo_por[rel]
@@ -361,15 +361,14 @@ def _grafo_incremental(directorio: str, cache: dict):
 
     # 2) aristas (solo se recalculan las del archivo cambiado; el resto se
     #    reutiliza tal cual).
-    nodos: Dict[str, dict] = {}
-    aristas: List[dict] = []
-    vistos: Set[Tuple[str, str, str]] = set()
-    por_archivo: Dict[str, dict] = {}
+    nodos: dict[str, dict] = {}
+    aristas: list[dict] = []
+    vistos: set[tuple[str, str, str]] = set()
+    por_archivo: dict[str, dict] = {}
     for rel in rels:
         contrib = contribs[rel]
         if rel in cambiados:
-            contrib["aristas"] = _aristas_archivo(
-                raiz, rel, archivos, paquetes, definiciones)
+            contrib["aristas"] = _aristas_archivo(raiz, rel, archivos, paquetes, definiciones)
         for ident, nd in contrib.get("nodos", {}).items():
             nodos[ident] = nd
         for arista in contrib.get("aristas", []):
@@ -383,8 +382,9 @@ def _grafo_incremental(directorio: str, cache: dict):
             "aristas": contrib.get("aristas", []),
         }
     return {"nodos": nodos, "aristas": aristas}, por_archivo
-def construir_grafo(directorio: str, forzar: bool = False,
-                    ruta_cache: Optional[str] = None) -> dict:
+
+
+def construir_grafo(directorio: str, forzar: bool = False, ruta_cache: str | None = None) -> dict:
     """Devuelve el grafo del proyecto, usando el cache si sigue válido.
 
     - Si ``~/.snapcontext/graph_cache.pkl`` existe, no se fuerza y el
@@ -402,9 +402,11 @@ def construir_grafo(directorio: str, forzar: bool = False,
             if ruta.is_file():
                 with open(ruta, "rb") as manejador:
                     cache = pickle.load(manejador)
-                if (isinstance(cache, dict)
-                        and cache.get("version") == _VERSION_CACHE
-                        and isinstance(cache.get("grafo"), dict)):
+                if (
+                    isinstance(cache, dict)
+                    and cache.get("version") == _VERSION_CACHE
+                    and isinstance(cache.get("grafo"), dict)
+                ):
                     if cache.get("fingerprint") == huella:
                         return cache["grafo"]
                     # v6.9.0: caché incremental — solo archivos cambiados.
@@ -414,23 +416,26 @@ def construir_grafo(directorio: str, forzar: bool = False,
                             ruta.parent.mkdir(parents=True, exist_ok=True)
                             with open(ruta, "wb") as manejador2:
                                 pickle.dump(
-                                    {"version": _VERSION_CACHE,
-                                     "fingerprint": huella,
-                                     "grafo": grafo,
-                                     "por_archivo": por},
-                                    manejador2)
-                        except Exception:            # noqa: BLE001
+                                    {
+                                        "version": _VERSION_CACHE,
+                                        "fingerprint": huella,
+                                        "grafo": grafo,
+                                        "por_archivo": por,
+                                    },
+                                    manejador2,
+                                )
+                        except Exception:
                             pass
                         return grafo
-        except Exception:                            # noqa: BLE001
-            pass                                     # cache ilegible → rebuild
+        except Exception:
+            pass  # cache ilegible → rebuild
     grafo = _extraer_nodos_y_aristas(directorio)
     # v6.9.0: persiste también la contribución por archivo para poder hacer
     # builds incrementales en cambios posteriores.
-    por: Dict[str, dict] = {}
+    por: dict[str, dict] = {}
     raiz = Path(directorio)
     archivos_m, paquetes_m, rels = _mapas_resolucion(directorio)
-    defs_global: Dict[str, List[str]] = {}
+    defs_global: dict[str, list[str]] = {}
     for rel in rels:
         nodos, defs = _nodos_y_defs_archivo(raiz, rel)
         por[rel] = {"nodos": nodos, "defs": defs}
@@ -438,15 +443,21 @@ def construir_grafo(directorio: str, forzar: bool = False,
             defs_global.setdefault(nombre, [])
             defs_global[nombre].extend(ids)
     for rel in rels:
-        por[rel]["aristas"] = _aristas_archivo(
-            raiz, rel, archivos_m, paquetes_m, defs_global)
+        por[rel]["aristas"] = _aristas_archivo(raiz, rel, archivos_m, paquetes_m, defs_global)
     try:
         ruta.parent.mkdir(parents=True, exist_ok=True)
         with open(ruta, "wb") as manejador:
-            pickle.dump({"version": _VERSION_CACHE, "fingerprint": huella,
-                         "grafo": grafo, "por_archivo": por}, manejador)
-    except Exception:                                # noqa: BLE001
-        pass                                         # persistencia best-effort
+            pickle.dump(
+                {
+                    "version": _VERSION_CACHE,
+                    "fingerprint": huella,
+                    "grafo": grafo,
+                    "por_archivo": por,
+                },
+                manejador,
+            )
+    except Exception:
+        pass  # persistencia best-effort
     return grafo
 
 
@@ -458,9 +469,9 @@ def _archivo_de_nodo(ident: str) -> str:
     return ident.split("::", 1)[0]
 
 
-def expandir_contexto(archivos_relevantes: List[str], grafo: dict,
-                      max_adicionales: int = 3,
-                      notificar: bool = True) -> List[str]:
+def expandir_contexto(
+    archivos_relevantes: list[str], grafo: dict, max_adicionales: int = 3, notificar: bool = True
+) -> list[str]:
     """Amplía ``archivos_relevantes`` con archivos relacionados del grafo.
 
     Para cada archivo añade (en este orden de prioridad):
@@ -473,15 +484,14 @@ def expandir_contexto(archivos_relevantes: List[str], grafo: dict,
     """
     try:
         originales = [a for a in (archivos_relevantes or []) if a]
-        if (not originales or not isinstance(grafo, dict)
-                or max_adicionales <= 0):
+        if not originales or not isinstance(grafo, dict) or max_adicionales <= 0:
             return list(originales or [])
         aristas = grafo.get("aristas") or []
         if not aristas:
             return list(originales)
 
-        entrantes: Dict[str, Dict[str, int]] = {}
-        salientes: Dict[str, Dict[str, int]] = {}
+        entrantes: dict[str, dict[str, int]] = {}
+        salientes: dict[str, dict[str, int]] = {}
         for arista in aristas:
             origen = _archivo_de_nodo(str(arista.get("origen", "")))
             destino = _archivo_de_nodo(str(arista.get("destino", "")))
@@ -493,14 +503,12 @@ def expandir_contexto(archivos_relevantes: List[str], grafo: dict,
             entrantes[destino][origen] = entrantes[destino].get(origen, 0) + 1
 
         seleccion = list(originales)
-        vistos: Set[str] = set(seleccion)
+        vistos: set[str] = set(seleccion)
         for archivo in originales:
             # Entrantes primero (quien usa el archivo relevante suele
             # necesitar verse junto a él), luego salientes.
-            vecinos = sorted(entrantes.get(archivo, {}).items(),
-                             key=lambda kv: (-kv[1], kv[0]))
-            vecinos += sorted(salientes.get(archivo, {}).items(),
-                              key=lambda kv: (-kv[1], kv[0]))
+            vecinos = sorted(entrantes.get(archivo, {}).items(), key=lambda kv: (-kv[1], kv[0]))
+            vecinos += sorted(salientes.get(archivo, {}).items(), key=lambda kv: (-kv[1], kv[0]))
             for relativo, _conteo in vecinos:
                 if len(seleccion) - len(originales) >= max_adicionales:
                     break
@@ -512,13 +520,16 @@ def expandir_contexto(archivos_relevantes: List[str], grafo: dict,
 
         nuevos = len(seleccion) - len(originales)
         if nuevos and notificar:
-            mensaje = (f"🔗 Grafo de conocimiento: expandiendo contexto con "
-                       f"{nuevos} archivo(s) relacionado(s).")
+            mensaje = (
+                f"🔗 Grafo de conocimiento: expandiendo contexto con "
+                f"{nuevos} archivo(s) relacionado(s)."
+            )
             try:
-                import snapcontext as sc            # noqa: E402 (import perezoso)
+                import snapcontext as sc
+
                 sc.info(mensaje)
-            except Exception:                        # noqa: BLE001
+            except Exception:
                 print(mensaje)
         return seleccion
-    except Exception:                                # noqa: BLE001 — nunca romper
+    except Exception:
         return list(archivos_relevantes or [])

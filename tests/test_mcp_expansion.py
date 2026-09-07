@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de integración para la expansión MCP v6.7.0.
 
 Verifica que las herramientas de bases de datos y APIs estén
@@ -19,11 +18,13 @@ class TestHerramientasPredefinidas(unittest.TestCase):
 
     def test_herramientas_predefinidas_incluyen_db_api(self):
         import snapcontext as sc
+
         herramientas = sc.HERRAMIENTAS_PREDEFINIDAS
         for nombre in ("db_query", "db_schema", "api_request", "api_inspect"):
             with self.subTest(herramienta=nombre):
-                self.assertIn(nombre, herramientas,
-                              f"{nombre} no está en HERRAMIENTAS_PREDEFINIDAS")
+                self.assertIn(
+                    nombre, herramientas, f"{nombre} no está en HERRAMIENTAS_PREDEFINIDAS"
+                )
                 self.assertIn("descripcion", herramientas[nombre])
 
 
@@ -32,6 +33,7 @@ class TestReactAgentIntegracion(unittest.TestCase):
 
     def test_acciones_validas(self):
         from react_agent import ReactAgent
+
         esperadas = ("db_query", "db_schema", "api_request", "api_inspect")
         for accion in esperadas:
             with self.subTest(accion=accion):
@@ -39,6 +41,7 @@ class TestReactAgentIntegracion(unittest.TestCase):
 
     def test_herramientas_registradas(self):
         from react_agent import ReactAgent
+
         agente = ReactAgent(directorio=".", auto=True, max_iter=1)
         for nombre in ("db_query", "db_schema", "api_request", "api_inspect"):
             with self.subTest(herramienta=nombre):
@@ -51,12 +54,17 @@ class TestCliArgs(unittest.TestCase):
 
     def test_cli_args_db(self):
         import snapcontext as sc
+
         parser = sc.crear_parser()
-        args = parser.parse_args([
-            "--db-url", "sqlite:///test.db",
-            "--db-driver", "sqlite",
-            "tarea de ejemplo",
-        ])
+        args = parser.parse_args(
+            [
+                "--db-url",
+                "sqlite:///test.db",
+                "--db-driver",
+                "sqlite",
+                "tarea de ejemplo",
+            ]
+        )
         self.assertEqual(args.db_url, "sqlite:///test.db")
         self.assertEqual(args.db_driver, "sqlite")
 
@@ -66,11 +74,13 @@ class TestConectarDbInicial(unittest.TestCase):
 
     def test_sin_url_devuelve_cero(self):
         import snapcontext as sc
+
         args = argparse.Namespace(db_url=None, db_driver=None)
         self.assertEqual(sc.conectar_db_inicial(args), 0)
 
     def test_url_vacia_devuelve_cero(self):
         import snapcontext as sc
+
         args = argparse.Namespace(db_url="", db_driver=None)
         self.assertEqual(sc.conectar_db_inicial(args), 0)
 

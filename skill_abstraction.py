@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Skills dinámicos: reglas abstractas aprendidas de planes exitosos (v6.6.0).
 
 En lugar de guardar pasos fijos (frágiles ante renombrados y refactorizados),
@@ -31,19 +30,26 @@ from __future__ import annotations
 import difflib
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-UMBRAL_CONFIANZA_INYECCION = 0.8   # reglas con confianza > 0.8 → CLAUDE.md
-UMBRAL_COINCIDENCIA_TAREA = 0.45   # similitud mínima patrón ↔ tarea
-MAX_TEXTO = 500                    # longitud máxima por campo de regla
+UMBRAL_CONFIANZA_INYECCION = 0.8  # reglas con confianza > 0.8 → CLAUDE.md
+UMBRAL_COINCIDENCIA_TAREA = 0.45  # similitud mínima patrón ↔ tarea
+MAX_TEXTO = 500  # longitud máxima por campo de regla
 
 SECCION_REGLAS = "## Reglas aprendidas"
 
 __all__ = [
-    "extraer_regla", "aplicar_regla", "guardar_regla", "buscar_reglas",
-    "inyectar_en_claudemd", "inyectar_todas_las_reglas",
-    "regla_a_linea", "sanitizar", "UMBRAL_CONFIANZA_INYECCION",
-    "UMBRAL_COINCIDENCIA_TAREA", "SECCION_REGLAS",
+    "SECCION_REGLAS",
+    "UMBRAL_COINCIDENCIA_TAREA",
+    "UMBRAL_CONFIANZA_INYECCION",
+    "aplicar_regla",
+    "buscar_reglas",
+    "extraer_regla",
+    "guardar_regla",
+    "inyectar_en_claudemd",
+    "inyectar_todas_las_reglas",
+    "regla_a_linea",
+    "sanitizar",
 ]
 
 
@@ -60,33 +66,38 @@ def sanitizar(texto: Any, maximo: int = MAX_TEXTO) -> str:
 
 
 def _sc():
-    import snapcontext as _sc            # importación perezosa
+    import snapcontext as _sc  # importación perezosa
+
     return _sc
 
 
-def _regla_vacia(tarea: str) -> Dict[str, Any]:
-    return {"patron": sanitizar(tarea, 200), "accion": "",
-            "archivos_afectados": [], "dependencias": [], "confianza": 1.0}
+def _regla_vacia(tarea: str) -> dict[str, Any]:
+    return {
+        "patron": sanitizar(tarea, 200),
+        "accion": "",
+        "archivos_afectados": [],
+        "dependencias": [],
+        "confianza": 1.0,
+    }
 
 
-def _extraer_regla_heuristica(plan: dict, contexto: dict) -> Dict[str, Any]:
+def _extraer_regla_heuristica(plan: dict, contexto: dict) -> dict[str, Any]:
     """Fallback local: los archivos más editados definen la regla."""
-    conteo: Dict[str, int] = {}
-    for paso in (plan.get("pasos") or []):
+    conteo: dict[str, int] = {}
+    for paso in plan.get("pasos") or []:
         archivo = str(paso.get("archivo") or paso.get("ruta") or "").strip()
         if archivo:
             conteo[archivo] = conteo.get(archivo, 0) + 1
-    archivos = [a for a, _ in
-                sorted(conteo.items(), key=lambda kv: -kv[1])[:5]]
+    archivos = [a for a, _ in sorted(conteo.items(), key=lambda kv: -kv[1])[:5]]
     tarea = plan.get("tarea") or contexto.get("tarea") or ""
     regla = _regla_vacia(tarea)
     regla["accion"] = ("editar " + ", ".join(archivos)) if archivos else ""
     regla["archivos_afectados"] = archivos
-    regla["confianza"] = 0.6            # heurística ⇒ confianza menor
+    regla["confianza"] = 0.6  # heurística ⇒ confianza menor
     return regla
 
 
-def _parsear_regla_llm(texto: str, tarea: str) -> Optional[Dict[str, Any]]:
+def _parsear_regla_llm(texto: str, tarea: str) -> dict[str, Any] | None:
     """Convierte la respuesta del LLM (JSON o suelto) en regla validada."""
     if not texto:
         return None
@@ -113,16 +124,16 @@ def _parsear_regla_llm(texto: str, tarea: str) -> Optional[Dict[str, Any]]:
         confianza = float(datos.get("confianza", 1.0))
     except (TypeError, ValueError):
         confianza = 1.0
-    return {"patron": patron,
-            "accion": sanitizar(datos.get("accion") or "", MAX_TEXTO),
-            "archivos_afectados": [sanitizar(a, 300) for a in archivos
-                                   if str(a).strip()][:10],
-            "dependencias": [sanitizar(d, 300) for d in dependencias
-                             if str(d).strip()][:10],
-            "confianza": min(max(confianza, 0.0), 1.0)}
+    return {
+        "patron": patron,
+        "accion": sanitizar(datos.get("accion") or "", MAX_TEXTO),
+        "archivos_afectados": [sanitizar(a, 300) for a in archivos if str(a).strip()][:10],
+        "dependencias": [sanitizar(d, 300) for d in dependencias if str(d).strip()][:10],
+        "confianza": min(max(confianza, 0.0), 1.0),
+    }
 
 
-def extraer_regla(plan: dict, contexto: Optional[dict] = None) -> Dict[str, Any]:
+def extraer_regla(plan: dict, contexto: dict | None = None) -> dict[str, Any]:
     """Extrae una regla abstracta de un plan exitoso.
 
     Intenta con el LLM (JSON estructurado) y, ante cualquier fallo, usa la
@@ -134,10 +145,13 @@ def extraer_regla(plan: dict, contexto: Optional[dict] = None) -> Dict[str, Any]
         sc = _sc()
         pasos_resumen = []
         for paso in (plan.get("pasos") or [])[:15]:
-            pasos_resumen.append({
-                "tipo": paso.get("tipo") or paso.get("accion"),
-                "archivo": paso.get("archivo") or paso.get("ruta"),
-                "descripcion": paso.get("descripcion")})
+            pasos_resumen.append(
+                {
+                    "tipo": paso.get("tipo") or paso.get("accion"),
+                    "archivo": paso.get("archivo") or paso.get("ruta"),
+                    "descripcion": paso.get("descripcion"),
+                }
+            )
         peticion = (
             "Analiza este plan de tarea completada con éxito y extrae UNA "
             "regla abstracta reutilizable (patrón de tarea → acción "
@@ -145,17 +159,17 @@ def extraer_regla(plan: dict, contexto: Optional[dict] = None) -> Dict[str, Any]
             '{"patron": "...", "accion": "...", "archivos_afectados": [...],'
             ' "dependencias": [...]}\n\n'
             f"Tarea: {tarea}\n"
-            f"Pasos: {json.dumps(pasos_resumen, ensure_ascii=False)}")
+            f"Pasos: {json.dumps(pasos_resumen, ensure_ascii=False)}"
+        )
         cfg = sc.cargar_configuracion()
-        proveedor = (contexto.get("proveedor")
-                     or cfg.get("provider") or sc.PROVEEDOR_DEFECTO)
-        respuesta = sc._enviar_al_proveedor(proveedor, None,
-                                            [{"role": "user",
-                                              "content": peticion}])
+        proveedor = contexto.get("proveedor") or cfg.get("provider") or sc.PROVEEDOR_DEFECTO
+        respuesta = sc._enviar_al_proveedor(
+            proveedor, None, [{"role": "user", "content": peticion}]
+        )
         regla = _parsear_regla_llm(str(respuesta), tarea)
         if regla is not None:
             return regla
-    except Exception:                    # noqa: BLE001 — fallback silencioso
+    except Exception:
         pass
     return _extraer_regla_heuristica(plan, contexto or {})
 
@@ -172,35 +186,39 @@ def _similitud_tarea(patron: str, tarea: str) -> float:
     base = difflib.SequenceMatcher(None, patron_n, tarea_n).ratio()
     palabras_p = set(patron_n.split())
     palabras_t = set(tarea_n.split())
-    solape = (len(palabras_p & palabras_t) / len(palabras_p)
-              if palabras_p else 0.0)
+    solape = len(palabras_p & palabras_t) / len(palabras_p) if palabras_p else 0.0
     return max(base, solape * 0.9)
 
 
-def aplicar_regla(regla: dict, tarea: str) -> Optional[List[dict]]:
+def aplicar_regla(regla: dict, tarea: str) -> list[dict] | None:
     """Devuelve pasos sugeridos si ``tarea`` coincide con el patrón, si no None."""
     if not regla or not tarea:
         return None
-    if _similitud_tarea(str(regla.get("patron") or ""), tarea) \
-            < UMBRAL_COINCIDENCIA_TAREA:
+    if _similitud_tarea(str(regla.get("patron") or ""), tarea) < UMBRAL_COINCIDENCIA_TAREA:
         return None
-    pasos: List[dict] = []
-    for archivo in (regla.get("archivos_afectados") or []):
-        pasos.append({"tipo": "editar", "archivo": str(archivo),
-                      "descripcion": str(regla.get("accion")
-                                         or "aplicar regla aprendida")})
+    pasos: list[dict] = []
+    for archivo in regla.get("archivos_afectados") or []:
+        pasos.append(
+            {
+                "tipo": "editar",
+                "archivo": str(archivo),
+                "descripcion": str(regla.get("accion") or "aplicar regla aprendida"),
+            }
+        )
     if not pasos:
-        pasos.append({"tipo": "plan", "descripcion": str(regla.get("accion")
-                                                         or regla.get("patron"))})
+        pasos.append(
+            {"tipo": "plan", "descripcion": str(regla.get("accion") or regla.get("patron"))}
+        )
     return pasos
 
 
 def regla_a_linea(regla: dict) -> str:
     """Serializa una regla como línea de texto (para CLAUDE.md/prompt)."""
-    archivos = ", ".join(str(a) for a in
-                         (regla.get("archivos_afectados") or [])[:5])
-    linea = f"- Cuando la tarea sea '{regla.get('patron')}': " \
-            f"{regla.get('accion') or 'aplicar la acción aprendida'}."
+    archivos = ", ".join(str(a) for a in (regla.get("archivos_afectados") or [])[:5])
+    linea = (
+        f"- Cuando la tarea sea '{regla.get('patron')}': "
+        f"{regla.get('accion') or 'aplicar la acción aprendida'}."
+    )
     if archivos:
         linea += f" Archivos implicados: {archivos}."
     deps = ", ".join(str(d) for d in (regla.get("dependencias") or [])[:5])
@@ -212,7 +230,7 @@ def regla_a_linea(regla: dict) -> str:
 # ---------------------------------------------------------------------------
 # Persistencia (tabla `reglas`)
 # ---------------------------------------------------------------------------
-def guardar_regla(regla: dict, directorio: str = ".") -> Dict[str, Any]:
+def guardar_regla(regla: dict, directorio: str = ".") -> dict[str, Any]:
     """Guarda la regla en la tabla ``reglas``.
 
     Si ya existe una regla con patrón muy similar (≥ 0.85), incrementa su
@@ -223,60 +241,69 @@ def guardar_regla(regla: dict, directorio: str = ".") -> Dict[str, Any]:
     sc._db_init()
     patron = sanitizar(regla.get("patron") or "", 200)
     if not patron:
-        return {"id": None, "nueva": False, "confianza": 0.0,
-                "inyectada": False}
+        return {"id": None, "nueva": False, "confianza": 0.0, "inyectada": False}
     filas = sc._db_query("SELECT id, patron, confianza, usos FROM reglas")
     for fila in filas:
-        if difflib.SequenceMatcher(None, patron.lower(),
-                                   str(fila["patron"]).lower()).ratio() >= 0.85:
+        if (
+            difflib.SequenceMatcher(None, patron.lower(), str(fila["patron"]).lower()).ratio()
+            >= 0.85
+        ):
             nueva_conf = min(1.0, float(fila["confianza"] or 1.0) + 0.05)
             usos = int(fila["usos"] or 0) + 1
             sc._db_ejecutar(
                 "UPDATE reglas SET confianza = ?, usos = ? WHERE id = ?",
-                (nueva_conf, usos, int(fila["id"])))
+                (nueva_conf, usos, int(fila["id"])),
+            )
             regla_reforzada = dict(regla)
-            regla_reforzada.update({"patron": fila["patron"],
-                                    "confianza": nueva_conf})
+            regla_reforzada.update({"patron": fila["patron"], "confianza": nueva_conf})
             inyectada = False
             if nueva_conf > UMBRAL_CONFIANZA_INYECCION:
                 inyectada = inyectar_en_claudemd(regla_reforzada, directorio)
-            return {"id": int(fila["id"]), "nueva": False,
-                    "confianza": nueva_conf, "inyectada": inyectada}
+            return {
+                "id": int(fila["id"]),
+                "nueva": False,
+                "confianza": nueva_conf,
+                "inyectada": inyectada,
+            }
     rid = sc._db_insert(
         "INSERT INTO reglas (patron, accion, archivos_afectados, "
         "dependencias, confianza, usos) VALUES (?, ?, ?, ?, ?, 1)",
-        (patron, sanitizar(regla.get("accion") or ""),
-         json.dumps(regla.get("archivos_afectados") or [],
-                    ensure_ascii=False),
-         json.dumps(regla.get("dependencias") or [], ensure_ascii=False),
-         float(regla.get("confianza", 1.0))))
+        (
+            patron,
+            sanitizar(regla.get("accion") or ""),
+            json.dumps(regla.get("archivos_afectados") or [], ensure_ascii=False),
+            json.dumps(regla.get("dependencias") or [], ensure_ascii=False),
+            float(regla.get("confianza", 1.0)),
+        ),
+    )
     inyectada = False
     if float(regla.get("confianza", 1.0)) > UMBRAL_CONFIANZA_INYECCION:
         inyectada = inyectar_en_claudemd(regla, directorio)
-    return {"id": rid, "nueva": True,
-            "confianza": float(regla.get("confianza", 1.0)),
-            "inyectada": inyectada}
+    return {
+        "id": rid,
+        "nueva": True,
+        "confianza": float(regla.get("confianza", 1.0)),
+        "inyectada": inyectada,
+    }
 
 
-def buscar_reglas(tarea: str, umbral: float = UMBRAL_COINCIDENCIA_TAREA,
-                  max_reglas: int = 3) -> List[dict]:
+def buscar_reglas(
+    tarea: str, umbral: float = UMBRAL_COINCIDENCIA_TAREA, max_reglas: int = 3
+) -> list[dict]:
     """Reglas cuya coincidencia con ``tarea`` supere ``umbral``,
     priorizadas por confianza (para enriquecer el prompt del planificador)."""
     sc = _sc()
     sc._db_init()
-    resultados: List[dict] = []
+    resultados: list[dict] = []
     try:
-        filas = sc._db_query(
-            "SELECT * FROM reglas ORDER BY confianza DESC, usos DESC")
-    except Exception:                    # noqa: BLE001 — tabla aún sin crear
+        filas = sc._db_query("SELECT * FROM reglas ORDER BY confianza DESC, usos DESC")
+    except Exception:
         return []
     for fila in filas:
         regla = dict(fila)
         try:
-            regla["archivos_afectados"] = json.loads(
-                fila.get("archivos_afectados") or "[]")
-            regla["dependencias"] = json.loads(
-                fila.get("dependencias") or "[]")
+            regla["archivos_afectados"] = json.loads(fila.get("archivos_afectados") or "[]")
+            regla["dependencias"] = json.loads(fila.get("dependencias") or "[]")
         except (ValueError, TypeError):
             regla["archivos_afectados"] = []
             regla["dependencias"] = []
@@ -299,6 +326,7 @@ def _memoria_proyecto(directorio: str):
     except AttributeError:
         pass
     from pathlib import Path
+
     for nombre in ("CLAUDE.md", "SNAPCONTEXT.md"):
         camino = Path(directorio) / nombre
         if camino.exists():
@@ -313,15 +341,13 @@ def inyectar_en_claudemd(regla: dict, directorio: str = ".") -> bool:
     ``True`` si el archivo se actualizó.
     """
     try:
-        from pathlib import Path
         camino = _memoria_proyecto(directorio)
         linea = regla_a_linea(regla)
         if not linea.strip("- ").strip():
             return False
-        contenido = camino.read_text(encoding="utf-8") if camino.exists() \
-            else ""
+        contenido = camino.read_text(encoding="utf-8") if camino.exists() else ""
         if linea in contenido:
-            return False                 # idempotente: ya inyectada
+            return False  # idempotente: ya inyectada
         if SECCION_REGLAS in contenido:
             partes = contenido.split(SECCION_REGLAS, 1)
             cabeza = partes[0] + SECCION_REGLAS + "\n"
@@ -330,16 +356,17 @@ def inyectar_en_claudemd(regla: dict, directorio: str = ".") -> bool:
             m = re.search(r"\n## ", resto)
             if m:
                 fin = m.start()
-            nuevo = cabeza + resto[:fin].rstrip("\n") + "\n" + linea + "\n" \
-                + resto[fin:]
+            nuevo = cabeza + resto[:fin].rstrip("\n") + "\n" + linea + "\n" + resto[fin:]
         else:
-            nuevo = (contenido.rstrip("\n") + "\n\n" + SECCION_REGLAS
-                     + "\n\n" + linea + "\n") if contenido.strip() \
+            nuevo = (
+                (contenido.rstrip("\n") + "\n\n" + SECCION_REGLAS + "\n\n" + linea + "\n")
+                if contenido.strip()
                 else (SECCION_REGLAS + "\n\n" + linea + "\n")
+            )
         camino.parent.mkdir(parents=True, exist_ok=True)
         camino.write_text(nuevo, encoding="utf-8")
         return True
-    except Exception:                    # noqa: BLE001 — nunca romper
+    except Exception:
         return False
 
 
@@ -349,22 +376,18 @@ def inyectar_todas_las_reglas(directorio: str = ".") -> int:
     sc = _sc()
     sc._db_init()
     try:
-        filas = sc._db_query(
-            "SELECT * FROM reglas ORDER BY confianza DESC")
-    except Exception:                    # noqa: BLE001
+        filas = sc._db_query("SELECT * FROM reglas ORDER BY confianza DESC")
+    except Exception:
         return 0
     añadidas = 0
     for fila in filas:
         regla = dict(fila)
         try:
-            regla["archivos_afectados"] = json.loads(
-                fila.get("archivos_afectados") or "[]")
-            regla["dependencias"] = json.loads(
-                fila.get("dependencias") or "[]")
+            regla["archivos_afectados"] = json.loads(fila.get("archivos_afectados") or "[]")
+            regla["dependencias"] = json.loads(fila.get("dependencias") or "[]")
         except (ValueError, TypeError):
             regla["archivos_afectados"] = []
             regla["dependencias"] = []
         if inyectar_en_claudemd(regla, directorio):
             añadidas += 1
     return añadidas
-

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de permisos y confirmaciones (--confirmar) — v0.13.0."""
 
 import json
@@ -18,12 +17,12 @@ class BasePermisos(unittest.TestCase):
 
     def setUp(self):
         import tempfile
+
         self.tmp = tempfile.TemporaryDirectory()
         self.dir_tmp = Path(self.tmp.name)
         parches = [
             mock.patch.object(sc, "CONFIG_DIR", self.dir_tmp),
-            mock.patch.object(sc, "PERMISOS_PATH",
-                              self.dir_tmp / "permisos.json"),
+            mock.patch.object(sc, "PERMISOS_PATH", self.dir_tmp / "permisos.json"),
         ]
         for p in parches:
             p.start()
@@ -50,7 +49,7 @@ class TestPermisosPersistencia(BasePermisos):
         self.assertTrue((self.dir_tmp / "permisos.json").exists())
         self.assertTrue(sc._limpiar_permisos())
         self.assertFalse((self.dir_tmp / "permisos.json").exists())
-        self.assertTrue(sc._limpiar_permisos())   # sin archivo también ok
+        self.assertTrue(sc._limpiar_permisos())  # sin archivo también ok
 
     def test_archivo_corrupto_devuelve_vacio(self):
         (self.dir_tmp / "permisos.json").write_text("{roto", encoding="utf-8")
@@ -109,35 +108,40 @@ class TestIntegracionPermisos(BasePermisos):
     def setUp(self):
         super().setUp()
         import tempfile
+
         self.tmp2 = tempfile.TemporaryDirectory()
         self.dir_trabajo = Path(self.tmp2.name)
         self.addCleanup(self.tmp2.cleanup)
 
     def test_cmd_run_denegado_no_ejecuta(self):
-        with mock.patch.object(sc, "_ejecutar_comando") as ej, \
-             mock.patch("builtins.input", return_value="n"):
+        with (
+            mock.patch.object(sc, "_ejecutar_comando") as ej,
+            mock.patch("builtins.input", return_value="n"),
+        ):
             sc._cmd_chat_run("cmd /c echo peligro", str(self.dir_trabajo))
         ej.assert_not_called()
 
     def test_cmd_run_permitido_ejecuta(self):
-        with mock.patch.object(sc, "_ejecutar_comando",
-                               return_value=(0, "salida", "")) as ej, \
-             mock.patch("builtins.input", return_value="s"):
+        with (
+            mock.patch.object(sc, "_ejecutar_comando", return_value=(0, "salida", "")) as ej,
+            mock.patch("builtins.input", return_value="s"),
+        ):
             sc._cmd_chat_run("cmd /c echo ok", str(self.dir_trabajo))
         ej.assert_called_once()
 
     def test_cmd_run_sin_confirmacion_global(self):
         sc.CONFIRMAR_ACCIONES = False
-        with mock.patch.object(sc, "_ejecutar_comando",
-                               return_value=(0, "", "")) as ej:
+        with mock.patch.object(sc, "_ejecutar_comando", return_value=(0, "", "")) as ej:
             sc._cmd_chat_run("cmd /c echo auto", str(self.dir_trabajo))
         ej.assert_called_once()
 
     def test_cmd_edit_denegado_no_abre_editor(self):
         destino = self.dir_trabajo / "archivo.txt"
         destino.write_text("hola", encoding="utf-8")
-        with mock.patch.object(sc.subprocess, "Popen") as popen, \
-             mock.patch("builtins.input", return_value="n"):
+        with (
+            mock.patch.object(sc.subprocess, "Popen") as popen,
+            mock.patch("builtins.input", return_value="n"),
+        ):
             sc._cmd_chat_edit(str(destino))
         popen.assert_not_called()
 
@@ -145,26 +149,30 @@ class TestIntegracionPermisos(BasePermisos):
         args = sc.argparse.Namespace(consulta="tarea", confirmar=True)
         with mock.patch.object(sc, "_confirmar_accion", return_value=False):
             ok, detalle = sc._ejecutar_paso_plan(
-                {"accion": "ejecutar", "descripcion": "paso",
-                 "comando": "cmd /c echo x"}, args, str(self.dir_trabajo))
+                {"accion": "ejecutar", "descripcion": "paso", "comando": "cmd /c echo x"},
+                args,
+                str(self.dir_trabajo),
+            )
         self.assertFalse(ok)
         self.assertEqual(detalle, "denegado por el usuario")
 
     def test_paso_plan_permitido_continua(self):
         args = sc.argparse.Namespace(consulta="tarea", confirmar=True)
-        comando = ("cmd /c echo hola" if sys.platform.startswith("win")
-                   else "echo hola")
+        comando = "cmd /c echo hola" if sys.platform.startswith("win") else "echo hola"
         with mock.patch.object(sc, "_confirmar_accion", return_value=True):
             ok, _ = sc._ejecutar_paso_plan(
-                {"accion": "ejecutar", "descripcion": "paso",
-                 "comando": comando}, args, str(self.dir_trabajo))
+                {"accion": "ejecutar", "descripcion": "paso", "comando": comando},
+                args,
+                str(self.dir_trabajo),
+            )
         self.assertTrue(ok)
 
     def test_explore_no_pide_permiso(self):
         """`/explore` es solo lectura: nunca debe llamar a _confirmar_accion."""
-        with mock.patch.object(sc, "_confirmar_accion") as conf, \
-             mock.patch.object(sc, "_ejecutar_comando",
-                               return_value=(0, "", "")):
+        with (
+            mock.patch.object(sc, "_confirmar_accion") as conf,
+            mock.patch.object(sc, "_ejecutar_comando", return_value=(0, "", "")),
+        ):
             sc._cmd_chat_explore("cualquier cosa", str(self.dir_trabajo))
         conf.assert_not_called()
 
@@ -187,4 +195,3 @@ class TestFlagsConfirmarCLI(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la v1.2.0: editor web (Monaco), grafo de dependencias y búsqueda.
 
 Cubren las funciones nuevas de ``snapcontext`` que alimentan a la interfaz web
@@ -20,10 +19,16 @@ import snapcontext as sc
 class TestComandoParaMonaco(unittest.TestCase):
     def test_extensiones_comunes(self):
         casos = {
-            "pagos.py": "python", "app.js": "javascript",
-            "mod.ts": "typescript", "ui.dart": "dart",
-            "main.go": "go", "lib.rs": "rust", "A.java": "java",
-            "ui.cpp": "cpp", "README.md": "markdown", "conf.json": "json",
+            "pagos.py": "python",
+            "app.js": "javascript",
+            "mod.ts": "typescript",
+            "ui.dart": "dart",
+            "main.go": "go",
+            "lib.rs": "rust",
+            "A.java": "java",
+            "ui.cpp": "cpp",
+            "README.md": "markdown",
+            "conf.json": "json",
         }
         for archivo, esperado in casos.items():
             self.assertEqual(sc._comando_para_monaco(archivo), esperado)
@@ -79,8 +84,7 @@ class _GrafoBase(unittest.TestCase):
 
 class TestGrafoDependencias(_GrafoBase):
     def test_enlaza_imports_locales_python(self):
-        (self.raiz / "app.py").write_text(
-            "from utils import helper\n", encoding="utf-8")
+        (self.raiz / "app.py").write_text("from utils import helper\n", encoding="utf-8")
         (self.raiz / "utils.py").write_text("# utilidades\n", encoding="utf-8")
         grafo = sc._grafo_dependencias(str(self.raiz))
         enlaces = {(e["origen"], e["destino"]) for e in grafo["enlaces"]}
@@ -88,7 +92,8 @@ class TestGrafoDependencias(_GrafoBase):
 
     def test_resuelve_ruta_relativa_js(self):
         (self.raiz / "main.js").write_text(
-            "import Cliente from './cliente.js';\n", encoding="utf-8")
+            "import Cliente from './cliente.js';\n", encoding="utf-8"
+        )
         (self.raiz / "cliente.js").write_text("export default {};\n", encoding="utf-8")
         grafo = sc._grafo_dependencias(str(self.raiz))
         enlaces = {(e["origen"], e["destino"]) for e in grafo["enlaces"]}
@@ -113,9 +118,10 @@ class TestBuscarEnCodigo(_GrafoBase):
     def test_con_findstr_mockeado(self):
         (self.raiz / "a.py").write_text("def pago():\n    pass\n", encoding="utf-8")
         salida = "a.py:1:def pago():\n"
-        with mock.patch.object(sc, "_herramienta_busqueda", return_value="findstr"), \
-             mock.patch.object(sc, "_ejecutar_comando",
-                               return_value=(0, salida, "")):
+        with (
+            mock.patch.object(sc, "_herramienta_busqueda", return_value="findstr"),
+            mock.patch.object(sc, "_ejecutar_comando", return_value=(0, salida, "")),
+        ):
             resultado = sc._buscar_en_codigo("pago", str(self.raiz))
         self.assertEqual(resultado, ["a.py:1:def pago():"])
 
@@ -127,6 +133,7 @@ class TestBuscarEnCodigo(_GrafoBase):
 def _se_puede_importar_web() -> bool:
     try:
         import web.app  # noqa: F401
+
         return True
     except Exception:
         return False
@@ -136,6 +143,7 @@ class TestWebProxy(unittest.TestCase):
     @unittest.skipUnless(_se_puede_importar_web(), "extra 'web' (fastapi) no instalado")
     def test_crear_app_disponible(self):
         import web.app as wa
+
         self.assertTrue(hasattr(wa, "crear_app"))
         self.assertTrue(hasattr(wa, "_dependencias_web"))
         self.assertTrue(hasattr(wa, "_guardar_archivo_web"))

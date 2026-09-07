@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la v6.16.0: Prompt Caching.
 
 Cubre:
@@ -112,8 +111,7 @@ class TestAplicarCacheControl(unittest.TestCase):
         self.assertEqual(out[0]["cache_control"], _EPHEMERAL)
 
     def test_mensaje_system_se_marca(self):
-        out = sc._aplicar_cache_control(
-            [{"role": "system", "content": "Eres un agente"}])
+        out = sc._aplicar_cache_control([{"role": "system", "content": "Eres un agente"}])
         self.assertEqual(out[0]["cache_control"], _EPHEMERAL)
 
     def test_mensaje_con_herramientas_mcp_se_marca(self):
@@ -190,14 +188,15 @@ class TestResolverPromptCaching(unittest.TestCase):
         self.assertTrue(sc._resolver_prompt_caching(None))
 
     def test_config_json_prompt_caching_false(self):
-        with mock.patch.object(sc, "cargar_configuracion",
-                               return_value={"provider": "deepseek",
-                                             "prompt_caching": False}):
+        with mock.patch.object(
+            sc,
+            "cargar_configuracion",
+            return_value={"provider": "deepseek", "prompt_caching": False},
+        ):
             self.assertFalse(sc._resolver_prompt_caching(None))
 
     def test_config_json_prompt_caching_true(self):
-        with mock.patch.object(sc, "cargar_configuracion",
-                               return_value={"prompt_caching": True}):
+        with mock.patch.object(sc, "cargar_configuracion", return_value={"prompt_caching": True}):
             self.assertTrue(sc._resolver_prompt_caching(None))
 
 
@@ -208,16 +207,14 @@ class TestEnviarAlProveedorCaching(unittest.TestCase):
         self.org_openai = sc.openai
         self.org_import_openai = sc._importar_openai
         self.env = mock.patch.dict(
-            "os.environ",
-            {"DEEPSEEK_API_KEY": "k", "GROQ_API_KEY": "k"},
-            clear=False)
+            "os.environ", {"DEEPSEEK_API_KEY": "k", "GROQ_API_KEY": "k"}, clear=False
+        )
         self.env.start()
         sc.openai = self.fake_ai
         sc._importar_openai = lambda: self.fake_ai
         self.addCleanup(self.env.stop)
         self.addCleanup(lambda: setattr(sc, "openai", self.org_openai))
-        self.addCleanup(
-            lambda: setattr(sc, "_importar_openai", self.org_import_openai))
+        self.addCleanup(lambda: setattr(sc, "_importar_openai", self.org_import_openai))
 
     def test_deepseek_recibe_cache_control(self):
         msgs = [{"role": "system", "content": "HERRAMIENTAS MCP"}]
@@ -245,17 +242,17 @@ class TestEnviarAlProveedorAnthropic(unittest.TestCase):
         self.org_import = sc._importar_anthropic
         sc.anthropic = self.fake_ai
         sc._importar_anthropic = lambda: self.fake_ai
-        self.env = mock.patch.dict("os.environ",
-                                   {"ANTHROPIC_API_KEY": "k"}, clear=False)
+        self.env = mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "k"}, clear=False)
         self.env.start()
         self.addCleanup(self.env.stop)
         self.addCleanup(lambda: setattr(sc, "anthropic", self.org))
-        self.addCleanup(
-            lambda: setattr(sc, "_importar_anthropic", self.org_import))
+        self.addCleanup(lambda: setattr(sc, "_importar_anthropic", self.org_import))
 
     def test_anthropic_recibe_cache_control(self):
-        msgs = [{"role": "system", "content": "CLAUDE.md memoria"},
-                {"role": "user", "content": "hola"}]
+        msgs = [
+            {"role": "system", "content": "CLAUDE.md memoria"},
+            {"role": "user", "content": "hola"},
+        ]
         sc._enviar_al_proveedor("anthropic", None, msgs, prompt_caching=True)
         enviados = self.fake_ai.captured["messages"]
         self.assertEqual(enviados[0].get("cache_control"), _EPHEMERAL)
@@ -268,17 +265,17 @@ class TestGeminiSinMarcas(unittest.TestCase):
         self.org_import = sc._importar_genai
         sc.genai = self.fake_genai
         sc._importar_genai = lambda: self.fake_genai
-        self.env = mock.patch.dict("os.environ",
-                                   {"GEMINI_API_KEY": "k"}, clear=False)
+        self.env = mock.patch.dict("os.environ", {"GEMINI_API_KEY": "k"}, clear=False)
         self.env.start()
         self.addCleanup(self.env.stop)
         self.addCleanup(lambda: setattr(sc, "genai", self.org))
-        self.addCleanup(
-            lambda: setattr(sc, "_importar_genai", self.org_import))
+        self.addCleanup(lambda: setattr(sc, "_importar_genai", self.org_import))
 
     def test_gemini_envia_sin_marcas(self):
-        msgs = [{"role": "system", "content": "HERRAMIENTAS MCP"},
-                {"role": "user", "content": "hola"}]
+        msgs = [
+            {"role": "system", "content": "HERRAMIENTAS MCP"},
+            {"role": "user", "content": "hola"},
+        ]
         sc._enviar_al_proveedor("gemini", None, msgs, prompt_caching=True)
         for contenido in self.fake_genai.captured:
             self.assertNotIn("cache_control", contenido)
@@ -305,12 +302,14 @@ class TestMensajeCachingInicio(unittest.TestCase):
         os.environ.pop(sc.ENV_PROMPT_CACHING, None)
 
     def test_activado_para_proveedor_que_soporta(self):
-        self.assertEqual(sc._mensaje_caching_inicio("anthropic"),
-                         "🧠 Prompt Caching activado para anthropic")
+        self.assertEqual(
+            sc._mensaje_caching_inicio("anthropic"), "🧠 Prompt Caching activado para anthropic"
+        )
 
     def test_no_soportado_para_gemini(self):
-        self.assertEqual(sc._mensaje_caching_inicio("gemini"),
-                         "🧠 Prompt Caching no soportado para gemini")
+        self.assertEqual(
+            sc._mensaje_caching_inicio("gemini"), "🧠 Prompt Caching no soportado para gemini"
+        )
 
     def test_no_mensaje_si_soporta_pero_desactivado(self):
         os.environ[sc.ENV_PROMPT_CACHING] = "0"
@@ -321,15 +320,14 @@ class TestMensajeCachingInicio(unittest.TestCase):
 class TestComprimirHistorialPreservaMarcas(unittest.TestCase):
     def test_resumen_recibe_cache_control_con_proveedor_compatible(self):
         import react_agent as ra
-        agente = ra.ReactAgent(directorio=".", auto=True, proveedor="anthropic",
-                               modelo="claude-x")
+
+        agente = ra.ReactAgent(directorio=".", auto=True, proveedor="anthropic", modelo="claude-x")
         agente.historial = [
             {"role": "system", "content": "sistema"},
             {"role": "user", "content": "paso 1"},
             {"role": "assistant", "content": "acción"},
         ]
-        with mock.patch.object(agente, "_llamar_llm",
-                               return_value="resumen del trabajo"):
+        with mock.patch.object(agente, "_llamar_llm", return_value="resumen del trabajo"):
             agente._comprimir_historial()
         self.assertEqual(len(agente.historial), 2)
         self.assertEqual(agente.historial[1]["cache_control"], _EPHEMERAL)
@@ -337,14 +335,13 @@ class TestComprimirHistorialPreservaMarcas(unittest.TestCase):
 
     def test_resumen_sin_marcas_con_proveedor_no_compatible(self):
         import react_agent as ra
-        agente = ra.ReactAgent(directorio=".", auto=True, proveedor="groq",
-                               modelo="llama-x")
+
+        agente = ra.ReactAgent(directorio=".", auto=True, proveedor="groq", modelo="llama-x")
         agente.historial = [
             {"role": "system", "content": "sistema"},
             {"role": "user", "content": "paso 1"},
         ]
-        with mock.patch.object(agente, "_llamar_llm",
-                               return_value="resumen del trabajo"):
+        with mock.patch.object(agente, "_llamar_llm", return_value="resumen del trabajo"):
             agente._comprimir_historial()
         self.assertNotIn("cache_control", agente.historial[1])
 
@@ -372,13 +369,11 @@ class TestNoDuplicacionCacheControl(unittest.TestCase):
             "Eres un asistente. HERRAMIENTAS MCP: editar_archivo(ruta, "
             "contenido), ejecutar_comando(cmd)."
         )
-        msgs = [{"role": "system", "content": contenido},
-                {"role": "user", "content": "hola"}]
+        msgs = [{"role": "system", "content": contenido}, {"role": "user", "content": "hola"}]
         m = sc._calcular_metricas_caching(msgs)
         self.assertIn("sistema", m["categorias"])
         self.assertNotIn("herramientas", m["categorias"])
-        self.assertEqual(m["tokens_cacheados"],
-                         m["categorias"]["sistema"])
+        self.assertEqual(m["tokens_cacheados"], m["categorias"]["sistema"])
         self.assertGreater(m["tokens_cacheados"], 0)
         self.assertGreater(m["tokens_no_cacheados"], 0)
 
@@ -399,8 +394,3 @@ class TestContarTokens(unittest.TestCase):
 
     def test_nunca_negativo(self):
         self.assertEqual(sc._contar_tokens("a"), 0)
-
-
-
-
-

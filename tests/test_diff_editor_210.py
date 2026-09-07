@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la Fase 2 del Editor Propio (Diffs y Parches Unificados) — v2.1.0."""
 
-import os
 import shutil
 import tempfile
 import unittest
@@ -41,8 +39,10 @@ class TestDiffYParches(unittest.TestCase):
     def test_aplicar_parche_con_git_mock(self):
         parche = "--- a/test.py\n+++ b/test.py\n@@ -1 +1 @@\n-hola\n+mundo\n"
         proc_mock = mock.MagicMock(returncode=0, stderr="")
-        with mock.patch("shutil.which", return_value="git"), \
-             mock.patch("subprocess.run", return_value=proc_mock) as sub_mock:
+        with (
+            mock.patch("shutil.which", return_value="git"),
+            mock.patch("subprocess.run", return_value=proc_mock) as sub_mock,
+        ):
             ok = sc._aplicar_parche(parche, str(self.raiz))
             self.assertTrue(ok)
             sub_mock.assert_called_once()
@@ -53,8 +53,10 @@ class TestDiffYParches(unittest.TestCase):
         parche = "--- a/test.py\n+++ b/test.py\n@@ -1 +1 @@\n-hola\n+mundo\n"
         proc_fail = mock.MagicMock(returncode=1, stderr="error git")
         proc_ok = mock.MagicMock(returncode=0, stderr="")
-        with mock.patch("shutil.which", side_effect=lambda x: x if x in ("git", "patch") else None), \
-             mock.patch("subprocess.run", side_effect=[proc_fail, proc_ok]) as sub_mock:
+        with (
+            mock.patch("shutil.which", side_effect=lambda x: x if x in ("git", "patch") else None),
+            mock.patch("subprocess.run", side_effect=[proc_fail, proc_ok]) as sub_mock,
+        ):
             ok = sc._aplicar_parche(parche, str(self.raiz))
             self.assertTrue(ok)
             self.assertEqual(sub_mock.call_count, 2)
@@ -65,9 +67,13 @@ class TestDiffYParches(unittest.TestCase):
         (self.raiz / archivo).write_text("def fn(): return 1\n", encoding="utf-8")
         diff_simulado = "--- a/modulo.py\n+++ b/modulo.py\n@@ -1 +1 @@\n-def fn(): return 1\n+def fn(): return 2\n"
 
-        with mock.patch.object(sc, "_enviar_al_proveedor", return_value=diff_simulado), \
-             mock.patch.object(agente, "aplicar_parche", return_value=True) as ap_mock:
-            ok = agente.ejecutar([archivo], "cambiar retorno a 2", directorio=str(self.raiz), modo_edicion="parche")
+        with (
+            mock.patch.object(sc, "_enviar_al_proveedor", return_value=diff_simulado),
+            mock.patch.object(agente, "aplicar_parche", return_value=True) as ap_mock,
+        ):
+            ok = agente.ejecutar(
+                [archivo], "cambiar retorno a 2", directorio=str(self.raiz), modo_edicion="parche"
+            )
             self.assertTrue(ok)
             ap_mock.assert_called_once()
 
@@ -78,11 +84,17 @@ class TestDiffYParches(unittest.TestCase):
         # Proveedor devuelve código completo en lugar de diff
         codigo_completo = "def fn(): return 2\n"
 
-        with mock.patch.object(sc, "_enviar_al_proveedor", side_effect=["no es un diff", codigo_completo]), \
-             mock.patch.object(sc, "_skill_editor_estrategia", return_value=None), \
-             mock.patch.object(sc, "_skill_editor_guardar", return_value=None), \
-             mock.patch.object(agente, "sobrescribir", return_value=True) as sob_mock:
-            ok = agente.ejecutar([archivo], "cambiar retorno a 2", directorio=str(self.raiz), modo_edicion="auto")
+        with (
+            mock.patch.object(
+                sc, "_enviar_al_proveedor", side_effect=["no es un diff", codigo_completo]
+            ),
+            mock.patch.object(sc, "_skill_editor_estrategia", return_value=None),
+            mock.patch.object(sc, "_skill_editor_guardar", return_value=None),
+            mock.patch.object(agente, "sobrescribir", return_value=True) as sob_mock,
+        ):
+            ok = agente.ejecutar(
+                [archivo], "cambiar retorno a 2", directorio=str(self.raiz), modo_edicion="auto"
+            )
             self.assertTrue(ok)
             sob_mock.assert_called_once_with(archivo, codigo_completo, str(self.raiz))
 
@@ -94,8 +106,12 @@ class TestFlagsEdicion(unittest.TestCase):
 
     def test_flag_modo_edicion_parche_y_sobrescribir(self):
         parser = sc.crear_parser()
-        self.assertEqual(parser.parse_args(["--modo-edicion", "parche", "c"]).modo_edicion, "parche")
-        self.assertEqual(parser.parse_args(["--modo-edicion", "sobrescribir", "c"]).modo_edicion, "sobrescribir")
+        self.assertEqual(
+            parser.parse_args(["--modo-edicion", "parche", "c"]).modo_edicion, "parche"
+        )
+        self.assertEqual(
+            parser.parse_args(["--modo-edicion", "sobrescribir", "c"]).modo_edicion, "sobrescribir"
+        )
 
     def test_version_es_2_1_0(self):
         self.assertEqual(sc.VERSION, "6.33.0")

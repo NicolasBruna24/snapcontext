@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Instalador y configuración del sistema para SnapContext.
 
 Extraído del monolito ``snapcontext.py`` (fase 2 del refactor).
@@ -17,27 +16,28 @@ nivel de módulo (sería un ciclo ``snapcontext → instalador → snapcontext``
 Las funciones de presentación/UI se importan de forma diferida, dentro de
 cada función (mismo patrón que :mod:`seguridad`).
 """
+
 from __future__ import annotations
 
 import os
 import shutil
 import subprocess
 import sys
-from typing import List, Optional
 
 __all__ = ["configurar_path", "snapcontext_en_path"]
 
 
-def _candidatos_carpetas_scripts() -> List[str]:
+def _candidatos_carpetas_scripts() -> list[str]:
     """Devuelve, en orden de prioridad, las carpetas donde suele instalarse el
     comando `snapcontext` (carpetas de scripts/bin de Python), sin comprobar
     todavía si existen. Prioriza el intérprete Python en uso."""
-    candidatos: List[str] = []
+    candidatos: list[str] = []
 
     # 1) Carpeta de scripts del intérprete Python en uso (donde pip y
     #    `pip install -e .` registran el comando `snapcontext`). Prioridad máxima.
     try:
         import sysconfig
+
         candidatos.append(sysconfig.get_path("scripts"))
     except Exception:
         pass
@@ -52,9 +52,7 @@ def _candidatos_carpetas_scripts() -> List[str]:
     if appdata:
         candidatos.append(os.path.join(appdata, "Python", "Scripts"))
     if localappdata:
-        candidatos.append(
-            os.path.join(localappdata, "Programs", "Python", "Scripts")
-        )
+        candidatos.append(os.path.join(localappdata, "Programs", "Python", "Scripts"))
         # Python3X: localizaciones con número de versión (p. ej. Python313).
         base_prog = os.path.join(localappdata, "Programs", "Python")
         try:
@@ -70,7 +68,7 @@ def _candidatos_carpetas_scripts() -> List[str]:
 
     # Eliminar vacíos y duplicados conservando el orden de prioridad.
     vistos = set()
-    unicos: List[str] = []
+    unicos: list[str] = []
     for c in candidatos:
         if c and c not in vistos:
             vistos.add(c)
@@ -78,7 +76,7 @@ def _candidatos_carpetas_scripts() -> List[str]:
     return unicos
 
 
-def _localizar_carpeta_scripts() -> Optional[str]:
+def _localizar_carpeta_scripts() -> str | None:
     """Localiza la carpeta donde se registra el comando `snapcontext`.
 
     Prioriza `sysconfig.get_path("scripts")`: si esa carpeta existe se devuelve
@@ -90,7 +88,7 @@ def _localizar_carpeta_scripts() -> Optional[str]:
     de Python que sí exista. Nunca devuelve el directorio del proyecto actual.
     """
     marcadores = ("snapcontext.exe", "snapcontext", "snapcontext.bat")
-    intentadas: List[str] = []
+    intentadas: list[str] = []
 
     for c in _candidatos_carpetas_scripts():
         if not os.path.isdir(c):
@@ -106,6 +104,7 @@ def _localizar_carpeta_scripts() -> Optional[str]:
 
     if intentadas:
         from snapcontext import depurar  # import diferido (evita ciclo)
+
         depurar("--setup-path: rutas probadas sin éxito: " + "; ".join(intentadas))
     return None
 
@@ -118,7 +117,9 @@ def _guardar_path_windows(nuevo_path: str) -> bool:
     try:
         res = subprocess.run(
             ["setx", "PATH", nuevo_path],
-            capture_output=True, text=True, timeout=20,
+            capture_output=True,
+            text=True,
+            timeout=20,
         )
         if res.returncode == 0:
             return True
@@ -127,6 +128,7 @@ def _guardar_path_windows(nuevo_path: str) -> bool:
 
     try:
         import winreg
+
         with winreg.OpenKey(
             winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE
         ) as clave:
@@ -150,8 +152,7 @@ def configurar_path() -> int:
     añade al PATH persistente del usuario y sale. Código 0 = éxito.
     """
     # import diferido (evita ciclo snapcontext → instalador → snapcontext)
-    from snapcontext import (_CYAN, _pintar, _preguntar_si,
-                             aviso, error, exito, info)
+    from snapcontext import _CYAN, _pintar, _preguntar_si, aviso, error, exito, info
 
     if not sys.platform.startswith("win"):
         error("--setup-path solo funciona en Windows.")
@@ -160,8 +161,7 @@ def configurar_path() -> int:
     info("Configurando el PATH del usuario para Windows...")
     carpeta = _localizar_carpeta_scripts()
     if not carpeta:
-        error("No se pudo localizar automáticamente la carpeta de ejecutables "
-              "de SnapContext.")
+        error("No se pudo localizar automáticamente la carpeta de ejecutables de SnapContext.")
         aviso("Rutas típicas donde suele instalarse el comando 'snapcontext':")
         for r in _candidatos_carpetas_scripts():
             if r:
@@ -170,10 +170,17 @@ def configurar_path() -> int:
         # Fallback interactivo: ofrecer indicar la ruta manualmente.
         if _preguntar_si("¿Quieres indicar la carpeta de Scripts manualmente?"):
             try:
-                manual = input(
-                    _pintar("Ruta de la carpeta Scripts (p. ej. "
-                            "C:\\...\\Python313\\Scripts): ", _CYAN)
-                ).strip().strip('"').strip("'")
+                manual = (
+                    input(
+                        _pintar(
+                            "Ruta de la carpeta Scripts (p. ej. C:\\...\\Python313\\Scripts): ",
+                            _CYAN,
+                        )
+                    )
+                    .strip()
+                    .strip('"')
+                    .strip("'")
+                )
             except EOFError:  # entrada no interactiva → abandonar
                 manual = ""
             if manual and os.path.isdir(manual):
@@ -182,8 +189,10 @@ def configurar_path() -> int:
                 aviso("Ruta no válida o inexistente: no se modificará el PATH.")
 
         if not carpeta or not os.path.isdir(carpeta):
-            aviso("Añade la ruta de Scripts manualmente al PATH del usuario "
-                  "o vuelve a ejecutar --setup-path tras instalar SnapContext.")
+            aviso(
+                "Añade la ruta de Scripts manualmente al PATH del usuario "
+                "o vuelve a ejecutar --setup-path tras instalar SnapContext."
+            )
             aviso("SnapContext seguirá funcionando con: 'python -m snapcontext'")
             return 1
 

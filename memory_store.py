@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Memoria a largo plazo (v6.26.0) — historial de decisiones en SQLite.
 
 Almacena las decisiones tomadas por el agente (tareas, archivos modificados,
@@ -18,21 +17,18 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import sqlite3
-import threading
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 __all__ = [
-    "guardar_decision",
-    "buscar_decisiones",
-    "obtener_contexto_memoria",
-    "listar_decisiones",
-    "limpiar_historial",
-    "MEMORIA_ACTIVA",
     "MAX_MEMORIA_DEFECTO",
+    "MEMORIA_ACTIVA",
+    "buscar_decisiones",
+    "guardar_decision",
+    "limpiar_historial",
+    "listar_decisiones",
+    "obtener_contexto_memoria",
 ]
 
 # Configuracion por defecto
@@ -95,7 +91,7 @@ def _asegurar_tabla(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _generar_hash(tarea: str, archivos: List[str]) -> str:
+def _generar_hash(tarea: str, archivos: list[str]) -> str:
     """Genera un hash unico para evitar duplicados."""
     contenido = f"{tarea}:{sorted(archivos or [])}"
     return hashlib.sha256(contenido.encode("utf-8")).hexdigest()[:16]
@@ -127,13 +123,13 @@ def contar_decisiones() -> int:
 
 def guardar_decision(
     tarea: str,
-    archivos_afectados: Optional[List[str]] = None,
+    archivos_afectados: list[str] | None = None,
     descripcion: str = "",
     proveedor: str = "",
     modelo: str = "",
     razonamiento: str = "",
     resultado: str = "exito",
-    metadatos: Optional[Dict[str, Any]] = None,
+    metadatos: dict[str, Any] | None = None,
 ) -> bool:
     """Guarda una decision en el historial."""
     if not _memoria_activa or not tarea:
@@ -144,35 +140,40 @@ def guardar_decision(
         hash_tarea = _generar_hash(tarea, archivos_afectados or [])
 
         existente = conn.execute(
-            "SELECT id FROM historial_decisiones WHERE hash_tarea = ?",
-            (hash_tarea,)
+            "SELECT id FROM historial_decisiones WHERE hash_tarea = ?", (hash_tarea,)
         ).fetchone()
 
         if existente:
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE historial_decisiones
                 SET resultado = ?, creado = CURRENT_TIMESTAMP
                 WHERE hash_tarea = ?
-            """, (resultado, hash_tarea))
+            """,
+                (resultado, hash_tarea),
+            )
             conn.commit()
             return True
 
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO historial_decisiones
             (tarea, archivos_afectados, descripcion, proveedor, modelo,
              razonamiento, resultado, metadatos, hash_tarea)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            tarea,
-            json.dumps(archivos_afectados or [], ensure_ascii=False),
-            descripcion,
-            proveedor,
-            modelo,
-            razonamiento[:2000] if razonamiento else "",
-            resultado,
-            json.dumps(metadatos or {}, ensure_ascii=False),
-            hash_tarea,
-        ))
+        """,
+            (
+                tarea,
+                json.dumps(archivos_afectados or [], ensure_ascii=False),
+                descripcion,
+                proveedor,
+                modelo,
+                razonamiento[:2000] if razonamiento else "",
+                resultado,
+                json.dumps(metadatos or {}, ensure_ascii=False),
+                hash_tarea,
+            ),
+        )
 
         _limitar_historial(conn)
         conn.commit()
@@ -186,20 +187,23 @@ def _limitar_historial(conn: sqlite3.Connection) -> None:
     count = conn.execute("SELECT COUNT(*) FROM historial_decisiones").fetchone()[0]
     if count > _max_memoria:
         exceso = count - _max_memoria
-        conn.execute("""
+        conn.execute(
+            """
             DELETE FROM historial_decisiones
             WHERE id IN (
                 SELECT id FROM historial_decisiones
                 ORDER BY creado ASC
                 LIMIT ?
             )
-        """, (exceso,))
+        """,
+            (exceso,),
+        )
 
 
 def buscar_decisiones(
     consulta: str,
     limite: int = 5,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Busca decisiones relevantes por similitud de texto."""
     if not _memoria_activa or not consulta:
         return []
@@ -211,33 +215,37 @@ def buscar_decisiones(
             return []
 
         condiciones = " OR ".join(
-            ["tarea LIKE ? OR descripcion LIKE ? OR archivos_afectados LIKE ?"]
-            * len(palabras)
+            ["tarea LIKE ? OR descripcion LIKE ? OR archivos_afectados LIKE ?"] * len(palabras)
         )
         parametros = []
         for palabra in palabras:
             patron = f"%{palabra}%"
             parametros.extend([patron, patron, patron])
 
-        cursor = conn.execute(f"""
+        cursor = conn.execute(
+            f"""
             SELECT * FROM historial_decisiones
             WHERE {condiciones}
             ORDER BY creado DESC
             LIMIT ?
-        """, parametros + [limite])
+        """,
+            parametros + [limite],
+        )
 
         resultados = []
         for fila in cursor.fetchall():
-            resultados.append({
-                "id": fila["id"],
-                "tarea": fila["tarea"],
-                "archivos_afectados": json.loads(fila["archivos_afectados"] or "[]"),
-                "descripcion": fila["descripcion"],
-                "proveedor": fila["proveedor"],
-                "modelo": fila["modelo"],
-                "resultado": fila["resultado"],
-                "creado": fila["creado"],
-            })
+            resultados.append(
+                {
+                    "id": fila["id"],
+                    "tarea": fila["tarea"],
+                    "archivos_afectados": json.loads(fila["archivos_afectados"] or "[]"),
+                    "descripcion": fila["descripcion"],
+                    "proveedor": fila["proveedor"],
+                    "modelo": fila["modelo"],
+                    "resultado": fila["resultado"],
+                    "creado": fila["creado"],
+                }
+            )
         return resultados
     except Exception:
         return []
@@ -260,18 +268,21 @@ def obtener_contexto_memoria(consulta: str, limite: int = 3) -> str:
     return "\n".join(lineas)
 
 
-def listar_decisiones(limite: int = 10) -> List[Dict[str, Any]]:
+def listar_decisiones(limite: int = 10) -> list[dict[str, Any]]:
     """Devuelve las ultimas N decisiones."""
     if not _memoria_activa:
         return []
 
     try:
         conn = _obtener_conexion()
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             SELECT * FROM historial_decisiones
             ORDER BY creado DESC
             LIMIT ?
-        """, (limite,))
+        """,
+            (limite,),
+        )
 
         return [
             {

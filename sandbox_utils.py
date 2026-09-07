@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Detección de comandos peligrosos para el sandboxing inteligente (v5.4.0).
 
 Permite a SnapContext decidir *por comando* si conviene ejecutarlo dentro del
@@ -27,7 +26,7 @@ import os
 import re
 import shlex
 import subprocess
-from typing import Callable, List, Optional, Tuple, Union
+from collections.abc import Callable
 
 # Registro extensible de patrones de comandos peligrosos.
 # Cada elemento es ``(regex_compilada, descripcion)``.
@@ -37,61 +36,76 @@ from typing import Callable, List, Optional, Tuple, Union
 #     dispositivo nulo que cierra la salida). Solo se marcan las escrituras a
 #     **dispositivos de bloque reales** (/dev/sda*, /dev/nvme*, ...), que sí
 #     pueden destruir el disco.
-_PATRONES_PELIGROSOS: List[Tuple[re.Pattern, str]] = [
+_PATRONES_PELIGROSOS: list[tuple[re.Pattern, str]] = [
     # ── Eliminación masiva de archivos ─────────────────────────────────────
-    (re.compile(r"\brm\s+-(?:rf|fr|r\s+-f|f\s+-r)\s+"
-                r"(?:/(?=$|\*)|/\*\s*|\*(?=\s|$)|\.(?=\s|$)|~(?=\s|$))",
-                re.IGNORECASE),
-     "rm -rf sobre ruta raíz/usuario (borrado masivo)"),
-    (re.compile(r"\brm\s+-r\s+-f\s+(?:/|\.\s|\.$)", re.IGNORECASE),
-     "rm -rf sobre directorio raíz/actual"),
-    (re.compile(r"\brm\s+--no-preserve-root\b", re.IGNORECASE),
-     "rm con omisión de protección de raíz"),
+    (
+        re.compile(
+            r"\brm\s+-(?:rf|fr|r\s+-f|f\s+-r)\s+"
+            r"(?:/(?=$|\*)|/\*\s*|\*(?=\s|$)|\.(?=\s|$)|~(?=\s|$))",
+            re.IGNORECASE,
+        ),
+        "rm -rf sobre ruta raíz/usuario (borrado masivo)",
+    ),
+    (
+        re.compile(r"\brm\s+-r\s+-f\s+(?:/|\.\s|\.$)", re.IGNORECASE),
+        "rm -rf sobre directorio raíz/actual",
+    ),
+    (
+        re.compile(r"\brm\s+--no-preserve-root\b", re.IGNORECASE),
+        "rm con omisión de protección de raíz",
+    ),
     # ── Manipulación de discos / particiones ────────────────────────────────
-    (re.compile(r"\bdd\s+(?:if=|of=|bs=|conv=)", re.IGNORECASE),
-     "dd con gestión de dispositivos (if=/of=)"),
-    (re.compile(r"\bmkfs\b[\w.-]*", re.IGNORECASE),
-     "mkfs (formatear sistema de archivos)"),
-    (re.compile(r"\bfdisk\b", re.IGNORECASE),
-     "fdisk (particionado de disco)"),
-    (re.compile(r"\bwipefs\b|\bmkswap\b|\bparted\s+-a\s+optimal", re.IGNORECASE),
-     "borrado de firmas / formateo / particionado agresivo"),
+    (
+        re.compile(r"\bdd\s+(?:if=|of=|bs=|conv=)", re.IGNORECASE),
+        "dd con gestión de dispositivos (if=/of=)",
+    ),
+    (re.compile(r"\bmkfs\b[\w.-]*", re.IGNORECASE), "mkfs (formatear sistema de archivos)"),
+    (re.compile(r"\bfdisk\b", re.IGNORECASE), "fdisk (particionado de disco)"),
+    (
+        re.compile(r"\bwipefs\b|\bmkswap\b|\bparted\s+-a\s+optimal", re.IGNORECASE),
+        "borrado de firmas / formateo / particionado agresivo",
+    ),
     # ── Descarga y ejecución de scripts remotos ─────────────────────────────
-    (re.compile(r"\bcurl\s+.*\|\s*(?:sudo\s+)?(?:sh|bash|zsh)\b",
-                re.IGNORECASE),
-     "curl piped a shell (descarga y ejecución)"),
-    (re.compile(r"\bwget\s+.*\|\s*(?:sudo\s+)?(?:sh|bash|zsh)\b",
-                re.IGNORECASE),
-     "wget piped a shell (descarga y ejecución)"),
-    (re.compile(r"\b(?:curl|wget)\b.*\|\s*sudo\s+(?:sh|bash|zsh)\b",
-                re.IGNORECASE),
-     "descarga remota ejecutada con sudo"),
+    (
+        re.compile(r"\bcurl\s+.*\|\s*(?:sudo\s+)?(?:sh|bash|zsh)\b", re.IGNORECASE),
+        "curl piped a shell (descarga y ejecución)",
+    ),
+    (
+        re.compile(r"\bwget\s+.*\|\s*(?:sudo\s+)?(?:sh|bash|zsh)\b", re.IGNORECASE),
+        "wget piped a shell (descarga y ejecución)",
+    ),
+    (
+        re.compile(r"\b(?:curl|wget)\b.*\|\s*sudo\s+(?:sh|bash|zsh)\b", re.IGNORECASE),
+        "descarga remota ejecutada con sudo",
+    ),
     # ── Cambios de permisos peligrosos ──────────────────────────────────────
-    (re.compile(r"\bchmod\s+-R\s*\+?\s*777\b", re.IGNORECASE),
-     "chmod -R 777 sobre el árbol"),
-    (re.compile(r"\bchmod\s+777\s*/?(?:\s|$)", re.IGNORECASE),
-     "chmod 777 sobre la raíz o amplio"),
-    (re.compile(r"\bchmod\s+[0-7]{4}\s+/(?:\s|$)", re.IGNORECASE),
-     "chmod de la raíz"),
-    (re.compile(r"\bchown\s+-R\b", re.IGNORECASE),
-     "chown -R (cambio de propietario recursivo)"),
+    (re.compile(r"\bchmod\s+-R\s*\+?\s*777\b", re.IGNORECASE), "chmod -R 777 sobre el árbol"),
+    (re.compile(r"\bchmod\s+777\s*/?(?:\s|$)", re.IGNORECASE), "chmod 777 sobre la raíz o amplio"),
+    (re.compile(r"\bchmod\s+[0-7]{4}\s+/(?:\s|$)", re.IGNORECASE), "chmod de la raíz"),
+    (re.compile(r"\bchown\s+-R\b", re.IGNORECASE), "chown -R (cambio de propietario recursivo)"),
     # ── Fork bomb ───────────────────────────────────────────────────────────
-    (re.compile(r":\s*\(\s*\)\s*\{", re.IGNORECASE),
-     "fork bomb (bucle recursivo infinito)"),
+    (re.compile(r":\s*\(\s*\)\s*\{", re.IGNORECASE), "fork bomb (bucle recursivo infinito)"),
     # ── sudo con comandos peligrosos ────────────────────────────────────────
-    (re.compile(r"\bsudo\s+(?:rm\s+-rf|mkfs|dd|fdisk|shutdown|reboot|reboot|"
-                r"poweroff|halt)\b", re.IGNORECASE),
-     "sudo + comando destructivo"),
+    (
+        re.compile(
+            r"\bsudo\s+(?:rm\s+-rf|mkfs|dd|fdisk|shutdown|reboot|reboot|"
+            r"poweroff|halt)\b",
+            re.IGNORECASE,
+        ),
+        "sudo + comando destructivo",
+    ),
     # ── Escritura en dispositivos de bloque (excluye /dev/null a propósito) ─
-    (re.compile(r">\s*/dev/(?:sd[a-z]+\d*|hd[a-z]+\d*|nvme\d+n\d+|"
-                r"mmcblk\d+|mapper/\S+|disk/by-id/\S+|mem|shm)\b",
-                re.IGNORECASE),
-     "escritura en buffer de dispositivo de bloque"),
+    (
+        re.compile(
+            r">\s*/dev/(?:sd[a-z]+\d*|hd[a-z]+\d*|nvme\d+n\d+|"
+            r"mmcblk\d+|mapper/\S+|disk/by-id/\S+|mem|shm)\b",
+            re.IGNORECASE,
+        ),
+        "escritura en buffer de dispositivo de bloque",
+    ),
     # ── Terminación de procesos críticos ────────────────────────────────────
-    (re.compile(r"\bkill\s+-9\b", re.IGNORECASE),
-     "kill -9 (forzar terminación)"),
-    (re.compile(r"\bpkill\b", re.IGNORECASE),
-     "pkill (terminación masiva de procesos)"),
+    (re.compile(r"\bkill\s+-9\b", re.IGNORECASE), "kill -9 (forzar terminación)"),
+    (re.compile(r"\bpkill\b", re.IGNORECASE), "pkill (terminación masiva de procesos)"),
 ]
 
 
@@ -111,13 +125,13 @@ def es_comando_peligroso(comando: str) -> bool:
     return False
 
 
-def patrones_peligrosos_info() -> List[Tuple[str, str]]:
+def patrones_peligrosos_info() -> list[tuple[str, str]]:
     """Devuelve las descripciones de los patrones (para logging/auditoría)."""
     return [(p.pattern, d) for p, d in _PATRONES_PELIGROSOS]
 
 
 # ---------------------------------------------------------------------------
-# Ejecución segura de comandos 
+# Ejecución segura de comandos
 # ---------------------------------------------------------------------------
 # Helpers para reemplazar `subprocess.run(..., shell=True)` por ejecución con
 # lista de argumentos (`shell=False`), eliminando el riesgo de inyección de
@@ -138,15 +152,17 @@ def patrones_peligrosos_info() -> List[Tuple[str, str]]:
 
 def _flags_creacion() -> int:
     """Flags de subprocess: evita ventanas de consola en Windows."""
-    return (subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
-def ejecutar_comando_seguro(comando: Union[str, List[str], Tuple[str, ...]],
-                            cwd: Optional[str] = None,
-                            timeout: Optional[float] = None,
-                            env: Optional[dict] = None,
-                            capturar_salida: bool = True,
-                            entrada: Optional[str] = None) -> subprocess.CompletedProcess:
+def ejecutar_comando_seguro(
+    comando: str | list[str] | tuple[str, ...],
+    cwd: str | None = None,
+    timeout: float | None = None,
+    env: dict | None = None,
+    capturar_salida: bool = True,
+    entrada: str | None = None,
+) -> subprocess.CompletedProcess:
     """Ejecuta ``comando`` (lista de argumentos) con ``shell=False``.
 
     Acepta únicamente una **secuencia de strings** (lista o tupla). Si se pasa
@@ -177,8 +193,7 @@ def ejecutar_comando_seguro(comando: Union[str, List[str], Tuple[str, ...]],
     argv = list(comando)
     if not argv or not all(isinstance(a, str) and a for a in argv):
         raise ValueError(
-            "El comando debe ser una lista no vacía de strings. "
-            f"Recibido: {comando!r}"
+            f"El comando debe ser una lista no vacía de strings. Recibido: {comando!r}"
         )
     return subprocess.run(
         argv,
@@ -198,7 +213,7 @@ def ejecutar_comando_seguro(comando: Union[str, List[str], Tuple[str, ...]],
 _METACARACTERES_SHELL = re.compile(r"[|&;<>`]|\$\(|\*|\?|~")
 
 
-def tiene_metacaracteres_shell(comando: Optional[str]) -> bool:
+def tiene_metacaracteres_shell(comando: str | None) -> bool:
     """Indica si ``comando`` necesita un intérprete de shell.
 
     Detecta pipes (``|``), redirecciones (``<``/``>``), separadores (``;``,
@@ -211,14 +226,15 @@ def tiene_metacaracteres_shell(comando: Optional[str]) -> bool:
     return bool(_METACARACTERES_SHELL.search(str(comando)))
 
 
-def ejecutar_comando_con_politica(comando: str,
-                                  cwd: Optional[str] = None,
-                                  timeout: Optional[float] = None,
-                                  env: Optional[dict] = None,
-                                  capturar_salida: bool = True,
-                                  entrada: Optional[str] = None,
-                                  confirmar: Optional[Callable[[str], bool]] = None,
-                                  ) -> subprocess.CompletedProcess:
+def ejecutar_comando_con_politica(
+    comando: str,
+    cwd: str | None = None,
+    timeout: float | None = None,
+    env: dict | None = None,
+    capturar_salida: bool = True,
+    entrada: str | None = None,
+    confirmar: Callable[[str], bool] | None = None,
+) -> subprocess.CompletedProcess:
     """Ejecuta un comando (string) eligiendo la vía más segura posible.
 
     - Sin sintaxis de shell → ``shlex.split`` + :func:`ejecutar_comando_seguro`
@@ -236,13 +252,18 @@ def ejecutar_comando_con_politica(comando: str,
     if not tiene_metacaracteres_shell(texto):
         argv = shlex.split(texto)
         return ejecutar_comando_seguro(
-            argv, cwd=cwd, timeout=timeout, env=env,
-            capturar_salida=capturar_salida, entrada=entrada)
+            argv,
+            cwd=cwd,
+            timeout=timeout,
+            env=env,
+            capturar_salida=capturar_salida,
+            entrada=entrada,
+        )
     if es_comando_peligroso(texto):
         if confirmar is None or not confirmar(texto):
             raise RuntimeError(
-                "Comando potencialmente peligroso no confirmado; "
-                f"no se ejecuta: {texto!r}")
+                f"Comando potencialmente peligroso no confirmado; no se ejecuta: {texto!r}"
+            )
     return subprocess.run(
         texto,
         cwd=cwd,
@@ -257,10 +278,11 @@ def ejecutar_comando_con_politica(comando: str,
     )
 
 
-def lanzar_proceso_fondo_seguro(comando: str,
-                                cwd: Optional[str] = None,
-                                capturar_salida: bool = True,
-                                ) -> "subprocess.Popen":
+def lanzar_proceso_fondo_seguro(
+    comando: str,
+    cwd: str | None = None,
+    capturar_salida: bool = True,
+) -> subprocess.Popen:
     """Lanza ``comando`` en segundo plano aplicando la política segura.
 
     Igual que :func:`ejecutar_comando_con_politica` pero vía
@@ -289,8 +311,8 @@ def lanzar_proceso_fondo_seguro(comando: str,
         )
     if es_comando_peligroso(texto):
         raise RuntimeError(
-            "Comando potencialmente peligroso rechazado para ejecución en "
-            f"segundo plano: {texto!r}")
+            f"Comando potencialmente peligroso rechazado para ejecución en segundo plano: {texto!r}"
+        )
     return subprocess.Popen(
         texto,
         cwd=cwd,

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Sistema de Cola de Tareas Asíncronas y Worker en Segundo Plano (v6.8.0).
 
 Permite encolar tareas pesadas (pruebas, revisión de PRs, planes) desde
@@ -13,15 +12,14 @@ import asyncio
 import json
 import sqlite3
 import threading
-import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 CONFIG_DIR = Path.home() / ".snapcontext"
 DB_PATH = CONFIG_DIR / "memoria.db"
 
 _CANDADO_COLA = threading.Lock()
-_WORKER_HILO: Optional[threading.Thread] = None
+_WORKER_HILO: threading.Thread | None = None
 _WORKER_PARAR = threading.Event()
 # v6.9.0: evento para despertar al worker sin polling. Se SET al encolar una
 # nueva tarea; el worker bloquea con `wait()` en lugar de `time.sleep`, de modo
@@ -34,7 +32,7 @@ _WORKER_DESPERTAR = threading.Event()
 # ---------------------------------------------------------------------------
 # Inicialización y Conexión a Base de Datos
 # ---------------------------------------------------------------------------
-def _get_connection(db_path: Optional[str | Path] = None) -> sqlite3.Connection:
+def _get_connection(db_path: str | Path | None = None) -> sqlite3.Connection:
     """Abre o reutiliza conexión SQLite asegurando la existencia de la tabla `tareas`."""
     ruta = Path(db_path) if db_path else DB_PATH
     if str(ruta) != ":memory:":
@@ -45,7 +43,7 @@ def _get_connection(db_path: Optional[str | Path] = None) -> sqlite3.Connection:
     return con
 
 
-def init_db(con_or_path: Optional[sqlite3.Connection | str | Path] = None) -> None:
+def init_db(con_or_path: sqlite3.Connection | str | Path | None = None) -> None:
     """Crea la tabla `tareas` si no existe."""
     if isinstance(con_or_path, sqlite3.Connection):
         con = con_or_path
@@ -81,10 +79,10 @@ def init_db(con_or_path: Optional[sqlite3.Connection | str | Path] = None) -> No
 # ---------------------------------------------------------------------------
 def encolar_tarea(
     tipo: str,
-    datos: Dict[str, Any],
-    chat_id: Optional[str | int] = None,
-    canal: Optional[str] = None,
-    db_path: Optional[str | Path] = None,
+    datos: dict[str, Any],
+    chat_id: str | int | None = None,
+    canal: str | None = None,
+    db_path: str | Path | None = None,
 ) -> int:
     """Inserta una nueva tarea en estado 'pendiente' y devuelve su ID."""
     con = _get_connection(db_path)
@@ -111,7 +109,7 @@ def encolar_tarea(
             con.close()
 
 
-def consumir_tarea(db_path: Optional[str | Path] = None) -> Optional[Dict[str, Any]]:
+def consumir_tarea(db_path: str | Path | None = None) -> dict[str, Any] | None:
     """Obtiene la tarea pendiente más antigua y la marca como 'ejecutando'."""
     con = _get_connection(db_path)
     try:
@@ -136,7 +134,7 @@ def consumir_tarea(db_path: Optional[str | Path] = None) -> Optional[Dict[str, A
         if resultado and "datos" in resultado and isinstance(resultado["datos"], str):
             try:
                 resultado["datos"] = json.loads(resultado["datos"])
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
         return resultado
     finally:
@@ -147,8 +145,8 @@ def consumir_tarea(db_path: Optional[str | Path] = None) -> Optional[Dict[str, A
 def actualizar_estado_tarea(
     tarea_id: int,
     estado: str,
-    resultado: Optional[Dict[str, Any]] = None,
-    db_path: Optional[str | Path] = None,
+    resultado: dict[str, Any] | None = None,
+    db_path: str | Path | None = None,
 ) -> bool:
     """Actualiza el estado y resultado de una tarea."""
     con = _get_connection(db_path)
@@ -171,7 +169,7 @@ def actualizar_estado_tarea(
             con.close()
 
 
-def obtener_tarea(tarea_id: int, db_path: Optional[str | Path] = None) -> Optional[Dict[str, Any]]:
+def obtener_tarea(tarea_id: int, db_path: str | Path | None = None) -> dict[str, Any] | None:
     """Recupera la información completa de una tarea por su ID."""
     con = _get_connection(db_path)
     try:
@@ -186,12 +184,12 @@ def obtener_tarea(tarea_id: int, db_path: Optional[str | Path] = None) -> Option
         if "datos" in tarea and isinstance(tarea["datos"], str):
             try:
                 tarea["datos"] = json.loads(tarea["datos"])
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
         if "resultado" in tarea and isinstance(tarea["resultado"], str) and tarea["resultado"]:
             try:
                 tarea["resultado"] = json.loads(tarea["resultado"])
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
 
         return tarea
@@ -201,10 +199,10 @@ def obtener_tarea(tarea_id: int, db_path: Optional[str | Path] = None) -> Option
 
 
 def listar_tareas(
-    estados: Optional[List[str]] = None,
+    estados: list[str] | None = None,
     limite: int = 20,
-    db_path: Optional[str | Path] = None,
-) -> List[Dict[str, Any]]:
+    db_path: str | Path | None = None,
+) -> list[dict[str, Any]]:
     """Lista las tareas filtrando opcionalmente por estado."""
     con = _get_connection(db_path)
     try:
@@ -225,12 +223,12 @@ def listar_tareas(
             if "datos" in t and isinstance(t["datos"], str):
                 try:
                     t["datos"] = json.loads(t["datos"])
-                except Exception:  # noqa: BLE001
+                except Exception:
                     pass
             if "resultado" in t and isinstance(t["resultado"], str) and t["resultado"]:
                 try:
                     t["resultado"] = json.loads(t["resultado"])
-                except Exception:  # noqa: BLE001
+                except Exception:
                     pass
             salida.append(t)
 
@@ -240,7 +238,7 @@ def listar_tareas(
             con.close()
 
 
-def cancelar_tarea(tarea_id: int, db_path: Optional[str | Path] = None) -> bool:
+def cancelar_tarea(tarea_id: int, db_path: str | Path | None = None) -> bool:
     """Cancela una tarea si está en estado 'pendiente'."""
     con = _get_connection(db_path)
     try:
@@ -260,7 +258,9 @@ def cancelar_tarea(tarea_id: int, db_path: Optional[str | Path] = None) -> bool:
 # ---------------------------------------------------------------------------
 # Notificaciones Push
 # ---------------------------------------------------------------------------
-def enviar_notificacion(chat_id: Optional[str | int], mensaje: str, canal: Optional[str] = "telegram") -> bool:
+def enviar_notificacion(
+    chat_id: str | int | None, mensaje: str, canal: str | None = "telegram"
+) -> bool:
     """Envía un mensaje de notificación al canal configurado (Telegram / Discord)."""
     if not chat_id or not mensaje:
         return False
@@ -280,7 +280,7 @@ def enviar_notificacion(chat_id: Optional[str | int], mensaje: str, canal: Optio
                 return loop.run_until_complete(tg.send_telegram_message(str(chat_id), mensaje))
             except RuntimeError:
                 return asyncio.run(tg.send_telegram_message(str(chat_id), mensaje))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"✖ [task_queue] Error enviando notificación Telegram: {exc}")
             return False
 
@@ -297,7 +297,7 @@ def enviar_notificacion(chat_id: Optional[str | int], mensaje: str, canal: Optio
                 return loop.run_until_complete(dg.send_discord_message(webhook_url, mensaje))
             except RuntimeError:
                 return asyncio.run(dg.send_discord_message(webhook_url, mensaje))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"✖ [task_queue] Error enviando notificación Discord: {exc}")
             return False
 
@@ -307,7 +307,7 @@ def enviar_notificacion(chat_id: Optional[str | int], mensaje: str, canal: Optio
 # ---------------------------------------------------------------------------
 # Ejecutor de Tareas
 # ---------------------------------------------------------------------------
-def ejecutar_tarea(tarea: Dict[str, Any]) -> Dict[str, Any]:
+def ejecutar_tarea(tarea: dict[str, Any]) -> dict[str, Any]:
     """Ejecuta la tarea asignada según su tipo usando el motor de SnapContext."""
     import snapcontext as sc
 
@@ -316,10 +316,10 @@ def ejecutar_tarea(tarea: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(datos, str):
         try:
             datos = json.loads(datos)
-        except Exception:  # noqa: BLE001
+        except Exception:
             datos = {}
 
-    resultado: Dict[str, Any] = {"ok": False}
+    resultado: dict[str, Any] = {"ok": False}
 
     try:
         if tipo in ("tests", "ejecutar_pruebas"):
@@ -331,7 +331,9 @@ def ejecutar_tarea(tarea: Dict[str, Any]) -> Dict[str, Any]:
                 "ok": codigo == 0,
                 "codigo_salida": codigo,
                 "salida": (stdout + "\n" + stderr).strip(),
-                "mensaje": "Pruebas pasaron con éxito" if codigo == 0 else f"Pruebas fallaron (código {codigo})",
+                "mensaje": "Pruebas pasaron con éxito"
+                if codigo == 0
+                else f"Pruebas fallaron (código {codigo})",
             }
 
         elif tipo in ("pr_review", "review"):
@@ -343,8 +345,9 @@ def ejecutar_tarea(tarea: Dict[str, Any]) -> Dict[str, Any]:
             if repo and numero:
                 try:
                     import github_gateway as gh
+
                     diff = gh.obtener_pr_diff(repo, numero) or ""
-                except Exception:  # noqa: BLE001
+                except Exception:
                     diff = ""
 
             consulta = f"Revisar Pull Request #{numero}: {titulo}\n{cuerpo}\nDiff:\n{diff[:5000]}"
@@ -354,7 +357,9 @@ def ejecutar_tarea(tarea: Dict[str, Any]) -> Dict[str, Any]:
             resultado = {
                 "ok": codigo == 0,
                 "codigo_salida": codigo,
-                "mensaje": f"Revisión de PR #{numero} completada con éxito." if codigo == 0 else f"Revisión de PR #{numero} finalizó con advertencias.",
+                "mensaje": f"Revisión de PR #{numero} completada con éxito."
+                if codigo == 0
+                else f"Revisión de PR #{numero} finalizó con advertencias.",
             }
 
         elif tipo == "plan":
@@ -365,7 +370,9 @@ def ejecutar_tarea(tarea: Dict[str, Any]) -> Dict[str, Any]:
             resultado = {
                 "ok": codigo == 0,
                 "codigo_salida": codigo,
-                "mensaje": "Plan generado y ejecutado con éxito." if codigo == 0 else "Plan finalizó con errores.",
+                "mensaje": "Plan generado y ejecutado con éxito."
+                if codigo == 0
+                else "Plan finalizó con errores.",
             }
 
         else:
@@ -379,13 +386,17 @@ def ejecutar_tarea(tarea: Dict[str, Any]) -> Dict[str, Any]:
                 "mensaje": f"Tarea ejecutada (código {codigo}).",
             }
 
-    except Exception as exc:  # noqa: BLE001
-        resultado = {"ok": False, "error": str(exc), "mensaje": f"Excepción durante ejecución: {exc}"}
+    except Exception as exc:
+        resultado = {
+            "ok": False,
+            "error": str(exc),
+            "mensaje": f"Excepción durante ejecución: {exc}",
+        }
 
     return resultado
 
 
-def procesar_siguiente_tarea(db_path: Optional[str | Path] = None) -> Optional[Dict[str, Any]]:
+def procesar_siguiente_tarea(db_path: str | Path | None = None) -> dict[str, Any] | None:
     """Consume una tarea pendiente, la ejecuta, actualiza la base de datos y notifica."""
     tarea = consumir_tarea(db_path=db_path)
     if not tarea:
@@ -419,7 +430,7 @@ def procesar_siguiente_tarea(db_path: Optional[str | Path] = None) -> Optional[D
 # ---------------------------------------------------------------------------
 # Worker Demonio
 # ---------------------------------------------------------------------------
-def _bucle_worker(intervalo_segundos: float = 2.0, db_path: Optional[str | Path] = None) -> None:
+def _bucle_worker(intervalo_segundos: float = 2.0, db_path: str | Path | None = None) -> None:
     """Bucle continuo del worker consumiendo tareas de la cola (v6.9.0).
 
     Sin polling: espera en ``_WORKER_DESPERTAR.wait()`` en lugar de
@@ -434,7 +445,7 @@ def _bucle_worker(intervalo_segundos: float = 2.0, db_path: Optional[str | Path]
             if not tarea_procesada:
                 _WORKER_DESPERTAR.wait(intervalo_segundos)
                 _WORKER_DESPERTAR.clear()
-        except Exception as exc:  # noqa: BLE001
+        except Exception:
             _WORKER_DESPERTAR.wait(intervalo_segundos)
             _WORKER_DESPERTAR.clear()
 
@@ -442,7 +453,7 @@ def _bucle_worker(intervalo_segundos: float = 2.0, db_path: Optional[str | Path]
 def iniciar_worker(
     daemon: bool = True,
     intervalo_segundos: float = 2.0,
-    db_path: Optional[str | Path] = None,
+    db_path: str | Path | None = None,
 ) -> threading.Thread:
     """Inicia el worker de la cola de tareas en un hilo secundario."""
     global _WORKER_HILO

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Persistencia de Docker por sesión (v6.4.0).
 
 Cuando se usa ``--sandbox-session``, SnapContext ya no lanza un contenedor
@@ -35,8 +34,8 @@ import os
 import shlex
 import subprocess
 import time
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, List, Optional
 
 # Prefijo de contenedores de sesión (usado también para detectar huérfanos).
 SESION_PREFIJO = "snap-session-"
@@ -46,8 +45,8 @@ _SESION_DIR = Path.home() / ".snapcontext"
 SESSION_ID_PATH = _SESION_DIR / "session_id.txt"
 
 # Estado en memoria de la sesión (evita re-consultar a Docker por comando).
-_SESION_NOMBRE: Optional[str] = None
-_SESION_DIRECTORIO: Optional[str] = None
+_SESION_NOMBRE: str | None = None
+_SESION_DIRECTORIO: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -57,24 +56,27 @@ def _informar(mensaje: str) -> None:
     """Mensaje informativo usando el logger de snapcontext (estilo 🐳)."""
     try:
         from snapcontext import info
+
         info(mensaje)
-    except Exception:                       # noqa: BLE001 - blindaje UI
+    except Exception:
         print(mensaje)
 
 
 def _avisar(mensaje: str) -> None:
     try:
         from snapcontext import aviso
+
         aviso(mensaje)
-    except Exception:                       # noqa: BLE001 - blindaje UI
+    except Exception:
         print("⚠️ " + mensaje)
 
 
 def _error(mensaje: str) -> None:
     try:
         from snapcontext import error
+
         error(mensaje)
-    except Exception:                       # noqa: BLE001 - blindaje UI
+    except Exception:
         print("✖ " + mensaje)
 
 
@@ -83,14 +85,20 @@ def _error(mensaje: str) -> None:
 # ---------------------------------------------------------------------------
 def _flags() -> int:
     """Flags de subprocess: sin ventana de consola en Windows."""
-    return (subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
-def _run(argv: List[str], timeout: int = 120, **kwargs) -> subprocess.CompletedProcess:
+def _run(argv: list[str], timeout: int = 120, **kwargs) -> subprocess.CompletedProcess:
     """Ejecuta ``docker ...`` por lista (sin shell). Nunca lanza por sí solo."""
-    return subprocess.run(argv, capture_output=True, text=True,
-                          errors="replace", timeout=timeout,
-                          creationflags=_flags(), **kwargs)
+    return subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        timeout=timeout,
+        creationflags=_flags(),
+        **kwargs,
+    )
 
 
 def _id_sesion(directorio: str) -> str:
@@ -104,7 +112,7 @@ def _nombre_por_id(sid: str) -> str:
     return f"{SESION_PREFIJO}{sid}"
 
 
-def _documento_sesion(sid: Optional[str] = None) -> Optional[str]:
+def _documento_sesion(sid: str | None = None) -> str | None:
     """Lee el id guardado en disco si no se pasa explícito."""
     try:
         if sid is None and SESSION_ID_PATH.exists():
@@ -112,10 +120,12 @@ def _documento_sesion(sid: Optional[str] = None) -> Optional[str]:
         return sid or None
     except OSError:
         return None
+
+
 # ---------------------------------------------------------------------------
 # Estado en memoria
 # ---------------------------------------------------------------------------
-def sesion_nombre() -> Optional[str]:
+def sesion_nombre() -> str | None:
     """Nombre del contenedor de sesión activo en memoria (o ``None``)."""
     return _SESION_NOMBRE
 
@@ -125,7 +135,7 @@ def sesion_activa() -> bool:
     return _SESION_NOMBRE is not None
 
 
-def _poner_nombre(nombre: Optional[str]) -> None:
+def _poner_nombre(nombre: str | None) -> None:
     """Fija el estado en memoria (usado también por los tests)."""
     global _SESION_NOMBRE
     _SESION_NOMBRE = nombre
@@ -134,9 +144,12 @@ def _poner_nombre(nombre: Optional[str]) -> None:
 # ---------------------------------------------------------------------------
 # Ciclo de vida de la sesión
 # ---------------------------------------------------------------------------
-def crear_sesion(directorio: str, imagen: str,
-                 comando_preparacion: Optional[str] = None,
-                 vars_entorno: Optional[Iterable[str]] = None) -> str:
+def crear_sesion(
+    directorio: str,
+    imagen: str,
+    comando_preparacion: str | None = None,
+    vars_entorno: Iterable[str] | None = None,
+) -> str:
     """Crea el contenedor de sesión persistente y devuelve su nombre.
 
     Lanza ``docker run -d --name snap-session-<id> [-e VAR ...]
@@ -155,10 +168,19 @@ def crear_sesion(directorio: str, imagen: str,
     raiz = str(Path(directorio).expanduser().resolve())
 
     _informar(f"🐳 Creando sesión Docker persistente (ID: {sid})...")
-    argv: List[str] = ["docker", "run", "-d", "--name", nombre,
-                       "-v", f"{raiz}:/workspace", "-w", "/workspace"]
+    argv: list[str] = [
+        "docker",
+        "run",
+        "-d",
+        "--name",
+        nombre,
+        "-v",
+        f"{raiz}:/workspace",
+        "-w",
+        "/workspace",
+    ]
     vistas = set()
-    for var in (vars_entorno or []):
+    for var in vars_entorno or []:
         if var and var not in vistas and var in os.environ:
             vistas.add(var)
             argv += ["-e", var]
@@ -168,15 +190,16 @@ def crear_sesion(directorio: str, imagen: str,
     except (OSError, subprocess.TimeoutExpired) as exc:
         _error(f"No se pudo crear la sesión Docker: {exc}")
         raise
-# Comando de preparación (p. ej. `pip install -r requirements.txt`) dentro
+    # Comando de preparación (p. ej. `pip install -r requirements.txt`) dentro
     # de la sesión: sus efectos persisten para todos los comandos posteriores.
     if comando_preparacion:
         try:
-            prep = _run(["docker", "exec", nombre, "sh", "-c",
-                         comando_preparacion], timeout=600)
+            prep = _run(["docker", "exec", nombre, "sh", "-c", comando_preparacion], timeout=600)
             if prep.returncode != 0:
-                _avisar("El comando de preparación devolvió código "
-                        f"{prep.returncode}:\n{(prep.stderr or '').strip()}")
+                _avisar(
+                    "El comando de preparación devolvió código "
+                    f"{prep.returncode}:\n{(prep.stderr or '').strip()}"
+                )
         except (OSError, subprocess.TimeoutExpired) as exc:
             _avisar(f"No se pudo ejecutar la preparación en la sesión: {exc}")
 
@@ -190,7 +213,7 @@ def crear_sesion(directorio: str, imagen: str,
     return nombre
 
 
-def obtener_sesion() -> Optional[str]:
+def obtener_sesion() -> str | None:
     """Devuelve el nombre del contenedor de sesión si sigue en ejecución.
 
     Lee el id de ``~/.snapcontext/session_id.txt`` (o usa el estado en
@@ -203,8 +226,7 @@ def obtener_sesion() -> Optional[str]:
         return _SESION_NOMBRE or None
     nombre = _nombre_por_id(sid)
     try:
-        proc = _run(["docker", "inspect", "-f", "{{.State.Running}}", nombre],
-                    timeout=60)
+        proc = _run(["docker", "inspect", "-f", "{{.State.Running}}", nombre], timeout=60)
         if proc.returncode == 0 and str(proc.stdout or "").strip() == "true":
             _SESION_NOMBRE = nombre
             return nombre
@@ -227,8 +249,7 @@ def comando_en_sesion(comando: str) -> str:
     return shlex.join(["docker", "exec", nombre, "sh", "-c", comando])
 
 
-def ejecutar_en_sesion(comando: str, timeout: int = 120,
-                       capture_output: bool = True):
+def ejecutar_en_sesion(comando: str, timeout: int = 120, capture_output: bool = True):
     """Ejecuta ``comando`` dentro del contenedor de sesión.
 
     Devuelve ``(codigo_retorno, stdout, stderr)`` como :func:`snapcontext._ejecutar_comando`.
@@ -246,9 +267,14 @@ def ejecutar_en_sesion(comando: str, timeout: int = 120,
     argv = ["docker", "exec", nombre, "sh", "-c", comando]
     try:
         proc = subprocess.run(
-            argv, shell=False, capture_output=capture_output,
-            text=bool(capture_output), errors="replace" if capture_output else None,
-            timeout=timeout, creationflags=_flags())
+            argv,
+            shell=False,
+            capture_output=capture_output,
+            text=bool(capture_output),
+            errors="replace" if capture_output else None,
+            timeout=timeout,
+            creationflags=_flags(),
+        )
         if not capture_output:
             return (proc.returncode, "", "")
         return (proc.returncode, proc.stdout or "", proc.stderr or "")
@@ -256,6 +282,8 @@ def ejecutar_en_sesion(comando: str, timeout: int = 120,
         return (-1, "", f"El comando tardó demasiado en la sesión (timeout={timeout}s)")
     except OSError as exc:
         return (-1, "", f"Error ejecutando en la sesión: {exc}")
+
+
 def destruir_sesion() -> bool:
     """Detiene y elimina el contenedor de sesión y borra el id guardado.
 
@@ -287,12 +315,13 @@ def destruir_sesion() -> bool:
 # ---------------------------------------------------------------------------
 # Limpieza de huérfanos
 # ---------------------------------------------------------------------------
-def _listar_contenedores_sesion() -> List[str]:
+def _listar_contenedores_sesion() -> list[str]:
     """Nombres de contenedores ``snap-session-*`` (detenidos o en ejecución)."""
     try:
-        proc = _run(["docker", "ps", "-a",
-                     "--filter", f"name={SESION_PREFIJO}",
-                     "--format", "{{.Names}}"], timeout=60)
+        proc = _run(
+            ["docker", "ps", "-a", "--filter", f"name={SESION_PREFIJO}", "--format", "{{.Names}}"],
+            timeout=60,
+        )
     except (OSError, subprocess.TimeoutExpired):
         return []
     if proc.returncode != 0:
@@ -313,11 +342,12 @@ def limpiar_huérfanos(auto: bool = False) -> int:
     eliminados = 0
     for nombre in sorted(nombres):
         if not auto:
-            from snapcontext import _preguntar_si          # noqa: E402 - diferido
+            from snapcontext import _preguntar_si
+
             try:
                 if not _preguntar_si(f"¿Eliminar contenedor de sesión '{nombre}'? (s/n): "):
                     continue
-            except Exception:                                 # noqa: BLE001
+            except Exception:
                 continue
         _informar(f"🐳 Eliminando contenedor de sesión huérfano '{nombre}'...")
         try:

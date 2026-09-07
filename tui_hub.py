@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Hub de la TUI inmersiva (v6.12.0).
 
 Puente ligero y **no bloqueante** entre el agente (ReAct, editor propio) y la
@@ -29,21 +28,21 @@ from __future__ import annotations
 import queue
 import threading
 import time
-from typing import Any, Optional
+from typing import Any
 
 # Tamaño máximo de contenido transportado por eventos (protección básica).
 MAX_CONTENIDO = 400_000
 
 # Estado del hub (protegido por candado).
 _ACTIVO: bool = False
-_COLA: Optional["queue.Queue[dict]"] = None
+_COLA: queue.Queue[dict] | None = None
 _CANDADO = threading.Lock()
 
 NIVELES_VALIDOS = ("info", "warning", "error")
 FASES_VALIDAS = ("pensamiento", "accion", "observacion", "error", "estado")
 
 
-def activar(cola: Optional["queue.Queue[dict]"] = None) -> bool:
+def activar(cola: queue.Queue[dict] | None = None) -> bool:
     """Activa el modo TUI y fija la cola de eventos que consume la app."""
     global _ACTIVO, _COLA
     with _CANDADO:
@@ -65,7 +64,7 @@ def esta_activo() -> bool:
     return _ACTIVO
 
 
-def cola_eventos() -> Optional["queue.Queue[dict]"]:
+def cola_eventos() -> queue.Queue[dict] | None:
     """Cola de eventos consumida por la TUI (o ``None``)."""
     return _COLA
 
@@ -88,7 +87,7 @@ def emitir(tipo: str, **datos: Any) -> bool:
                 evento[clave] = str(valor)[:MAX_CONTENIDO]
         _COLA.put_nowait(evento)
         return True
-    except Exception:                        # noqa: BLE001 — nunca bloquear
+    except Exception:
         return False
 
 
@@ -99,28 +98,30 @@ def enviar_log(nivel: str, texto: str) -> bool:
     return emitir("log", nivel=nivel, texto=str(texto or "")[:MAX_CONTENIDO])
 
 
-def enviar_paso_react(iteracion: int, fase: str, contenido: str,
-                      **extra: Any) -> bool:
+def enviar_paso_react(iteracion: int, fase: str, contenido: str, **extra: Any) -> bool:
     """Emite un paso del timeline ReAct (``react_step``).
 
     ``fase`` ∈ ``{"pensamiento", "accion", "observacion", "error", "estado"}``.
     """
     if fase not in FASES_VALIDAS:
         fase = "observacion"
-    return emitir("react_step", iteracion=int(iteracion), fase=fase,
-                  contenido=str(contenido or "")[:MAX_CONTENIDO], **extra)
+    return emitir(
+        "react_step",
+        iteracion=int(iteracion),
+        fase=fase,
+        contenido=str(contenido or "")[:MAX_CONTENIDO],
+        **extra,
+    )
 
 
 def enviar_estado(estado: str, detalle: str = "") -> bool:
     """Emite el estado del agente (``estado``) para el panel de control."""
-    return emitir("estado", estado=str(estado)[:120],
-                  detalle=str(detalle or "")[:MAX_CONTENIDO])
+    return emitir("estado", estado=str(estado)[:120], detalle=str(detalle or "")[:MAX_CONTENIDO])
 
 
 def enviar_diff(ruta: str, diff: str) -> bool:
     """Emite un diff generado por el editor propio para la pestaña Diffs."""
-    return emitir("diff", ruta=str(ruta)[:500],
-                  diff=str(diff or "")[:MAX_CONTENIDO])
+    return emitir("diff", ruta=str(ruta)[:500], diff=str(diff or "")[:MAX_CONTENIDO])
 
 
 def enviar_fin(ok: bool, resultado: str) -> bool:
@@ -134,8 +135,18 @@ def reiniciar() -> None:
 
 
 __all__ = [
-    "activar", "desactivar", "esta_activo", "cola_eventos", "emitir",
-    "enviar_log", "enviar_paso_react", "enviar_estado", "enviar_diff",
-    "enviar_fin", "reiniciar", "MAX_CONTENIDO", "NIVELES_VALIDOS",
     "FASES_VALIDAS",
+    "MAX_CONTENIDO",
+    "NIVELES_VALIDOS",
+    "activar",
+    "cola_eventos",
+    "desactivar",
+    "emitir",
+    "enviar_diff",
+    "enviar_estado",
+    "enviar_fin",
+    "enviar_log",
+    "enviar_paso_react",
+    "esta_activo",
+    "reiniciar",
 ]

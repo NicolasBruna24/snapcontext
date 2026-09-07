@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de integración para Omnicanalidad Avanzada (v6.8.0).
 
 Verifica la integración de comandos asíncronos en Telegram y Discord,
@@ -13,7 +12,7 @@ import asyncio
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import snapcontext as sc
 import task_queue as tq
@@ -115,12 +114,17 @@ class TestCliFlagsYVersion(unittest.TestCase):
 
     def test_cli_args_github(self):
         parser = sc.crear_parser()
-        args = parser.parse_args([
-            "--github-webhook-secreto", "mi-secreto",
-            "--github-token", "ghp_123456",
-            "--webhook-url", "https://hook.ejemplo.com",
-            "tarea",
-        ])
+        args = parser.parse_args(
+            [
+                "--github-webhook-secreto",
+                "mi-secreto",
+                "--github-token",
+                "ghp_123456",
+                "--webhook-url",
+                "https://hook.ejemplo.com",
+                "tarea",
+            ]
+        )
         self.assertEqual(args.github_webhook_secreto, "mi-secreto")
         self.assertEqual(args.github_token, "ghp_123456")
         self.assertEqual(args.webhook_url, "https://hook.ejemplo.com")

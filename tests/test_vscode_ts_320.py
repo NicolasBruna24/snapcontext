@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Tests de la migración a TypeScript de la extensión VS Code — v3.2.0.
 
 Validan la configuración TypeScript, el entry point compilado y que los
@@ -37,8 +36,7 @@ class TestTsConfig(unittest.TestCase):
     def test_tsconfig_existe_y_tiene_opciones_obligatorias(self):
         opciones = _leer_json(VSCODE / "tsconfig.json")["compilerOptions"]
         for clave, valor in TSCONFIG_OBLIGATORIO.items():
-            self.assertEqual(opciones.get(clave), valor,
-                             f"compilerOptions['{clave}']")
+            self.assertEqual(opciones.get(clave), valor, f"compilerOptions['{clave}']")
 
     def test_tsconfig_include_exclude(self):
         config = _leer_json(VSCODE / "tsconfig.json")
@@ -79,16 +77,20 @@ class TestExtensionTs(unittest.TestCase):
         self.assertIn('import * as vscode from "vscode"', self.codigo)
 
     def test_activate_tipado(self):
-        self.assertIn("export function activate("
-                      "context: vscode.ExtensionContext): void",
-                      self.codigo)
+        self.assertIn(
+            "export function activate(context: vscode.ExtensionContext): void", self.codigo
+        )
         self.assertIn("export function deactivate(): void", self.codigo)
 
     def test_comandos_registrados(self):
-        for comando in ("snapcontext.abrirChat", "snapcontext.ejecutarConsulta",
-                        "snapcontext.planificar", "snapcontext.configurarApiKey",
-                        "snapcontext.anadirAlContexto",
-                        "snapcontext.limpiarSeleccion"):
+        for comando in (
+            "snapcontext.abrirChat",
+            "snapcontext.ejecutarConsulta",
+            "snapcontext.planificar",
+            "snapcontext.configurarApiKey",
+            "snapcontext.anadirAlContexto",
+            "snapcontext.limpiarSeleccion",
+        ):
             self.assertIn(f'"{comando}"', self.codigo)
         # Los registros pasan por registerCommand (disposables en subscriptions).
         self.assertIn("registerCommand", self.codigo)
@@ -113,22 +115,30 @@ class TestCompilacionReal(unittest.TestCase):
     """Ejecuta `tsc --noEmit` si hay un compilador disponible."""
 
     def test_tsc_no_emit_pasa_si_hay_compilador(self):
-        tsc_local = VSCODE / "node_modules" / ".bin" / ("tsc.cmd"
-                     if shutil.which("node") and Path(VSCODE /
-                       "node_modules/.bin/tsc.cmd").exists() else "tsc")
+        tsc_local = (
+            VSCODE
+            / "node_modules"
+            / ".bin"
+            / (
+                "tsc.cmd"
+                if shutil.which("node") and Path(VSCODE / "node_modules/.bin/tsc.cmd").exists()
+                else "tsc"
+            )
+        )
         if not tsc_local.exists():
             self.skipTest("TypeScript no está instalado (npm install)")
         proc = subprocess.run(
             [str(tsc_local), "--noEmit", "-p", str(VSCODE / "tsconfig.json")],
-            capture_output=True, text=True, timeout=120)
-        self.assertEqual(proc.returncode, 0,
-                         f"tsc --noEmit falló:\n{proc.stdout}\n{proc.stderr}")
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(proc.returncode, 0, f"tsc --noEmit falló:\n{proc.stdout}\n{proc.stderr}")
 
     def test_out_extension_js_generado_tras_compilar(self):
         compilado = VSCODE / "out" / "extension.js"
         if not compilado.exists():
-            self.skipTest("La extensión aún no se ha compilado "
-                          "(ejecuta npm run compile)")
+            self.skipTest("La extensión aún no se ha compilado (ejecuta npm run compile)")
         codigo = compilado.read_text("utf-8")
         for comando in ("snapcontext.abrirChat", "snapcontext.planificar"):
             self.assertIn(comando, codigo)
