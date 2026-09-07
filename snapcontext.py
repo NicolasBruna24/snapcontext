@@ -2131,6 +2131,100 @@ UMBRAL_DIFUSO_BLOQUE = 0.80
 # archivos grandes. Se conserva el bloque completo para la aplicación final.
 MAX_CONTEXTO_DIFUSO_LINEAS = 20
 
+def aplicar_reemplazo_estructurado(  # noqa: C901  (refactor de complejidad: Fase 14)
+    archivo: str,
+    bloque_original: str,
+    bloque_nuevo: str,
+    directorio: str = ".",
+) -> str:
+    """Aplica un reemplazo estructurado de ``bloque_original`` por ``bloque_nuevo``
+    dentro de ``archivo`` (ruta absoluta o relativa a ``directorio``).
+
+    Estrategia de búsqueda (en orden):
+    1. **Exacta**: el bloque aparece textualmente en el archivo.
+    2. **Difusa**: se normaliza espacios en blanco y comentarios Python
+       (``# ...``) en ambas cadenas antes de comparar.
+    3. **Fuzzy** (difflib): se busca el bloque con la mayor similitud; si el
+       ratio supera ``UMBRAL_DIFUSO`` (0.85) se usa esa ubicación.
+
+    Devuelve el contenido completo del archivo con el reemplazo aplicado.
+    Lanza ``ValueError`` con mensaje descriptivo si el bloque no se encuentra.
+
+    V6.35.0 (Fase 14): implementación como fallback del editor cuando
+    ``git apply``/``patch`` no pueden aplicar un parche limpiamente.
+    """
+    import difflib
+    import re
+
+    raiz = Path(directorio).resolve()
+    ruta = raiz / archivo
+    ruta_resuelta = ruta.resolve()
+
+    # v6.34.13 (M1): defensa contra path traversal.
+    if not str(ruta_resuelta).startswith(str(raiz)):
+        raise ValueError(
+            f"Intento de escritura fuera del proyecto: {archivo}"
+        )
+
+    if not ruta_resuelta.is_file():
+        raise ValueError(f"Archivo no encontrado: {archivo}")
+
+    contenido = ruta_resuelta.read_text(encoding="utf-8")
+    original = bloque_original.strip()
+    nuevo = bloque_nuevo.strip()
+
+    if not original:
+        raise ValueError("bloque_original no puede estar vacío")
+
+    # 1) Búsqueda exacta
+    if original in contenido:
+        return contenido.replace(original, nuevo, 1)
+
+    # 2) Búsqueda difusa (normalizar espacios/comentarios)
+    def normalizar(texto: str) -> str:
+        # Remover comentarios de línea Python y colapsar espacios
+        lineas = []
+        for linea in texto.splitlines():
+            # Remover comentarios pero preservar strings
+            limpia = re.sub(r'#.*$', '', linea) if '"' not in linea and "'" not in linea else linea
+            lineas.append(' '.join(limpia.split()))
+        return '\n'.join(lineas)
+
+    norm_original = normalizar(original)
+    norm_contenido = normalizar(contenido)
+
+    if norm_original in norm_contenido:
+        # Encontrado en forma normalizada - buscamos posición real con difflib
+        matcher = difflib.SequenceMatcher(None, contenido, original)
+        match = matcher.find_longest_match(0, len(contenido), 0, len(original))
+        if match.size > len(original) * 0.5:
+            return contenido[:match.a] + nuevo + contenido[match.a + match.size:]
+
+    # 3) Fuzzy search con difflib
+    mejor_ratio = 0.0
+    ventana = len(original)
+
+    for i in range(0, len(contenido) - ventana + 1, max(1, ventana // 4)):
+        candidato = contenido[i:i + ventana + 100]
+        ratio = difflib.SequenceMatcher(None, original, candidato).ratio()
+        if ratio > mejor_ratio:
+            mejor_ratio = ratio
+
+    UMBRAL_DIFUSO = 0.85
+    if mejor_ratio >= UMBRAL_DIFUSO:
+        matcher = difflib.SequenceMatcher(None, contenido, original)
+        match = matcher.find_longest_match(0, len(contenido), 0, len(original))
+        if match.size > 0:
+            return contenido[:match.a] + nuevo + contenido[match.a + match.size:]
+
+    raise ValueError(
+        f"Bloque no encontrado en {archivo}. "
+        f"Mejor coincidencia: ratio={mejor_ratio:.2f} "
+        f"(umbral={UMBRAL_DIFUSO}). "
+        f"Considere usar el parche unificado en vez de reemplazo estructurado."
+    )
+
+
 
 def _ruta_del_parche(parche: str) -> str | None:
     """Extrae la ruta del archivo objetivo del encabezado del parche.
