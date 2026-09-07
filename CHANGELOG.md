@@ -4,6 +4,14 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.34.12] - 2026-09-07
+### 🎉 Auditoría completada
+- **Refactor**: 8 módulos extraídos, `snapcontext.py` reducido un 19%.
+- **Seguridad**: `shell=False`, permisos `0o600`, path traversal validado.
+- **Calidad**: `ruff` y `mypy` pasan con 0 errores.
+- **CI/CD**: Publicación automática estable.
+- **Documentación**: README de 284 KB a 12 KB, CHANGELOG ordenado.
+
 ## [6.34.11] - 2026-09-07
 
 ### Refactor (fragmentación del monolito, fases 5-9)
