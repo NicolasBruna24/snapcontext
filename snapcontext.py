@@ -76,6 +76,12 @@ from ui import (configurar_auto as _ui_configurar_auto,
                 mostrar_banner as _ui_mostrar_banner,
                 mostrar_progreso as _ui_mostrar_progreso)
 from urllib.parse import urlparse
+# Fase 6: subsistema de permisos y confirmaciones extraído a módulo independiente.
+from permisos import (PERMISOS_PATH, CONFIRMAR_ACCIONES,
+                      _cargar_permisos, _guardar_permiso,
+                      _permiso_recordado, _limpiar_permisos,
+                      _confirmar_accion)
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # v6.9.0 — IMPORTS PEREZOSOS (rendimiento de arranque)
@@ -8084,135 +8090,6 @@ def _daemon_bucle(intervalo_horas: int = DAEMON_INTERVALO_HORAS_DEFECTO,
         except Exception as exc:
             aviso("[daemon] Error en tick (" + str(exc) + "); se reintenta.")
         time.sleep(pausa_segundos)
-
-
-PERMISOS_PATH = CONFIG_DIR / "permisos.json"
-
-# Interruptor global: main() lo sincroniza con args.confirmar (por defecto
-# True). Con --no-confirmar todas las preguntas se omiten (modo automático).
-CONFIRMAR_ACCIONES = True
-
-
-def _cargar_permisos() -> dict:
-    """Devuelve las preferencias guardadas en ~/.snapcontext/permisos.json.
-
-    Formato: {"<tipo>": "siempre" | "nunca"} para cada tipo de acción
-    ("editar", "ejecutar", "consultar", ...). Archivo corrupto → {}.
-    """
-    try:
-        if PERMISOS_PATH.is_file():
-            datos = json.loads(PERMISOS_PATH.read_text(encoding="utf-8"))
-            if isinstance(datos, dict):
-                return {str(k): str(v) for k, v in datos.items()}
-    except (json.JSONDecodeError, OSError) as exc:
-        aviso(f"No se pudieron leer los permisos ({PERMISOS_PATH}): {exc}")
-    return {}
-
-
-def _guardar_permiso(tipo: str, valor: str) -> bool:
-    """Guarda ``{"<tipo>": valor}`` en permisos.json (valor: siempre/nunca)."""
-    try:
-        permisos = _cargar_permisos()
-        permisos[tipo] = valor
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        PERMISOS_PATH.write_text(
-            json.dumps(permisos, ensure_ascii=False, indent=2), encoding="utf-8")
-        return True
-    except OSError as exc:
-        aviso(f"No se pudo guardar el permiso ({PERMISOS_PATH}): {exc}")
-        return False
-
-
-def _permiso_recordado(tipo: str) -> Optional[bool]:
-    """Devuelve la preferencia guardada para ``tipo`` sin preguntar.
-
-    True → "siempre" permitido · False → "nunca" · None → sin preferencia.
-    Lo usa el modo autónomo (--auto), que no puede preguntar pero sí debe
-    respetar las decisiones previas del usuario en permisos.json.
-    """
-    recordado = _cargar_permisos().get(tipo)
-    if recordado == "siempre":
-        return True
-    if recordado == "nunca":
-        return False
-    return None
-
-
-def _limpiar_permisos() -> bool:
-    """Borra ~/.snapcontext/permisos.json (todas las preferencias 't'/'a')."""
-    try:
-        if PERMISOS_PATH.exists():
-            PERMISOS_PATH.unlink()
-            exito(f"Permisos restablecidos ({PERMISOS_PATH} borrado).")
-        else:
-            info("No hay preferencias de permisos guardadas.")
-        return True
-    except OSError as exc:
-        error(f"No se pudieron borrar los permisos: {exc}")
-        return False
-
-
-def _confirmar_accion(descripcion: str, tipo: str = "editar",
-                      detalles: Optional[str] = None,
-                      confirmar: Optional[bool] = None) -> bool:
-    """Pide permiso al usuario antes de una acción sensible.
-
-    - Muestra un resumen (tipo, descripción y detalles opcionales).
-    - Respeta las preferencias guardadas en permisos.json:
-      "siempre" → permite sin preguntar; "nunca" → deniega sin preguntar.
-    - Pregunta ``¿Permitir esta acción? (s/n/t/a)`` donde:
-        s → permitir solo esta vez · n → saltar esta vez
-        t → permitir TODAS las de este tipo (se guarda)
-        a → no permitir NINGUNA de este tipo (se guarda)
-
-    Devuelve True si la acción está permitida. Con confirmaciones desactivadas
-    (``--no-confirmar`` o ``confirmar=False``) devuelve True siempre.
-    """
-    activo = CONFIRMAR_ACCIONES if confirmar is None else confirmar
-    if not activo:
-        return True
-
-    permisos = _cargar_permisos()
-    recordado = permisos.get(tipo)
-    if recordado == "siempre":
-        depurar(f"[permisos] '{tipo}' recordada como SIEMPRE permitida.")
-        return True
-    if recordado == "nunca":
-        depurar(f"[permisos] '{tipo}' recordada como NUNCA permitida.")
-        return False
-
-    exito("── Permiso requerido " + "─" * 30)
-    _emitir(sys.stdout, f"  tipo        : {tipo}")
-    _emitir(sys.stdout, f"  acción      : {descripcion}")
-    if detalles:
-        for linea in str(detalles).splitlines()[:6]:
-            _emitir(sys.stdout, f"  detalle     : {linea}")
-    while True:
-        try:
-            eleccion = input(_pintar(
-                "¿Permitir esta acción? "
-                "[s]í · [n]o · [t]odos este tipo · [a]nular todas (s/n/t/a): ",
-                _AMARILLO)).strip().lower()
-        except EOFError:
-            aviso("Sin entrada disponible; acción denegada por seguridad.")
-            return False
-        if eleccion in ("s", "si", "sí", "y", "yes"):
-            return True
-        if eleccion in ("n", "no"):
-            aviso("Acción denegada por el usuario.")
-            return False
-        if eleccion in ("t", "todos", "todo"):
-            _guardar_permiso(tipo, "siempre")
-            exito(f"Se recordará: '{tipo}' siempre permitido "
-                  f"({PERMISOS_PATH}). Usa --init o borra el archivo para "
-                  "restaurar las preguntas.")
-            return True
-        if eleccion in ("a", "anular", "nunca"):
-            _guardar_permiso(tipo, "nunca")
-            aviso(f"Se recordará: '{tipo}' nunca permitido ({PERMISOS_PATH}).")
-            return False
-        aviso("Opción no válida; responde s, n, t o a.")
-
 
 # ---------------------------------------------------------------------------
 # MCP (Model Context Protocol): herramientas para el agente — v0.14.0

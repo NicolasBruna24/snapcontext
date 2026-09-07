@@ -95,6 +95,8 @@ py-modules = [
     "configuracion",
     # Fase 5: planificador y visualización de planes (v6.35.0).
     "planificador",
+    # Fase 6: subsistema de permisos y confirmaciones del usuario (Fase 6).
+    "permisos",
 ]
 packages = ["web"]
 
