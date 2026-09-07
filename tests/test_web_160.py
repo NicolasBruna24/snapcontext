@@ -9,7 +9,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
-import snapcontext as sc  # noqa: E402
+import snapcontext as sc
 
 INDEX = RAIZ / "web" / "static" / "index.html"
 

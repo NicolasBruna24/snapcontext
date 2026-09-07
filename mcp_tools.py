@@ -227,7 +227,7 @@ def _cargar_herramientas_mcp() -> dict:
 
 
 # --- Dispatcher MCP: valida permisos y ejecuta la herramienta --------------
-def _ejecutar_herramienta_mcp(
+def _ejecutar_herramienta_mcp(  # noqa: C901  (refactor de complejidad: Fase 10c)
     nombre: str, argumentos: dict | None = None, confirmar: bool | None = None
 ) -> dict:
     """Ejecuta una herramienta MCP por nombre con argumentos ``dict``.

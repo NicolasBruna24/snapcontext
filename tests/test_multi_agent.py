@@ -22,10 +22,10 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import agentes as ag  # noqa: E402
-import detector_tests as det  # noqa: E402
-import multi_agent as ma  # noqa: E402
-import snapcontext as sc  # noqa: E402
+import agentes as ag
+import detector_tests as det
+import multi_agent as ma
+import snapcontext as sc
 
 
 def _plan():

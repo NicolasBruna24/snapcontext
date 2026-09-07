@@ -303,7 +303,7 @@ def _lineas_archivo(ruta: str) -> int | None:
     return datos.count(b"\n") + (0 if datos.endswith(b"\n") else 1)
 
 
-def es_tarea_compleja(
+def es_tarea_compleja(  # noqa: C901  (refactor de complejidad: Fase 10c)
     consulta: str | None,
     contexto: dict[str, Any] | None = None,
     config: dict[str, Any] | None = None,

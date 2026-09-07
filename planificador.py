@@ -173,7 +173,7 @@ def _normalizar_dependencias(valor) -> list[int]:
     return sorted(set(indices))
 
 
-def _generar_plan(
+def _generar_plan(  # noqa: C901  (refactor de complejidad: Fase 10c)
     consulta: str, proveedor: str | None = None, modelo: str | None = None
 ) -> list[dict]:
     """Pide al proveedor de IA un plan en JSON para la ``consulta``.
@@ -311,7 +311,7 @@ def _generar_plan(
     return _sc._normalizar_pasos(_sc.parsear_json(texto))
 
 
-def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace, raiz: str) -> tuple:
+def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace, raiz: str) -> tuple:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Ejecuta un paso del plan. Devuelve (ok: bool, detalle: str).
 
     - "editar": usa el orquestador actual — ``_planificar`` para elegir los
@@ -549,7 +549,7 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace, raiz: str) -> tupl
 
 
 # --- Condiciones y paralelismo del planificador (v1.4.0) --------------------
-def _evaluar_condicion(condicion: str, raiz: str = ".", contexto: dict | None = None) -> bool:
+def _evaluar_condicion(condicion: str, raiz: str = ".", contexto: dict | None = None) -> bool:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Evalúa la condición de un paso del plan. Devuelve True si se cumple.
 
     Formatos soportados:
@@ -632,7 +632,7 @@ def _evaluar_condicion(condicion: str, raiz: str = ".", contexto: dict | None = 
 _DESCONOCIDO = object()
 
 
-def _resolver_operando_condicion(operando: str, contexto: dict):
+def _resolver_operando_condicion(operando: str, contexto: dict):  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Convierte un operando de condición en un valor Python concreto.
 
     Acepta literales ('texto', números, true/false/null) y referencias al
@@ -840,7 +840,7 @@ def _ejecutar_paso_paralelo(paso: dict, args: argparse.Namespace, raiz: str, num
     }
 
 
-def _ejecutar_plan_en_paralelo(
+def _ejecutar_plan_en_paralelo(  # noqa: C901  (refactor de complejidad: Fase 10c)
     pasos: list[dict], args: argparse.Namespace, raiz: str, max_hilos: int
 ) -> list[dict]:
     """Ejecuta el plan con ``--paralelo N`` (modo --auto).

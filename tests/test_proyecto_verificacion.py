@@ -18,8 +18,8 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import snapcontext as sc  # noqa: E402
-import ui  # noqa: E402
+import snapcontext as sc
+import ui
 
 
 class BaseProyecto(unittest.TestCase):

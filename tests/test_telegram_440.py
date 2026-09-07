@@ -13,7 +13,7 @@ from unittest import mock
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
-import telegram_gateway as tg  # noqa: E402
+import telegram_gateway as tg
 
 
 class TestConfiguracion(unittest.TestCase):

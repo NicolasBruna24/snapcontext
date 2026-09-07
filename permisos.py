@@ -110,7 +110,7 @@ def _limpiar_permisos() -> bool:
         return False
 
 
-def _confirmar_accion(
+def _confirmar_accion(  # noqa: C901  (refactor de complejidad: Fase 10c)
     descripcion: str,
     tipo: str = "editar",
     detalles: str | None = None,

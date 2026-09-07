@@ -126,7 +126,7 @@ class ParallelExecutor:
                 self._marcar_huerfanos(tarea, tareas, resultados)
         return [r for r in resultados if r is not None]  # type: ignore
 
-    def _ejecutar_con_pool(self, tareas: list[dict]) -> list[dict]:
+    def _ejecutar_con_pool(self, tareas: list[dict]) -> list[dict]:  # noqa: C901  (refactor de complejidad: Fase 10c)
         resultados: list[dict | None] = [None] * len(tareas)
         terminadas: dict[str, bool] = {}
         pendientes = list(range(len(tareas)))

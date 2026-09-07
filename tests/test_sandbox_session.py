@@ -19,9 +19,9 @@ from unittest import mock
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
-import react_agent as ra  # noqa: E402
-import sandbox_session as ss  # noqa: E402
-import snapcontext as sc  # noqa: E402
+import react_agent as ra
+import sandbox_session as ss
+import snapcontext as sc
 
 
 def _completado(ret=0, out="", err=""):

@@ -24,9 +24,9 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import graph_rag as gr  # noqa: E402
-import snapcontext as sc  # noqa: E402
-import task_queue as tq  # noqa: E402
+import graph_rag as gr
+import snapcontext as sc
+import task_queue as tq
 
 LETRAS = "abcedefgh"
 

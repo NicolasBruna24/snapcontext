@@ -12,7 +12,7 @@ from unittest import mock
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
-import snapcontext as sc  # noqa: E402
+import snapcontext as sc
 
 
 def _args_base(**extra) -> argparse.Namespace:

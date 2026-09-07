@@ -119,7 +119,7 @@ def _leer_pyproject(pyproject):
         return None
 
 
-def detectar_lenguaje(directorio):
+def detectar_lenguaje(directorio):  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Detecta el lenguaje/framework de un proyecto escaneando la raiz.
 
     Args:

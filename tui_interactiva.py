@@ -77,7 +77,7 @@ def texto_a_esquema_pasos(texto: str) -> list[dict[str, Any]]:
     return pasos
 
 
-def grafo_a_texto(grafo: dict[str, Any], expandir: bool = True) -> str:
+def grafo_a_texto(grafo: dict[str, Any], expandir: bool = True) -> str:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Convierte un grafo (GraphRAG) a representacion textual."""
     if not grafo:
         return "(grafo vacio)"

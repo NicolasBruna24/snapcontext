@@ -372,7 +372,7 @@ _RENDIMIENTO_PATRONES = [
 ]
 
 
-def _detectar_rendimiento(contenido: str, lenguaje: str = "") -> list[dict]:
+def _detectar_rendimiento(contenido: str, lenguaje: str = "") -> list[dict]:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Detecta problemas comunes de rendimiento por heurísticas (v4.2.0)."""
     hallazgos: list[dict] = []
     lineas_codigo = [(n, l.split("#", 1)[0]) for n, l in enumerate(contenido.splitlines(), start=1)]
@@ -430,7 +430,7 @@ def _detectar_rendimiento(contenido: str, lenguaje: str = "") -> list[dict]:
     return hallazgos
 
 
-def _asesor_analizar(
+def _asesor_analizar(  # noqa: C901  (refactor de complejidad: Fase 10c)
     directorio: str = ".",
     umbral_funcion: int | None = None,
     max_archivos: int = 400,

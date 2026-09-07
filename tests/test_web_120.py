@@ -132,7 +132,7 @@ class TestBuscarEnCodigo(_GrafoBase):
 
 def _se_puede_importar_web() -> bool:
     try:
-        import web.app  # noqa: F401
+        import web.app
 
         return True
     except Exception:

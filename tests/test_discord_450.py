@@ -13,7 +13,7 @@ from unittest import mock
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
-import discord_gateway as dg  # noqa: E402
+import discord_gateway as dg
 
 
 def _cfg(datos) -> Path:

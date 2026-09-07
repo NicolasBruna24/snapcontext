@@ -598,7 +598,7 @@ def soporta_lsp(lenguaje: str) -> bool:
     return False
 
 
-def obtener_simbolos(archivo: str, linea: int | None = None) -> list[dict[str, Any]]:
+def obtener_simbolos(archivo: str, linea: int | None = None) -> list[dict[str, Any]]:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Obtiene los símbolos de un archivo usando LSP (v6.33.0).
 
     Si ``linea`` se especifica, devuelve la definición y referencias del

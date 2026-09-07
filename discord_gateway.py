@@ -317,7 +317,7 @@ async def handle_discord_interaction(interaction_data: dict) -> dict | None:
     return {"type": 5}
 
 
-async def _procesar_y_responder(
+async def _procesar_y_responder(  # noqa: C901  (refactor de complejidad: Fase 10c)
     canal,
     comando: str,
     consulta: str,

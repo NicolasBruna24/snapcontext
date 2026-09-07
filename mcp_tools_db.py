@@ -172,7 +172,7 @@ def _conexion_activa() -> Any | None:
         return _ESTADO.get("conexion")
 
 
-def db_query(consulta: str, auto: bool = False, confirmar: Any | None = None) -> dict[str, Any]:
+def db_query(consulta: str, auto: bool = False, confirmar: Any | None = None) -> dict[str, Any]:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Ejecuta una consulta de SOLO LECTURA sobre la conexión de sesión.
 
     Valida estrictamente la consulta (``es_consulta_solo_lectura``); en modo

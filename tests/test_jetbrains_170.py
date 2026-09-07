@@ -10,7 +10,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 JB = RAIZ / "jetbrains"
 sys.path.insert(0, str(RAIZ))
 
-import snapcontext as sc  # noqa: E402
+import snapcontext as sc
 
 
 class TestVersion(unittest.TestCase):

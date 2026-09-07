@@ -42,6 +42,12 @@ web = [
 browser = [
     "playwright>=1.40.0",
 ]
+dev = [
+    # Herramientas de calidad (Fase 10): pip install -e ".[dev]"
+    "ruff>=0.8.0",
+    "mypy>=1.10.0",
+    "pytest-cov>=5.0.0",
+]
 db = [
     "psycopg2-binary>=2.9.0",
     "pymysql>=1.1.0",
@@ -142,6 +148,19 @@ ignore = [
 fixable = ["ALL"]
 unfixable = []
 
+[tool.ruff.lint.per-file-ignores]
+# snapcontext.py actúa como fachada de compatibilidad: re-exporta símbolos de
+# los módulos extraídos (planificador, permisos, hooks, mcp_tools, etc.) para
+# la API interna y los tests, con imports retardados (E402) y sin uso local
+# (F401). Supresión documentada hasta retirar la fachada (fase posterior).
+"snapcontext.py" = ["F401", "E402"]
+# planificador.py: import retardado de snapcontext (evita ciclo; resuelve en
+# tiempo de llamada para respetar el monkey-patching de los tests).
+"planificador.py" = ["E402"]
+# tests/ y scripts/: ajustan sys.path antes de importar (patrón estándar).
+"tests/*" = ["E402"]
+"scripts/*" = ["E402"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
@@ -184,13 +203,3 @@ addopts = "-v --maxfail=3 --cov=snapcontext --cov-report=term --cov-report=xml"
 source = ["snapcontext", "planificador", "permisos", "hooks", "mcp_tools",
           "configuracion", "presentacion", "seguridad", "instalador"]
 omit = ["tests/*", "build/*", "dist/*"]
-
-[project.optional-dependencies.dev]
-# NOTA: setuptools no admite entradas tipo "lint = ruff check ." en
-# [project.scripts] (requieren module:func). Los comandos de calidad se
-# documentan en el README y se integran en el workflow de GitHub Actions.
-dev = [
-    "ruff>=0.8.0",
-    "mypy>=1.10.0",
-    "pytest-cov>=5.0.0",
-]

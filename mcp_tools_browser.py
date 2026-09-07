@@ -93,7 +93,7 @@ def _cerrar_interno() -> None:
 def _importar_playwright() -> bool:
     """Import perezoso de Playwright. True si está disponible."""
     try:
-        import playwright.sync_api  # noqa: F401
+        import playwright.sync_api  # noqa: F401  (verificación de disponibilidad)
 
         return True
     except ImportError:

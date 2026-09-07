@@ -158,7 +158,7 @@ class Orquestador:
     # ------------------------------------------------------------------
     # Pipeline principal
     # ------------------------------------------------------------------
-    def ejecutar_flujo(self, args) -> int:
+    def ejecutar_flujo(self, args) -> int:  # noqa: C901  (refactor de complejidad: Fase 10c)
         """Replica ``flujo_principal`` coordinando a los agentes.
 
         Devuelve el código de salida (0 = éxito, 1 = error). Si se construyó con
@@ -295,7 +295,7 @@ class Orquestador:
     # ------------------------------------------------------------------
     # Planificación: validación + escaneo/selección con AgenteContexto
     # ------------------------------------------------------------------
-    def _planificar(self, args, sc) -> tuple | None:
+    def _planificar(self, args, sc) -> tuple | None:  # noqa: C901  (refactor de complejidad: Fase 10c)
         """Valida argumentos y ejecuta el escaneo/selección con agentes.
 
         Devuelve ``(consulta, raiz, carpetas, seleccion)`` o ``None`` si hay que

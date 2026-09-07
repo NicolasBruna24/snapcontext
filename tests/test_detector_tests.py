@@ -21,7 +21,7 @@ sys_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if sys_dir not in __import__("sys").path:
     __import__("sys").path.insert(0, sys_dir)
 
-import detector_tests as det  # noqa: E402
+import detector_tests as det
 
 
 def _crear_directorio(archivos):

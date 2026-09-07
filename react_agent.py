@@ -98,7 +98,7 @@ class ReactAgent:
     # v6.19.0: acciones que modifican archivos → commit automático (git profundo).
     ACCIONES_CON_COMMIT = ("editar_archivo", "aplicar_parche")
 
-    def __init__(
+    def __init__(  # noqa: C901  (refactor de complejidad: Fase 10c)
         self,
         directorio: str = ".",
         auto: bool = False,
@@ -395,7 +395,7 @@ class ReactAgent:
     # ------------------------------------------------------------------
     # v6.10.0: herramientas de navegador (Playwright) — modo --browser
     # ------------------------------------------------------------------
-    def _tool_browser(self, argumentos: dict, accion: str = "") -> dict:
+    def _tool_browser(self, argumentos: dict, accion: str = "") -> dict:  # noqa: C901  (refactor de complejidad: Fase 10c)
         """Despacha una herramienta de navegador a mcp_tools_browser.
 
         Todas las herramientas comparten esta pasarela: el módulo valida el
@@ -561,7 +561,7 @@ class ReactAgent:
             return {"ok": False, "error": "LSP no devolvió resultados para esa posición."}
         return {"ok": True, **r}
 
-    def _tool_buscar_codigo(self, argumentos: dict) -> dict:
+    def _tool_buscar_codigo(self, argumentos: dict) -> dict:  # noqa: C901  (refactor de complejidad: Fase 10c)
         """Busca una regex en los archivos de texto del proyecto."""
         patron = str(argumentos.get("patron", "")).strip()
         if not patron:
@@ -850,7 +850,7 @@ class ReactAgent:
     # ------------------------------------------------------------------
     # Bucle principal ReAct
     # ------------------------------------------------------------------
-    def ejecutar(self, consulta: str) -> dict:
+    def ejecutar(self, consulta: str) -> dict:  # noqa: C901  (refactor de complejidad: Fase 10c)
         """Ejecuta el bucle pensamiento → acción → observación.
 
         Devuelve ``{"ok", "resultado", "iteraciones", "abortado"}``.

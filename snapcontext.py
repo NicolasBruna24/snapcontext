@@ -65,23 +65,23 @@ from urllib.parse import urlparse
 # módulo independiente. Las implementaciones (_tool_*) se resuelven con import
 # diferido a snapcontext desde mcp_tools para evitar ciclos.
 from mcp_tools import (
-    HERRAMIENTAS_PREDEFINIDAS,  # noqa: E402,F401  (re-export: API interna y tests)
+    HERRAMIENTAS_PREDEFINIDAS,
     _cargar_herramientas_mcp,
+    _contexto_automatico_mcp,
     _ejecutar_herramienta_mcp,
     _entero_opcional,
     _formatear_resultado_mcp,
-    _contexto_automatico_mcp,
 )
 
 # Fase 6: subsistema de permisos y confirmaciones extraído a módulo independiente.
 from permisos import (
+    CONFIRMAR_ACCIONES,
     PERMISOS_PATH,
-    CONFIRMAR_ACCIONES,  # noqa: E402,F401  (re-export: API interna y tests)
     _cargar_permisos,
-    _guardar_permiso,
-    _permiso_recordado,
-    _limpiar_permisos,
     _confirmar_accion,
+    _guardar_permiso,
+    _limpiar_permisos,
+    _permiso_recordado,
 )
 
 # v4.8.0: capa de presentación centralizada (Rich). Degradación elegante:
@@ -90,12 +90,12 @@ from permisos import (
 # Fase 9: núcleo del planificador extraído a planificador.py. Se reexporta
 # para preservar la API interna (``sc._generar_plan`` y similares).
 from planificador import (
+    _CANDADO_CONTEXTO_PLAN,
     _CONTEXTO_PLAN,
-    _CANDADO_CONTEXTO_PLAN,  # noqa: E402,F401  (re-export: API interna y tests)
     _contexto_plan_reiniciar,
     _contexto_plan_variable,
-    _registrar_resultado_plan,
     _mostrar_plan_resumido,
+    _registrar_resultado_plan,
 )
 
 # seguridad: ejecución segura de comandos (shell=False por defecto).
@@ -239,6 +239,12 @@ def __getattr__(nombre: str):
 
 VERSION = "6.34.11"
 
+# v6.34.12: instantánea de los argumentos de la CLI (la fija
+# ``flujo_principal`` en cada invocación). La usan funciones profundas del
+# pipeline (p. ej. la rama XPU de ``_enviar_al_proveedor_unico``) que no
+# reciben ``args`` por parámetro pero necesitan los flags del usuario.
+_ARGS_CLI: argparse.Namespace | None = None
+
 # v6.9.0: instante de carga del módulo (lo usa `--benchmark` para medir el
 # tiempo de inicio del CLI).
 _TIEMPO_INICIO_MODULO = time.perf_counter()
@@ -264,25 +270,24 @@ CLAVES_API_CONOCIDAS = (
 )
 
 from planificador import (
-    PROMPT_PLAN,
-    ACCIONES_VALIDAS,
-    _normalizar_pasos,  # noqa: E402,F401  (re-export: API interna y tests)
-    _normalizar_dependencias,
-    _generar_plan,
-    _ejecutar_paso_plan,
-    _evaluar_condicion,
-    _resolver_operando_condicion,
-    _normalizar_comparacion,
-    _partir_argumentos,
-    _resolver_marcadores,
-    _refs_de_condicion,
-    _resolver_marcadores_args,
-    _ejecutar_paso_paralelo,
-    _ejecutar_plan_en_paralelo,
-    _DESCONOCIDO,
     _CANDADO_GIT_PLAN,
+    _DESCONOCIDO,
+    ACCIONES_VALIDAS,
+    PROMPT_PLAN,
+    _ejecutar_paso_paralelo,
+    _ejecutar_paso_plan,
+    _ejecutar_plan_en_paralelo,
+    _evaluar_condicion,
+    _generar_plan,
+    _normalizar_comparacion,
+    _normalizar_dependencias,
+    _normalizar_pasos,
+    _partir_argumentos,
+    _refs_de_condicion,
+    _resolver_marcadores,
+    _resolver_marcadores_args,
+    _resolver_operando_condicion,
 )
-
 
 # v3.1.0 — Modelos ligeros preferidos en modo offline (por orden de prioridad).
 MODELOS_LIGEROS_OLLAMA = ("llama3.2:1b", "llama3.2", "phi3", "gemma2:2b", "qwen2.5:0.5b")
@@ -590,28 +595,28 @@ MODELO_DEFECTO = os.environ.get("SNAPCONTEXT_MODELO") or None
 # [Fase 4] CONFIG_PATH movido a configuracion.py (492-492)
 # v3.1.1: estado ligero de primer uso (~/.snapcontext/estado.json).
 # Configuracion inicial (Fase 4): re-import para disponibilidad temprana.
-from configuracion import (  # noqa: E402,F401  (re-export: API interna y tests)
-    PROVEEDOR_DEFECTO,
+from configuracion import (
     CONFIG_DIR,
     CONFIG_PATH,
-    PROVEEDORES,
-    MENSAJE_OPENAI_FALTANTE,
     MENSAJE_ANTHROPIC_FALTANTE,
-    cargar_configuracion,
-    guardar_configuracion,
+    MENSAJE_OPENAI_FALTANTE,
+    PROVEEDOR_DEFECTO,
+    PROVEEDORES,
     _actualizar_clave_configuracion,
+    _crear_demo_proyecto,
+    _elegir_modelo_ligero,
+    _estado_ollama,
     _generar_clave_api,
     _importar_questionary,
     _listar_modelos_ollama,
-    seleccionar_proveedor_interactivo,
     _preguntar_guardar_config,
     _probar_conexion_proveedor,
-    asistente_configuracion_inicial,
-    hay_api_key_configurada,
-    _estado_ollama,
-    _elegir_modelo_ligero,
     _tutorial_interactivo,
-    _crear_demo_proyecto,
+    asistente_configuracion_inicial,
+    cargar_configuracion,
+    guardar_configuracion,
+    hay_api_key_configurada,
+    seleccionar_proveedor_interactivo,
 )
 
 ESTADO_PATH = CONFIG_DIR / "estado.json"
@@ -778,30 +783,30 @@ if os.name == "nt":
 # Configuración inicial: la implementación vive en :mod:`configuracion` (Fase 4).
 # Se re-exportan los nombres para preservar la API interna.
 # ---------------------------------------------------------------------------
-from configuracion import (  # noqa: E402,F410
-    PROVEEDOR_DEFECTO,
+from configuracion import (
     CONFIG_DIR,
     CONFIG_PATH,
-    PROVEEDORES,
-    MENSAJE_OPENAI_FALTANTE,
     MENSAJE_ANTHROPIC_FALTANTE,
-    cargar_configuracion,
-    guardar_configuracion,
+    MENSAJE_OPENAI_FALTANTE,
+    PROVEEDOR_DEFECTO,
+    PROVEEDORES,
     _actualizar_clave_configuracion,
+    _crear_demo_proyecto,
+    _elegir_modelo_ligero,
+    _estado_ollama,
     _generar_clave_api,
     _importar_questionary,
     _listar_modelos_ollama,
-    seleccionar_proveedor_interactivo,
     _preguntar_guardar_config,
     _probar_conexion_proveedor,
-    asistente_configuracion_inicial,
-    hay_api_key_configurada,
-    _estado_ollama,
-    _elegir_modelo_ligero,
     _tutorial_interactivo,
-    _crear_demo_proyecto,
+    asistente_configuracion_inicial,
+    cargar_configuracion,
+    guardar_configuracion,
+    hay_api_key_configurada,
+    seleccionar_proveedor_interactivo,
 )
-from presentacion import (  # noqa: E402,F401
+from presentacion import (
     _AMARILLO,
     _ANSI,
     _AYUDA_CON_COLOR,
@@ -1029,7 +1034,7 @@ def _es_archivo_indexable(ruta: str) -> bool:
     return not any(p in DIRS_IGNORADOS for p in partes[:-1])
 
 
-def listar_archivos_candidatos(
+def listar_archivos_candidatos(  # noqa: C901  (refactor de complejidad: Fase 10c)
     raiz: Path, carpetas: list[str], extensiones: list[str] | None = None
 ) -> list[str]:
     """Devuelve las rutas (relativas, formato POSIX) de `carpetas` bajo `raiz`.
@@ -1771,7 +1776,7 @@ def _extraer_bloques_ast(contenido: str, archivo: str | None = None) -> list[dic
     return bloques
 
 
-def _extraer_contexto_selectivo(
+def _extraer_contexto_selectivo(  # noqa: C901  (refactor de complejidad: Fase 10c)
     contenido: str, mensaje: str = "", archivo: str | None = None
 ) -> str:
     """Construye contexto reducido para archivos grandes (> MAX_CONTEXT_LINES).
@@ -1923,7 +1928,7 @@ def _comandos_validacion(lenguaje: str, archivo_tmp: str) -> list[list[str]]:
     return []
 
 
-def _validar_sintaxis(archivo: str, contenido: str, directorio: str = ".") -> tuple[bool, str]:
+def _validar_sintaxis(archivo: str, contenido: str, directorio: str = ".") -> tuple[bool, str]:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Valida la sintaxis de ``contenido`` como si fuese el de ``archivo``.
 
     Escribe el ``contenido`` en un archivo temporal (siempre conserva la
@@ -2284,7 +2289,7 @@ def _mostrar_diff_parche(parche: str, ruta: str | None = None) -> None:
         depurar(f"[EditorPropio] No se pudo mostrar el diff: {exc}")
 
 
-def _aplicar_hunks_incremental(parche: str, directorio: str, mostrar_diff: bool = False) -> bool:
+def _aplicar_hunks_incremental(parche: str, directorio: str, mostrar_diff: bool = False) -> bool:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Resolución automática de conflictos: aplica el parche línea a línea.
 
     Estrategia puramente Python (sin git/patch): para cada hunk busca el
@@ -2638,7 +2643,7 @@ def _ast_disponible(ruta: str) -> bool:
     return bool(tree_sitter is not None and _ts_lang is not None and lenguaje)
 
 
-def _resumen_ast_python(contenido: str) -> dict:
+def _resumen_ast_python(contenido: str) -> dict:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Resumen del AST de un archivo Python (funciones, clases, variables, imports)."""
     resumen: dict = {
         "ok": False,
@@ -2912,7 +2917,7 @@ def _aplicar_operaciones_ast(contenido: str, operaciones: list[dict]) -> str | N
     return resultado if resultado != contenido else None
 
 
-def _editor_ast(
+def _editor_ast(  # noqa: C901  (refactor de complejidad: Fase 10c)
     archivo: str,
     tarea: str,
     directorio: str = ".",
@@ -3423,7 +3428,7 @@ def _puerto_de(url: str) -> int:
         return 5000
 
 
-def ejecutar_bucle_agente(
+def ejecutar_bucle_agente(  # noqa: C901  (refactor de complejidad: Fase 10c)
     consulta: str,
     archivos: list[str],
     modo: str = "auto",
@@ -3619,7 +3624,7 @@ def _eliminar_por_indice(seleccion: list[str]) -> list[str]:
     return seleccion
 
 
-def modo_experto(seleccion: list[str], raiz: Path) -> list[str]:
+def modo_experto(seleccion: list[str], raiz: Path) -> list[str]:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Modo experto: revisar/añadir/eliminar/limpiar archivos de la selección.
 
     Opciones del menú:
@@ -3801,7 +3806,7 @@ def _leer_archivo(ruta: str | Path) -> str | None:
         return None
 
 
-def _ejecutar_comando(
+def _ejecutar_comando(  # noqa: C901  (refactor de complejidad: Fase 10c)
     comando: str, directorio: str = ".", timeout: int = 120, capture_output: bool = True
 ) -> tuple:
     """Ejecuta ``comando`` (str de shell) en ``directorio``.
@@ -4509,7 +4514,7 @@ _RE_THINK_ABIERTO = re.compile(r"</?think>", re.I)
 _RAZONAMIENTO_ESTADO = {"banner": False, "aviso_dos_pasos": False}
 
 
-def _extraer_razonamiento(respuesta) -> str | None:
+def _extraer_razonamiento(respuesta) -> str | None:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Extrae el razonamiento (chain-of-thought) de una respuesta del modelo.
 
     Acepta un dict (campos ``reasoning``/``thinking``/``chain_of_thought``/
@@ -5007,7 +5012,7 @@ def _mensaje_capas_caching_inicio(proveedor: str) -> str | None:
     return None
 
 
-def _enviar_al_proveedor(
+def _enviar_al_proveedor(  # noqa: C901  (refactor de complejidad: Fase 10c)
     proveedor: str,
     modelo: str | None,
     mensajes: list[dict],
@@ -5105,7 +5110,7 @@ def _enviar_al_proveedor(
     )
 
 
-def _enviar_al_proveedor_unico(
+def _enviar_al_proveedor_unico(  # noqa: C901  (refactor de complejidad: Fase 10c)
     proveedor: str, modelo: str | None, mensajes: list[dict], prompt_caching: bool | None = None
 ) -> str:
     """Envía ``mensajes`` ([{"role": ..., "content": ...}, ...]) a UN proveedor.
@@ -5214,13 +5219,17 @@ def _enviar_al_proveedor_unico(
         _cfg_xpu = cargar_configuracion().get("xpu", {})
         _max_tokens = int(_cfg_xpu.get("max_tokens", 500))
         _temperature = float(_cfg_xpu.get("temperature", 0.7))
-        # Los flags CLI tienen prioridad sobre la configuración.
-        if getattr(args, "xpu_model", None):
-            _modelo_xpu = args.xpu_model
-        if getattr(args, "xpu_max_tokens", None) is not None:
-            _max_tokens = args.xpu_max_tokens
-        if getattr(args, "xpu_temperature", None) is not None:
-            _temperature = args.xpu_temperature
+        # Los flags CLI tienen prioridad sobre la configuración. v6.34.12:
+        # ``args`` no está en el ámbito de esta función (bug latent corregido,
+        # F821); se usa la instantánea global de los argumentos de la CLI que
+        # ``flujo_principal`` actualiza en cada invocación.
+        if _ARGS_CLI is not None:
+            if getattr(_ARGS_CLI, "xpu_model", None):
+                _modelo_xpu = _ARGS_CLI.xpu_model
+            if getattr(_ARGS_CLI, "xpu_max_tokens", None) is not None:
+                _max_tokens = _ARGS_CLI.xpu_max_tokens
+            if getattr(_ARGS_CLI, "xpu_temperature", None) is not None:
+                _temperature = _ARGS_CLI.xpu_temperature
         _motor = _xpu.cargar_modelo_xpu(
             _modelo_xpu,
             config={"xpu": {"max_tokens": _max_tokens, "temperature": _temperature}},
@@ -5250,7 +5259,7 @@ def _enviar_al_proveedor_unico(
     return respuesta.choices[0].message.content or ""
 
 
-def _ejecutar_chat(
+def _ejecutar_chat(  # noqa: C901  (refactor de complejidad: Fase 10c)
     proveedor: str | None = None, modelo: str | None = None, prompt_caching: bool | None = None
 ) -> int:
     """REPL interactivo (`snapcontext --chat`). Devuelve código de salida.
@@ -6682,7 +6691,7 @@ def _aprender_regla_en_fondo(
     return hilo
 
 
-def _ejecutar_planificador(args: argparse.Namespace) -> int:
+def _ejecutar_planificador(args: argparse.Namespace) -> int:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Modo planificador (`snapcontext --plan "tarea"`, legacy desde v5.2.0).
 
     Flujo: generar plan con IA → confirmación → ejecución secuencial con menú
@@ -7622,7 +7631,7 @@ CURADOR_UMBRAL_FUSION = 0.90  # similitud mínima para fusionar skills
 CLAVE_CURADOR_ULTIMA = "curador_ultima_ejecucion"
 
 
-def _curador_ejecutar(
+def _curador_ejecutar(  # noqa: C901  (refactor de complejidad: Fase 10c)
     dias_sin_uso: int = CURADOR_DIAS_SIN_USO, umbral_fusion: float = CURADOR_UMBRAL_FUSION
 ) -> dict:
     """Ejecuta una pasada del curador. Devuelve un resumen de acciones.
@@ -7956,7 +7965,7 @@ def _plugin_descargar_zip(origen: str, destino_tmp: Path) -> Path | None:
     return None
 
 
-def _plugin_instalar(origen: str, confirmar: bool = True, auto: bool = False) -> int:
+def _plugin_instalar(origen: str, confirmar: bool = True, auto: bool = False) -> int:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Instala un plugin desde un repositorio o carpeta local. → código salida.
 
     - Origen local: ruta a una carpeta con ``plugin.json`` (o su padre).
@@ -8379,6 +8388,11 @@ def _ejecutar_comando_github(subargv: list[str]) -> int:
         )
         exito("Configuración de GitHub guardada en ~/.snapcontext/config.json ('github').")
         info(f"  webhook_url    : {guardado.get('webhook_url') or '(sin definir)'}")
+        # v6.34.12: ``_oculto`` era local de _ejecutar_comando_discord; aquí se
+        # necesita su propia copia (bug F821: NameError en `github setup/estado`).
+        def _oculto(valor: str | None) -> str:
+            return f"configurado (***{valor[-4:]})" if valor else "(sin definir)"
+
         info(f"  token          : {_oculto(guardado.get('token'))}")
         info(f"  webhook_secret : {_oculto(guardado.get('webhook_secret'))}")
         return 0
@@ -8467,7 +8481,7 @@ def _ejecutar_comando_curador(subargv: list[str]) -> int:
     return 0
 
 
-def _ejecutar_comando_plugin(subargv: list[str]) -> int:
+def _ejecutar_comando_plugin(subargv: list[str]) -> int:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Despacha el subcomando ``snapcontext plugin <accion> [...]``."""
     global DEPURAR
     if not subargv:
@@ -8851,7 +8865,7 @@ def _lenguaje_archivo(ruta: str, contenido: str | None = None) -> str | None:
     return _detectar_lenguaje_contenido(contenido)
 
 
-def _extraer_simbolos_ts(arbol, lenguaje: str) -> dict:
+def _extraer_simbolos_ts(arbol, lenguaje: str) -> dict:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Recorre el árbol tree-sitter y extrae funciones/clases/imports/llamadas."""
     funciones: list[dict] = []
     clases: list[dict] = []
@@ -9518,7 +9532,7 @@ def _hash_proyecto(raiz) -> str:
     return _hash_texto(json.dumps(hashes, sort_keys=True, ensure_ascii=False))
 
 
-def _indexar_proyecto(directorio: str = ".", extensiones: set | None = None) -> dict:
+def _indexar_proyecto(directorio: str = ".", extensiones: set | None = None) -> dict:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Indexa el proyecto: embeddings por fragmento de cada archivo de código.
 
     - Escanea recursivamente respetando .gitignore y ``CARPETAS_IGNORADAS``.
@@ -9775,7 +9789,7 @@ def _comando_para_monaco(archivo: str) -> str:
     return _MAPA_LENGUAJE_MONACO.get(ext, "plaintext")
 
 
-def _extraer_dependencias(contenido: str, lenguaje: str) -> list[str]:
+def _extraer_dependencias(contenido: str, lenguaje: str) -> list[str]:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Extrae las referencias de importación de ``contenido`` para ``lenguaje``.
 
     Devuelve una lista ordenada y sin duplicados de módulos/símbolos importados.
@@ -9821,7 +9835,7 @@ def _extraer_dependencias(contenido: str, lenguaje: str) -> list[str]:
     return sorted(d for d in dependencias if d and d != "__future__")
 
 
-def _resolver_dependencia(rel, camino, dep, por_ruta, por_stem, raiz):
+def _resolver_dependencia(rel, camino, dep, por_ruta, por_stem, raiz):  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Intenta localizar un archivo del proyecto que satisfaga una dependencia.
 
     Estrategias, en orden: ruta relativa (./foo), extensión directa,
@@ -9864,7 +9878,7 @@ def _resolver_dependencia(rel, camino, dep, por_ruta, por_stem, raiz):
     return None
 
 
-def _grafo_dependencias(directorio="."):
+def _grafo_dependencias(directorio="."):  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Construye un grafo de dependencias entre archivos de código del proyecto.
 
     Devuelve {"nodos": [{"id", "etiqueta", "lenguaje"}], "enlaces": [{"origen",
@@ -10071,7 +10085,7 @@ def action_toma_valor(accion) -> bool:
     return accion.nargs != 0
 
 
-def _construir_ayuda(parser: argparse.ArgumentParser) -> str:
+def _construir_ayuda(parser: argparse.ArgumentParser) -> str:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Genera el texto completo de `--help`: uso, categorias, alias y ejemplos."""
     ancho = max(min(shutil.get_terminal_size().columns - 2, 100), 70)
     lineas: list[str] = []
@@ -10269,30 +10283,30 @@ class _AyudaAccion(argparse.Action):
 # v6.34.5: análisis del asesor extraído a :mod:`seguridad` (refactor fase
 # 1). Se re-exportan con los nombres originales para no romper la API
 # interna ni los tests.
-from seguridad import (  # noqa: E402
-    ASESOR_CARPETAS_IGNORADAS,  # noqa: F401  (re-export: API interna y tests)
-    ASESOR_EXTENSIONES,  # noqa: F401  (re-export: API interna y tests)
-    ASESOR_UMBRALES_DEFECTO,  # noqa: F401  (re-export: API interna y tests)
-    _NOMBRES_CORTOS_VALIDOS,  # noqa: F401  (re-export: API interna y tests)
-    _NOMBRES_SUGERIDOS,  # noqa: F401  (re-export: API interna y tests)
-    _PATRONES_OBSOLETOS,  # noqa: F401  (re-export: API interna y tests)
-    _PRIORIDAD_ORDEN,  # noqa: F401  (re-export: API interna y tests)
-    _RENDIMIENTO_PATRONES,  # noqa: F401  (re-export: API interna y tests)
-    _SECRETES_RE,  # noqa: F401  (re-export: API interna y tests)
-    _VULNERABILIDADES_PATRONES,  # noqa: F401  (re-export: API interna y tests)
+from seguridad import (
+    _NOMBRES_CORTOS_VALIDOS,
+    _NOMBRES_SUGERIDOS,
+    _PATRONES_OBSOLETOS,
+    _PRIORIDAD_ORDEN,
+    _RENDIMIENTO_PATRONES,
+    _SECRETES_RE,
+    _VULNERABILIDADES_PATRONES,
+    ASESOR_CARPETAS_IGNORADAS,
+    ASESOR_EXTENSIONES,
+    ASESOR_UMBRALES_DEFECTO,
     _analizar_rendimiento,
     _analizar_seguridad,
     _asesor_analizar,
-    _asesor_analizar_por_tipo,  # noqa: F401  (re-export: API interna y tests)
-    _asesor_umbrales,  # noqa: F401  (re-export: API interna y tests)
-    _detectar_clases_grandes,  # noqa: F401  (re-export: API interna y tests)
-    _detectar_duplicados,  # noqa: F401  (re-export: API interna y tests)
-    _detectar_funciones_largas,  # noqa: F401  (re-export: API interna y tests)
-    _detectar_nombres_cortos,  # noqa: F401  (re-export: API interna y tests)
-    _detectar_patrones_obsoletos,  # noqa: F401
-    _detectar_rendimiento,  # noqa: F401  (re-export: API interna y tests)
-    _detectar_vulnerabilidades,  # noqa: F401
-    _normalizar_linea_duplicado,  # noqa: F401
+    _asesor_analizar_por_tipo,
+    _asesor_umbrales,
+    _detectar_clases_grandes,
+    _detectar_duplicados,
+    _detectar_funciones_largas,
+    _detectar_nombres_cortos,
+    _detectar_patrones_obsoletos,
+    _detectar_rendimiento,
+    _detectar_vulnerabilidades,
+    _normalizar_linea_duplicado,
 )
 
 
@@ -11551,7 +11565,7 @@ def _estado_memoria() -> dict:
         return {"ok": False, "skills": 0, "error": str(exc)}
 
 
-def _ejecutar_diagnostico(args: argparse.Namespace) -> int:
+def _ejecutar_diagnostico(args: argparse.Namespace) -> int:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Modo --diagnostico: revisa la instalación y muestra un resumen.
 
     Comprueba Python, instalación del paquete, dependencias opcionales,
@@ -11908,7 +11922,8 @@ def flujo_principal(args: argparse.Namespace) -> int:
     se conserva la firma de la CLI, la bandera de depuración global y, desde
     v0.10.0, el registro automático de la tarea en el historial persistente.
     """
-    global DEPURAR
+    global DEPURAR, _ARGS_CLI
+    _ARGS_CLI = args  # v6.34.12: instantánea para funciones sin acceso a args.
     import presentacion as _pres
 
     DEPURAR = _pres.DEPURAR = args.depurar
@@ -12232,7 +12247,7 @@ def _ejecutar_comando_hook(argv: list | None = None) -> int:
     return 1
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:  # noqa: C901  (refactor de complejidad: Fase 10c)
     # Instala los manejadores de Ctrl+C / SIGTERM (cierre limpio, subprocesos
     # incluidos) antes de hacer nada. Es seguro en Windows y Linux/macOS.
     _registrar_manejadores_senales()

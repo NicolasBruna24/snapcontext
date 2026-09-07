@@ -19,7 +19,7 @@ class _AgenteBase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import snapcontext  # noqa: F401  (asegura carga única)
+        import snapcontext
 
 
 class TestAgenteContexto(_AgenteBase):

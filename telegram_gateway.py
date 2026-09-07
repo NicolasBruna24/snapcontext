@@ -244,7 +244,7 @@ def _ejecutar_pipeline(consulta: str, argv_extra: list) -> str:
     return f"{estado} Tarea terminada (código {codigo}).\n\n{resumen}"
 
 
-async def run_agent_async(query: str, chat_id=None) -> str:
+async def run_agent_async(query: str, chat_id=None) -> str:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Ejecuta el agente o gestiona comandos asíncronos."""
     texto = (query or "").strip()
     if texto.startswith("/"):

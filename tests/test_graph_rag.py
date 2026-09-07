@@ -20,8 +20,8 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import graph_rag as gr  # noqa: E402
-import snapcontext as sc  # noqa: E402
+import graph_rag as gr
+import snapcontext as sc
 
 
 def _proyecto(base: str) -> str:

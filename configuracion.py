@@ -22,6 +22,18 @@ from presentacion import (
     info,
 )
 
+
+def _sc(nombre: str):
+    """Resuelve perezosamente un símbolo aún ubicado en ``snapcontext``.
+
+    Evita el ciclo de imports (configuracion ← snapcontext) y, al resolverse
+    con ``getattr`` en tiempo de llamada, respeta el monkey-patching de los
+    tests sobre ``snapcontext`` (v6.34.12, corrige hallazgos F821).
+    """
+    import snapcontext
+
+    return getattr(snapcontext, nombre)
+
 # --- PROVEEDOR_DEFECTO (487-487) ---
 PROVEEDOR_DEFECTO = os.environ.get("SNAPCONTEXT_PROVIDER", "gemini")
 
@@ -337,7 +349,7 @@ def _preguntar_guardar_config() -> bool:
 
 
 # --- _probar_conexion_proveedor (1464-1526) ---
-def _probar_conexion_proveedor(provider: str, model: str | None = None) -> bool:
+def _probar_conexion_proveedor(provider: str, model: str | None = None) -> bool:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Comprueba la conexión con la API del proveedor elegido (usado por --init).
 
     Reutiliza la clave guardada en la configuración o, como plan B, la variable
@@ -347,7 +359,7 @@ def _probar_conexion_proveedor(provider: str, model: str | None = None) -> bool:
     api_keys = cargar_configuracion().get("api_keys") or {}
 
     if provider == "gemini":
-        if _importar_genai() is None:
+        if _sc("_importar_genai")() is None:
             aviso("Falta google-generativeai. Instala: pip install google-generativeai")
             return False
         clave = (api_keys.get("gemini") or "").strip() or os.environ.get(
@@ -357,6 +369,7 @@ def _probar_conexion_proveedor(provider: str, model: str | None = None) -> bool:
             aviso("No se encontró ninguna clave de Gemini.")
             return False
         try:
+            genai = _sc("genai")
             genai.configure(api_key=clave)
             genai.GenerativeModel(model or cfg["modelo_default"]).generate_content("responde ok")
             return True
@@ -365,7 +378,7 @@ def _probar_conexion_proveedor(provider: str, model: str | None = None) -> bool:
 
     # Claude (Anthropic): SDK oficial, distinto de la API estilo OpenAI.
     if provider == "anthropic":
-        if _importar_anthropic() is None:
+        if _sc("_importar_anthropic")() is None:
             aviso(MENSAJE_ANTHROPIC_FALTANTE)
             return False
         clave = (api_keys.get("anthropic") or "").strip() or os.environ.get(
@@ -375,7 +388,7 @@ def _probar_conexion_proveedor(provider: str, model: str | None = None) -> bool:
             aviso("No se encontró ninguna clave de Anthropic.")
             return False
         try:
-            cliente = anthropic.Anthropic(api_key=clave)
+            cliente = _sc("anthropic").Anthropic(api_key=clave)
             cliente.messages.create(
                 model=model or cfg["modelo_default"],
                 max_tokens=5,
@@ -386,13 +399,13 @@ def _probar_conexion_proveedor(provider: str, model: str | None = None) -> bool:
             return False
 
     # Proveedores con API estilo OpenAI (Groq, DeepSeek y Ollama).
-    if _importar_openai() is None:
+    if _sc("_importar_openai")() is None:
         aviso(MENSAJE_OPENAI_FALTANTE)
         return False
     clave = (api_keys.get(provider) or "").strip() or os.environ.get(cfg["clave_env"], "").strip()
-    base_url = _resolver_url_openai(cfg)
+    base_url = _sc("_resolver_url_openai")(cfg)
     try:
-        cliente = openai.OpenAI(api_key=clave or "ollama", base_url=base_url)
+        cliente = _sc("openai").OpenAI(api_key=clave or "ollama", base_url=base_url)
         cliente.chat.completions.create(
             model=model or cfg["modelo_default"],
             messages=[{"role": "user", "content": "responde ok"}],
@@ -404,7 +417,7 @@ def _probar_conexion_proveedor(provider: str, model: str | None = None) -> bool:
 
 
 # --- asistente_configuracion_inicial (1529-1641) ---
-def asistente_configuracion_inicial() -> int:
+def asistente_configuracion_inicial() -> int:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Asistente interactivo de configuración inicial (SNAPCONTEXT --init).
 
     Guía en la configuración de claves API y el proveedor/modelo favorito en
@@ -522,7 +535,7 @@ def hay_api_key_configurada() -> bool:
     DEEPSEEK_API_KEY / GROQ_API_KEY / OPENAI_API_KEY y, además, las claves
     guardadas en ~/.snapcontext/config.json (sección 'api_keys').
     """
-    for env in CLAVES_API_CONOCIDAS:
+    for env in _sc("CLAVES_API_CONOCIDAS"):
         if (os.environ.get(env) or "").strip():
             return True
     try:
@@ -554,12 +567,13 @@ def _elegir_modelo_ligero(modelos: list[str]) -> str | None:
     """
     if not modelos:
         return None
-    for preferido in MODELOS_LIGEROS_OLLAMA:
+    preferidos = _sc("MODELOS_LIGEROS_OLLAMA")
+    for preferido in preferidos:
         for m in modelos:
             if m == preferido or m.startswith(preferido + ":"):
                 return m
     # Coincidencia parcial (p. ej. "llama3.2:latest").
-    for preferido in MODELOS_LIGEROS_OLLAMA:
+    for preferido in preferidos:
         for m in modelos:
             if preferido in m:
                 return m

@@ -218,7 +218,7 @@ def parsear_evento(
 # ---------------------------------------------------------------------------
 # Procesamiento de Eventos y Encolado de Tareas
 # ---------------------------------------------------------------------------
-def procesar_evento(
+def procesar_evento(  # noqa: C901  (refactor de complejidad: Fase 10c)
     evento_parseado: dict[str, Any],
     chat_id: str | None = None,
     canal: str | None = None,

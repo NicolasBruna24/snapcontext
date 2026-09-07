@@ -468,6 +468,8 @@ class AgenteEditorPropio:
 
     def _ejecutar_con_aider(self, archivos: list[str], mensaje: str, directorio: str) -> bool:
         """Fallback automático a Aider cuando el editor propio falla (v6.1.0)."""
+        import shutil
+
         import snapcontext as sc
 
         if not archivos:
@@ -529,7 +531,7 @@ class AgenteEditorPropio:
 
         return "\n".join(resultado) + "\n", aplicados
 
-    def _aplicar_modo_parche(
+    def _aplicar_modo_parche(  # noqa: C901  (refactor de complejidad: Fase 10c)
         self,
         archivo: str,
         mensaje: str,
@@ -685,7 +687,7 @@ class AgenteEditorPropio:
             sc.info(f"Reintentando parche ({intento}/{max_val})...")
         return False
 
-    def _aplicar_con_conflicto(
+    def _aplicar_con_conflicto(  # noqa: C901  (refactor de complejidad: Fase 10c)
         self,
         archivo: str,
         diff: str,
@@ -756,7 +758,7 @@ class AgenteEditorPropio:
             sc.info(f"Se conserva la versión original de '{archivo}'.")
             return "cancelar"
 
-    def _aplicar_modo_sobrescribir(
+    def _aplicar_modo_sobrescribir(  # noqa: C901  (refactor de complejidad: Fase 10c)
         self,
         archivo: str,
         mensaje: str,
@@ -897,7 +899,7 @@ class AgenteEditorPropio:
 
         return self.sobrescribir(archivo, nuevo_contenido, directorio)
 
-    def _analizar_impacto_previo(self, archivos, directorio, auto):
+    def _analizar_impacto_previo(self, archivos, directorio, auto):  # noqa: C901  (refactor de complejidad: Fase 10c)
         """Análisis de Impacto Previo (v4.7.0).
 
         Usa ``sc._grafo_dependencias`` para detectar qué otros archivos del
@@ -978,7 +980,7 @@ class AgenteEditorPropio:
             sc.info(f"[impacto] Archivos añadidos a la edición por impacto: {', '.join(anadidos)}")
         return objetivos
 
-    def _editar_archivo_en_cadena(
+    def _editar_archivo_en_cadena(  # noqa: C901  (refactor de complejidad: Fase 10c)
         self,
         arch: str,
         mensaje: str,
@@ -1101,7 +1103,7 @@ class AgenteEditorPropio:
             pass
         return False
 
-    def ejecutar(
+    def ejecutar(  # noqa: C901  (refactor de complejidad: Fase 10c)
         self,
         archivos: list[str],
         mensaje: str,

@@ -126,7 +126,7 @@ def _lanzar_tarea_api(tipo: str, cuerpo: dict) -> dict:
     return {"task_id": task_id, "estado": "pendiente", "url": f"{API_PREFIJO}/tasks/{task_id}"}
 
 
-def crear_app(api_token: str | None = None, interactiva: bool = False) -> FastAPI:
+def crear_app(api_token: str | None = None, interactiva: bool = False) -> FastAPI:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Construye y devuelve la app FastAPI (rutas + WebSocket + API v3.6.0).
 
     ``api_token`` fija la clave exigida en los endpoints ``/api/v1/*``; si se
@@ -458,7 +458,7 @@ def crear_app(api_token: str | None = None, interactiva: bool = False) -> FastAP
         return {"estado": "ok", "servicio": "snapcontext"}
 
     @app.websocket("/ws")
-    async def _ws_punto(websocket: WebSocket):
+    async def _ws_punto(websocket: WebSocket):  # noqa: C901  (refactor de complejidad: Fase 10c)
         await websocket.accept()
         cola: queue.Queue[dict] = queue.Queue()
         try:
@@ -613,7 +613,7 @@ def _construir_args(mensaje: dict):
 # --------------------------------------------------------------------------
 # Acciones rápidas (Fix / Review / Plan / Run / Search / Explorar) — v1.2.0
 # --------------------------------------------------------------------------
-def _ejecutar_accion(mensaje: dict, cola) -> None:
+def _ejecutar_accion(mensaje: dict, cola) -> None:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Ejecuta una acción rápida del panel web, emitiendo eventos a la cola."""
     import snapcontext as sc
 
