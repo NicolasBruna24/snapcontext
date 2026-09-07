@@ -17,6 +17,7 @@ módulo solo aporta la capa de orquestación.
 
 import shlex
 import sys
+from typing import cast
 
 from agentes import (
     AgenteAprendizaje,
@@ -89,7 +90,7 @@ class Orquestador:
         archivos: list[str],
         directorio: str,
         opciones_aider: str,
-        comando_test: list[str],
+        comando_test: list[str] | None,
         max_iteraciones: int,
     ) -> bool:
         """Bucle de pruebas con la arquitectura de agentes.
@@ -196,6 +197,7 @@ class Orquestador:
                 self._emitir_tipo("final", ok=False, nota="flujo abortado")
                 return 1
 
+            plan = cast(tuple, plan)  # noqa: F821  (plan es tuple tras chequeo None + VISTA_PREVIA)
             consulta, raiz, carpeta, seleccion = plan
             del carpeta  # parte del contrato de `plan`; no se usa aquí.
             sc.depurar(f"[Orquestador] Plan listo: {len(seleccion)} archivo(s) a usar.")
@@ -256,7 +258,7 @@ class Orquestador:
                         seleccion,
                         consulta,
                         str(raiz),
-                        opciones_aider=args.aider_opciones,
+                        opciones=args.aider_opciones,
                     )
                     self._emitir_tipo("aider", accion="fin", ok=ok)
             self._emitir_tipo("final", ok=ok)
@@ -296,7 +298,7 @@ class Orquestador:
     # ------------------------------------------------------------------
     # Planificación: validación + escaneo/selección con AgenteContexto
     # ------------------------------------------------------------------
-    def _planificar(self, args, sc) -> tuple | None:  # noqa: C901  (refactor de complejidad: Fase 10c)
+    def _planificar(self, args, sc) -> tuple | str | None:  # noqa: C901  (refactor de complejidad: Fase 10c)
         """Valida argumentos y ejecuta el escaneo/selección con agentes.
 
         Devuelve ``(consulta, raiz, carpetas, seleccion)`` o ``None`` si hay que

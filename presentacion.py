@@ -122,7 +122,7 @@ def _pintar(texto: str, codigo: str) -> str:
     return f"{codigo}{texto}{_REINICIO}"
 
 
-_TUI_HUB: object = False  # caché perezosa del hub TUI (False = no probado)
+_TUI_HUB: object | None = False  # False = no probado, None = no disponible, módulo = listo
 
 
 def _tui_log(nivel: str, msg: str) -> None:
@@ -142,7 +142,7 @@ def _tui_log(nivel: str, msg: str) -> None:
             _TUI_HUB = None
     if _TUI_HUB and getattr(_TUI_HUB, "esta_activo", lambda: False)():
         try:
-            _TUI_HUB.enviar_log(nivel, str(msg))
+            _TUI_HUB.enviar_log(nivel, str(msg))  # type: ignore[attr-defined]
         except Exception:
             pass
 
@@ -217,7 +217,7 @@ def _colores_activos() -> bool:
     return True
 
 
-def _pintar(texto: str, clave: str) -> str:
+def _pintar(texto: str, clave: str) -> str:  # type: ignore[no-redef]
     """Aplica el color ANSI ``clave`` si los colores están activos."""
     if not _AYUDA_CON_COLOR:
         return texto

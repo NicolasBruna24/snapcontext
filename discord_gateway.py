@@ -33,8 +33,8 @@ try:
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 except ImportError:  # pragma: no cover — dependencia base
-    Ed25519PublicKey = None
-    InvalidSignature = Exception
+    Ed25519PublicKey = None  # type: ignore[misc,assignment]
+    InvalidSignature: type[Exception] = Exception  # type: ignore[no-redef]
 
 API_DISCORD = "https://discord.com/api/v10"
 # Límite duro de la API de Discord por mensaje.

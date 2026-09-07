@@ -1,9 +1,10 @@
 """Planificador: gestión de contexto y visualización de planes (Fase 5)."""
 
 from threading import Lock
+from typing import Any, cast
 
 # --- Contexto dinámico del plan (v6.30.0) ---------------------------------
-_CONTEXTO_PLAN = {"variables": {}, "pasos": {}}
+_CONTEXTO_PLAN: dict[str, dict[str, Any]] = {"variables": {}, "pasos": {}}
 _CANDADO_CONTEXTO_PLAN = Lock()
 
 
@@ -132,7 +133,7 @@ def _normalizar_pasos(datos) -> list[dict]:
         archivos = crudo.get("archivos") or []
         if not isinstance(archivos, list):
             archivos = []
-        paso = {
+        paso: dict[str, Any] = {
             "descripcion": descripcion,
             "accion": accion,
             "archivos": [str(a) for a in archivos if str(a).strip()],
@@ -495,6 +496,7 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace, raiz: str) -> tupl
     plan = orch._planificar(paso_args, sc)
     if plan is None:
         return (False, "no se pudo planificar la edición (sin candidatos)")
+    plan = cast(tuple, plan)  # plan es tuple tras chequeo None + VISTA_PREVIA
     _, ruta_raiz, _, seleccion = plan
 
     if editor_elegido == "propio":
@@ -535,7 +537,7 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace, raiz: str) -> tupl
         seleccion,
         descripcion,
         str(ruta_raiz),
-        opciones_aider=getattr(args, "aider_opciones", ""),
+        opciones=getattr(args, "aider_opciones", ""),
     )
     # v6.22.0: hook `after_plan_step` — observabilidad post-ejecución del paso.
     try:
@@ -614,7 +616,7 @@ def _evaluar_condicion(condicion: str, raiz: str = ".", contexto: dict | None = 
         if not argumentos or not argumentos[0]:
             return False
         codigo, _, _ = _sc._ejecutar_comando(argumentos[0], raiz, timeout=300)
-        return codigo == 0
+        return bool(codigo == 0)
     if funcion == "variable_existe":
         with _CANDADO_CONTEXTO_PLAN:
             variables = dict(contexto.get("variables", {}))

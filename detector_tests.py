@@ -19,11 +19,13 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 # Registro de lenguajes/frameworks soportados.
 #   "comando"  : comando de prueba exacto a ejecutar.
 #   "estructura": {carpeta, patron} de tests.
-_LENGUAJES: dict[str, dict[str, str]] = {
+# v6.34.13: tipado relajado; las claves "estructura" son sub-dicts, no str.
+_LENGUAJES: dict[str, dict[str, Any]] = {
     "go": {
         "comando": "go test ./...",
         "estructura": {"carpeta": "", "patron": "*_test.go"},

@@ -191,7 +191,8 @@ def _extraer_nodos_y_aristas(directorio: str) -> dict:  # noqa: C901  (refactor 
     # Pasada 2: aristas (imports, llamadas, herencia). Para las llamadas se
     # rastrea la función contenedora (p. ej. cobrar → procesar) con un
     # recorrido recursivo que mantiene el contexto.
-    for rel, arbol in arboles.items():
+    for rel, arbol in arboles.items():  # type: ignore[assignment]
+        # `arbol` es el AST parseado del archivo (tipo `ast.Module`, subclase de `ast.AST`).
 
         def _visitar(  # noqa: C901  (refactor de complejidad: Fase 10d)
             nodo: ast.AST, contexto: str, _rel: str = rel
@@ -367,27 +368,27 @@ def _grafo_incremental(directorio: str, cache: dict):
 
     # 2) aristas (solo se recalculan las del archivo cambiado; el resto se
     #    reutiliza tal cual).
-    nodos: dict[str, dict] = {}
+    grafo: dict[str, dict] = {}
     aristas: list[dict] = []
     vistos: set[tuple[str, str, str]] = set()
-    por_archivo: dict[str, dict] = {}
+    por_archivo_cambios: dict[str, dict] = {}
     for rel in rels:
         contrib = contribs[rel]
         if rel in cambiados:
             contrib["aristas"] = _aristas_archivo(raiz, rel, archivos, paquetes, definiciones)
         for ident, nd in contrib.get("nodos", {}).items():
-            nodos[ident] = nd
+            grafo[ident] = nd
         for arista in contrib.get("aristas", []):
             clave = (arista["origen"], arista["destino"], arista["tipo"])
             if clave not in vistos:
                 vistos.add(clave)
                 aristas.append(arista)
-        por_archivo[rel] = {
+        por_archivo_cambios[rel] = {
             "nodos": contrib.get("nodos", {}),
             "defs": contrib.get("defs", {}),
             "aristas": contrib.get("aristas", []),
         }
-    return {"nodos": nodos, "aristas": aristas}, por_archivo
+    return {"nodos": grafo, "aristas": aristas}, por_archivo_cambios
 
 
 def construir_grafo(directorio: str, forzar: bool = False, ruta_cache: str | None = None) -> dict:  # noqa: C901  (refactor de complejidad: Fase 10c)
@@ -414,10 +415,13 @@ def construir_grafo(directorio: str, forzar: bool = False, ruta_cache: str | Non
                     and isinstance(cache.get("grafo"), dict)
                 ):
                     if cache.get("fingerprint") == huella:
-                        return cache["grafo"]
+                        result = cache["grafo"]
+                        if isinstance(result, dict):
+                            return result
                     # v6.9.0: caché incremental — solo archivos cambiados.
                     if isinstance(cache.get("por_archivo"), dict):
                         grafo, por = _grafo_incremental(directorio, cache)
+                        result = grafo
                         try:
                             ruta.parent.mkdir(parents=True, exist_ok=True)
                             with open(ruta, "wb") as manejador2:
@@ -432,19 +436,20 @@ def construir_grafo(directorio: str, forzar: bool = False, ruta_cache: str | Non
                                 )
                         except Exception:
                             pass
-                        return grafo
+                        if isinstance(result, dict):
+                            return result
         except Exception:
             pass  # cache ilegible → rebuild
     grafo = _extraer_nodos_y_aristas(directorio)
     # v6.9.0: persiste también la contribución por archivo para poder hacer
     # builds incrementales en cambios posteriores.
-    por: dict[str, dict] = {}
+    por_cambios: dict[str, dict] = {}
     raiz = Path(directorio)
     archivos_m, paquetes_m, rels = _mapas_resolucion(directorio)
     defs_global: dict[str, list[str]] = {}
     for rel in rels:
         nodos, defs = _nodos_y_defs_archivo(raiz, rel)
-        por[rel] = {"nodos": nodos, "defs": defs}
+        por_cambios[rel] = {"nodos": nodos, "defs": defs}
         for nombre, ids in defs.items():
             defs_global.setdefault(nombre, [])
             defs_global[nombre].extend(ids)

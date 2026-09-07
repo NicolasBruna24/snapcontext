@@ -150,6 +150,8 @@ def detectar_lenguaje(contenido: str, archivo: str | None = None) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+from typing import cast
+
 # Carga perezosa de backends tree-sitter
 # ---------------------------------------------------------------------------
 _estado: dict[str, object | None] = {
@@ -203,7 +205,7 @@ def backend_disponible() -> bool:
 def backend_activo() -> str | None:
     """Nombre del backend en uso (o ``None``). Fuerza la carga perezosa."""
     _cargar_backend()
-    return _estado["backend"]
+    return cast(str | None, _estado["backend"])
 
 
 def parsear_archivo(contenido: str, lenguaje: str):
@@ -331,7 +333,7 @@ def extraer_nodos(archivo: str, contenido: str, tipo_nodo: str = "todos") -> dic
         for hijo in reversed(nodo.children):
             pila.append(hijo)
 
-    resultado = {"lenguaje": lenguaje, "motor": "tree-sitter"}
+    resultado: dict[str, object] = {"lenguaje": lenguaje, "motor": "tree-sitter"}
     if tipo_nodo in ("todos", "funciones"):
         resultado["funciones"] = funciones
     if tipo_nodo in ("todos", "clases"):

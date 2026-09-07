@@ -174,8 +174,8 @@ def enviar_conflicto_diff(
         )
         if not emitido:
             return None
-        if espera["evento"].wait(timeout=max(1, int(timeout))):
-            return espera["respuesta"]
+        if espera["evento"] is not None and espera["evento"].wait(timeout=max(1, int(timeout))):
+            return espera["respuesta"]  # type: ignore[return-value]
         return None
     finally:
         with _CANDADO_ESPERAS:

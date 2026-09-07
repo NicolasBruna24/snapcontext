@@ -59,10 +59,10 @@ __all__ = [
 def sanitizar(texto: Any, maximo: int = MAX_TEXTO) -> str:
     """Devuelve texto plano seguro: sin `` ``` `` (bloques de código) ni
     caracteres de control, recortado a ``maximo`` caracteres."""
-    texto = str(texto or "")
-    texto = texto.replace("```", "'")
-    texto = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", texto)
-    return texto.strip()[:maximo]
+    entrada = str(texto or "")
+    entrada = entrada.replace("```", "'")
+    entrada = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", entrada)
+    return entrada.strip()[:maximo]
 
 
 def _sc():

@@ -276,7 +276,7 @@ class ReactAgent:
     def _llamada_sync(self, mensajes: list[dict]) -> str:
         return str(
             sc._enviar_al_proveedor(
-                self.proveedor,
+                self.proveedor or sc.PROVEEDOR_DEFECTO,
                 self.modelo,
                 mensajes,
                 prompt_caching=self.prompt_caching,
@@ -772,11 +772,11 @@ class ReactAgent:
             if valor:
                 mensaje += f"\n{clave}: {valor[:1200]}"
         for clave in ("stdout", "coincidencias", "contenido", "diff", "texto", "analisis"):
-            valor = resultado.get(clave)
-            if isinstance(valor, list):
-                valor = "\n".join(str(v) for v in valor)
-            if valor:
-                mensaje += f"\n{clave}:\n{valor!s}"
+            valor_cadena = resultado.get(clave)
+            if isinstance(valor_cadena, list):
+                valor_cadena = "\n".join(str(v) for v in valor_cadena)
+            if valor_cadena:
+                mensaje += f"\n{clave}:\n{valor_cadena!s}"
         if len(mensaje) > MAX_SALIDA_OBSERVACION:
             mensaje = mensaje[:MAX_SALIDA_OBSERVACION] + "\n…(salida truncada)"
         return mensaje
@@ -839,11 +839,11 @@ class ReactAgent:
         # marcas cache_control en el resumen para mantener el ahorro de tokens
         # entre turnos (el sistema ya se marca al enviarse).
         try:
-            if sc._soporta_prompt_caching(self.proveedor) and sc._resolver_prompt_caching(
+            if sc._soporta_prompt_caching(self.proveedor or sc.PROVEEDOR_DEFECTO) and sc._resolver_prompt_caching(
                 self.prompt_caching
             ):
                 for _m in nuevo_historial:
-                    _m.setdefault("cache_control", {"type": "ephemeral"})
+                    _m["cache_control"] = {"type": "ephemeral"}  # type: ignore[assignment]
         except Exception:
             pass
         self.historial = nuevo_historial
@@ -890,7 +890,7 @@ class ReactAgent:
         except Exception:
             pass
         # v6.11.0: informa del estado del Prompt Caching al inicio de la sesión.
-        _msg_cache = sc._mensaje_caching_inicio(self.proveedor)
+        _msg_cache = sc._mensaje_caching_inicio(self.proveedor or sc.PROVEEDOR_DEFECTO)
         if _msg_cache:
             sc.info(_msg_cache)
         # v6.4.0: si se pidió --sandbox-session, iniciar la sesión Docker

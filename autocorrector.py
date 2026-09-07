@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 __all__ = [
     "Autocorrector",
@@ -34,11 +34,11 @@ CATEGORIA_AUTOCORRECCION = "autocorreccion"
 def _detectar_comando_test(directorio: str) -> str:
     """Detecta el comando de test para el proyecto."""
     try:
-        from detector_tests import deteccion_tests as det
+        from detector_tests import detectar_comando_test as det
 
-        resultado = det.detectar_automaticamente(directorio)
-        if resultado and resultado.get("comando"):
-            return resultado["comando"]
+        resultado = det(directorio)
+        if resultado:
+            return cast(str, resultado)
     except Exception:
         pass
     if Path(directorio, "pytest.ini").exists() or Path(directorio, "setup.py").exists():
@@ -59,7 +59,7 @@ def _ejecutar_en_sandbox(comando: str, directorio: str, timeout: int = 600) -> t
             try:
                 import sandbox_session as ss
 
-                return ss.ejecutar(comando, cwd=directorio, timeout=timeout)
+                return cast(tuple[int, str, str], ss.ejecutar(comando, cwd=directorio, timeout=timeout))  # type: ignore[attr-defined]
             except Exception:
                 pass
         return sc._ejecutar_comando(comando, directorio, timeout=timeout)

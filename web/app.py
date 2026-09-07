@@ -29,6 +29,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from typing import cast
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket
 from fastapi.responses import FileResponse
@@ -68,7 +69,7 @@ def _clave_api_efectiva(token: str | None) -> str:
                 "⚠ No había API key configurada; se generó una nueva y "
                 "se guardó en ~/.snapcontext/config.json ('api_key')."
             )
-            return clave
+            return str(clave)
         except Exception:
             pass
     return ""
@@ -237,9 +238,7 @@ def crear_app(api_token: str | None = None, interactiva: bool = False) -> FastAP
                     "activo": True,
                     "detalle": "El daemon ya estaba en ejecución.",
                 }
-            intervalo = int(
-                cuerpo.get("intervalo_horas") or getattr(sc, "DAEMON_INTERVALO_HORAS_DEFECTO", 6)
-            )
+            intervalo = cast(int, cuerpo.get("intervalo_horas") or getattr(sc, "DAEMON_INTERVALO_HORAS_DEFECTO", 6))
             pausa = int(getattr(sc, "DAEMON_PAUSA_SEGUNDOS", 3600))
             _DAEMON_PARAR.clear()
 
@@ -835,7 +834,7 @@ def _dependencias_web(mensaje: dict) -> dict:
     try:
         grafo = sc._grafo_dependencias(directorio)
         grafo["ruta"] = (mensaje.get("ruta") or "").strip()
-        return grafo
+        return dict(grafo)
     except Exception as exc:
         return {
             "nodos": [],
@@ -854,7 +853,7 @@ def _semantica_web(mensaje: dict) -> list:
     if not consulta or not sc._embeddings_disponibles():
         return []
     try:
-        return sc._buscar_semanticamente(consulta, directorio, max_resultados=20)
+        return sc._buscar_semanticamente(consulta, directorio, max_resultados=20)  # type: ignore[no-any-return]
     except Exception:
         return []
 
@@ -866,7 +865,7 @@ def _explorar_web(mensaje: dict) -> list:
     tema = (mensaje.get("tema") or "").strip()
     directorio = (mensaje.get("directorio") or _DIRECTORIO_DEFECTO).strip()
     try:
-        return sc._buscar_en_codigo(tema, directorio)
+        return sc._buscar_en_codigo(tema, directorio)  # type: ignore[no-any-return]
     except Exception:
         return []
 

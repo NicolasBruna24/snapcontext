@@ -11,6 +11,7 @@ import secrets
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from presentacion import (
     _CYAN,
@@ -44,7 +45,7 @@ CONFIG_DIR = Path.home() / ".snapcontext"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
 # --- PROVEEDORES (510-564) ---
-PROVEEDORES = {
+PROVEEDORES: dict[str, dict[str, Any]] = {
     "gemini": {
         "nombre": "Gemini",
         "tipo": "gemini",

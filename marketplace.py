@@ -216,7 +216,7 @@ def _leer_manifest(nombre: str) -> dict | None:
         instalados = _sc()._plugins_instalados()
         for clave, manifest in instalados.items():
             if clave.lower() == nombre.strip().lower():
-                return manifest
+                return manifest  # type: ignore[no-any-return]
     except Exception:
         pass
     return None

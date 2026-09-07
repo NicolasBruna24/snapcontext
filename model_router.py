@@ -380,9 +380,9 @@ def _parsear_prioridad(entrada: Any) -> list[tuple[str, str | None]]:
                 resultado.append((proveedor, modelo.strip() or None))
         elif isinstance(item, dict):
             proveedor = str(item.get("provider") or "").strip().lower()
-            modelo = item.get("model")
+            modelo_dict = item.get("model")
             if proveedor:
-                resultado.append((proveedor, str(modelo) if modelo else None))
+                resultado.append((proveedor, str(modelo_dict) if modelo_dict else None))
     return resultado
 
 

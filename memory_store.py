@@ -116,7 +116,7 @@ def contar_decisiones() -> int:
     try:
         conn = _obtener_conexion()
         cursor = conn.execute("SELECT COUNT(*) FROM historial_decisiones")
-        return cursor.fetchone()[0]
+        return int(cursor.fetchone()[0])  # type: ignore[index]
     except Exception:
         return 0
 
@@ -305,6 +305,6 @@ def limpiar_historial() -> int:
         count = conn.execute("SELECT COUNT(*) FROM historial_decisiones").fetchone()[0]
         conn.execute("DELETE FROM historial_decisiones")
         conn.commit()
-        return count
+        return int(count)  # type: ignore[arg-type]
     except Exception:
         return 0

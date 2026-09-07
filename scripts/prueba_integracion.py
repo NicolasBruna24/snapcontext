@@ -21,8 +21,8 @@ sys.path.insert(0, str(RAIZ))
 
 import snapcontext as sc
 
-FALLOS = []
-GUARDADOS = []  # entradas de historial capturadas durante el plan simulado
+FALLOS: list[str] = []
+GUARDADOS: list[dict[str, str]] = []  # entradas de historial capturadas durante el plan simulado
 
 
 def comprobar(nombre: str, condicion: bool, detalle: str = "") -> None:

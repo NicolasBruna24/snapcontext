@@ -62,7 +62,7 @@ DIR_HOOKS = Path(
 try:  # salida con color
     import snapcontext as _sc
 except Exception:  # pragma: no cover
-    _sc = None
+    _sc = None  # type: ignore[assignment]
 
 
 def _depurar(texto: str) -> None:

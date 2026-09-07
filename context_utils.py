@@ -524,8 +524,9 @@ def objetivo_en_mensaje(contenido: str, lenguaje: str, mensaje: str) -> str | No
     metadatos = _extraer_metadatos(contenido, lenguaje)
     texto = (mensaje or "").lower()
     for m in metadatos:
-        if m["nombre"] and m["nombre"].lower() in texto:
-            return m["nombre"]
+        nombre = m.get("nombre") if isinstance(m, dict) else None
+        if nombre and str(nombre).lower() in texto:
+            return str(nombre)
     return None
 
 

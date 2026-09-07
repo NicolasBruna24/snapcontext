@@ -314,7 +314,11 @@ def _ejecutar_herramienta_mcp(  # noqa: C901  (refactor de complejidad: Fase 10c
                 capture_output=bool(argumentos.get("capture_output", True)),
             )
         elif nombre == "execute_command_status":
-            resultado = _sc._estado_proceso_fondo(_entero_opcional(argumentos.get("pid")))
+            pid = _entero_opcional(argumentos.get("pid"))
+            if pid is None:
+                resultado = {"error": "parámetro 'pid' obligatorio", "codigo": -1}
+            else:
+                resultado = _sc._estado_proceso_fondo(pid)
         elif nombre == "db_query":
             try:
                 import mcp_tools_db as _dbt

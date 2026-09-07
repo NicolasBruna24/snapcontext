@@ -95,7 +95,7 @@ class GraphLSPIntegrator:
         profundidad = self.config.get("profundidad", 2)
         cache_key = f"{archivo}:{linea}:{tipo}:{max_sim}:{profundidad}"
         if cache_key in self._cache_simbolos:
-            return self._cache_simbolos[cache_key]
+            return self._cache_simbolos[cache_key]  # type: ignore[no-any-return]
         simbolos: list[dict[str, Any]] = []
         lsp = self._obtener_simbolos_lsp(archivo, linea)
         if lsp:
@@ -119,7 +119,7 @@ class GraphLSPIntegrator:
         """Obtiene símbolos vía LSP con caché (v6.33.0)."""
         cache_key = f"{archivo}:{linea}"
         if cache_key in self._cache_simbolos:
-            return self._cache_simbolos[cache_key]
+            return self._cache_simbolos[cache_key]  # type: ignore[no-any-return]
         simbolos: list[dict[str, Any]] = []
         try:
             import lsp_client as lsp
@@ -163,7 +163,7 @@ class GraphLSPIntegrator:
                 return simbolos
             vecinos = []
             if hasattr(gr, "obtener_vecinos"):
-                vecinos = gr.obtener_vecinos(self.grafo, archivo, profundidad)
+                vecinos = gr.obtener_vecinos(self.grafo, archivo, profundidad)  # type: ignore[attr-defined]
             elif hasattr(gr, "expandir_contexto"):
                 vecinos = gr.expandir_contexto([archivo], self.grafo, max_adicionales=max_sim)
                 vecinos = [v for v in vecinos if v != archivo]

@@ -100,7 +100,7 @@ def encolar_tarea(
                     """,
                     (tipo, datos_json, chat_str, canal_str),
                 )
-                tarea_id = int(cur.lastrowid)
+                tarea_id = int(cur.lastrowid or 0)
         # v6.9.0: despertar al worker al instante (sin esperar el polling).
         _WORKER_DESPERTAR.set()
         return tarea_id

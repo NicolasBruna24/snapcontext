@@ -129,6 +129,7 @@ def mostrar_banner(version: str = VERSION_UI) -> None:
         _imprimir(f"SnapContext v{version}")
         _imprimir(f"Open-source · MIT · {REPO_URL}")
         return
+    assert _console is not None
     _console.print(Text(_BANNER_ART, style="bold cyan"))
     tabla = Table(
         show_header=True,
@@ -152,6 +153,7 @@ def mostrar_progreso(iterable: Iterable, descripcion: str):
     """
     if MODO_AUTO or not RICH_DISPONIBLE:
         return iterable
+    assert _console is not None
     try:
         return track(iterable, description=descripcion, console=_console)
     except Exception:  # pragma: no cover - blindaje UI
@@ -176,6 +178,7 @@ def mostrar_tabla_impacto(
         for archivo, deps in dependencias.items():
             _imprimir(f"⚠️ Atención: El cambio en '{archivo}' afecta a: [{', '.join(deps)}].")
         return
+    assert _console is not None
     tabla = Table(
         title="🔗 Análisis de Impacto Previo", show_header=True, header_style="bold magenta"
     )
@@ -204,6 +207,7 @@ def mostrar_diff(archivo: str, lines_added: int, lines_removed: int, contexto: s
         _imprimir(f"{archivo} · +{lines_added} · -{lines_removed}")
         _imprimir(contexto)
         return
+    assert _console is not None
     _console.print(
         f"[bold]{archivo}[/bold] · "
         f"[green]+{lines_added} añadida(s)[/green] · "
@@ -241,6 +245,7 @@ def preguntar_interactivo(
         respuesta = input("Elige [{}]: ".format("/".join(teclas_validas)))
         respuesta = respuesta.strip().lower()
         return respuesta if respuesta in teclas_validas else defecto
+    assert _console is not None
     _console.print(f"[bold cyan]{mensaje}[/bold cyan]\n[dim]{menu}[/dim]")
     eleccion = Prompt.ask(
         "Elige",
@@ -271,6 +276,7 @@ def mostrar_plan(plan: list, titulo: str = "📋 Plan de ejecución") -> None:
                 extra = f" [{paso['archivo']}]"
             _imprimir(f"  {i}. {desc}{extra}")
         return
+    assert _console is not None
     tabla = Table(show_header=True, header_style="bold magenta", title=f"[bold]{titulo}[/bold]")
     tabla.add_column("#", style="bold cyan", justify="right", no_wrap=True)
     tabla.add_column("Paso", style="white")
@@ -292,6 +298,7 @@ def mostrar_estado(mensaje: str, emoji: str = "⚙️") -> None:
     if not RICH_DISPONIBLE:
         _imprimir(texto)
         return
+    assert _console is not None
     _console.print(f"[cyan]{texto}[/cyan]")
 
 
@@ -310,6 +317,7 @@ def mostrar_razonamiento(
     truncado = len(texto) > max_caracteres
     visible = texto[:max_caracteres].rstrip() + ("…" if truncado else "")
     if RICH_DISPONIBLE:
+        assert _console is not None
         cuerpo = Text(visible, style="grey78")
         if truncado:
             cuerpo.append(
@@ -333,6 +341,7 @@ def mostrar_error(mensaje: str) -> None:
     if not RICH_DISPONIBLE:
         _imprimir(f"✖ {mensaje}", file=sys.stderr)
         return
+    assert _console is not None
     _console.print(
         Panel(Text(str(mensaje), style="bold white"), title="✖ Error", border_style="red")
     )

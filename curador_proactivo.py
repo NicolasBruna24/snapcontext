@@ -24,6 +24,7 @@ from __future__ import annotations
 import datetime
 import os
 import threading
+from typing import cast
 
 __all__ = [
     "CLAVE_ACTIVO",
@@ -81,7 +82,7 @@ def esta_activo() -> bool:
     try:
         sc = _sc()
         valor = sc._kv_obtener(CLAVE_ACTIVO, "1")
-        return valor != "0"
+        return cast(str, valor) != "0"
     except Exception:  # pragma: no cover - blindaje
         return True
 
@@ -151,7 +152,7 @@ def _proveedor_efectivo() -> str:
         cfg = sc.cargar_configuracion()
         return str(cfg.get("provider") or sc.PROVEEDOR_DEFECTO)
     except Exception:  # pragma: no cover
-        return sc.PROVEEDOR_DEFECTO
+        return cast(str, sc.PROVEEDOR_DEFECTO)
 
 
 def _llm_reescribir(skill: dict, proveedor: str | None = None, modelo: str | None = None) -> str:
@@ -392,7 +393,7 @@ def ejecutar_curador(auto: bool | None = None, proveedor: str | None = None) -> 
             try:
                 from ui import preguntar_interactivo
 
-                opciones = ["[c] Continuar", "[a] Abortar", "[s] Saltar"]
+                opciones = [("c", "[c] Continuar"), ("a", "[a] Abortar"), ("s", "[s] Saltar")]
                 respuesta = preguntar_interactivo(
                     opciones, f"¿Refactorizar el skill '{skill['nombre']}'?"
                 )

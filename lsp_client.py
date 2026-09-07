@@ -380,7 +380,7 @@ class LSPClient:
                 return None
             resultado = mensaje.get("result")
             if usar_cache and clave_cache is not None and resultado is not None:
-                self.cache.guardar(*clave_cache, dict(resultado))
+                self.cache.guardar(*clave_cache, dict(resultado))  # type: ignore[call-arg]
             return resultado if isinstance(resultado, dict) else None
         return None
 
@@ -487,7 +487,7 @@ class LSPClient:
             texto = str(contenido or "").strip()
             return {"tipo": texto} if texto else None
         if tipo == "referencias":
-            ubicaciones = respuesta if isinstance(respuesta, list) else []
+            ubicaciones: list[dict] = respuesta if isinstance(respuesta, list) else []
             refs = [_ubicacion(u) for u in ubicaciones if isinstance(u, dict)]
             return {"referencias": refs, "total": len(refs)}
         # definición: Location | Location[] | LocationLink[] | null

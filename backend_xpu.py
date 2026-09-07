@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, cast
 
 __all__ = [
     "MAX_TOKENS_DEFECTO",
@@ -63,7 +63,7 @@ def _nombre_gpu() -> str:
         import torch
 
         if hasattr(torch.xpu, "get_device_name"):
-            return torch.xpu.get_device_name(0)
+            return cast(str, torch.xpu.get_device_name(0))
     except Exception:
         pass
     return "Intel XPU"
@@ -115,9 +115,8 @@ class XPUInference:
             torch_dtype=torch.float16,
             trust_remote_code=True,
         )
-        self._model = self._model.to(self.device)
-        self._model = ipex.optimize(self._model, dtype=torch.float16)
-        self._model.eval()
+        self._model = ipex.optimize(self._model, dtype=torch.float16)  # type: ignore[assignment,operator]
+        self._model.eval()  # type: ignore[attr-defined]
         self._cargado = True
 
     def generate(self, prompt: str) -> str:
@@ -125,6 +124,8 @@ class XPUInference:
         self._cargar_modelo()
         import torch
 
+        assert self._tokenizer is not None
+        assert self._model is not None
         entradas = self._tokenizer(prompt, return_tensors="pt")
         entradas = {k: v.to(self.device) for k, v in entradas.items()}
 
@@ -154,7 +155,7 @@ def cargar_modelo_xpu(
     Los argumentos se toman de ``config["xpu"]`` si está presente; los valores
     por defecto cubren el resto.
     """
-    cfg = {}
+    cfg: dict[str, Any] = {}
     if isinstance(config, dict):
         cfg = config.get("xpu") or {}
 

@@ -1348,7 +1348,7 @@ class AgenteTester:
         """
         import snapcontext as sc
 
-        if hasattr(salida, "stdout"):
+        if not isinstance(salida, str):
             # Objeto CompletedProcess → reutilizamos el normalizador de snapcontext.
             return sc._extraer_error(salida)
 

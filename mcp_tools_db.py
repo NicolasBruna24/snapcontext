@@ -161,7 +161,7 @@ def db_connect(url: str, driver: str | None = None) -> dict[str, Any]:
         _ESTADO["driver"] = drv
     if previa is not None:
         try:
-            previa.close()
+            previa.close()  # type: ignore[attr-defined]
         except Exception:
             pass
     return {"ok": True, "mensaje": f"Conectado a {drv}", "driver": drv}
@@ -283,7 +283,7 @@ def db_disconnect() -> dict[str, Any]:
         _ESTADO["driver"] = ""
     if conexion is not None:
         try:
-            conexion.close()
+            conexion.close()  # type: ignore[attr-defined]
         except Exception:
             pass
     return {"ok": True, "mensaje": "Conexión cerrada."}

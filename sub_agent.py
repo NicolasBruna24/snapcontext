@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from sub_agent_prompts import PROMPTS as _PROMPTS
 
@@ -274,7 +274,7 @@ class SubAgente:
         self.nombre = nombre or f"{self.rol}-{id(self) % 10000:04d}"
         self.buzon = buzon
         self.auto = bool(auto)
-        self.max_iteraciones = int(max_iteraciones or self.config_rol["max_iter"])
+        self.max_iteraciones = cast(int, max_iteraciones or int(self.config_rol["max_iter"]))  # type: ignore[arg-type]
         self._entrada: list[dict] = []  # buzón individual de entrada
         self._mutex = threading.Lock()
         from react_agent import ReactAgent
@@ -288,7 +288,8 @@ class SubAgente:
             browser=browser,
             lsp=lsp,
         )
-        permitidas = set(self.config_rol["herramientas"])
+        herramientas_rol = cast(list[str], self.config_rol["herramientas"])
+        permitidas = set(herramientas_rol)
         self.herramientas: dict[str, Callable[[dict], dict]] = {
             nombre_h: fn
             for nombre_h, fn in self.agente.herramientas.items()

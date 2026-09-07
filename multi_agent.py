@@ -53,7 +53,7 @@ def _proveedor_efectivo(proveedor: str | None = None) -> str:
         cfg = sc.cargar_configuracion()
     except Exception:
         cfg = {}
-    return (
+    return str(
         proveedor
         or cfg.get("provider")
         or os.environ.get("SNAPCONTEXT_PROVIDER")
@@ -288,7 +288,7 @@ class Tester:
         env = os.environ.get("SNAPCONTEXT_COMANDO_TEST", "").strip()
         if env:
             return env
-        return det.resolver_comando_test(directorio)
+        return det.resolver_comando_test(directorio)  # type: ignore[no-any-return]
 
     def ejecutar(
         self, directorio: str = ".", archivos: list[str] | None = None, comando: str | None = None
@@ -605,6 +605,7 @@ class Supervisor:
         """Pide confirmación del plan en modo interactivo (--auto lo omite)."""
         if self.auto:
             return True
+        return False
 
     # ------------------------------------------------------------------
     # Pipeline principal
