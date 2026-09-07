@@ -1672,6 +1672,32 @@ def ejecutar_aider(
     return False
 
 
+def _validar_ruta_segura(ruta: Path | str, proyecto_base: Path | str) -> Path:
+    """Valida que ``ruta`` esté dentro de ``proyecto_base`` (M1, v6.34.13).
+
+    Defensa contra *path traversal* en las escrituras del editor, siguiendo el
+    patrón defensivo de :mod:`lsp_client` y :mod:`sandbox_session`:
+
+      1. Resuelve la ruta absoluta (``.resolve()``, que normaliza ``..``,
+         enlaces simbólicos y separadores).
+      2. Comprueba que quede dentro de ``proyecto_base`` (también resuelto)
+         mediante ``Path.relative_to``.
+      3. Si está fuera, lanza ``ValueError`` con un mensaje claro.
+
+    Devuelve la ruta resuelta y validada, lista para usar en la escritura.
+    """
+    base = Path(proyecto_base).resolve()
+    destino = Path(ruta).resolve()
+    try:
+        destino.relative_to(base)
+    except ValueError:
+        raise ValueError(
+            f"Intento de escritura fuera del proyecto: {destino} "
+            f"(el proyecto es {base})"
+        ) from None
+    return destino
+
+
 def _editor_sobrescribir(archivo: str, contenido: str, directorio: str = ".") -> bool:
     """Editor propio (Fase 1 — Sobrescritura de archivos).
 
@@ -1693,15 +1719,16 @@ def _editor_sobrescribir(archivo: str, contenido: str, directorio: str = ".") ->
         )
         return False
 
+    # v6.34.13 (M1): la validación inline se delega en _validar_ruta_segura
+    # (mismo comportamiento: rechazar rutas fuera del repositorio).
     raiz_res = Path(directorio).resolve()
     limpia = _normalizar_relativa(raw)
     if not limpia:
         error(f"Ruta no válida: {archivo}")
         return False
 
-    destino = (raiz_res / limpia).resolve()
     try:
-        destino.relative_to(raiz_res)
+        destino = _validar_ruta_segura(raiz_res / limpia, raiz_res)
     except ValueError:
         error(f"Acceso denegado: el archivo '{archivo}' está fuera del repositorio.")
         return False
@@ -2029,7 +2056,7 @@ def _generar_parche(original: str, nuevo: str, ruta_archivo: str) -> str:
     return "".join(diff)
 
 
-def _aplicar_parche(parche: str, directorio: str = ".") -> bool:
+def _aplicar_parche(parche: str, directorio: str = ".") -> bool:  # noqa: C901  (refactor de complejidad: Fase 10c)
     """Aplica un parche unificado en `directorio` usando `git apply` o `patch`.
 
     1. Escribe el parche en un archivo temporal.
@@ -2040,6 +2067,29 @@ def _aplicar_parche(parche: str, directorio: str = ".") -> bool:
     if not parche or not parche.strip():
         aviso("[EditorPropio] Parche vacío; no se aplicaron cambios.")
         return False
+
+    # v6.34.13 (M1): defensa contra path traversal. `git apply`/`patch`
+    # escriben las rutas de los encabezados del parche relativas a
+    # `directorio`; un parche malicioso podría apuntar fuera del proyecto
+    # (p. ej. `+++ ../../../etc/passwd`). Se valida CADA ruta objetivo antes
+    # de invocar la herramienta externa.
+    raiz_res = Path(directorio).resolve()
+    for linea in parche.splitlines():
+        if not linea.startswith("+++ "):
+            continue
+        objetivo = linea[4:].split("\t")[0].strip().replace("\\\\", "/")
+        if objetivo in ("/dev/null",) or not objetivo:
+            continue
+        objetivo_limpio = objetivo[2:] if objetivo.startswith(("a/", "b/")) else objetivo
+        try:
+            _validar_ruta_segura(raiz_res / objetivo_limpio, raiz_res)
+        except ValueError:
+            aviso(
+                f"[EditorPropio] Acceso denegado: el parche intenta modificar "
+                f"'{objetivo}', que está fuera del directorio de trabajo "
+                f"'{raiz_res}'. No se aplicó ningún cambio."
+            )
+            return False
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".diff", encoding="utf-8", delete=False) as f:
         f.write(parche)
