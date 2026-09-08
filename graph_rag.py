@@ -27,6 +27,7 @@ from __future__ import annotations
 import ast
 import os
 import pickle
+import threading
 from pathlib import Path
 
 # Directorios que nunca se analizan (ruido, dependencias, artefactos).
@@ -454,7 +455,7 @@ def construir_grafo(directorio: str, forzar: bool = False, ruta_cache: str | Non
             defs_global.setdefault(nombre, [])
             defs_global[nombre].extend(ids)
     for rel in rels:
-        por[rel]["aristas"] = _aristas_archivo(raiz, rel, archivos_m, paquetes_m, defs_global)
+        por_cambios[rel]["aristas"] = _aristas_archivo(raiz, rel, archivos_m, paquetes_m, defs_global)
     try:
         ruta.parent.mkdir(parents=True, exist_ok=True)
         with open(ruta, "wb") as manejador:
@@ -463,13 +464,194 @@ def construir_grafo(directorio: str, forzar: bool = False, ruta_cache: str | Non
                     "version": _VERSION_CACHE,
                     "fingerprint": huella,
                     "grafo": grafo,
-                    "por_archivo": por,
+                    "por_archivo": por_cambios,
                 },
                 manejador,
             )
     except Exception:
         pass  # persistencia best-effort
+    grafo["indexado"] = True
     return grafo
+
+
+# ---------------------------------------------------------------------------
+# Indexación en segundo plano (Fase 16: arranque no bloqueante del CLI)
+# ---------------------------------------------------------------------------
+# Grafo construido (posiblemente) en un hilo demonio. Se lee siempre bajo
+# candado y se sustituye por referencia completa al terminar, de modo que los
+# lectores que capturaron una versión anterior nunca ven mutaciones a mitad de
+# construcción (sin condiciones de carrera).
+class GrafoIndexable:
+    """Contenedor de un grafo que puede estar en construcción en background."""
+
+    def __init__(self, directorio: str) -> None:
+        self.directorio = str(directorio)
+        self._bloqueo = threading.RLock()
+        self._grafo: dict = {"nodos": {}, "aristas": [], "indexado": False}
+        self.listo = threading.Event()
+
+    def actualizar(self, grafo: dict) -> None:
+        """Reemplaza el grafo completo (llamado por el hilo de background)."""
+        with self._bloqueo:
+            self._grafo = dict(grafo) if isinstance(grafo, dict) else {
+                "nodos": {}, "aristas": [], "indexado": False
+            }
+        self.listo.set()
+
+    def obtener(self) -> dict:
+        """Snapshot (referencia) del grafo actual — siempre un dict."""
+        with self._bloqueo:
+            return self._grafo
+
+    @property
+    def indexado(self) -> bool:
+        """True si el hilo de background ya terminó de poblarlo."""
+        return self.listo.is_set()
+
+
+# Registro global de indexaciones en curso/terminadas por proyecto, protegido
+# por candado. La clave es el directorio resuelto (canónico).
+_REGISTRO: dict[str, GrafoIndexable] = {}
+_REGISTRO_LOCK = threading.Lock()
+
+
+def indexacion_en_curso(directorio: str) -> bool:
+    """True si el grafo de ``directorio`` aún se está indexando en background."""
+    raiz = str(Path(directorio).resolve())
+    with _REGISTRO_LOCK:
+        gestor = _REGISTRO.get(raiz)
+        return gestor is not None and not gestor.indexado
+
+
+def grafo_indexable(directorio: str) -> GrafoIndexable | None:
+    """Devuelve el gestor (``GrafoIndexable``) del proyecto o None."""
+    raiz = str(Path(directorio).resolve())
+    with _REGISTRO_LOCK:
+        return _REGISTRO.get(raiz)
+
+
+def _cargar_cache_valido(directorio: str, ruta_cache: str | None = None) -> dict | None:
+    """Devuelve el grafo del cache si el fingerprint coincide (rápido, sin rebuild).
+
+    ``None`` si no hay cache o está desactualizado/corrupto. Nunca lanza.
+    """
+    ruta = Path(ruta_cache) if ruta_cache else _ruta_cache_defecto()
+    if not ruta.is_file():
+        return None
+    try:
+        huella = _fingerprint(directorio)
+        with open(ruta, "rb") as manejador:
+            cache = pickle.load(manejador)
+        if (
+            isinstance(cache, dict)
+            and cache.get("version") == _VERSION_CACHE
+            and isinstance(cache.get("grafo"), dict)
+            and cache.get("fingerprint") == huella
+        ):
+            grafo = dict(cache["grafo"])
+            grafo["indexado"] = True
+            return grafo
+    except Exception:
+        pass
+    return None
+
+
+def _construir_en_hilo(
+    gestor: GrafoIndexable, raiz: str, forzar: bool, ruta_cache: str | None
+) -> None:
+    """Trabajo del hilo de background: construye el grafo y puebla el gestor."""
+    grafo: dict = {"nodos": {}, "aristas": [], "indexado": False}
+    try:
+        construido = construir_grafo(raiz, forzar=forzar, ruta_cache=ruta_cache)
+        if isinstance(construido, dict):
+            grafo = dict(construido)
+            grafo["indexado"] = True
+    except Exception:
+        grafo = {"nodos": {}, "aristas": [], "indexado": False}
+    gestor.actualizar(grafo)
+
+
+def indexar_en_background(
+    directorio: str,
+    forzar: bool = False,
+    ruta_cache: str | None = None,
+    notificar: bool = True,
+) -> GrafoIndexable:
+    """Lanza la indexación del grafo en un hilo demonio (nunca bloquea).
+
+    - Si ya hay una indexación en curso/terminada para ``directorio``, la reutiliza.
+    - Si existe un cache válido, lo carga de forma síncrona y rápida (sin rebuild).
+    - En cualquier otro caso devuelve un grafo vacío/parcial inmediatamente y
+      un hilo demonio lo irá poblando en segundo plano.
+    - Mientras no termine, el grafo tiene ``indexado=False`` y el sistema puede
+      seguir usando el modo degradado (regex) sin bloquearse.
+    """
+    raiz = str(Path(directorio).resolve())
+    with _REGISTRO_LOCK:
+        gestor = _REGISTRO.get(raiz)
+        if gestor is not None:
+            return gestor
+        if not forzar:
+            grafo = _cargar_cache_valido(raiz, ruta_cache)
+            if grafo is not None:
+                gestor = GrafoIndexable(raiz)
+                gestor.actualizar(grafo)
+                _REGISTRO[raiz] = gestor
+                return gestor
+        gestor = GrafoIndexable(raiz)
+        _REGISTRO[raiz] = gestor
+    hilo = threading.Thread(
+        target=_construir_en_hilo,
+        args=(gestor, raiz, forzar, ruta_cache),
+        name=f"graph-rag-{os.path.basename(raiz) or 'proyecto'}",
+        daemon=True,
+    )
+    hilo.start()
+    if notificar:
+        _aviso_graph(
+            "Indexando grafo de conocimiento en segundo plano "
+            "(puedes seguir usando SnapContext)."
+        )
+    return gestor
+
+
+def cargar_grafo(
+    directorio: str, forzar: bool = False, ruta_cache: str | None = None
+) -> dict:
+    """Devuelve el mejor grafo disponible SIN bloquear el arranque (Fase 16).
+
+    Orden de preferencia:
+      1. Grafo ya indexado (en curso o terminado) en el registro global.
+      2. Cache válido (fingerprint exacto) → carga rápida y síncrona.
+      3. Si no hay cache válido, arranca la indexación en background y devuelve
+         un grafo parcial/vacío (``indexado=False``); el modo degradado se usa
+         hasta que el hilo termine.
+    """
+    raiz = str(Path(directorio).resolve())
+    with _REGISTRO_LOCK:
+        gestor = _REGISTRO.get(raiz)
+        if gestor is not None:
+            return gestor.obtener()
+    if not forzar:
+        grafo = _cargar_cache_valido(raiz, ruta_cache)
+        if grafo is not None:
+            return grafo
+    gestor = indexar_en_background(raiz, forzar=forzar, ruta_cache=ruta_cache, notificar=False)
+    return gestor.obtener()
+
+
+def _aviso_graph(mensaje: str) -> None:
+    """Imprime un aviso informativo (nunca un traceback)."""
+    try:
+        import snapcontext as sc
+
+        avisar = getattr(sc, "aviso", None)
+        if callable(avisar):
+            avisar(mensaje)
+            return
+    except Exception:
+        pass
+    print(mensaje)
 
 
 # ---------------------------------------------------------------------------

@@ -102,12 +102,22 @@ Todo vive en `~/.snapcontext/`:
 | `SNAPCONTEXT_MULTI_AGENT` | Activa el flujo multi-agente |
 | `SNAPCONTEXT_LSP` | Activa el análisis LSP |
 | `SNAPCONTEXT_GRAPH_RAG` | Activa el Graph RAG |
+| `SNAPCONTEXT_INDEX_BG` | `0` desactiva la indexación del grafo en segundo plano |
 | `SNAPCONTEXT_PROMPT_CACHING` | Prompt caching por capas |
 | `SNAPCONTEXT_COMANDO_TEST` | Comando de pruebas del bucle agéntico |
 | `SNAPCONTEXT_MARKETPLACE_INDEX` | Índice del marketplace MCP |
 
 Claves API (también configurables con `--init`): `GEMINI_API_KEY`,
 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, `GROQ_API_KEY`.
+
+## 🛡️ Robustez (degradación elegante)
+
+Si el servidor LSP no está disponible o falla, SnapContext **degrada
+automáticamente** a búsqueda por expresiones regulares (y embeddings
+sintácticos ligeros) sin interrumpir el flujo ni mostrar tracebacks. La
+indexación del **Graph RAG se ejecuta en segundo plano**, así que el CLI
+arranca al instante y las consultas usan el modo degradado hasta que el grafo
+termina de indexarse. Más detalles en [`docs/GRAPH_RAG_LSP.md`](docs/GRAPH_RAG_LSP.md).
 
 ## 🧭 Comandos
 

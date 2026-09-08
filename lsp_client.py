@@ -67,6 +67,10 @@ COMANDOS_SERVIDOR: dict[str, list[list[str]]] = {
 
 TIMEOUT_DEFECTO = 15.0  # segundos por petición LSP
 
+# Timeout global de degradación (Fase 16): si una llamada al LSP supera este
+# tiempo, el sistema cae a búsqueda por regex sin bloquear ni lanzar errores.
+TIMEOUT_DEGRADACION = 2.0
+
 
 def _detectar_lenguaje_por_extension(archivo: str) -> str | None:
     """Mapea la extensión de ``archivo`` a un nombre de lenguaje LSP."""
@@ -686,4 +690,5 @@ __all__ = [
     "obtener_cliente_lsp",
     "obtener_simbolos",
     "soporta_lsp",
+    "TIMEOUT_DEGRADACION",
 ]

@@ -6317,6 +6317,22 @@ def _graph_lsp_activo(args: argparse.Namespace) -> bool:
 _graph_rag_lsp_activo = _graph_lsp_activo
 
 
+def _iniciar_indexacion_background(args: argparse.Namespace):
+    """Fase 16: lanza la indexación del Graph RAG en un hilo demonio.
+
+    Nunca bloquea el arranque del CLI: devuelve al instante un gestor que se
+    irá poblando en segundo plano (modo degradado hasta terminar). Best-effort:
+    si graph_rag no está disponible devuelve None silenciosamente.
+    """
+    try:
+        import graph_rag as gr
+
+        raiz = str(resolver_raiz(getattr(args, "directorio", ".") or "."))
+        return gr.indexar_en_background(raiz)
+    except Exception:
+        return None
+
+
 def _configurar_graph_lsp(args: argparse.Namespace) -> dict[str, Any]:
     """v6.33.0: Devuelve la configuracion efectiva de Graph RAG + LSP."""
     return {
@@ -12484,6 +12500,20 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901  (refactor de comp
             _en_tests = any(x in _argv0 for x in ("unittest", "pytest", "py.test"))
             if os.environ.get("CURADOR_DAEMON", "1") == "1" and not _en_tests:
                 _cp.iniciar_daemon_fondo()
+        except Exception:
+            pass
+        # v6.35.0 / Fase 16: arranca la indexación del Graph RAG en un hilo
+        # demonio (nunca bloquea el CLI). Solo si el Graph RAG está activo y se
+        # está fuera de un test runner. Se puede desactivar con SNAPCONTEXT_INDEX_BG=0.
+        try:
+            _argv0b = (sys.argv[0] or "").lower()
+            _en_tests_b = any(x in _argv0b for x in ("unittest", "pytest", "py.test"))
+            if (
+                os.environ.get("SNAPCONTEXT_INDEX_BG", "1") == "1"
+                and not _en_tests_b
+                and _graph_rag_activo(args)
+            ):
+                _iniciar_indexacion_background(args)
         except Exception:
             pass
         # v5.6.0: verificación temprana de directorio de proyecto.

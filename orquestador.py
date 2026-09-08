@@ -412,7 +412,15 @@ class Orquestador:
             ):
                 import graph_rag as gr
 
-                grafo = gr.construir_grafo(str(raiz))
+                # Fase 16: indexación en segundo plano. `cargar_grafo` devuelve
+                # al instante el cache válido o un grafo parcial/vacío mientras
+                # un hilo demonio lo construye (no bloquea el arranque).
+                grafo = gr.cargar_grafo(str(raiz))
+                if not grafo.get("indexado", True):
+                    sc.aviso(
+                        "Indexando grafo en segundo plano "
+                        "(puedes seguir usando SnapContext)."
+                    )
                 ampliados = gr.expandir_contexto(candidatos, grafo, max_adicionales=3)
                 nuevos = [a for a in ampliados if a not in candidatos]
                 if nuevos:

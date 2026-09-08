@@ -613,17 +613,21 @@ class ReactAgent:
         return resultado
 
     def _grafo_del_proyecto(self) -> dict | None:
-        """Grafo del proyecto (construido una vez, perezosamente)."""
+        """Grafo del proyecto (Fase 16: índice en segundo plano, sin bloquear).
+
+        Usa ``cargar_grafo``: si hay cache válido lo devuelve al instante; si
+        no, arranca la indexación en background y devuelve un grafo parcial/
+        vacío (se sigue el modo degradado hasta que termine). No cachea para
+        recoger el grafo ya poblado en consultas posteriores.
+        """
         if not self.graph_rag:
             return None
-        if self._grafo is None:
-            try:
-                import graph_rag as gr
+        try:
+            import graph_rag as gr
 
-                self._grafo = gr.construir_grafo(self.directorio)
-            except Exception:
-                self._grafo = {}
-        return self._grafo or None
+            return gr.cargar_grafo(self.directorio)
+        except Exception:
+            return {}
 
     def _expander_con_grafo(self, archivos: list[str], max_adicionales: int = 3) -> list[str]:
         """v5.5.0: amplía ``archivos`` con vecinos del grafo (best-effort)."""
