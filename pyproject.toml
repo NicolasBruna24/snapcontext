@@ -218,11 +218,13 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-# Cobertura en cada ejecución (solo reporte). El umbral mínimo (60%) se aplica
-# de forma explícita con: pytest --cov=snapcontext --cov-fail-under=60
-# (pendiente de activar por defecto en la Fase 10b: la cobertura actual del
-# monolito es ~9-20% y un umbral duro rompería el smoke test del CI).
-addopts = "-v --maxfail=3 --cov=snapcontext --cov-report=term --cov-report=xml"
+# Nota: los flags de cobertura (--cov) NO van en addopts: el job de tests del
+# CI instala solo pytest (sin pytest-cov) y fallaría con "unrecognized
+# arguments". La cobertura se invoca de forma explícita donde se necesita:
+#   pytest --cov=snapcontext --cov-fail-under=60
+# (umbral duro pendiente de activar por defecto: la cobertura del monolito es
+# ~9-20% y rompería el smoke test del CI).
+addopts = "-v --maxfail=3"
 
 [tool.coverage.run]
 source = ["snapcontext", "planificador", "permisos", "hooks", "mcp_tools",
