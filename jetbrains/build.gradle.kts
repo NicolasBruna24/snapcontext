@@ -1,8 +1,9 @@
 // ============================================================================
 // SnapContext — Extensión para IntelliJ IDEA / PyCharm (v2.2.0)
 //
-// Compilar plugin:   .\gradlew buildPlugin      → build/distributions/*.zip
-// Probar en IDE:     .\gradlew runIde
+// Compilar plugin:   ./gradlew buildPlugin    → build/distributions/*.zip
+// Probar en IDE:     ./gradlew runIde
+// Publicar:          ./gradlew publishPlugin  (requiere token, ver abajo)
 //
 // Requiere JDK 17+ (JAVA_HOME) y conexión a Internet la primera vez (Gradle
 // descarga el SDK de IntelliJ Community indicado abajo).
@@ -16,15 +17,6 @@ plugins {
 
 group = "com.snapcontext"
 version = "6.34.14"
-
-// Fase 19: publicación en JetBrains Marketplace.
-// Configura el token en `gradle.properties` (publishToken=...) o exporta la
-// variable de entorno JETBRAINS_TOKEN. Luego:  ./gradlew publishPlugin
-publishPlugin {
-    token.set(project.findProperty("publishToken") as String?
-        ?: System.getenv("JETBRAINS_TOKEN") ?: "")
-    channels.set(listOf(project.findProperty("publishChannel") as String? ?: "default"))
-}
 
 repositories {
     mavenCentral()
@@ -59,4 +51,16 @@ tasks {
     buildSearchableOptions {
         enabled = false                   // acelera el build del plugin
     }
+
+    // Fase 19: publicación en JetBrains Marketplace. Nota: `publishPlugin` es
+    // una TAREA del plugin IntelliJ (no un bloque de extensión), por lo que
+    // NO admite sintaxis `publishPlugin { ... }` en Kotlin DSL.
+    //
+    // No hace falta configurarla aquí: el plugin lee de forma nativa el token
+    // y el canal desde:
+    //   - gradle.properties:  publishToken=...  /  publishChannel=default
+    //   - variables de entorno: PUBLISH_TOKEN / PUBLISH_CHANNEL
+    //
+    // Sin token, `./gradlew buildPlugin` sigue funcionando (genera el .zip);
+    // solo `./gradlew publishPlugin` lo necesita.
 }
