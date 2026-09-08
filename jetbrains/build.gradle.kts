@@ -15,7 +15,16 @@ plugins {
 }
 
 group = "com.snapcontext"
-version = "6.34.1"
+version = "6.34.14"
+
+// Fase 19: publicación en JetBrains Marketplace.
+// Configura el token en `gradle.properties` (publishToken=...) o exporta la
+// variable de entorno JETBRAINS_TOKEN. Luego:  ./gradlew publishPlugin
+publishPlugin {
+    token.set(project.findProperty("publishToken") as String?
+        ?: System.getenv("JETBRAINS_TOKEN") ?: "")
+    channels.set(listOf(project.findProperty("publishChannel") as String? ?: "default"))
+}
 
 repositories {
     mavenCentral()

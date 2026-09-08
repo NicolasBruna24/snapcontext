@@ -1,20 +1,15 @@
 # Publicación de la extensión de VS Code al Marketplace al crear un tag v*.*.*.
 #
-# ⚠️ DESHABILITADO TEMPORALMENTE (v6.34.4): falla por falta de `LICENSE` y
-# `.vscodeignore` en `vscode/`. No es crítico para publicar en PyPI.
-# Para reactivarlo:
-#   1. Añadir `vscode/LICENSE` y `vscode/.vscodeignore`.
-#   2. Configurar el secreto `VSCE_PAT`.
-#   3. Restaurar el trigger `push: tags: ['v*.*.*']` y quitar `if: false`
-#      del job `publish-vscode`.
+# Reactivado en v6.34.14 (Fase 19): `vscode/LICENSE` y `vscode/.vscodeignore`
+# ya existen. Requiere el secreto `VSCE_PAT` (Personal Access Token del
+# Marketplace de VS Code con scope Marketplace:Manage).
 #
-# Requiere el secreto `VSCE_PAT` configurado en el repositorio (Personal
-# Access Token del marketplace de Visual Studio Code).
+# Ejecución manual opcional: pestaña Actions → vsce-publish → Run workflow.
 name: vsce-publish
 
 on:
-  # Deshabilitado el trigger por tag; solo ejecución manual desde la pestaña
-  # Actions mientras dure la deshabilitación.
+  push:
+    tags: ['v*.*.*']
   workflow_dispatch:
 
 permissions:
@@ -23,8 +18,6 @@ permissions:
 jobs:
   publish-vscode:
     name: Publish VS Code extension
-    # Doble seguro: el job nunca se ejecuta hasta reactivarlo.
-    if: false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -52,7 +45,17 @@ jobs:
           cd vscode
           npx @vscode/vsce package -o snapcontext-ai.vsix
 
+      - name: Upload .vsix artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapcontext-ai-vsix
+          path: vscode/snapcontext-ai.vsix
+          retention-days: 7
+
       - name: Publish to VS Code Marketplace
+        # Si el secreto no está configurado, el empaquetado (.vsix) igual se
+        # sube como artifact y la publicación se hace manualmente después.
+        if: ${{ secrets.VSCE_PAT != '' }}
         run: |
           cd vscode
           npx @vscode/vsce publish \

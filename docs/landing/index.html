@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SnapContext — Asistente de IA con contexto automático para desarrollo</title>
+<meta name="description" content="SnapContext: asistente de IA agéntico multi-proveedor (Claude, Gemini, OpenAI, Ollama, Intel XPU) con Graph RAG, planificador, sandbox y MCP.">
+<style>
+:root{--bg:#0d1117;--fg:#e6edf3;--muted:#8b949e;--accent:#58a6ff;--accent2:#3fb950;--card:#161b22;--border:#30363d}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.wrap{max-width:960px;margin:0 auto;padding:0 24px}
+header{padding:80px 0 48px;text-align:center;border-bottom:1px solid var(--border)}
+header h1{font-size:3rem;letter-spacing:-.03em}
+header h1 span{color:var(--accent)}
+.tagline{color:var(--muted);font-size:1.25rem;margin:16px auto 32px;max-width:640px}
+.cta{display:inline-block;background:var(--accent);color:#0d1117;font-weight:600;padding:12px 28px;border-radius:8px;margin:0 8px 8px}
+.cta.sec{background:transparent;color:var(--accent);border:1px solid var(--border)}
+.badges{margin-top:24px;color:var(--muted);font-size:.9rem}
+section{padding:56px 0;border-bottom:1px solid var(--border)}
+h2{font-size:1.75rem;margin-bottom:24px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px}
+.card h3{margin-bottom:8px;font-size:1.05rem}
+.card p{color:var(--muted);font-size:.95rem}
+pre{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;overflow-x:auto;font-size:.9rem;margin:12px 0}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--accent2)}
+footer{padding:32px 0;color:var(--muted);text-align:center;font-size:.9rem}
+ul{margin-left:20px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header class="wrap">
+  <h1>_SNAP_<span>CONTEXT</span></h1>
+  <p class="tagline">Asistente de IA agéntico con <strong>contexto automático</strong> para desarrollo: Graph RAG, planificador multi-archivo, sandbox seguro y multi-proveedor.</p>
+  <a class="cta" href="#instalacion">Instalar</a>
+  <a class="cta sec" href="https://github.com/NicolasBruna24/snapcontext">GitHub ⭐</a>
+  <div class="badges">
+    <span>PyPI: <code>pip install snapcontext</code></span> ·
+    <span>VS Code · JetBrains</span> ·
+    <span>7+ proveedores</span>
+  </div>
+</header>
+
+<section class="wrap" id="por-que">
+  <h2>¿Por qué SnapContext?</h2>
+  <div class="grid">
+    <div class="card"><h3>🧠 Graph RAG real</h3><p>Indexa tu repositorio como un grafo de símbolos en segundo plano y degrada elegantemente a regex/LSP si algo falla. Nunca espera.</p></div>
+    <div class="card"><h3>🔀 Multi-proveedor</h3><p>Claude, Gemini, OpenAI, DeepSeek, Groq, Ollama local e incluso <strong>Intel Arc (XPU/Battlemage)</strong> con IPEX-LLM. Con perfiles de prompt optimizados por modelo.</p></div>
+    <div class="card"><h3>🛡️ Seguridad de primera</h3><p>Sandbox Docker, permisos por acción, <code>shell=False</code> y validación de rutas. Tus claves jamás salen del equipo.</p></div>
+    <div class="card"><h3>🤖 Capacidad agéntica</h3><p>Bucle ReAct, planificador JSON, multi-agente en paralelo y sub-agentes. De la pregunta al PR.</p></div>
+    <div class="card"><h3>🔌 Herramientas y MCP</h3><p>Editar código, ejecutar tests, consultar BDs, navegador y GitHub — con hooks y marketplace de skills.</p></div>
+    <div class="card"><h3>🚀 Rápido desde el primer comando</h3><p>Indexación en background: el CLI arranca al instante, con resultados parciales mientras el grafo se construye.</p></div>
+  </div>
+</section>
+
+<section class="wrap" id="instalacion">
+  <h2>Instalación</h2>
+  <pre><code># CLI (Python 3.10+)
+pip install snapcontext
+
+# Extensión VS Code (Marketplace)
+# Busca "SnapContext AI" en el panel de extensiones.
+
+# Con soporte Intel Arc (opcional)
+pip install "snapcontext[xpu]"</code></pre>
+  <pre><code># Configura tu proveedor en un minuto
+snapcontext --init
+
+# Primera consulta
+snapcontext "revisa el login y corrige el bug de validación"</code></pre>
+</section>
+
+<section class="wrap" id="casos">
+  <h2>Casos de uso</h2>
+  <ul>
+    <li><strong>Refactor multi-archivo:</strong> el planificador divide la tarea, los agentes editan en paralelo y los tests validan.</li>
+    <li><strong>Onboarding a un repo nuevo:</strong> el Graph RAG responde "¿dónde se valida X?" en segundos, sin abrir 40 archivos.</li>
+    <li><strong>Desarrollo 100% local:</strong> Ollama o Intel Arc B70 — cero coste por token, cero datos en la nube.</li>
+    <li><strong>QA automático:</strong> detector de tests + sandbox ejecuta la batería y corrige fallos iterando.</li>
+  </ul>
+</section>
+
+<section class="wrap" id="enlaces">
+  <h2>Enlaces</h2>
+  <div class="grid">
+    <div class="card"><h3><a href="https://pypi.org/project/snapcontext/">📦 PyPI</a></h3><p><code>pip install snapcontext</code></p></div>
+    <div class="card"><h3><a href="https://marketplace.visualstudio.com/">🧩 VS Code Marketplace</a></h3><p>Extensión SnapContext AI</p></div>
+    <div class="card"><h3><a href="https://plugins.jetbrains.com/">⚙️ JetBrains Marketplace</a></h3><p>Plugin para IntelliJ / PyCharm</p></div>
+    <div class="card"><h3><a href="https://github.com/NicolasBruna24/snapcontext">📖 Documentación</a></h3><p>README y guías en docs/</p></div>
+  </div>
+</section>
+
+<footer class="wrap">MIT License © Nicolás Bruna · <a href="https://github.com/NicolasBruna24/snapcontext">GitHub</a></footer>
+</body>
+</html>

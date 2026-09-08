@@ -1,8 +1,10 @@
 # SnapContext
 
-![v6.34.11](https://img.shields.io/badge/version-6.34.11-blue.svg)
+![v6.34.14](https://img.shields.io/badge/version-6.34.14-blue.svg)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
-[![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/ci.yml?branch=main&label=tests)](https://github.com/NicolasBruna24/snapcontext/actions)
+[![VS Code](https://img.shields.io/badge/VS%20Code-Marketplace-0098FF)](https://marketplace.visualstudio.com/)
+[![JetBrains](https://img.shields.io/badge/JetBrains-Plugin-000000)](https://plugins.jetbrains.com/)
+[![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/python-package.yml?branch=main&label=tests)](https://github.com/NicolasBruna24/snapcontext/actions)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Plataformas](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macOS-lightgrey.svg)
@@ -13,9 +15,12 @@
 > tareas con su editor propio (o Aider), planifica trabajos complejos y aprende
 > del proyecto mediante una memoria persistente (`CLAUDE.md`).
 
-- **Proveedores**: Gemini · Claude (Anthropic) · Ollama (local) · DeepSeek · Groq · OpenAI-compatible
+- **Proveedores**: Gemini · Claude (Anthropic) · Ollama (local) · DeepSeek · Groq · OpenAI-compatible · Intel XPU (Arc B-series)
 - **Arquitectura**: orquestador + agentes (Contexto / Editor / Tester)
 - **Seguridad**: permisos con confirmaciones (`~/.snapcontext/permisos.json`), sandboxing Docker y validación de rutas
+
+🌐 **Landing page:** <https://nicolasbruna24.github.io/snapcontext/>
+📦 **Marketplaces**: [PyPI](https://pypi.org/project/snapcontext/) · extensión **VS Code** ("SnapContext AI") · plugin **JetBrains** (IntelliJ/PyCharm). Guía de publicación: [`docs/RELEASE.md`](docs/RELEASE.md).
 
 ## 🚀 Quick Start (30 segundos)
 

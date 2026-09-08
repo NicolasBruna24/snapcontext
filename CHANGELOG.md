@@ -4,6 +4,22 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.34.14] - 2026-09-08
+
+### 🚀 Distribución y adopción (Fase 19)
+
+- **Publicación**: versión preparada para PyPI (trusted publishing vía tag
+  `v6.34.14`), VS Code Marketplace y JetBrains Marketplace.
+- **VS Code**: extensión actualizada a 6.34.14; añadidos `LICENSE` y
+  `.vscodeignore` (requisitos del Marketplace); workflow `vsce-publish`
+  reactivado con trigger por tag.
+- **JetBrains**: plugin actualizado a 6.34.14 con tarea `publishPlugin`
+  lista (requiere `publishToken` en `gradle.properties` o `JETBRAINS_TOKEN`).
+- **Landing page**: sitio estático en `docs/landing/index.html` desplegable
+  vía GitHub Pages (workflow `pages-deploy.yml`).
+- **Documentación**: nueva guía `docs/RELEASE.md` con el proceso completo de
+  publicación en los tres canales; README enlaza PyPI, Marketplaces y demo.
+
 ## [6.34.12] - 2026-09-07
 ### 🎉 Auditoría completada
 - **Refactor**: 8 módulos extraídos, `snapcontext.py` reducido un 19%.

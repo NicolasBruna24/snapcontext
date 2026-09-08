@@ -1,0 +1,13 @@
+src/**
+webview/**
+media/**
+node_modules/**
+out/**
+.vscode-test/**
+scripts/**
+tsconfig.json
+package-lock.json
+s-icon.svg
+**/*.ts
+**/*.map
+**/.DS_Store
