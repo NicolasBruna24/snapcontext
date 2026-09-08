@@ -5134,12 +5134,34 @@ def _mensaje_capas_caching_inicio(proveedor: str) -> str | None:
     return None
 
 
+def _tipo_tarea_actual(categoria: str | None = None) -> str:
+    """Fase 17: determina el ``tipo_tarea`` del perfil de prompt en curso.
+
+    Prioridad: inferencia del modo detectado (``_ARGS_CLI``) > ``categoria``
+    de enrutamiento > ``"general"``. ``"simple"`` para chat/ReAct y
+    ``"planificacion"`` para el planificador/edición.
+    """
+    a = _ARGS_CLI
+    if a is not None:
+        if getattr(a, "plan", False) or getattr(a, "asesor_profundo", False):
+            return "planificacion"
+        dep = getattr(a, "_modo_detectado", None)
+        if dep == "plan":
+            return "planificacion"
+        if dep in ("react", "react_paralelo", "chat"):
+            return "simple"
+    if categoria:
+        return categoria
+    return "general"
+
+
 def _enviar_al_proveedor(  # noqa: C901  (refactor de complejidad: Fase 10c)
     proveedor: str,
     modelo: str | None,
     mensajes: list[dict],
     prompt_caching: bool | None = None,
     categoria: str | None = None,
+    tipo_tarea: str | None = None,
 ) -> str:
     """Envía ``mensajes`` al proveedor, con enrutamiento y fallback (v6.30.0).
 
@@ -5202,9 +5224,13 @@ def _enviar_al_proveedor(  # noqa: C901  (refactor de complejidad: Fase 10c)
         except Exception as exc:
             depurar(f"[model-routing] no se pudo enrutar ({categoria}): {exc}")
 
+    # Fase 17: tipo de tarea efectivo para el perfil de prompt (si no se pasó).
+    _tarea = tipo_tarea or _tipo_tarea_actual(categoria)
     if len(candidatos) <= 1 or not _MODEL_FALLBACK_ACTIVO:
         _p_unico, _m_unico = candidatos[0]
-        return _enviar_al_proveedor_unico(_p_unico, _m_unico, mensajes, prompt_caching)
+        return _enviar_al_proveedor_unico(
+            _p_unico, _m_unico, mensajes, prompt_caching, tipo_tarea=_tarea
+        )
 
     # v6.30.0: cadena de fallback entre modelos (local ↔ nube).
     _intentados: list[str] = []
@@ -5212,7 +5238,9 @@ def _enviar_al_proveedor(  # noqa: C901  (refactor de complejidad: Fase 10c)
     for _pos, (_p, _m) in enumerate(candidatos):
         _m_ef = _m or (PROVEEDORES[_p]["modelo_default"] if _p in PROVEEDORES else None)
         try:
-            return _enviar_al_proveedor_unico(_p, _m, mensajes, prompt_caching)
+            return _enviar_al_proveedor_unico(
+                _p, _m, mensajes, prompt_caching, tipo_tarea=_tarea
+            )
         except Exception as exc:
             if _es_error_autenticacion(exc):
                 raise  # la clave no se arregla cambiando de modelo
@@ -5233,7 +5261,8 @@ def _enviar_al_proveedor(  # noqa: C901  (refactor de complejidad: Fase 10c)
 
 
 def _enviar_al_proveedor_unico(  # noqa: C901  (refactor de complejidad: Fase 10c)
-    proveedor: str, modelo: str | None, mensajes: list[dict], prompt_caching: bool | None = None
+    proveedor: str, modelo: str | None, mensajes: list[dict], prompt_caching: bool | None = None,
+    tipo_tarea: str | None = None,
 ) -> str:
     """Envía ``mensajes`` ([{"role": ..., "content": ...}, ...]) a UN proveedor.
 
@@ -5251,6 +5280,28 @@ def _enviar_al_proveedor_unico(  # noqa: C901  (refactor de complejidad: Fase 10
     cfg = PROVEEDORES[proveedor]
     modelo = modelo or cfg["modelo_default"]
     tipo = cfg["tipo"]
+
+    # Fase 17: perfiles de prompt optimizados por modelo. Se aplica el perfil
+    # del proveedor (system_prompt + plantilla de usuario) sobre los mensajes.
+    # Solo se toca la GENERACIÓN del prompt, nunca la lógica del proveedor.
+    # Si el perfil no existe para el proveedor o falla, se usan los mensajes
+    # originales sin cambios (fallback a PERFIL_GENERICO / sin perfil).
+    try:
+        import prompt_profiles as _pp
+
+        _tarea = tipo_tarea or _tipo_tarea_actual()
+        mensajes, _cfg_perfil = _pp.aplicar_perfil(
+            mensajes, proveedor, tipo_tarea=_tarea
+        )
+        if DEPURAR:
+            depurar(
+                f"🎯 Perfil de prompt [{_pp._normaliza_tipo_tarea(_tarea)}] "
+                f"aplicado a proveedor '{proveedor}': "
+                f"{str(_cfg_perfil.get('temperature'))} temp / "
+                f"{_cfg_perfil.get('max_tokens')} tokens máx."
+            )
+    except Exception:
+        pass  # nunca romper el envío por un perfil
 
     # v6.11.0: Prompt Caching. Solo aplica a proveedores con `soporta_caching`
     # (Anthropic, DeepSeek) y cuando está activado. El resto recibe los mensajes
@@ -5303,12 +5354,25 @@ def _enviar_al_proveedor_unico(  # noqa: C901  (refactor de complejidad: Fase 10
             raise RuntimeError(MENSAJE_API_KEY)
         genai.configure(api_key=api_key)
         generador = genai.GenerativeModel(model_name=modelo)
+        # Fase 17: Gemini usa system_instruction para el system_prompt. Se
+        # extrae de los mensajes (inyectado por el perfil) y se pasa por la API.
+        _system_inst = ""
+        contenido: list[dict] = []
         # Gemini distingue user/model; convertimos "assistant" → "model".
-        contenidos = [
-            {"role": "user" if m["role"] != "assistant" else "model", "parts": [m["content"]]}
-            for m in mensajes
-        ]
-        respuesta = generador.generate_content(contenidos)
+        for _m in mensajes:
+            if _m.get("role") == "system":
+                _system_inst += (str(_m.get("content") or "") + "\n")
+            else:
+                contenido.append(
+                    {
+                        "role": "user" if _m["role"] != "assistant" else "model",
+                        "parts": [_m["content"]],
+                    }
+                )
+        _kwargs_gemini: dict = {}
+        if _system_inst.strip():
+            _kwargs_gemini["system_instruction"] = _system_inst.strip()
+        respuesta = generador.generate_content(contenido, **_kwargs_gemini)
         return respuesta.text or ""
 
     if tipo == "anthropic":
@@ -5318,10 +5382,24 @@ def _enviar_al_proveedor_unico(  # noqa: C901  (refactor de complejidad: Fase 10
         if not api_key:
             raise RuntimeError(_mensaje_clave_faltante(proveedor, cfg))
         cliente = anthropic.Anthropic(api_key=api_key)
+        # Fase 17: la API de Anthropic espera el system_prompt como parámetro
+        # `system` (los mensajes solo admiten roles user/assistant). Se extrae
+        # cualquier mensaje "system" (inyectado por el perfil) y se pasa aparte.
+        _texto_system: list[str] = []
+        _mensajes_api: list[dict] = []
+        for _m in mensajes_finales:
+            if _m.get("role") == "system":
+                _texto_system.append(str(_m.get("content") or ""))
+            else:
+                _mensajes_api.append(_m)
+        _kwargs_anthropic: dict = {}
+        if _texto_system:
+            _kwargs_anthropic["system"] = "\n".join(t for t in _texto_system if t)
         respuesta = cliente.messages.create(
             model=modelo,
             max_tokens=2048,
-            messages=mensajes_finales,
+            messages=_mensajes_api,
+            **_kwargs_anthropic,
         )
         return "".join(
             bloque.text for bloque in respuesta.content if getattr(bloque, "type", None) == "text"

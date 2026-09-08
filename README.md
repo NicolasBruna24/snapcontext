@@ -119,6 +119,33 @@ indexación del **Graph RAG se ejecuta en segundo plano**, así que el CLI
 arranca al instante y las consultas usan el modo degradado hasta que el grafo
 termina de indexarse. Más detalles en [`docs/GRAPH_RAG_LSP.md`](docs/GRAPH_RAG_LSP.md).
 
+## 🎯 Perfiles de prompt optimizados por modelo (Fase 17)
+
+SnapContext detecta el proveedor en uso y aplica un **perfil de prompt**
+específico (`system_prompt`, plantilla de usuario y parámetros como
+`temperature`/`max_tokens`) que explota las fortalezas de cada modelo: Claude
+razona profundamente (y aprovecha `cache_control`), Gemini recibe instrucciones
+claras y directas, y los modelos locales (Ollama/XPU) obtienen contexto e
+instrucciones reducidos para evitar divagaciones. Si un proveedor no tiene
+perfil, se usa uno genérico sin romper el flujo.
+
+Puedes personalizar o **añadir perfiles sin tocar el código**, con la clave
+`prompt_profiles` de `config.json`:
+
+```json
+{
+  "prompt_profiles": {
+    "mistral": {
+      "system_prompt": "Sé conciso.",
+      "user_prompt_template": "Pregunta: {consulta}\n\nContexto: {contexto}",
+      "config": {"temperature": 0.5, "max_tokens": 1000}
+    }
+  }
+}
+```
+
+Más detalles en [`docs/PROMPT_PROFILES.md`](docs/PROMPT_PROFILES.md).
+
 ## 🧭 Comandos
 
 | Modo | Comando |
