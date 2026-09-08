@@ -91,13 +91,26 @@ PROVEEDORES: dict[str, dict[str, Any]] = {
         "soporta_caching": True,
     },
     # v6.34.0: soporte para GPUs Intel XPU (Intel Arc) vía IPEX.
+    # Fase 18: serie B (Battlemage, p. ej. Arc B70) soportada oficialmente
+    # mediante ipex-llm>=2.2.0 (ruta preferida de carga con low-bit).
     "xpu": {
         "nombre": "Intel XPU",
-        "tipo": "xpu",  # backend local con IPEX
+        "tipo": "xpu",  # backend local con IPEX / IPEX-LLM
         "clave_env": None,
         "requiere_clave": False,
         "modelo_default": "Qwen/Qwen3.5-35B-A3B",
         "soporta_caching": False,
+        "requisitos": [
+            "torch>=2.5.0",
+            "transformers>=4.40.0",
+            "ipex-llm>=2.2.0",
+            "intel-extension-for-pytorch>=2.5.0",
+        ],
+        "nota": (
+            "Requiere Intel oneAPI Base Toolkit 2025+, drivers para Arc "
+            "B-series (Battlemage) y Level Zero. Instala con: "
+            "pip install snapcontext[xpu]. Guía: docs/XPU.md"
+        ),
     },
 }
 

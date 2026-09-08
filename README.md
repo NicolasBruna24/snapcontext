@@ -146,6 +146,22 @@ Puedes personalizar o **añadir perfiles sin tocar el código**, con la clave
 
 Más detalles en [`docs/PROMPT_PROFILES.md`](docs/PROMPT_PROFILES.md).
 
+## 🧪 Intel XPU (Arc B-series) — Fase 18
+
+Soporte oficial para GPUs **Intel Arc serie B (Battlemage)** — p. ej. la
+**Arc B70 de 32 GB** — mediante **IPEX-LLM** con cuantización *low-bit*
+(`sym_int4` por defecto) y fallback a IPEX clásico. Es un extra opcional:
+
+```bash
+pip install "snapcontext[xpu]"
+snapcontext "hola" --provider xpu --xpu-model Qwen/Qwen2.5-7B
+```
+
+Si hay una GPU Intel detectable, el CLI te lo sugiere automáticamente al
+arrancar; si faltan dependencias, el aviso indica el comando exacto.
+Guía completa (drivers, oneAPI 2025+, solución de problemas): **[docs/XPU.md](docs/XPU.md)**.
+
+## 🧭 Comandos
 ## 🧭 Comandos
 
 | Modo | Comando |

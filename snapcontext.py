@@ -12132,6 +12132,36 @@ def _registrar_historial_async(args: argparse.Namespace, codigo: int, duracion: 
     hilo.join(timeout=5)  # espera breve: evita perder la entrada al salir
 
 
+def _sugerir_xpu(args: argparse.Namespace) -> None:
+    """Fase 18: detecta hardware Intel XPU y orienta al usuario (nunca lanza).
+
+    Si el usuario ya pidió ``--provider xpu`` y faltan dependencias, avisa con
+    el comando de instalación. Si no pidió nada y hay una GPU Intel con las
+    dependencias listas, informa que puede usarla con ``--provider xpu``.
+    """
+    try:
+        import backend_xpu as _xpu
+    except Exception:
+        return
+    proveedor = getattr(args, "provider", None)
+    if proveedor == "xpu":
+        if not _xpu._comprobar_dependencias_xpu():
+            aviso(
+                "⚠️ Las dependencias XPU no están instaladas. "
+                "Ejecuta:  pip install snapcontext[xpu]  (guía: docs/XPU.md)"
+            )
+        elif not _xpu.xpu_disponible():
+            aviso("⚠️ No se detectó GPU Intel XPU; se usará el proveedor configurado.")
+        else:
+            info(f"🧪 GPU Intel detectada: {_xpu._nombre_gpu()} (proveedor xpu).")
+        return
+    if proveedor is None and _xpu.xpu_disponible() and _xpu._comprobar_dependencias_xpu():
+        info(
+            f"🧪 GPU Intel detectada ({_xpu._nombre_gpu()}). "
+            "Puedes usarla con:  snapcontext --provider xpu [--xpu-model MODELO]"
+        )
+
+
 def flujo_principal(args: argparse.Namespace) -> int:
     """Orquesta el pipeline completo. Devuelve el código de salida.
 
@@ -12150,6 +12180,7 @@ def flujo_principal(args: argparse.Namespace) -> int:
     import snapcontext as _snap_sync
 
     _snap_sync.DEPURAR = args.depurar
+    _sugerir_xpu(args)  # Fase 18: detección automática de Intel Arc (informativa).
     from orquestador import Orquestador  # import diferido para evitar ciclos
 
     inicio = time.monotonic()

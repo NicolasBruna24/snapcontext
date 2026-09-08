@@ -56,8 +56,11 @@ tui = [
     "textual>=0.50.0",
 ]
 xpu = [
+    # Fase 18: ipex-llm>=2.2.0 es la primera versión con soporte estable de
+    # la serie B (Battlemage, p. ej. Arc B70). Ruta preferida de carga.
     "torch>=2.5.0",
     "intel-extension-for-pytorch>=2.5.0",
+    "ipex-llm[cpp]>=2.2.0",
     "transformers>=4.40.0",
     "accelerate>=0.30.0",
 ]
@@ -71,6 +74,7 @@ all = [
     "textual>=0.50.0",
     "torch>=2.5.0",
     "intel-extension-for-pytorch>=2.5.0",
+    "ipex-llm[cpp]>=2.2.0",
     "transformers>=4.40.0",
     "accelerate>=0.30.0",
 ]
