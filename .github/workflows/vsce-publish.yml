@@ -55,9 +55,12 @@ jobs:
       - name: Publish to VS Code Marketplace
         # Si el secreto no está configurado, el empaquetado (.vsix) igual se
         # sube como artifact y la publicación se hace manualmente después.
-        if: ${{ secrets.VSCE_PAT != '' }}
+        # Nota: `secrets` no está permitido en `if`; se pasa por `env`.
+        if: env.VSCE_PAT != ''
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
           cd vscode
           npx @vscode/vsce publish \
             --packagePath ./snapcontext-ai.vsix \
-            -p ${{ secrets.VSCE_PAT }}
+            -p "$VSCE_PAT"
