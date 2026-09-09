@@ -150,7 +150,7 @@ def detectar_lenguaje(contenido: str, archivo: str | None = None) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-from typing import cast
+from typing import cast  # noqa: E402  (import diferido por carga perezosa de backends)
 
 # Carga perezosa de backends tree-sitter
 # ---------------------------------------------------------------------------

@@ -1,4 +1,3 @@
-# encoding: utf-8
 """Tests de la Fase 17: integración del perfil de prompt en el flujo de envío.
 
 Verifica (con mocks, sin llamar a APIs reales) que ``_enviar_al_proveedor_unico``
@@ -147,9 +146,7 @@ class TestIntegracionSnapcontext(unittest.TestCase):
         msgs = kwargs["messages"]
         self.assertEqual(msgs[0]["role"], "system")
         # Fallback: exactamente el system_prompt del perfil genérico.
-        self.assertEqual(
-            msgs[0]["content"], pp.PERFIL_GENERICO["system_prompt"]
-        )
+        self.assertEqual(msgs[0]["content"], pp.PERFIL_GENERICO["system_prompt"])
 
 
 if __name__ == "__main__":

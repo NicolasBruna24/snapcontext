@@ -85,7 +85,7 @@ def _error(mensaje: str) -> None:
 # ---------------------------------------------------------------------------
 def _flags() -> int:
     """Flags de subprocess: sin ventana de consola en Windows."""
-    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    return int(getattr(subprocess, "CREATE_NO_WINDOW", 0)) if os.name == "nt" else 0
 
 
 def _run(argv: list[str], timeout: int = 120, **kwargs) -> subprocess.CompletedProcess:

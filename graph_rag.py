@@ -455,7 +455,9 @@ def construir_grafo(directorio: str, forzar: bool = False, ruta_cache: str | Non
             defs_global.setdefault(nombre, [])
             defs_global[nombre].extend(ids)
     for rel in rels:
-        por_cambios[rel]["aristas"] = _aristas_archivo(raiz, rel, archivos_m, paquetes_m, defs_global)
+        por_cambios[rel]["aristas"] = _aristas_archivo(
+            raiz, rel, archivos_m, paquetes_m, defs_global
+        )
     try:
         ruta.parent.mkdir(parents=True, exist_ok=True)
         with open(ruta, "wb") as manejador:
@@ -493,9 +495,11 @@ class GrafoIndexable:
     def actualizar(self, grafo: dict) -> None:
         """Reemplaza el grafo completo (llamado por el hilo de background)."""
         with self._bloqueo:
-            self._grafo = dict(grafo) if isinstance(grafo, dict) else {
-                "nodos": {}, "aristas": [], "indexado": False
-            }
+            self._grafo = (
+                dict(grafo)
+                if isinstance(grafo, dict)
+                else {"nodos": {}, "aristas": [], "indexado": False}
+            )
         self.listo.set()
 
     def obtener(self) -> dict:
@@ -609,15 +613,12 @@ def indexar_en_background(
     hilo.start()
     if notificar:
         _aviso_graph(
-            "Indexando grafo de conocimiento en segundo plano "
-            "(puedes seguir usando SnapContext)."
+            "Indexando grafo de conocimiento en segundo plano (puedes seguir usando SnapContext)."
         )
     return gestor
 
 
-def cargar_grafo(
-    directorio: str, forzar: bool = False, ruta_cache: str | None = None
-) -> dict:
+def cargar_grafo(directorio: str, forzar: bool = False, ruta_cache: str | None = None) -> dict:
     """Devuelve el mejor grafo disponible SIN bloquear el arranque (Fase 16).
 
     Orden de preferencia:

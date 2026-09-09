@@ -80,7 +80,7 @@ MENSAJE_SIN_HARDWARE: str = (
 )
 
 # Caché global de modelos cargados: {modelo_id: XPUInference}
-_MODELOS_CACHE: dict[str, "XPUInference"] = {}
+_MODELOS_CACHE: dict[str, XPUInference] = {}
 
 
 def _detectar_gpu_intel() -> dict[str, Any]:
@@ -229,8 +229,8 @@ class XPUInference:
             torch_dtype=torch.float16,
             trust_remote_code=True,
         )
-        self._model = self._model.to(self.device)
-        self._model.eval()
+        self._model = self._model.to(self.device)  # type: ignore[attr-defined]
+        self._model.eval()  # type: ignore[attr-defined]
         self.backend = "ipex-llm"
         self._cargado = True
 

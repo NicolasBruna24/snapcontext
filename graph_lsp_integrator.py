@@ -13,12 +13,11 @@ Es 100 % opcional (``--graph-rag-lsp``): sin el flag el comportamiento es
 idéntico al actual. Las llamadas al LSP son perezosas y con caché.
 """
 
-from pathlib import Path
-from typing import Any
-
 import ast
 import re
 import threading
+from pathlib import Path
+from typing import Any
 
 # Timeout global (en segundos) para las llamadas al LSP (Fase 16). Si el LSP
 # no responde en este tiempo, se degrada a búsqueda por regex sin bloquear.
@@ -29,9 +28,23 @@ _TIMEOUT = object()
 
 # Directorios que nunca se usan en la búsqueda por regex de respaldo.
 _DIRECTORIOS_IGNORADOS = {
-    ".git", "__pycache__", ".venv", "venv", "env", "node_modules",
-    ".dart_tool", "build", "dist", ".idea", ".mypy_cache", ".pytest_cache",
-    ".tox", "site-packages", ".snapcontext", "_backups", "out",
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "env",
+    "node_modules",
+    ".dart_tool",
+    "build",
+    "dist",
+    ".idea",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".tox",
+    "site-packages",
+    ".snapcontext",
+    "_backups",
+    "out",
 }
 
 __all__ = [
@@ -158,9 +171,7 @@ class GraphLSPIntegrator:
         self._cache_simbolos[cache_key] = simbolos
         return simbolos
 
-    def _intentar_lsp(
-        self, archivo: str, linea: int | None
-    ) -> tuple[list[Any], bool]:
+    def _intentar_lsp(self, archivo: str, linea: int | None) -> tuple[list[Any], bool]:
         """Llama al LSP con timeout; devuelve ``(crudos, degradado)``."""
         degradado = False
         crudos: list[Any] = []
@@ -168,12 +179,10 @@ class GraphLSPIntegrator:
             import lsp_client as lsp
 
             llamada = None
-            if self.proveedor_lsp is not None and hasattr(
-                self.proveedor_lsp, "obtener_simbolos"
-            ):
-                llamada = lambda: self.proveedor_lsp.obtener_simbolos(archivo, linea)
+            if self.proveedor_lsp is not None and hasattr(self.proveedor_lsp, "obtener_simbolos"):
+                llamada = lambda: self.proveedor_lsp.obtener_simbolos(archivo, linea)  # noqa: E731  (lambda asignada: refactor en Fase 2b)
             elif hasattr(lsp, "obtener_simbolos"):
-                llamada = lambda: lsp.obtener_simbolos(archivo, linea)
+                llamada = lambda: lsp.obtener_simbolos(archivo, linea)  # noqa: E731  (lambda asignada: refactor en Fase 2b)
             if llamada is None:
                 degradado = True
                 return crudos, degradado
@@ -220,7 +229,7 @@ class GraphLSPIntegrator:
         self._degradados_avisados.add(clave)
         _aviso("LSP no disponible, usando búsqueda por regex.")
 
-    def _buscar_por_regex(
+    def _buscar_por_regex(  # noqa: C901  (refactor de complejidad: Fase 10c)
         self, archivo: str, linea: int | None, max_coincidencias: int = 25
     ) -> list[dict[str, Any]]:
         """Búsqueda por regex: rápida y sin dependencias externas.
@@ -242,9 +251,7 @@ class GraphLSPIntegrator:
             if not token:
                 return []
             proyecto = _raiz_proyecto(ruta)
-            _patron = re.compile(
-                r"(?<![A-Za-z0-9_])" + re.escape(token) + r"(?![A-Za-z0-9_])"
-            )
+            _patron = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(token) + r"(?![A-Za-z0-9_])")
             for camino in _archivos_a_buscar(proyecto):
                 try:
                     texto = camino.read_text(encoding="utf-8", errors="replace")
@@ -437,7 +444,7 @@ def _con_timeout(llamada, timeout: float, *args, **kwargs):
     def _run() -> None:
         try:
             caja["resultado"] = llamada(*args, **kwargs)
-        except Exception as exc:  # noqa: BLE001  (degradación silenciosa)
+        except Exception as exc:
             caja["error"] = exc
 
     hilo = threading.Thread(target=_run, daemon=True)
@@ -470,7 +477,7 @@ def _identificador_en_linea(linea: str) -> str:
     if not coincidencias:
         return ""
     # Preferimos el identificador más largo (suele ser el símbolo relevante).
-    return max(coincidencias, key=lambda s: (len(s), s))
+    return max(coincidencias, key=lambda s: (len(s), s))  # type: ignore[no-any-return]
 
 
 def _raiz_proyecto(ruta: Path) -> Path:
@@ -485,8 +492,17 @@ def _raiz_proyecto(ruta: Path) -> Path:
     if actual.is_file():
         actual = actual.parent
     _marcadores = (
-        ".git", ".hg", ".svn", "pyproject.toml", "setup.py", "setup.cfg",
-        "package.json", "go.mod", "Cargo.toml", "pom.xml", "requirements.txt",
+        ".git",
+        ".hg",
+        ".svn",
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "package.json",
+        "go.mod",
+        "Cargo.toml",
+        "pom.xml",
+        "requirements.txt",
     )
     _max_profundidad = 6
     for _ in range(_max_profundidad):
@@ -502,10 +518,25 @@ def _raiz_proyecto(ruta: Path) -> Path:
 def _archivos_a_buscar(raiz: Path, max_archivos: int = 1500):
     """Archivos de código del proyecto, ignorando dependencias/artefactos."""
     extensiones = (
-        ".py", ".pyi", ".js", ".jsx", ".mjs", ".ts", ".tsx",
-        ".go", ".rs", ".java", ".cs", ".c", ".h", ".cpp", ".hpp", ".rb", ".php",
+        ".py",
+        ".pyi",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".ts",
+        ".tsx",
+        ".go",
+        ".rs",
+        ".java",
+        ".cs",
+        ".c",
+        ".h",
+        ".cpp",
+        ".hpp",
+        ".rb",
+        ".php",
     )
-    resultado = []
+    resultado: list[Path] = []
     if not raiz.is_dir():
         return resultado
     for camino in raiz.rglob("*"):
@@ -614,7 +645,7 @@ def _obtener_nombre_declaracion(nodo) -> str:
             tipo = getattr(hijo, "tipo", "")
             if tipo in ("identifier", "name", "type_identifier"):
                 try:
-                    return hijo.text.decode("utf-8", "replace")
+                    return hijo.text.decode("utf-8", "replace")  # type: ignore[no-any-return]
                 except Exception:
                     return ""
     except Exception:

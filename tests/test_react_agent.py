@@ -157,7 +157,10 @@ class TestToolLeerArchivo:
 class TestHistorial:
     def test_tokens_historial(self):
         ag = _agente()
-        ag.historial = [{"role": "user", "content": "hola"}, {"role": "assistant", "content": "mundo"}]
+        ag.historial = [
+            {"role": "user", "content": "hola"},
+            {"role": "assistant", "content": "mundo"},
+        ]
         assert ag._tokens_historial() >= 1
 
     def test_resumir_por_longitud_falso(self):

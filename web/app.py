@@ -238,7 +238,10 @@ def crear_app(api_token: str | None = None, interactiva: bool = False) -> FastAP
                     "activo": True,
                     "detalle": "El daemon ya estaba en ejecución.",
                 }
-            intervalo = cast(int, cuerpo.get("intervalo_horas") or getattr(sc, "DAEMON_INTERVALO_HORAS_DEFECTO", 6))
+            intervalo = cast(
+                int,
+                cuerpo.get("intervalo_horas") or getattr(sc, "DAEMON_INTERVALO_HORAS_DEFECTO", 6),
+            )
             pausa = int(getattr(sc, "DAEMON_PAUSA_SEGUNDOS", 3600))
             _DAEMON_PARAR.clear()
 

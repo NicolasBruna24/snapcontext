@@ -129,10 +129,13 @@ def _guardar_path_windows(nuevo_path: str) -> bool:
     try:
         import winreg
 
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE
+        with winreg.OpenKey(  # type: ignore[attr-defined]
+            winreg.HKEY_CURRENT_USER,  # type: ignore[attr-defined]
+            "Environment",
+            0,
+            winreg.KEY_SET_VALUE,  # type: ignore[attr-defined]
         ) as clave:
-            winreg.SetValueEx(clave, "PATH", 0, winreg.REG_EXPAND_SZ, nuevo_path)
+            winreg.SetValueEx(clave, "PATH", 0, winreg.REG_EXPAND_SZ, nuevo_path)  # type: ignore[attr-defined]
         return True
     except Exception:
         pass

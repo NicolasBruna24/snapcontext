@@ -35,6 +35,7 @@ def _sc(nombre: str):
 
     return getattr(snapcontext, nombre)
 
+
 # --- PROVEEDOR_DEFECTO (487-487) ---
 PROVEEDOR_DEFECTO = os.environ.get("SNAPCONTEXT_PROVIDER", "gemini")
 

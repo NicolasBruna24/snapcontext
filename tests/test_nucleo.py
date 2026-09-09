@@ -91,7 +91,10 @@ class TestAplicarParche:
             " print('hola')\n"
         )
         fake = types.SimpleNamespace(returncode=0, stdout="ok", stderr="")
-        with mock.patch.object(sc, "subprocess") as sp, mock.patch.object(sc, "shutil") as shutil_mock:
+        with (
+            mock.patch.object(sc, "subprocess") as sp,
+            mock.patch.object(sc, "shutil") as shutil_mock,
+        ):
             shutil_mock.which.return_value = "/usr/bin/git"
             sp.run.return_value = fake
             sp.CREATE_NO_WINDOW = 0
@@ -102,7 +105,10 @@ class TestAplicarParche:
     def test_parche_falla_ambas_herramientas(self, tmp_path: Path):
         parche = "--- a/a.py\n+++ b/a.py\n+hola\n"
         fake = types.SimpleNamespace(returncode=1, stdout="", stderr="conflicto")
-        with mock.patch.object(sc, "subprocess") as sp, mock.patch.object(sc, "shutil") as shutil_mock:
+        with (
+            mock.patch.object(sc, "subprocess") as sp,
+            mock.patch.object(sc, "shutil") as shutil_mock,
+        ):
             shutil_mock.which.side_effect = ["/usr/bin/git", "/usr/bin/patch"]
             sp.run.return_value = fake
             sp.CREATE_NO_WINDOW = 0
@@ -112,10 +118,7 @@ class TestAplicarParche:
 
 class TestExtraerBloquesAst:
     def test_extrae_funciones_y_clases(self):
-        contenido = (
-            "def hola():\n    return 1\n\n"
-            "class Foo:\n    def bar(self):\n        pass\n"
-        )
+        contenido = "def hola():\n    return 1\n\nclass Foo:\n    def bar(self):\n        pass\n"
         bloques = sc._extraer_bloques_ast(contenido, "x.py")
         nombres = [b["nombre"] for b in bloques]
         assert "hola" in nombres

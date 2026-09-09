@@ -211,6 +211,8 @@ class TestFlagsCLI(unittest.TestCase):
 
         args = sc.crear_parser().parse_args(["consulta", "--xpu-temperature", "0.5"])
         self.assertEqual(args.xpu_temperature, 0.5)
+
+
 # --- Fase 18: detección moderna, IPEX-LLM (low-bit) y serie B (Battlemage) ---
 
 
@@ -342,8 +344,12 @@ class TestCargaIPEXLLM(unittest.TestCase):
     def test_sin_dependencias_mensaje_guiado(self):
         """Sin ipex_llm ni ipex, el mensaje indica cómo instalar (Fase 18)."""
         motor = xpu.XPUInference()
-        vacio = {"torch": None, "ipex_llm": None,
-                 "intel_extension_for_pytorch": None, "transformers": None}
+        vacio = {
+            "torch": None,
+            "ipex_llm": None,
+            "intel_extension_for_pytorch": None,
+            "transformers": None,
+        }
         with mock.patch.dict(sys.modules, vacio):
             with self.assertRaises(RuntimeError) as ctx:
                 motor._cargar_modelo()

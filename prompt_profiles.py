@@ -1,4 +1,3 @@
-# encoding: utf-8
 """Perfiles de prompt optimizados por modelo (Fase 17).
 
 Selecciona un prompt y parámetros específicos según el proveedor/modelo en
@@ -306,9 +305,7 @@ def aplicar_perfil(
         # (ReAct/chat con assistant) solo se inyecta el system_prompt, para no
         # alterar el formato del bucle agéntico.
         num_user = sum(1 for m in mensajes if m.get("role") == "user")
-        reformatear = (
-            tipo not in _TAREAS_NO_REFORMATEAR and num_user == 1
-        )
+        reformatear = tipo not in _TAREAS_NO_REFORMATEAR and num_user == 1
         nuevo: list[dict] = []
 
         # 1) system_prompt (fusionando un system existente si lo hay).
@@ -353,11 +350,11 @@ def perfiles_disponibles() -> list[str]:
 
 __all__ = [
     "ALIASES",
-    "PERFIL_GENERICO",
     "PERFILES",
+    "PERFIL_GENERICO",
     "TIPOS_TAREA",
+    "_normaliza_tipo_tarea",
     "aplicar_perfil",
     "obtener_perfil",
     "perfiles_disponibles",
-    "_normaliza_tipo_tarea",
 ]

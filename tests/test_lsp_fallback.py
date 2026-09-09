@@ -1,4 +1,3 @@
-# encoding: utf-8
 """Tests de la Fase 16: degradación elegante del LSP.
 
 Verifica que si el servidor LSP no responde (timeout) o lanza una excepción,
@@ -25,12 +24,8 @@ import snapcontext as sc
 def _proyecto(tmp: tempfile.TemporaryDirectory) -> Path:
     """Crea un mini proyecto de Python con directorio raíz del proyecto."""
     raiz = Path(tmp.name)
-    (raiz / "main.py").write_text(
-        "def saludo():\n    return 42\n\nsaludo()\n", encoding="utf-8"
-    )
-    (raiz / "utils.py").write_text(
-        "def ayuda():\n    return 1\n\nsaludo()\n", encoding="utf-8"
-    )
+    (raiz / "main.py").write_text("def saludo():\n    return 42\n\nsaludo()\n", encoding="utf-8")
+    (raiz / "utils.py").write_text("def ayuda():\n    return 1\n\nsaludo()\n", encoding="utf-8")
     # Marcador para que _raiz_proyecto no suba a /.
     (raiz / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
     return raiz

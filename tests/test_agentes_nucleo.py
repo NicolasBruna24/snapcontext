@@ -32,9 +32,7 @@ class TestAgenteTester:
     """AgenteTester ejecuta y analiza pruebas."""
 
     def test_analizar_error_proc(self):
-        proc = subprocess.CompletedProcess(
-            ["pytest"], 1, stdout="fail", stderr=""
-        )
+        proc = subprocess.CompletedProcess(["pytest"], 1, stdout="fail", stderr="")
         r = agentes.AgenteTester().analizar_error(proc)
         assert isinstance(r, str)
         assert len(r) > 0
@@ -65,4 +63,3 @@ class TestAgenteEditor:
         agente = agentes.AgenteEditor()
         assert hasattr(agente, "ejecutar_aider")
         assert callable(agente.ejecutar_aider)
-

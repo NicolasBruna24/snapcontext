@@ -80,7 +80,7 @@ def _normalizar_relativa(ruta: str) -> str:
     limpia = ruta.replace("\\", "/").strip()
     if limpia.startswith("./"):
         limpia = limpia[2:]
-    partes = []
+    partes: list[str] = []
     for p in limpia.split("/"):
         if p in ("", "."):
             continue
@@ -121,8 +121,7 @@ def _validar_ruta_segura(ruta: Path | str, proyecto_base: Path | str) -> Path:
         destino.relative_to(base)
     except ValueError:
         raise ValueError(
-            f"Intento de escritura fuera del proyecto: {destino} "
-            f"(el proyecto es {base})"
+            f"Intento de escritura fuera del proyecto: {destino} (el proyecto es {base})"
         ) from None
     return destino
 

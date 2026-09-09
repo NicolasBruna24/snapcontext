@@ -843,9 +843,9 @@ class ReactAgent:
         # marcas cache_control en el resumen para mantener el ahorro de tokens
         # entre turnos (el sistema ya se marca al enviarse).
         try:
-            if sc._soporta_prompt_caching(self.proveedor or sc.PROVEEDOR_DEFECTO) and sc._resolver_prompt_caching(
-                self.prompt_caching
-            ):
+            if sc._soporta_prompt_caching(
+                self.proveedor or sc.PROVEEDOR_DEFECTO
+            ) and sc._resolver_prompt_caching(self.prompt_caching):
                 for _m in nuevo_historial:
                     _m["cache_control"] = {"type": "ephemeral"}  # type: ignore[assignment]
         except Exception:

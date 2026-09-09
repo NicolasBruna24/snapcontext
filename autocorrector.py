@@ -59,7 +59,10 @@ def _ejecutar_en_sandbox(comando: str, directorio: str, timeout: int = 600) -> t
             try:
                 import sandbox_session as ss
 
-                return cast(tuple[int, str, str], ss.ejecutar(comando, cwd=directorio, timeout=timeout))  # type: ignore[attr-defined]
+                return cast(
+                    tuple[int, str, str],
+                    ss.ejecutar(comando, cwd=directorio, timeout=timeout),  # type: ignore[attr-defined]
+                )  # type: ignore[attr-defined]
             except Exception:
                 pass
         return sc._ejecutar_comando(comando, directorio, timeout=timeout)

@@ -833,23 +833,6 @@ MENSAJE_AIDER_FALTANTE = (
 HISTORIAL_PATH = CONFIG_DIR / "historial.json"
 MAX_HISTORIAL_ENTRADAS = 200  # se recorta para que el archivo no crezca sin límite
 
-# ---------------------------------------------------------------------------
-# Señales y cierre limpio (Ctrl+C / SIGTERM) — multiplataforma
-# ---------------------------------------------------------------------------
-# Registro de subprocesos activos (servidores Flutter...) para poder cerrarlos
-# desde el manejador de señales y no dejar procesos huérfanos.
-_PROCESOS_ACTIVOS: set = set()
-
-
-def _apagar_subprocesos() -> None:
-    """Termina todos los subprocesos registrados (no espera a que salgan)."""
-    for proceso in list(_PROCESOS_ACTIVOS):
-        try:
-            if proceso.poll() is None:
-                proceso.terminate()
-        except (AttributeError, OSError, ValueError):
-            pass
-
 
 def _registrar_manejadores_senales() -> None:
     """Instala manejadores para SIGINT (Ctrl+C) y, en Unix, SIGTERM.
@@ -888,6 +871,7 @@ def _registrar_manejadores_senales() -> None:
 # Resolución del repositorio
 # ---------------------------------------------------------------------------
 
+
 def _es_proyecto_valido(directorio: str | Path) -> bool:
     """Devuelve True si 'directorio' tiene indicios de ser un proyecto.
 
@@ -919,7 +903,6 @@ def _es_proyecto_valido(directorio: str | Path) -> bool:
         if entrada.is_file() and entrada.suffix.lower() in EXT_CODIGO_RAIZ:
             return True
     return False
-
 
 
 # ---------------------------------------------------------------------------
@@ -1580,7 +1563,6 @@ def ejecutar_aider(
     return False
 
 
-
 def _editor_sobrescribir(archivo: str, contenido: str, directorio: str = ".") -> bool:
     """Editor propio (Fase 1 — Sobrescritura de archivos).
 
@@ -2037,6 +2019,7 @@ UMBRAL_DIFUSO_BLOQUE = 0.80
 # archivos grandes. Se conserva el bloque completo para la aplicación final.
 MAX_CONTEXTO_DIFUSO_LINEAS = 20
 
+
 def aplicar_reemplazo_estructurado(  # noqa: C901  (refactor de complejidad: Fase 14)
     archivo: str,
     bloque_original: str,
@@ -2068,9 +2051,7 @@ def aplicar_reemplazo_estructurado(  # noqa: C901  (refactor de complejidad: Fas
 
     # v6.34.13 (M1): defensa contra path traversal.
     if not str(ruta_resuelta).startswith(str(raiz)):
-        raise ValueError(
-            f"Intento de escritura fuera del proyecto: {archivo}"
-        )
+        raise ValueError(f"Intento de escritura fuera del proyecto: {archivo}")
 
     if not ruta_resuelta.is_file():
         raise ValueError(f"Archivo no encontrado: {archivo}")
@@ -2092,9 +2073,9 @@ def aplicar_reemplazo_estructurado(  # noqa: C901  (refactor de complejidad: Fas
         lineas = []
         for linea in texto.splitlines():
             # Remover comentarios pero preservar strings
-            limpia = re.sub(r'#.*$', '', linea) if '"' not in linea and "'" not in linea else linea
-            lineas.append(' '.join(limpia.split()))
-        return '\n'.join(lineas)
+            limpia = re.sub(r"#.*$", "", linea) if '"' not in linea and "'" not in linea else linea
+            lineas.append(" ".join(limpia.split()))
+        return "\n".join(lineas)
 
     norm_original = normalizar(original)
     norm_contenido = normalizar(contenido)
@@ -2104,14 +2085,14 @@ def aplicar_reemplazo_estructurado(  # noqa: C901  (refactor de complejidad: Fas
         matcher = difflib.SequenceMatcher(None, contenido, original)
         match = matcher.find_longest_match(0, len(contenido), 0, len(original))
         if match.size > len(original) * 0.5:
-            return contenido[:match.a] + nuevo + contenido[match.a + match.size:]
+            return contenido[: match.a] + nuevo + contenido[match.a + match.size :]
 
     # 3) Fuzzy search con difflib
     mejor_ratio = 0.0
     ventana = len(original)
 
     for i in range(0, len(contenido) - ventana + 1, max(1, ventana // 4)):
-        candidato = contenido[i:i + ventana + 100]
+        candidato = contenido[i : i + ventana + 100]
         ratio = difflib.SequenceMatcher(None, original, candidato).ratio()
         if ratio > mejor_ratio:
             mejor_ratio = ratio
@@ -2121,7 +2102,7 @@ def aplicar_reemplazo_estructurado(  # noqa: C901  (refactor de complejidad: Fas
         matcher = difflib.SequenceMatcher(None, contenido, original)
         match = matcher.find_longest_match(0, len(contenido), 0, len(original))
         if match.size > 0:
-            return contenido[:match.a] + nuevo + contenido[match.a + match.size:]
+            return contenido[: match.a] + nuevo + contenido[match.a + match.size :]
 
     raise ValueError(
         f"Bloque no encontrado en {archivo}. "
@@ -2129,8 +2110,6 @@ def aplicar_reemplazo_estructurado(  # noqa: C901  (refactor de complejidad: Fas
         f"(umbral={UMBRAL_DIFUSO}). "
         f"Considere usar el parche unificado en vez de reemplazo estructurado."
     )
-
-
 
 
 def _mostrar_diff_parche(parche: str, ruta: str | None = None) -> None:
@@ -3665,6 +3644,7 @@ def _limpiar_historial() -> bool:
 # Utilidades genéricas para el agente autónomo — v0.10.0
 # ---------------------------------------------------------------------------
 
+
 def _ejecutar_comando(  # noqa: C901  (refactor de complejidad: Fase 10c)
     comando: str, directorio: str = ".", timeout: int = 120, capture_output: bool = True
 ) -> tuple:
@@ -4204,110 +4184,6 @@ def _sandbox_pausado():
         yield
     finally:
         _SANDBOX_ACTIVO = previo
-
-
-# --- Procesos en segundo plano para execute_command (v2.3.0) -----------------
-_PROCESOS_FONDO: dict = {}  # pid → estado (para ejecución en background)
-
-
-def _lanzar_proceso_fondo(comando: str, directorio: str = ".", capture_output: bool = True) -> dict:
-    """Lanza ``comando`` en segundo plano (Popen). Devuelve un registro con el PID.
-
-    El proceso queda registrado en ``_PROCESOS_FONDO`` para poder consultarlo
-    después con :func:`_estado_proceso_fondo`. Nunca lanza excepciones.
-    """
-    raiz = Path(directorio).expanduser()
-    if not raiz.is_dir():
-        return {"ok": False, "error": f"El directorio no existe: {raiz}"}
-    # v4.3.0: los procesos en segundo plano también respetan --sandbox.
-    if _SANDBOX_ACTIVO:
-        # v6.4.0: con --sandbox-session se lanzan dentro del contenedor de sesión.
-        if _SESION_DOCKER_SOLICITADA:
-            import sandbox_session as ss
-
-            if _asegurar_sesion_docker(str(raiz)):
-                info(f"🐳 Ejecutando en sesión Docker (background): {comando}")
-                comando = ss.comando_en_sesion(comando)
-                raiz = Path.cwd()
-            else:
-                info(f"[sandbox] Ejecutando en contenedor (background): {comando}")
-                comando = _envolver_sandbox(comando, str(raiz))
-                raiz = Path.cwd()
-        else:
-            info(f"[sandbox] Ejecutando en contenedor (background): {comando}")
-            comando = _envolver_sandbox(comando, str(raiz))
-            raiz = Path.cwd()
-    # seguridad: en background no hay confirmación interactiva útil;
-    # si no hay sandbox y el comando es peligroso, se rechaza sin lanzarlo.
-    if not _SANDBOX_ACTIVO and _es_comando_peligroso(comando):
-        return {"ok": False, "error": f"Comando peligroso rechazado (sin sandbox): {comando}"}
-    try:
-        # seguridad (A1): lanzamiento en background vía helper con política
-        # (shell=False para comandos simples; shell=True solo para pipes,
-        #  tras validar que no es peligroso — ya pre-filtrado arriba).
-        import sandbox_utils as _su
-
-        proc = _su.lanzar_proceso_fondo_seguro(
-            comando, cwd=str(raiz), capturar_salida=capture_output
-        )
-        registro = {
-            "ok": True,
-            "pid": proc.pid,
-            "proceso": proc,
-            "estado": "ejecutando",
-            "comando": comando,
-            "codigo_retorno": None,
-            "stdout": "",
-            "stderr": "",
-        }
-        _PROCESOS_FONDO[proc.pid] = registro
-        return {"ok": True, "pid": proc.pid, "comando": comando}
-    except OSError as exc:
-        return {"ok": False, "error": f"Error lanzando '{comando}': {exc}"}
-
-
-def _estado_proceso_fondo(pid: int) -> dict:
-    """Consulta el estado de un proceso lanzado en segundo plano.
-
-    Si ya terminó, captura su stdout/stderr (si se pidió captura) y lo marca
-    como finalizado. Devuelve un dict con ``estado``, ``pid`` y (si terminó)
-    ``codigo_retorno``, ``stdout`` y ``stderr``.
-    """
-    registro = _PROCESOS_FONDO.get(pid)
-    if registro is None:
-        return {
-            "ok": False,
-            "estado": "desconocido",
-            "pid": pid,
-            "error": f"no hay proceso en segundo plano con pid {pid}",
-        }
-    proc = registro.get("proceso")
-    if proc is None:
-        return {"ok": True, "estado": registro.get("estado", "desconocido"), "pid": pid}
-    if proc.poll() is None:
-        registro["estado"] = "ejecutando"
-        return {"ok": True, "estado": "ejecutando", "pid": pid}
-    # Ya terminó: capturar salida si se pidió.
-    if proc.stdout is not None:
-        try:
-            registro["stdout"] = (proc.stdout.read() or "") if proc.stdout else ""
-        except Exception:
-            registro["stdout"] = ""
-    if proc.stderr is not None:
-        try:
-            registro["stderr"] = (proc.stderr.read() or "") if proc.stderr else ""
-        except Exception:
-            registro["stderr"] = ""
-    registro["codigo_retorno"] = proc.returncode
-    registro["estado"] = "finalizado"
-    return {
-        "ok": True,
-        "estado": "finalizado",
-        "pid": pid,
-        "codigo_retorno": proc.returncode,
-        "stdout": registro["stdout"],
-        "stderr": registro["stderr"],
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -4975,9 +4851,7 @@ def _enviar_al_proveedor(  # noqa: C901  (refactor de complejidad: Fase 10c)
     for _pos, (_p, _m) in enumerate(candidatos):
         _m_ef = _m or (PROVEEDORES[_p]["modelo_default"] if _p in PROVEEDORES else None)
         try:
-            return _enviar_al_proveedor_unico(
-                _p, _m, mensajes, prompt_caching, tipo_tarea=_tarea
-            )
+            return _enviar_al_proveedor_unico(_p, _m, mensajes, prompt_caching, tipo_tarea=_tarea)
         except Exception as exc:
             if _es_error_autenticacion(exc):
                 raise  # la clave no se arregla cambiando de modelo
@@ -4998,7 +4872,10 @@ def _enviar_al_proveedor(  # noqa: C901  (refactor de complejidad: Fase 10c)
 
 
 def _enviar_al_proveedor_unico(  # noqa: C901  (refactor de complejidad: Fase 10c)
-    proveedor: str, modelo: str | None, mensajes: list[dict], prompt_caching: bool | None = None,
+    proveedor: str,
+    modelo: str | None,
+    mensajes: list[dict],
+    prompt_caching: bool | None = None,
     tipo_tarea: str | None = None,
 ) -> str:
     """Envía ``mensajes`` ([{"role": ..., "content": ...}, ...]) a UN proveedor.
@@ -5027,9 +4904,7 @@ def _enviar_al_proveedor_unico(  # noqa: C901  (refactor de complejidad: Fase 10
         import prompt_profiles as _pp
 
         _tarea = tipo_tarea or _tipo_tarea_actual()
-        mensajes, _cfg_perfil = _pp.aplicar_perfil(
-            mensajes, proveedor, tipo_tarea=_tarea
-        )
+        mensajes, _cfg_perfil = _pp.aplicar_perfil(mensajes, proveedor, tipo_tarea=_tarea)
         if DEPURAR:
             depurar(
                 f"🎯 Perfil de prompt [{_pp._normaliza_tipo_tarea(_tarea)}] "
@@ -5098,7 +4973,7 @@ def _enviar_al_proveedor_unico(  # noqa: C901  (refactor de complejidad: Fase 10
         # Gemini distingue user/model; convertimos "assistant" → "model".
         for _m in mensajes:
             if _m.get("role") == "system":
-                _system_inst += (str(_m.get("content") or "") + "\n")
+                _system_inst += str(_m.get("content") or "") + "\n"
             else:
                 contenido.append(
                     {
@@ -8342,6 +8217,7 @@ def _ejecutar_comando_github(subargv: list[str]) -> int:
         )
         exito("Configuración de GitHub guardada en ~/.snapcontext/config.json ('github').")
         info(f"  webhook_url    : {guardado.get('webhook_url') or '(sin definir)'}")
+
         # v6.34.12: ``_oculto`` era local de _ejecutar_comando_discord; aquí se
         # necesita su propia copia (bug F821: NameError en `github setup/estado`).
         def _oculto(valor: str | None) -> str:
@@ -11453,295 +11329,6 @@ def _preparar_argv_aliases(argv: list[str] | None) -> list[str]:
 # refactor). Se re-exportan aquí para mantener la API interna intacta.
 from instalador import configurar_path, snapcontext_en_path
 
-
-# ---------------------------------------------------------------------------
-# Diagnóstico y reparación (v3.1.0)
-# ---------------------------------------------------------------------------
-def _diagnostico_item(nombre: str, ok: bool, detalle: str, solucion: str | None = None) -> bool:
-    """Imprime una línea de diagnóstico con color según el estado."""
-    if ok:
-        exito(f"{nombre}: {detalle}")
-    elif solucion:
-        aviso(f"{nombre}: {detalle}")
-        print(_pintar("    → Solución: " + solucion, _AMARILLO))
-    else:
-        error(f"{nombre}: {detalle}")
-    return ok
-
-
-def _comprobar_dependencias_opcionales() -> list[tuple]:
-    """Devuelve (modulo, instalado, instalacion) para dependencias opcionales."""
-    modulos = [
-        ("questionary", "questionary", "pip install snapcontext[interactive]"),
-        ("fastapi", "fastapi", "pip install snapcontext[web]"),
-        ("uvicorn", "uvicorn", "pip install snapcontext[web]"),
-        ("sentence_transformers", "sentence-transformers", "pip install sentence-transformers"),
-        ("openai", "openai", "pip install openai"),
-        ("google.generativeai", "google-generativeai", "pip install google-generativeai"),
-        ("aider", "aider-chat", "pip install aider-chat"),
-    ]
-    resultados = []
-    for modulo, paquete, extra in modulos:
-        try:
-            __import__(modulo)
-            resultados.append((paquete, True, extra))
-        except ImportError:
-            resultados.append((paquete, False, extra))
-    return resultados
-
-
-def _estado_memoria() -> dict:
-    """Comprueba la base SQLite y el número de skills.
-
-    Devuelve {'ok': bool, 'skills': int, 'error': str|None}.
-    """
-    if not os.path.exists(DB_PATH):
-        return {"ok": False, "skills": 0, "error": f"No existe {DB_PATH} (se crea al primer uso)."}
-    try:
-        import sqlite3
-
-        con = sqlite3.connect(str(DB_PATH))
-        try:
-            try:
-                resultado = con.execute("PRAGMA quick_check").fetchone()
-                if not resultado or resultado[0] != "ok":
-                    return {"ok": False, "skills": 0, "error": "La base de datos está corrupta."}
-            except sqlite3.DatabaseError:
-                return {"ok": False, "skills": 0, "error": "La base de datos está corrupta."}
-            try:
-                skills = con.execute("SELECT COUNT(*) FROM skills").fetchone()[0]
-            except sqlite3.Error:
-                skills = 0
-            return {"ok": True, "skills": skills, "error": None}
-        finally:
-            con.close()
-    except Exception as exc:
-        return {"ok": False, "skills": 0, "error": str(exc)}
-
-
-def _ejecutar_diagnostico(args: argparse.Namespace) -> int:  # noqa: C901  (refactor de complejidad: Fase 10c)
-    """Modo --diagnostico: revisa la instalación y muestra un resumen.
-
-    Comprueba Python, instalación del paquete, dependencias opcionales,
-    PATH, proveedor de IA (API key / Ollama) y memoria SQLite.
-    Devuelve 0 si todo está OK, 1 si hay errores y 2 si solo hay avisos.
-    """
-    info("=== SnapContext · Diagnóstico ===")
-    problemas = 0
-    avisos = 0
-
-    # 1) Python
-    version_py = sys.version.split()[0]
-    en_path = any(shutil.which(cmd) for cmd in ("python", "python3", "py"))
-    if not _diagnostico_item(
-        "Python",
-        en_path,
-        f"v{version_py} ({sys.executable})" if en_path else "no se encontró 'python' en el PATH",
-        "Instala Python 3.9+ desde https://python.org y marca 'Add to PATH'",
-    ):
-        problemas += 1
-
-    # 2) Instalación de SnapContext
-    if getattr(sys, "frozen", False):
-        exito("SnapContext: instalado como ejecutable empaquetado.")
-    else:
-        try:
-            from importlib.metadata import version as _meta_version
-
-            instalada = _meta_version("snapcontext")
-            exito(
-                f"SnapContext: instalado (v{instalada}). "
-                "`python -m snapcontext --version` disponible."
-            )
-        except Exception:
-            aviso("SnapContext no consta como paquete instalado.")
-            print(
-                _pintar(
-                    "    → Solución: pip install snapcontext (o python -m pip install -e .)",
-                    _AMARILLO,
-                )
-            )
-            avisos += 1
-
-    # 3) Dependencias opcionales
-    for paquete, presente, extra in _comprobar_dependencias_opcionales():
-        if presente:
-            exito(f"Dependencia '{paquete}': OK.")
-        else:
-            aviso(f"Dependencia opcional '{paquete}' no instalada.")
-            print(_pintar(f"    → Instalar con: {extra}", _AMARILLO))
-            avisos += 1
-
-    # 4) PATH
-    if snapcontext_en_path():
-        exito("PATH: el comando 'snapcontext' es accesible.")
-    else:
-        aviso("PATH: 'snapcontext' no es accesible como comando global.")
-        print(
-            _pintar(
-                "    → Solución: ejecuta 'snapcontext --setup-path' "
-                "(Windows) o reinstala con install.ps1/install.sh",
-                _AMARILLO,
-            )
-        )
-        avisos += 1
-
-    # 5) Proveedor de IA / modo offline
-    if hay_api_key_configurada():
-        exito("Proveedor de IA: API key configurada.")
-    else:
-        estado_ol = _estado_ollama()
-        if estado_ol["modelos"]:
-            ligero = _elegir_modelo_ligero(estado_ol["modelos"])
-            exito(
-                "Proveedor de IA: sin API key, pero Ollama está listo "
-                f"(modo offline con '{ligero}')."
-            )
-        elif estado_ol["instalado"]:
-            aviso("Ollama instalado pero sin modelos descargados.")
-            print(_pintar("    → Solución: ollama pull llama3.2", _AMARILLO))
-            avisos += 1
-        else:
-            error("No se encontró una API key ni Ollama.")
-            print(
-                _pintar(
-                    "    → Solución: instala Ollama desde "
-                    "https://ollama.com o ejecuta 'snapcontext --init'.",
-                    _ROJO,
-                )
-            )
-            problemas += 1
-
-    # 6) Memoria (SQLite + skills)
-    memoria = _estado_memoria()
-    if memoria["ok"]:
-        exito(f"Memoria: base de datos OK ({memoria['skills']} skills).")
-    elif memoria["error"] and "corrupta" in (memoria["error"] or ""):
-        error(f"Memoria: {memoria['error']}")
-        print(_pintar("    → Solución: ejecuta 'snapcontext --reparar'", _ROJO))
-        problemas += 1
-    else:
-        aviso(f"Memoria: {memoria['error']}")
-        avisos += 1
-
-    print()
-    if problemas:
-        error(
-            f"Diagnóstico completado con {problemas} problema(s) y "
-            f"{avisos} aviso(s). Ejecuta 'snapcontext --reparar' si lo "
-            "necesitas."
-        )
-        return 1
-    if avisos:
-        aviso(f"Diagnóstico completado: todo funcional, {avisos} aviso(s).")
-        return 2
-    exito("Diagnóstico completado: todo correcto ✔")
-    return 0
-
-
-def _limpiar_entorno_uv_corrupto() -> bool:
-    """Elimina carpetas de entorno de 'uv' vacías/corruptas (v3.1.0).
-
-    Un fallo conocido deja entornos vacíos que rompen reintentos.
-    Devuelve True si se limpió algo.
-    """
-    limpio = False
-    for carpeta in (CONFIG_DIR / ".venv-uv", CONFIG_DIR / ".venv"):
-        try:
-            if carpeta.is_dir() and not any(carpeta.iterdir()):
-                carpeta.rmdir()
-                info(f"Entorno uv vacío eliminado: {carpeta}")
-                limpio = True
-        except OSError:
-            pass
-    return limpio
-
-
-def _reinstalar_snapcontext() -> bool:
-    """Reinstala SnapContext con pip (con fallback a `uv pip`)."""
-    comando = [
-        sys.executable,
-        "-m",
-        "pip",
-        "install",
-        "--upgrade",
-        "--force-reinstall",
-        "--no-deps",
-        "snapcontext",
-    ]
-    info("Reinstalando SnapContext con pip...")
-    try:
-        proc = subprocess.run(comando, capture_output=True, text=True, timeout=600)
-        if proc.returncode == 0:
-            exito("SnapContext reinstalado correctamente.")
-            return True
-        aviso("pip devolvió un error: " + ((proc.stderr or proc.stdout or "").strip()[-300:]))
-    except (OSError, subprocess.SubprocessError) as exc:
-        aviso(f"No se pudo ejecutar pip: {exc}")
-    return False
-
-
-def _reparar_memoria_si_corrupta() -> bool:
-    """Recrea la base SQLite si está corrupta. True si quedó operativa."""
-    estado = _estado_memoria()
-    if estado["ok"]:
-        return True
-    if estado["error"] and "corrupta" in estado["error"]:
-        try:
-            copia = DB_PATH.with_suffix(".db.corrupto")
-            if os.path.exists(copia):
-                copia.unlink()
-            DB_PATH.rename(copia)
-            _db_init()
-            aviso(f"Base de datos corrupta respaldada como '{copia.name}' y recreada.")
-            return True
-        except OSError as exc:
-            error(f"No se pudo reparar la base de datos: {exc}")
-            return False
-    # No existe aún: crearla.
-    try:
-        _db_init()
-        exito("Memoria inicializada.")
-        return True
-    except Exception as exc:  # pragma: no cover
-        error(f"No se pudo inicializar la memoria: {exc}")
-        return False
-
-
-def _ejecutar_reparacion(args: argparse.Namespace) -> int:
-    """Modo --reparar: arregla instalaciones rotas paso a paso.
-
-    Pasos: limpiar entornos uv corruptos, reinstalar con pip, reparar la
-    base SQLite y añadir la carpeta de scripts al PATH (Windows).
-    """
-    info("=== SnapContext · Reparación ===")
-    ok_global = True
-
-    if _limpiar_entorno_uv_corrupto():
-        exito("Entornos uv corruptos eliminados.")
-
-    if not _reinstalar_snapcontext():
-        ok_global = False
-
-    if _reparar_memoria_si_corrupta():
-        exito("Memoria verificada/reparada.")
-    else:
-        ok_global = False
-
-    if sys.platform.startswith("win") and not snapcontext_en_path():
-        aviso("El comando 'snapcontext' sigue sin estar en el PATH; ejecutando --setup-path...")
-        if configurar_path() != 0:
-            ok_global = False
-    elif snapcontext_en_path():
-        exito("PATH correcto: 'snapcontext' accesible.")
-
-    if ok_global:
-        exito("Reparación completada. Prueba 'snapcontext --diagnostico'.")
-        return 0
-    error("La reparación terminó con incidencias; revisa los mensajes.")
-    return 1
-
-
 # [Fase 4] _tutorial_interactivo movido a configuracion.py (12567-12603)
 
 
@@ -12041,122 +11628,6 @@ def iniciar_api(args: argparse.Namespace) -> int:
     except KeyboardInterrupt:
         info("API detenida.")
     return 0
-
-
-def _ejecutar_benchmark(args: argparse.Namespace) -> int:
-    """``--benchmark``: mide y muestra el tiempo de cada fase (v6.9.0).
-
-    Mide fases reales de SnapContext sin necesidad de API key:
-      • Inicio (import del módulo + CLI).
-      • Escaneo de archivos.
-      • Selección (embeddings si disponible; si no, heurística local).
-      • Preparación de plan (prompt + contexto, offline).
-      • Edición (fuzzy matching incremental sobre un archivo sintético).
-      • Detección/validación de pruebas.
-      • Total.
-    Muestra una tabla con `rich` (fallo a print plano si no está instalado).
-    """
-    import time as _t
-
-    directorio = getattr(args, "directorio", None) or "."
-    filas: list[tuple] = []
-
-    filas.append(("Inicio (import + CLI)", _t.perf_counter() - _TIEMPO_INICIO_MODULO))
-
-    _t0 = _t.perf_counter()
-    crear_parser()
-    filas.append(("CLI (crear_parser)", _t.perf_counter() - _t0))
-
-    _t0 = _t.perf_counter()
-    carpetas = list(getattr(args, "carpetas", None) or CARPETAS_DEFECTO)
-    try:
-        candidatos = listar_archivos_candidatos(
-            directorio, carpetas, extensiones=getattr(args, "extensiones", None)
-        )
-    except Exception:
-        candidatos = []
-    filas.append(("Escaneo de archivos", _t.perf_counter() - _t0))
-
-    _t0 = _t.perf_counter()
-    list(candidatos[:3])  # v6.34.12: sin efecto medible fuera del cronómetro.
-    try:
-        if _embeddings_disponibles():
-            _indexar_proyecto(directorio)
-            _seleccionar_archivos_con_embeddings(
-                "(benchmark)", directorio, max_archivos=3
-            )  # v6.34.12: resultado no usado aquí (solo calienta la caché).
-    except Exception:
-        pass
-    filas.append(("Selección (embeddings/heurística)", _t.perf_counter() - _t0))
-
-    _t0 = _t.perf_counter()
-    try:
-        prompt = PROMPT_PLAN.format(consulta="(benchmark)")
-        _enriquecer_prompt_con_reglas(prompt, "(benchmark)")
-    except Exception:
-        pass
-    filas.append(("Generación de plan (prompt+contexto)", _t.perf_counter() - _t0))
-
-    _t0 = _t.perf_counter()
-    _fuzzy = _bench_fuzzy_edicion(directorio)
-    filas.append(("Edición (fuzzy matching)", _t.perf_counter() - _t0))
-
-    _t0 = _t.perf_counter()
-    try:
-        import detector_tests as _det
-
-        _det = _det
-    except Exception:
-        pass
-    filas.append(("Detección de pruebas", _t.perf_counter() - _t0))
-
-    total = _t.perf_counter() - _TIEMPO_INICIO_MODULO
-    filas.append(("Tiempo total", total))
-
-    _mostrar_tabla_benchmark(filas)
-    return 0
-
-
-def _bench_fuzzy_edicion(directorio: str) -> bool:
-    """Ejercita el fuzzy matching incremental sobre un archivo sintético."""
-    import tempfile
-
-    try:
-        tmp = Path(tempfile.mkdtemp(prefix="sc_bench_"))
-        linea = "    return valor * 2\n"
-        contenido = "def calcular_bench(num):\n" + linea * 60 + "    return procesar(num)\n"
-        archivo = tmp / "bench.py"
-        archivo.write_text(contenido, encoding="utf-8")
-        original = "    return procesar(num)\n"
-        nuevo = "    return procesar_mejor(num)\n"
-        parche = _generar_parche(original, nuevo, "bench.py")
-        ok = _aplicar_hunks_incremental(parche, str(tmp))
-        return ok
-    except Exception:
-        return False
-
-
-def _mostrar_tabla_benchmark(filas: list[tuple]) -> None:
-    """Pinta la tabla de tiempos con `rich` (o print plano sin él)."""
-    try:
-        from rich.console import Console
-        from rich.table import Table
-
-        console = Console()
-        tabla = Table(
-            title=f"⚡ Benchmark de rendimiento — SnapContext {VERSION}",
-            title_style="bold cyan",
-            header_style="bold magenta",
-        )
-        tabla.add_column("Fase", style="cyan")
-        tabla.add_column("Tiempo (s)", justify="right")
-        for nombre, seg in filas:
-            tabla.add_row(nombre, f"{seg:.4f}")
-        console.print(tabla)
-    except Exception:
-        _emitir(sys.stdout, f"⚡ Benchmark de rendimiento — SnapContext {VERSION}")
-        for nombre, seg in filas:
-            _emitir(sys.stdout, f"  {nombre:<40} {seg:.4f} s")
 
 
 def _ejecutar_tui(args: argparse.Namespace) -> int:
@@ -12528,6 +11999,20 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901  (refactor de comp
 if __name__ == "__main__":
     sys.exit(main())
 
+# --- Fase 2: módulos extraídos (re-exports para compatibilidad) ---
+from diagnostico import (
+    _bench_fuzzy_edicion,
+    _comprobar_dependencias_opcionales,
+    _diagnostico_item,
+    _ejecutar_benchmark,
+    _ejecutar_diagnostico,
+    _ejecutar_reparacion,
+    _estado_memoria,
+    _limpiar_entorno_uv_corrupto,
+    _mostrar_tabla_benchmark,
+    _reinstalar_snapcontext,
+    _reparar_memoria_si_corrupta,
+)
 from editor import (
     _contar_cambios_parche,
     _lineas_equivalentes,
@@ -12537,6 +12022,13 @@ from editor import (
     _ruta_del_parche,
     _validar_parche_previo,
     _variantes_linea,
+)
+from estado import (
+    _PROCESOS_ACTIVOS,
+    _PROCESOS_FONDO,
+    _apagar_subprocesos,
+    _estado_proceso_fondo,
+    _lanzar_proceso_fondo,
 )
 from utils import (
     _esta_dentro,

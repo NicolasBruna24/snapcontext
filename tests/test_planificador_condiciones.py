@@ -113,7 +113,9 @@ class TestNormalizarPasos:
         assert len(resultado) == 1
 
     def test_archivos_no_lista_se_normalizan(self):
-        pasos = _normalizar_pasos({"pasos": [{"descripcion": "a", "accion": "editar", "archivos": "x.py"}]})
+        pasos = _normalizar_pasos(
+            {"pasos": [{"descripcion": "a", "accion": "editar", "archivos": "x.py"}]}
+        )
         assert pasos[0]["archivos"] == []
 
 

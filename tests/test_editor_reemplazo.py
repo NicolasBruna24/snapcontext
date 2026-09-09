@@ -23,10 +23,12 @@ import snapcontext as sc
 @pytest.fixture
 def archivo_temporal(tmp_path: Path):
     """Crea un archivo de prueba y retorna una función para aplicar reemplazos."""
+
     def _crear(contenido: str) -> Path:
         ruta = tmp_path / "test_file.py"
         ruta.write_text(contenido, encoding="utf-8")
         return ruta
+
     return _crear
 
 
@@ -154,4 +156,3 @@ class TestReemplazoSeguridad:
                 bloque_nuevo="y",
                 directorio=str(tmp_path),
             )
-

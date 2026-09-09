@@ -1,4 +1,3 @@
-# encoding: utf-8
 """Tests de la Fase 16: indexación en background del Graph RAG.
 
 Verifica que el CLI arranca sin esperar (cargar_grafo devuelve un grafo
@@ -127,7 +126,9 @@ class TestIndexarEnBackground(unittest.TestCase):
     def test_error_silencioso_en_background(self):
         """Si la construcción falla, no cruje y queda el grafo parcial."""
         with mock.patch.object(gr, "construir_grafo", side_effect=RuntimeError("boom")):
-            gestor = gr.indexar_en_background(str(self.raiz), forzar=True, ruta_cache=self.cache, notificar=False)
+            gestor = gr.indexar_en_background(
+                str(self.raiz), forzar=True, ruta_cache=self.cache, notificar=False
+            )
             gestor.listo.wait(timeout=10)
             grafo = gestor.obtener()
             self.assertIn("aristas", grafo)  # siempre un dict usable

@@ -74,6 +74,8 @@ def _validar_parche_previo(parche: str, directorio: str, contenido_esperado: str
             f"'{ruta}' cambió desde que se generó el parche (posible cambio concurrente)"
         )
     return True, "el archivo coincide con la referencia"
+
+
 def _parsear_hunks(parche: str) -> list[tuple]:
     """Divide un diff unificado en hunks ``(linea_inicio_original, cambios)``.
 

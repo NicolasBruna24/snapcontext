@@ -107,6 +107,9 @@ py-modules = [
     "planificador",
     # Fase 6: subsistema de permisos y confirmaciones del usuario (Fase 6).
     "permisos",
+    # Fase 2: bloques extraídos del monolito (utilidades, edición,
+    # diagnóstico/reparación/benchmark y estado global de procesos).
+    "utils", "editor", "diagnostico", "estado",
     # Fase 8: subsistema de herramientas MCP (dispatcher y registro).
     "mcp_tools",
 ]

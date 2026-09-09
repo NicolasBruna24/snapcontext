@@ -152,7 +152,7 @@ def patrones_peligrosos_info() -> list[tuple[str, str]]:
 
 def _flags_creacion() -> int:
     """Flags de subprocess: evita ventanas de consola en Windows."""
-    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    return int(getattr(subprocess, "CREATE_NO_WINDOW", 0)) if os.name == "nt" else 0
 
 
 def ejecutar_comando_seguro(

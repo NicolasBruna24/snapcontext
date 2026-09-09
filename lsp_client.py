@@ -680,6 +680,7 @@ __all__ = [
     "COMANDOS_SERVIDOR",
     "MAPEO_EXTENSIONES",
     "TIMEOUT_DEFECTO",
+    "TIMEOUT_DEGRADACION",
     "CacheLSP",
     "LSPClient",
     "_comando_servidor",
@@ -690,5 +691,4 @@ __all__ = [
     "obtener_cliente_lsp",
     "obtener_simbolos",
     "soporta_lsp",
-    "TIMEOUT_DEGRADACION",
 ]

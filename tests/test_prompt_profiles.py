@@ -1,4 +1,3 @@
-# encoding: utf-8
 """Tests de la Fase 17: perfiles de prompt optimizados por modelo."""
 
 from __future__ import annotations
@@ -78,9 +77,7 @@ class TestFallbackGenerico(unittest.TestCase):
         self.assertEqual(nuevos[0]["role"], "system")
         self.assertEqual(nuevos[0]["content"], pp.PERFIL_GENERICO["system_prompt"])
         self.assertIn("hola", nuevos[1]["content"])
-        self.assertEqual(
-            config, dict(pp.PERFIL_GENERICO["config"])
-        )
+        self.assertEqual(config, dict(pp.PERFIL_GENERICO["config"]))
 
 
 class TestAplicarPerfil(unittest.TestCase):

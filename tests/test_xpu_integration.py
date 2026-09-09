@@ -35,8 +35,10 @@ class TestXPUHardware(unittest.TestCase):
         det = xpu._detectar_gpu_intel()
         self.assertTrue(det["disponible"])
         self.assertTrue(det["nombre"])
-        print(f"\nGPU detectada: {det['nombre']} "
-              f"({det['memoria_total'] / 1024**3:.1f} GB, backend={det['backend']})")
+        print(
+            f"\nGPU detectada: {det['nombre']} "
+            f"({det['memoria_total'] / 1024**3:.1f} GB, backend={det['backend']})"
+        )
 
     def test_inferencia_real(self):
         """Carga low-bit y genera texto con un modelo pequeño."""

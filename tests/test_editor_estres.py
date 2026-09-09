@@ -12,21 +12,21 @@ import snapcontext as sc
 
 def _generar_python_grande(num_clases: int = 10, metodos_por_clase: int = 5) -> str:
     """Genera un archivo Python sintácticamente válido."""
-    lineas = ['"""Archivo de prueba."""', '', 'import os', '']
+    lineas = ['"""Archivo de prueba."""', "", "import os", ""]
     for i in range(num_clases):
-        lineas.append(f'class Clase{i}:')
+        lineas.append(f"class Clase{i}:")
         for j in range(metodos_por_clase):
-            lineas.append(f'    def metodo_{i}_{j}(self) -> int:')
-            lineas.append(f'        return {i} * {j}')
-            lineas.append('')
-    return '\n'.join(lineas)
+            lineas.append(f"    def metodo_{i}_{j}(self) -> int:")
+            lineas.append(f"        return {i} * {j}")
+            lineas.append("")
+    return "\n".join(lineas)
 
 
 def _generar_archivo_grande(num_lineas: int) -> str:
     lineas = []
     for i in range(num_lineas):
-        lineas.append(f'valor_{i} = {i} * 2')
-    return '\n'.join(lineas)
+        lineas.append(f"valor_{i} = {i} * 2")
+    return "\n".join(lineas)
 
 
 def _es_python_valido(codigo: str) -> bool:
@@ -66,7 +66,6 @@ class TestEditorEstresTamano:
         assert "valor_9999 = -1" in resultado
 
 
-
 class TestEditorEstresMultiplesBloques:
     """Pruebas con múltiples bloques de búsqueda/reemplazo."""
 
@@ -74,46 +73,55 @@ class TestEditorEstresMultiplesBloques:
         """Aplicar múltiples reemplazos secuencialmente sin corromper."""
         lineas = []
         for i in range(10):
-            lineas.append(f'class Clase{i}:')
-            lineas.append('    def metodo(self):')
-            lineas.append(f'        return {i}')
-            lineas.append('')
+            lineas.append(f"class Clase{i}:")
+            lineas.append("    def metodo(self):")
+            lineas.append(f"        return {i}")
+            lineas.append("")
         archivo = tmp_path / "multiples.py"
-        archivo.write_text('\n'.join(lineas), encoding="utf-8")
+        archivo.write_text("\n".join(lineas), encoding="utf-8")
 
         for i in range(5):
             nuevo = sc.aplicar_reemplazo_estructurado(
                 archivo=str(archivo),
-                bloque_original=f'return {i}',
-                bloque_nuevo=f'return {i} * 10',
+                bloque_original=f"return {i}",
+                bloque_nuevo=f"return {i} * 10",
                 directorio=str(tmp_path),
             )
             archivo.write_text(nuevo, encoding="utf-8")
 
         final = archivo.read_text(encoding="utf-8")
         for i in range(5):
-            assert f'return {i} * 10' in final
+            assert f"return {i} * 10" in final
 
     def test_reemplazos_no_afectan_demas_codigo(self, tmp_path: Path):
         """Los reemplazos no modifican partes no objetivo."""
-        original = '\n'.join([
-            'import os', '', 'CONSTANTE = 42', '',
-            'def foo():', '    return 1', '',
-            'def bar():', '    return 2', '',
-        ])
+        original = "\n".join(
+            [
+                "import os",
+                "",
+                "CONSTANTE = 42",
+                "",
+                "def foo():",
+                "    return 1",
+                "",
+                "def bar():",
+                "    return 2",
+                "",
+            ]
+        )
         archivo = tmp_path / "selectivo.py"
         archivo.write_text(original, encoding="utf-8")
 
         resultado = sc.aplicar_reemplazo_estructurado(
             archivo=str(archivo),
-            bloque_original='def foo():\n    return 1',
-            bloque_nuevo='def foo():\n    return 100',
+            bloque_original="def foo():\n    return 1",
+            bloque_nuevo="def foo():\n    return 100",
             directorio=str(tmp_path),
         )
 
-        assert 'CONSTANTE = 42' in resultado
-        assert 'return 2' in resultado
-        assert 'import os' in resultado
+        assert "CONSTANTE = 42" in resultado
+        assert "return 2" in resultado
+        assert "import os" in resultado
 
 
 class TestEditorEstresPythonValido:
@@ -127,8 +135,8 @@ class TestEditorEstresPythonValido:
         archivo = tmp_path / "valido.py"
         archivo.write_text(contenido, encoding="utf-8")
 
-        bloque_orig = 'def metodo_0_0(self) -> int:'
-        bloque_nuevo = 'def metodo_0_0(self) -> str:'
+        bloque_orig = "def metodo_0_0(self) -> int:"
+        bloque_nuevo = "def metodo_0_0(self) -> str:"
 
         resultado = sc.aplicar_reemplazo_estructurado(
             archivo=str(archivo),
@@ -161,4 +169,3 @@ class TestEditorEstresRendimiento:
 
         assert duracion < 2.0, f"Tomó {duracion:.2f}s"
         assert "valor_2500 = -1" in resultado
-

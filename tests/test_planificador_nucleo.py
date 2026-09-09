@@ -14,25 +14,31 @@ class TestNormalizarPasos:
     """_normalizar_pasos convierte la respuesta del LLM en pasos validos."""
 
     def test_dict_con_pasos(self):
-        datos = {"pasos": [
-            {"descripcion": "editar archivo", "accion": "editar", "archivos": ["a.py"]},
-        ]}
+        datos = {
+            "pasos": [
+                {"descripcion": "editar archivo", "accion": "editar", "archivos": ["a.py"]},
+            ]
+        }
         r = planificador._normalizar_pasos(datos)
         assert len(r) == 1
         assert r[0]["archivos"] == ["a.py"]
 
     def test_lista(self):
-        r = planificador._normalizar_pasos([
-            {"descripcion": "ejecutar tests", "accion": "ejecutar", "comando": "pytest"},
-        ])
+        r = planificador._normalizar_pasos(
+            [
+                {"descripcion": "ejecutar tests", "accion": "ejecutar", "comando": "pytest"},
+            ]
+        )
         assert len(r) == 1
 
     def test_descarta_invalidos(self):
-        r = planificador._normalizar_pasos([
-            {"descripcion": "", "accion": "editar"},
-            {"descripcion": "ok", "accion": "editar"},
-            {"descripcion": "hack", "accion": "borrar_todo"},
-        ])
+        r = planificador._normalizar_pasos(
+            [
+                {"descripcion": "", "accion": "editar"},
+                {"descripcion": "ok", "accion": "editar"},
+                {"descripcion": "hack", "accion": "borrar_todo"},
+            ]
+        )
         assert len(r) == 1
 
     def test_none(self):
@@ -92,7 +98,8 @@ class TestGenerarPlan:
 
     def test_retorna_lista(self):
         with mock.patch.object(
-            sc, "_enviar_al_proveedor",
+            sc,
+            "_enviar_al_proveedor",
             return_value='{"pasos": []}',
         ):
             try:
@@ -100,4 +107,3 @@ class TestGenerarPlan:
                 assert isinstance(plan, list)
             except Exception:
                 pass
-

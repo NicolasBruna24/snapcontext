@@ -80,7 +80,12 @@ class TestConstruirPromptEdicion:
 
     def test_error_anadido_al_prompt(self):
         prompt, _ = agentes._construir_prompt_edicion(
-            "parche", "tarea", "a.py", "x\n", "python", conciso=False,
+            "parche",
+            "tarea",
+            "a.py",
+            "x\n",
+            "python",
+            conciso=False,
             error_msj="sintaxis invalida",
         )
         assert "sintaxis invalida" in prompt

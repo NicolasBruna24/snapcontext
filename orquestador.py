@@ -197,7 +197,7 @@ class Orquestador:
                 self._emitir_tipo("final", ok=False, nota="flujo abortado")
                 return 1
 
-            plan = cast(tuple, plan)  # noqa: F821  (plan es tuple tras chequeo None + VISTA_PREVIA)
+            plan = cast(tuple, plan)
             consulta, raiz, carpeta, seleccion = plan
             del carpeta  # parte del contrato de `plan`; no se usa aquí.
             sc.depurar(f"[Orquestador] Plan listo: {len(seleccion)} archivo(s) a usar.")
@@ -417,10 +417,7 @@ class Orquestador:
                 # un hilo demonio lo construye (no bloquea el arranque).
                 grafo = gr.cargar_grafo(str(raiz))
                 if not grafo.get("indexado", True):
-                    sc.aviso(
-                        "Indexando grafo en segundo plano "
-                        "(puedes seguir usando SnapContext)."
-                    )
+                    sc.aviso("Indexando grafo en segundo plano (puedes seguir usando SnapContext).")
                 ampliados = gr.expandir_contexto(candidatos, grafo, max_adicionales=3)
                 nuevos = [a for a in ampliados if a not in candidatos]
                 if nuevos:
