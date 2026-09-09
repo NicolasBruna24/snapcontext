@@ -95,5 +95,51 @@ class TestBucleTest(unittest.TestCase):
         self.assertEqual(self.orch.agente_editor.ejecutar_aider.call_count, 2)
 
 
+class TestOrquestadorNucleo(unittest.TestCase):
+    def test_init_instancia_agentes(self):
+        with mock.patch("snapcontext._plugins_herramientas", return_value=[]):
+            orch = Orquestador()
+        self.assertIsNotNone(orch.agente_contexto)
+        self.assertIsNotNone(orch.agente_editor)
+        self.assertIsNotNone(orch.agente_editor_propio)
+        self.assertIsNotNone(orch.agente_tester)
+        self.assertEqual(orch.herramientas_plugins, [])
+
+    def test_init_carga_herramientas_plugins(self):
+        with mock.patch("snapcontext._plugins_herramientas", return_value=["db", "api"]):
+            orch = Orquestador()
+        self.assertEqual(orch.herramientas_plugins, ["api", "db"])
+
+    def test_on_evento_sin_callback_no_hace_nada(self):
+        orch = mock.Mock(spec=Orquestador)
+        orch.evento_callback = None
+        # Sin callback no debe lanzar
+        Orquestador._on_evento(orch, {"tipo": "log"})
+
+    def test_on_evento_reenvia_al_callback(self):
+        eventos = []
+        orch = mock.Mock(spec=Orquestador)
+        orch.evento_callback = eventos.append
+        Orquestador._on_evento(orch, {"tipo": "log", "detalle": "x"})
+        self.assertEqual(eventos[0]["tipo"], "log")
+
+    def test_on_evento_ignora_error_del_consumidor(self):
+        orch = mock.Mock(spec=Orquestador)
+
+        def explota(_e):
+            raise RuntimeError("boom")
+
+        orch.evento_callback = explota
+        Orquestador._on_evento(orch, {"tipo": "log"})  # no debe lanzar
+
+    def test_emitir_tipo_envia_tipado(self):
+        orch = mock.Mock(spec=Orquestador)
+        orch.evento_callback = None
+        orch._on_evento = mock.Mock()
+        Orquestador._emitir_tipo(orch, "seleccion", archivos=["a.dart"])
+        orch._on_evento.assert_called_once()
+        self.assertEqual(orch._on_evento.call_args[0][0]["tipo"], "seleccion")
+
+
 if __name__ == "__main__":
     unittest.main()

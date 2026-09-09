@@ -21,11 +21,10 @@ permissions:
   contents: read
 
 env:
-  # Umbral mínimo de cobertura para el GATE BLOQUEANTE de smoke (Fase 1).
-  # Línea base realista: la cobertura total actual del monolito es ~9-20%
-  # (consulta docs/AUDIT_COMPETITIVA.md#4), así que empezar en 50% rompería el
-  # CI. Arranca en 10% y se sube hacia 50% -> 60% en fases 1b/2.
-  COV_MIN: '10'
+  # Umbral mínimo de cobertura para el GATE BLOQUEANTE (Fase 1 → subida a 20%).
+  # El gate ejecuta los tests rápidos del NÚCLEO (ver paso "Smoke tests + cobertura").
+  # Subir gradualmente: 20% → 30% → 40% → 50% en las fases 2/3/4/5.
+  COV_MIN: '20'
 
 jobs:
   build-and-test:
@@ -55,12 +54,24 @@ jobs:
           # y provocan OOM killer (exit 137) al ejecutar la suite completa.
           pip install -e .
 
-      - name: Smoke tests + cobertura (gate bloqueante)
-        # Fase 1: los smoke tests son el gate DIFÍCIL de cobertura para publicar.
-        # addopts (pyproject.toml) aporta --cov --cov-report=term; aquí se
-        # impone el umbral mínimo COV_MIN. La suite completa supera la memoria
-        # de los runners gratuitos, por eso aquí solo se corren los smoke tests.
-        run: pytest tests/test_import.py -q --maxfail=3 --cov-fail-under=${{ env.COV_MIN }}
+      - name: Smoke + tests núcleo + cobertura (gate bloqueante)
+        # Fase 1: el gate de cobertura mide el NÚCLEO del agente (no solo el
+        # import). Ejecuta los tests rápidos y mockeados de los módulos críticos;
+        # son ligeros (no cargan textual/playwright/torch) y no provocan OOM.
+        # addopts (pyproject.toml) aporta --cov --cov-report=term; aquí se pone
+        # el umbral COV_MIN. La suite completa pesada queda en `integration-tests`.
+        run: >-
+          pytest
+          tests/test_import.py
+          tests/test_nucleo.py
+          tests/test_planificador_condiciones.py
+          tests/test_planificador_nucleo.py
+          tests/test_agentes_prompts.py
+          tests/test_agentes_nucleo.py
+          tests/test_react_agent.py
+          tests/test_react_510.py
+          tests/test_orquestador.py
+          -q --maxfail=3 --cov-fail-under=${{ env.COV_MIN }}
 
       - name: Build wheel and sdist
         run: python -m build
