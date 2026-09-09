@@ -20,6 +20,13 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Umbral mínimo de cobertura para el GATE BLOQUEANTE de smoke (Fase 1).
+  # Línea base realista: la cobertura total actual del monolito es ~9-20%
+  # (consulta docs/AUDIT_COMPETITIVA.md#4), así que empezar en 50% rompería el
+  # CI. Arranca en 10% y se sube hacia 50% -> 60% en fases 1b/2.
+  COV_MIN: '10'
+
 jobs:
   build-and-test:
     name: Build & Test (Python ${{ matrix.python-version }})
@@ -41,17 +48,19 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest build twine
+          pip install pytest pytest-cov build twine
           # Instalación BASE (sin extras): los extras (web, browser, db, tui, xpu)
           # arrastran dependencias pesadas (textual, playwright, tree-sitter,
           # torch/ipex) que consumen demasiada RAM en runners gratuitos (~7 GB)
           # y provocan OOM killer (exit 137) al ejecutar la suite completa.
           pip install -e .
 
-      - name: Run smoke tests
-        # Solo smoke tests: import + CLI --help. La suite completa supera la
-        # memoria disponible en los runners gratuitos de GitHub Actions.
-        run: pytest tests/test_import.py -q --maxfail=3
+      - name: Smoke tests + cobertura (gate bloqueante)
+        # Fase 1: los smoke tests son el gate DIFÍCIL de cobertura para publicar.
+        # addopts (pyproject.toml) aporta --cov --cov-report=term; aquí se
+        # impone el umbral mínimo COV_MIN. La suite completa supera la memoria
+        # de los runners gratuitos, por eso aquí solo se corren los smoke tests.
+        run: pytest tests/test_import.py -q --maxfail=3 --cov-fail-under=${{ env.COV_MIN }}
 
       - name: Build wheel and sdist
         run: python -m build
@@ -93,11 +102,10 @@ jobs:
           retention-days: 1
 
   quality:
-    name: Quality checks (ruff / mypy / cov)
+    name: Quality gates (ruff / mypy)
     runs-on: ubuntu-latest
-    # Fase 10: checks de calidad NO bloqueantes (A3 de la auditoría).
-    # Se promueven a bloqueantes en la Fase 10b, tras limpiar los hallazgos.
-    continue-on-error: true
+    # Fase 1 (10b): los quality gates pasan a ser BLOQUEANTES. Se elimina
+    # continue-on-error para que ruff y mypy fallen el merge si hay errores.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -122,15 +130,41 @@ jobs:
 
       - name: Mypy (type check)
         run: python -m mypy .
+      # (Fase 1) El gate de cobertura con umbral se ejecuta en `build-and-test`
+      # (smoke tests). Aquí solo se ejecutan linters que ahora BLOQUEAN.
 
-      - name: Tests with coverage
-        # Reporte informativo; el umbral duro (--cov-fail-under=60) se activará
-        # en la Fase 10b cuando la cobertura actual (~20%) lo permita.
-        run: pytest tests/test_import.py -q --cov --cov-report=term
+  integration-tests:
+    name: Integration tests (suite completa, no bloqueante)
+    runs-on: ubuntu-latest
+    # Fase 1: la suite completa revienta por memoria (OOM) en runners gratuitos
+    # (~7 GB) y arrastra deps pesadas (textual, playwright, torch). Se ejecuta en
+    # un job SEPARADO y NO bloqueante por ahora: continue-on-error reporta el
+    # resultado sin impedir merges/publicaciones mientras la suite no sea estable.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov
+          pip install -e .
+
+      - name: Run full test suite
+        # addopts (pyproject) aporta --cov; si supera la memoria (exit 137) el job
+        # NO bloquea por continue-on-error, pero queda registrado en los checks.
+        run: pytest tests/ -q --maxfail=5
 
   publish-pypi:
     name: Publish to PyPI
-    needs: build-and-test
+    needs: [build-and-test, quality]
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment:
