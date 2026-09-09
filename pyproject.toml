@@ -228,10 +228,11 @@ python_functions = ["test_*"]
 addopts = "-v --maxfail=3 --cov --cov-report=term"
 
 [tool.coverage.run]
-# Fase 1 (cobertura núcleo): se añaden los módulos del núcleo agéntico
-# (agentes, orquestador, react_agent) al set medido, para que el gate de
-# cobertura refleje el corazón del agente y no solo la capa de configuración.
+# Fase 1/2: núcleo agéntico + módulos extraídos del monolito (Fase 2).
+# Los módulos extraídos (utils, editor, diagnostico, estado) siguen siendo parte
+# del proyecto y deben medirse para que el gate de cobertura refleje el todo.
 source = ["snapcontext", "planificador", "permisos", "hooks", "mcp_tools",
           "configuracion", "presentacion", "seguridad", "instalador",
-          "agentes", "orquestador", "react_agent"]
+          "agentes", "orquestador", "react_agent",
+          "utils", "editor", "diagnostico", "estado"]
 omit = ["tests/*", "build/*", "dist/*"]

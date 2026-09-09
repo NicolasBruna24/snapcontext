@@ -883,50 +883,10 @@ def _registrar_manejadores_senales() -> None:
 # ---------------------------------------------------------------------------
 # Utilidades de texto
 # ---------------------------------------------------------------------------
-def normalizar(texto: str) -> str:
-    """Minúsculas y sin acentos. 'botón' -> 'boton' (clave para buscar en español)."""
-    texto = unicodedata.normalize("NFD", texto.lower())
-    return "".join(c for c in texto if unicodedata.category(c) != "Mn")
-
-
-def tokenizar(consulta: str) -> list[str]:
-    """Convierte la consulta en palabras clave útiles (sin stopwords)."""
-    tokens = re.findall(r"[a-z0-9_]+", normalizar(consulta))
-    return [t for t in tokens if len(t) > 1 and t not in PALABRAS_VACIAS]
-
 
 # ---------------------------------------------------------------------------
 # Resolución del repositorio
 # ---------------------------------------------------------------------------
-def encontrar_raiz_git(inicio: Path) -> Path | None:
-    """Busca hacia arriba un directorio .git partiendo de `inicio`."""
-    actual = inicio
-    while True:
-        if (actual / ".git").exists():
-            return actual
-        if actual.parent == actual:
-            return None
-        actual = actual.parent
-
-
-def resolver_raiz(directorio: str) -> Path:
-    """Resuelve el directorio objetivo.
-
-    - Si el usuario pasa `--directorio` explícito, se usa esa ruta tal cual
-      (solo se comporta como repo git si contiene .git directamente). Así un
-      directorio suelto (p. ej. una copia en %TEMP%) no "hereda" repos git
-      de carpetas padre (como el home de usuario).
-    - Si no se pasa directorio (por defecto: '.'), se busca la raíz del repo
-      git hacia arriba, para que el escaneo funcione desde cualquier subcarpeta
-      del proyecto.
-    """
-    ruta = Path(directorio).expanduser().resolve()
-    if not ruta.is_dir():
-        raise RuntimeError(f"El directorio no existe: {directorio}")
-    if directorio not in (".", ""):
-        return ruta
-    return encontrar_raiz_git(ruta) or ruta
-
 
 def _es_proyecto_valido(directorio: str | Path) -> bool:
     """Devuelve True si 'directorio' tiene indicios de ser un proyecto.
@@ -960,35 +920,6 @@ def _es_proyecto_valido(directorio: str | Path) -> bool:
             return True
     return False
 
-
-def _normalizar_relativa(ruta: str) -> str:
-    """Normaliza una ruta relativa a POSIX sin '.' ni '..' ni dobles '//'.
-
-    Se usa para que los archivos que pasan a Aider (o que añade el usuario)
-    sean siempre rutas limpias relativas al repositorio.
-    """
-    limpia = ruta.replace("\\", "/").strip()
-    if limpia.startswith("./"):
-        limpia = limpia[2:]
-    partes = []
-    for p in limpia.split("/"):
-        if p in ("", "."):
-            continue
-        if p == "..":
-            if partes:
-                partes.pop()
-            continue
-        partes.append(p)
-    return "/".join(partes)
-
-
-def _esta_dentro(raiz: Path, relativa: str) -> bool:
-    """True si `raiz / relativa` resuelve dentro de `raiz` (bloquea '..')."""
-    try:
-        (raiz / relativa).resolve().relative_to(raiz.resolve())
-        return True
-    except ValueError:
-        return False
 
 
 # ---------------------------------------------------------------------------
@@ -1649,31 +1580,6 @@ def ejecutar_aider(
     return False
 
 
-def _validar_ruta_segura(ruta: Path | str, proyecto_base: Path | str) -> Path:
-    """Valida que ``ruta`` esté dentro de ``proyecto_base`` (M1, v6.34.13).
-
-    Defensa contra *path traversal* en las escrituras del editor, siguiendo el
-    patrón defensivo de :mod:`lsp_client` y :mod:`sandbox_session`:
-
-      1. Resuelve la ruta absoluta (``.resolve()``, que normaliza ``..``,
-         enlaces simbólicos y separadores).
-      2. Comprueba que quede dentro de ``proyecto_base`` (también resuelto)
-         mediante ``Path.relative_to``.
-      3. Si está fuera, lanza ``ValueError`` con un mensaje claro.
-
-    Devuelve la ruta resuelta y validada, lista para usar en la escritura.
-    """
-    base = Path(proyecto_base).resolve()
-    destino = Path(ruta).resolve()
-    try:
-        destino.relative_to(base)
-    except ValueError:
-        raise ValueError(
-            f"Intento de escritura fuera del proyecto: {destino} "
-            f"(el proyecto es {base})"
-        ) from None
-    return destino
-
 
 def _editor_sobrescribir(archivo: str, contenido: str, directorio: str = ".") -> bool:
     """Editor propio (Fase 1 — Sobrescritura de archivos).
@@ -2225,155 +2131,6 @@ def aplicar_reemplazo_estructurado(  # noqa: C901  (refactor de complejidad: Fas
     )
 
 
-
-def _ruta_del_parche(parche: str) -> str | None:
-    """Extrae la ruta del archivo objetivo del encabezado del parche.
-
-    Acepta encabezados ``--- a/ruta`` / ``+++ b/ruta`` y variantes sin
-    prefijo. Devuelve None si no se encuentra.
-    """
-    for linea in (parche or "").splitlines():
-        if linea.startswith("+++ "):
-            ruta = linea[4:].strip().split("\t")[0]
-            if ruta.startswith("b/"):
-                ruta = ruta[2:]
-            return ruta or None
-        if linea.startswith("--- "):
-            candidata = linea[4:].strip().split("\t")[0]
-            if candidata.startswith("a/"):
-                candidata = candidata[2:]
-            if candidata and candidata not in ("/dev/null",):
-                return candidata
-    return None
-
-
-def _validar_parche_previo(parche: str, directorio: str, contenido_esperado: str | None) -> tuple:
-    """Verifica que el archivo coincide con lo usado para generar el parche.
-
-    Evita conflictos por cambios concurrentes: si el contenido actual del
-    archivo difiere del que se pasó al proveedor, aplicar a ciegas corrompería
-    la edición. Devuelve ``(ok, detalle)``.
-    """
-    if contenido_esperado is None:
-        return True, "sin validación (no hay contenido de referencia)"
-    ruta = _ruta_del_parche(parche)
-    if not ruta:
-        return True, "parche sin encabezado reconocible; se omite la validación"
-    destino = Path(directorio or ".").resolve() / ruta
-    if not destino.is_file():
-        return False, f"el archivo '{ruta}' ya no existe"
-    try:
-        actual = destino.read_text(encoding="utf-8", errors="replace")
-    except OSError as exc:
-        return False, f"no se pudo leer '{ruta}': {exc}"
-    if actual != contenido_esperado:
-        return False, (
-            f"'{ruta}' cambió desde que se generó el parche (posible cambio concurrente)"
-        )
-    return True, "el archivo coincide con la referencia"
-
-
-def _parsear_hunks(parche: str) -> list[tuple]:
-    """Divide un diff unificado en hunks ``(linea_inicio_original, cambios)``.
-
-    ``cambios`` es una lista de ``(marca, texto)`` con marca ' ', '-' o '+'.
-    Se omiten los hunks sin líneas modificadas. Devuelve [] si no hay ninguno.
-    """
-    hunks: list[tuple] = []
-    hunk_actual: list[tuple] | None = None
-    inicio_orig = 0
-    for linea in (parche or "").splitlines(keepends=True):
-        texto = linea.rstrip("\r\n")
-        m = re.match(r"@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@", texto)
-        if m:
-            if hunk_actual:
-                hunks.append((inicio_orig, hunk_actual))
-            inicio_orig = int(m.group(1))
-            hunk_actual = []
-            continue
-        if hunk_actual is None:
-            continue  # encabezados ---/+++/ruido
-        if texto.startswith("+"):
-            hunk_actual.append(("+", texto[1:]))
-        elif texto.startswith("-"):
-            hunk_actual.append(("-", texto[1:]))
-        else:
-            hunk_actual.append((" ", texto[1:] if texto else ""))
-    if hunk_actual:
-        hunks.append((inicio_orig, hunk_actual))
-    return [(i, hunk) for i, hunk in hunks if any(marca != " " for marca, _ in hunk)]
-
-
-def _quitar_comentario(linea: str) -> str:
-    """Elimina de forma conservadora un comentario final ``#`` o ``//``.
-
-    Solo se recorta si el marcador está al inicio de la línea o va precedido
-    de un espacio (así no se rompen URLs tipo ``https://…`` ni cadenas que
-    contengan ``#``). Devuelve la línea sin el comentario y sin espacios
-    finales.
-    """
-    idx = linea.find("#")
-    if idx == 0 or (idx > 0 and linea[idx - 1].isspace()):
-        return linea[:idx].rstrip()
-    idx = linea.find("//")
-    while idx != -1:
-        if idx == 0 or linea[idx - 1].isspace():
-            return linea[:idx].rstrip()
-        idx = linea.find("//", idx + 1)
-    return linea
-
-
-def _variantes_linea(linea: str) -> tuple[str, str, str]:
-    """Variantes progresivamente más laxas de una línea (v6.3.0).
-
-    1. La línea tal cual (sin salto final).
-    2. Con los espacios colapsados (tolera indentación/espacios extra).
-    3. Además, sin comentario final ``#``/``//`` (tolera comentarios
-       añadidos o eliminados por el usuario o el formateador).
-
-    Se usan en el emparejamiento por variantes del editor de parches; la
-    variante 1 reproduce la comparación exacta histórica.
-    """
-    cruda = linea.rstrip("\r\n")
-    normalizada = " ".join(cruda.split())
-    return cruda, normalizada, _quitar_comentario(normalizada)
-
-
-def _lineas_equivalentes(a: str, b: str) -> bool:
-    """True si dos líneas coinciden en alguna de sus variantes (v6.3.0)."""
-    va, vb = _variantes_linea(a), _variantes_linea(b)
-    return va[0] == vb[0] or va[1] == vb[1] or va[2] == vb[2]
-
-
-def _ratio_bloque(a: str, b: str) -> float:
-    """Ratio de similitud de dos bloques de texto (v6.3.0).
-
-    ``SequenceMatcher.real_quick_ratio`` y ``quick_ratio`` son cotas
-    superiores del ratio final: se usan para descartar ventanas imposibles
-    sin pagar el coste completo. Devuelve 0.0 si no supera
-    ``UMBRAL_DIFUSO_BLOQUE``.
-    """
-    sm = difflib.SequenceMatcher(None, a, b)
-    if sm.real_quick_ratio() < UMBRAL_DIFUSO_BLOQUE or sm.quick_ratio() < UMBRAL_DIFUSO_BLOQUE:
-        return 0.0
-    return sm.ratio()
-
-
-def _contar_cambios_parche(parche: str) -> tuple[int, int]:
-    """Cuenta ``(añadidas, eliminadas)`` en un diff unificado (v6.3.0)."""
-    anadidas = eliminadas = 0
-    en_hunk = False
-    for linea in (parche or "").splitlines():
-        if linea.startswith("@@"):
-            en_hunk = True
-            continue
-        if not en_hunk:
-            continue
-        if linea.startswith("+"):
-            anadidas += 1
-        elif linea.startswith("-"):
-            eliminadas += 1
-    return anadidas, eliminadas
 
 
 def _mostrar_diff_parche(parche: str, ruta: str | None = None) -> None:
@@ -3907,26 +3664,6 @@ def _limpiar_historial() -> bool:
 # ---------------------------------------------------------------------------
 # Utilidades genéricas para el agente autónomo — v0.10.0
 # ---------------------------------------------------------------------------
-def _leer_archivo(ruta: str | Path) -> str | None:
-    """Lee un archivo (ruta relativa o absoluta) y devuelve su contenido.
-
-    Devuelve ``None`` si no existe, es un directorio o falla la lectura
-    (el error se registra con ``aviso``). Pensado para ser usado por el chat,
-    el orquestador y futuros planificadores autónomos.
-    """
-    try:
-        camino = Path(ruta).expanduser()
-        if not camino.is_absolute():
-            camino = Path.cwd() / camino
-        camino = camino.resolve()
-        if not camino.is_file():
-            aviso(f"_leer_archivo: no existe o no es archivo: {camino}")
-            return None
-        return camino.read_text(encoding="utf-8", errors="replace")
-    except OSError as exc:
-        aviso(f"_leer_archivo: error leyendo '{ruta}': {exc}")
-        return None
-
 
 def _ejecutar_comando(  # noqa: C901  (refactor de complejidad: Fase 10c)
     comando: str, directorio: str = ".", timeout: int = 120, capture_output: bool = True
@@ -5297,7 +5034,7 @@ def _enviar_al_proveedor_unico(  # noqa: C901  (refactor de complejidad: Fase 10
             depurar(
                 f"🎯 Perfil de prompt [{_pp._normaliza_tipo_tarea(_tarea)}] "
                 f"aplicado a proveedor '{proveedor}': "
-                f"{str(_cfg_perfil.get('temperature'))} temp / "
+                f"{_cfg_perfil.get('temperature')!s} temp / "
                 f"{_cfg_perfil.get('max_tokens')} tokens máx."
             )
     except Exception:
@@ -12790,3 +12527,24 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901  (refactor de comp
 
 if __name__ == "__main__":
     sys.exit(main())
+
+from editor import (
+    _contar_cambios_parche,
+    _lineas_equivalentes,
+    _parsear_hunks,
+    _quitar_comentario,
+    _ratio_bloque,
+    _ruta_del_parche,
+    _validar_parche_previo,
+    _variantes_linea,
+)
+from utils import (
+    _esta_dentro,
+    _leer_archivo,
+    _normalizar_relativa,
+    _validar_ruta_segura,
+    encontrar_raiz_git,
+    normalizar,
+    resolver_raiz,
+    tokenizar,
+)
