@@ -21,10 +21,10 @@ permissions:
   contents: read
 
 env:
-  # Umbral mínimo de cobertura para el GATE BLOQUEANTE (Fase 1 → subida a 20%).
+  # Umbral mínimo de cobertura para el GATE BLOQUEANTE (Fase 1d → 50%).
   # El gate ejecuta los tests rápidos del NÚCLEO (ver paso "Smoke tests + cobertura").
   # Subir gradualmente: 20% → 30% → 40% → 50% en las fases 2/3/4/5.
-  COV_MIN: '30'
+  COV_MIN: '50'
 
 jobs:
   build-and-test:
@@ -77,6 +77,34 @@ jobs:
           tests/test_envio_proveedor.py
           tests/test_main_cli.py
           tests/test_orquestador_flujo.py
+          tests/test_seguridad.py
+          tests/test_seguridad_extra.py
+          tests/test_configuracion.py
+          tests/test_configuracion_extra.py
+          tests/test_hooks.py
+          tests/test_hooks_v2.py
+          tests/test_hooks_simple.py
+          tests/test_hooks_ext.py
+          tests/test_permisos.py
+          tests/test_presentacion.py
+          tests/test_instalador.py
+          tests/test_mcp_tools.py
+          tests/test_nucleo_extra.py
+          tests/test_nucleo_funcs.py
+          tests/test_snapcontext_funcs.py
+          tests/test_snapctx_aux.py
+          tests/test_alcanzando_50.py
+          tests/test_volumen.py
+          tests/test_volumen1.py
+          tests/test_volumen2.py
+          tests/test_volumen3.py
+          tests/test_volumen4.py
+          tests/test_volumen5.py
+          tests/test_volumen6.py
+          tests/test_agentes_vol.py
+          tests/test_hunks_prov.py
+          tests/test_volumen7.py
+          tests/test_volumen8.py
           -q --maxfail=3 --cov-fail-under=${{ env.COV_MIN }}
 
       - name: Build wheel and sdist

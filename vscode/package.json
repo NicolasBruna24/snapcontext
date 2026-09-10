@@ -27,7 +27,8 @@
     "agente",
     "mcp"
   ],
-  "main": "./out/extension.js",
+  "main": "./extension/out/extension.js",
+  "activationEvents": ["*"],
   "contributes": {
     "commands": [
       {
