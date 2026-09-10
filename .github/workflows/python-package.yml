@@ -24,7 +24,7 @@ env:
   # Umbral mínimo de cobertura para el GATE BLOQUEANTE (Fase 1 → subida a 20%).
   # El gate ejecuta los tests rápidos del NÚCLEO (ver paso "Smoke tests + cobertura").
   # Subir gradualmente: 20% → 30% → 40% → 50% en las fases 2/3/4/5.
-  COV_MIN: '20'
+  COV_MIN: '30'
 
 jobs:
   build-and-test:
@@ -71,6 +71,12 @@ jobs:
           tests/test_react_agent.py
           tests/test_react_510.py
           tests/test_orquestador.py
+          tests/test_diagnostico_cmds.py
+          tests/test_editor_helpers.py
+          tests/test_estado_procesos.py
+          tests/test_envio_proveedor.py
+          tests/test_main_cli.py
+          tests/test_orquestador_flujo.py
           -q --maxfail=3 --cov-fail-under=${{ env.COV_MIN }}
 
       - name: Build wheel and sdist
