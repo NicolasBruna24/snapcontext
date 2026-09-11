@@ -4,11 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "snapcontext"
-version = "6.34.19"
+version = "6.35.0"
 description = "SnapContext: asistente de IA con contexto automático para desarrollo."
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE", "LICENSE.MIT"]
 authors = [
     {name = "NicolÃ¡s Bruna", email = "nicolasbruna24@gmail.com"}
 ]
@@ -17,7 +18,7 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Topic :: Software Development :: Libraries :: Python Modules",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",

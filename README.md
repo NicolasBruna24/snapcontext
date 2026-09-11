@@ -443,5 +443,10 @@ architectures (like Intel XPU), and speeds up the development roadmap.
 
 ## 📄 Licencia
 
-MIT. Open-source y libre de usarlo, estudiarlo y mejorarlo.
+SnapContext está licenciado bajo Apache License 2.0 a partir de la
+versión 6.35.0. Las versiones anteriores (hasta 6.34.19 inclusive)
+permanecen bajo MIT License (ver LICENSE.MIT).
+
+Este cambio añade protección explícita de patentes, reconocida por
+los equipos legales de organizaciones empresariales.
 

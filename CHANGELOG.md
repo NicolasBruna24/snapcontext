@@ -1,5 +1,11 @@
 # Changelog de SnapContext
 
+## [6.35.0] - 2026-09-11
+### Changed
+- **BREAKING (legal)**: Relicencia de MIT a Apache License 2.0.
+  Versiones anteriores (<6.35.0) permanecen bajo MIT (ver LICENSE.MIT).
+- Motivo: protección explícita de patentes y adopción empresarial.
+
 ## [6.34.19] - 2026-09-11
 ### Changed
 - CI: instalar extras [web] en job de integration tests (fix fastapi)
