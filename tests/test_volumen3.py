@@ -68,7 +68,15 @@ class TestResumenAst:
         assert isinstance(r, dict)
 
     def test_tipo_proyecto(self):
-        assert sc._detectar_tipo_proyecto(".") in (None, "python", "flutter", "node", "go", "rust", "java")
+        assert sc._detectar_tipo_proyecto(".") in (
+            None,
+            "python",
+            "flutter",
+            "node",
+            "go",
+            "rust",
+            "java",
+        )
 
 
 class TestToolAst:

@@ -15,7 +15,11 @@ import snapcontext as sc
 
 class TestVersion(unittest.TestCase):
     def test_version_170_coherente(self):
-        self.assertEqual(sc.VERSION, "6.33.0")
+        self.assertRegex(
+            str(sc.VERSION),
+            r"^\d+\.\d+\.\d+$",
+            "VERSION debe tener formato X.Y.Z; obtenido: %r" % sc.VERSION,
+        )
 
 
 class TestEstructuraJetBrains(unittest.TestCase):

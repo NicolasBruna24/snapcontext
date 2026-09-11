@@ -38,9 +38,7 @@ class TestRutaDelParche(unittest.TestCase):
 
     def test_diff_de_archivo_nuevo(self):
         # En diffs de archivo nuevo el '---' es /dev/null; manda el '+++'.
-        self.assertEqual(
-            _ruta_del_parche("--- /dev/null\n+++ b/nuevo.py\n@@\n+x\n"), "nuevo.py"
-        )
+        self.assertEqual(_ruta_del_parche("--- /dev/null\n+++ b/nuevo.py\n@@\n+x\n"), "nuevo.py")
         # El encabezado '+++' sin prefijo b/ se devuelve tal cual.
         self.assertEqual(_ruta_del_parche("--- /dev/null\n+++ /dev/null\n"), "/dev/null")
 
@@ -108,9 +106,7 @@ class TestParsearHunks(unittest.TestCase):
 
     def test_varios_hunks(self):
         texto = (
-            "--- a/f.py\n+++ b/f.py\n"
-            "@@ -1 +1 @@\n-viejo\n+nuevo\n"
-            "@@ -10 +10 @@\n-otro\n+otro2\n"
+            "--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-viejo\n+nuevo\n@@ -10 +10 @@\n-otro\n+otro2\n"
         )
         hunks = _parsear_hunks(texto)
         self.assertEqual(len(hunks), 2)
@@ -123,7 +119,7 @@ class TestComentariosYVariantes(unittest.TestCase):
         self.assertEqual(_quitar_comentario("# solo comentario"), "")
 
     def test_no_rompe_urls_ni_hashes_internos(self):
-        self.assertEqual(_quitar_comentario("url = \"https://x.com\""), "url = \"https://x.com\"")
+        self.assertEqual(_quitar_comentario('url = "https://x.com"'), 'url = "https://x.com"')
         self.assertEqual(_quitar_comentario("color = '#fff'"), "color = '#fff'")
 
     def test_quitar_comentario_doble_barra(self):

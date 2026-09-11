@@ -3,13 +3,13 @@
 Las funciones toman strings de codigo y devuelven hallazgos; no requieren
 APIs, subprocess ni E/S, por lo que son faciles de testear con mocks minimos.
 """
+
 import ast
 from unittest import mock
 
 import seguridad as seg
 
-
-CODIGO_FUNCION_LARGA = '''
+CODIGO_FUNCION_LARGA = """
 def funcion_larga():
     x = 1
     x = 2
@@ -23,10 +23,10 @@ def funcion_larga():
     x = 10
     x = 11
     return x
-'''
+"""
 
 
-CODIGO_VULNERABLE = '''
+CODIGO_VULNERABLE = """
 import os
 import subprocess
 
@@ -38,7 +38,7 @@ def mal():
     eval(x)
     exec(x)
     query = "SELECT * FROM users WHERE id = " + id
-'''
+"""
 
 
 class TestAsesorUmbrales:
@@ -81,10 +81,7 @@ class TestFuncionesLargas:
 
 class TestClasesGrandes:
     def test_detecta_clase_con_metodos(self):
-        codigo = (
-            "class Foo:\n"
-            + "".join(f"    def m{i}(self): pass\n" for i in range(15))
-        )
+        codigo = "class Foo:\n" + "".join(f"    def m{i}(self): pass\n" for i in range(15))
         hallazgos = seg._detectar_clases_grandes(codigo, max_metodos=10)
         assert any(h["nombre"] == "Foo" for h in hallazgos)
 
@@ -178,10 +175,12 @@ class TestVulnerabilidades:
 
     def test_secreto_embebido(self):
         h = seg._detectar_vulnerabilidades('API_KEY_MIA = "abcdefghijklmnop"\n')
-        assert any("secreto" in x["mensaje"].lower() or "hardcode" in x["mensaje"].lower() for x in h)
+        assert any(
+            "secreto" in x["mensaje"].lower() or "hardcode" in x["mensaje"].lower() for x in h
+        )
 
     def test_sin_vulnerabilidades(self):
-        h = seg._detectar_vulnerabilidades('x = 1\nprint(x)\n')
+        h = seg._detectar_vulnerabilidades("x = 1\nprint(x)\n")
         assert h == []
 
     def test_codigo_vacio(self):
@@ -206,5 +205,3 @@ class TestRendimiento:
     def test_django_n1(self):
         h = seg._detectar_rendimiento("for x in items:\n    x.objects.get(id=1)\n")
         assert any("N+1" in x["mensaje"] for x in h)
-
-

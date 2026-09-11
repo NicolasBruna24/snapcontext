@@ -70,9 +70,7 @@ class TestLanzarProcesoFondo(unittest.TestCase):
             mock.patch.object(sc, "_SANDBOX_ACTIVO", False),
             mock.patch.object(sc, "_es_comando_peligroso", return_value=False),
             mock.patch.object(estado_mod, "_PROCESOS_FONDO", registro),
-            mock.patch(
-                "sandbox_utils.lanzar_proceso_fondo_seguro", return_value=proc
-            ) as lanzar,
+            mock.patch("sandbox_utils.lanzar_proceso_fondo_seguro", return_value=proc) as lanzar,
         ):
             resultado = _lanzar_proceso_fondo("flutter run", ".", capture_output=False)
         self.assertTrue(resultado["ok"])
@@ -166,9 +164,7 @@ class TestSanityReexport(unittest.TestCase):
             mock.patch.object(sc, "_SANDBOX_ACTIVO", True),
             mock.patch.object(sc, "_SESION_DOCKER_SOLICITADA", True),
             mock.patch.object(sc, "_asegurar_sesion_docker", return_value=True),
-            mock.patch.dict(
-                "sys.modules", {"sandbox_session": fake_ss, "sandbox_utils": fake_su}
-            ),
+            mock.patch.dict("sys.modules", {"sandbox_session": fake_ss, "sandbox_utils": fake_su}),
             mock.patch.object(estado_mod, "_PROCESOS_FONDO", {}),
         ):
             resultado = _lanzar_proceso_fondo("cmd", ".")
@@ -193,4 +189,3 @@ class TestSanityReexport(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

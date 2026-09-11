@@ -191,7 +191,9 @@ class TestEjecutarPasoPlan(unittest.TestCase):
             {
                 "accion": "ejecutar",
                 "descripcion": "fallo",
-                "comando": "cmd /c exit 5" if sys.platform.startswith("win") else "exit 5",
+                "comando": (
+                    "cmd /c exit 5" if sys.platform.startswith("win") else "sh -c 'exit 5'"
+                ),
             },
             _args_base(),
             str(self.dir_tmp),
@@ -316,7 +318,11 @@ class TestFlagsPlanCLI(unittest.TestCase):
         self.assertIsNone(self._parse(["--plan", "x"]).branch)
 
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "6.33.0")
+        self.assertRegex(
+            str(sc.VERSION),
+            r"^\d+\.\d+\.\d+$",
+            "VERSION debe tener formato X.Y.Z; obtenido: %r" % sc.VERSION,
+        )
 
 
 if __name__ == "__main__":

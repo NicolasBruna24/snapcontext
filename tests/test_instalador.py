@@ -1,4 +1,5 @@
 """Tests para instalador.py."""
+
 from pathlib import Path
 from unittest import mock
 
@@ -33,5 +34,3 @@ class TestConfigurarPath:
         with mock.patch.object(inst, "_localizar_carpeta_scripts", return_value=str(tmp_path)):
             r = inst.configurar_path()
         assert isinstance(r, int)
-
-

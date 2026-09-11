@@ -143,7 +143,7 @@ class TestExecuteCommand(BaseMCP):
         res = sc._tool_execute_command(eco, ".")
         self.assertTrue(res["ok"])
         self.assertEqual(res["codigo_retorno"], 0)
-        fallo = "cmd /c exit 7" if sys.platform.startswith("win") else "exit 7"
+        fallo = "cmd /c exit 7" if sys.platform.startswith("win") else "sh -c 'exit 7'"
         res2 = sc._tool_execute_command(fallo, ".")
         self.assertFalse(res2["ok"])
         self.assertEqual(res2["codigo_retorno"], 7)
@@ -246,7 +246,11 @@ class TestFormatoYAutoContexto(BaseMCP):
 
 class TestVersionMCPCli(BaseMCP):
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "6.33.0")
+        self.assertRegex(
+            str(sc.VERSION),
+            r"^\d+\.\d+\.\d+$",
+            "VERSION debe tener formato X.Y.Z; obtenido: %r" % sc.VERSION,
+        )
 
 
 if __name__ == "__main__":

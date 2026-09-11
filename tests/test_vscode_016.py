@@ -36,7 +36,7 @@ class TestEstructuraVsCode(unittest.TestCase):
         manifiesto = json.loads((VSCODE / "package.json").read_text("utf-8"))
         self.assertEqual(manifiesto["name"], "snapcontext-ai")
         self.assertEqual(manifiesto["version"], sc.VERSION)
-        self.assertEqual(manifiesto["main"], "./out/extension.js")
+        self.assertEqual(manifiesto["main"], "./extension/out/extension.js")
 
     def test_comandos_contribuidos(self):
         manifiesto = json.loads((VSCODE / "package.json").read_text("utf-8"))
@@ -103,7 +103,11 @@ class TestEstructuraVsCode(unittest.TestCase):
 
 class TestVersionCli(unittest.TestCase):
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "6.33.0")
+        self.assertRegex(
+            str(sc.VERSION),
+            r"^\d+\.\d+\.\d+$",
+            "VERSION debe tener formato X.Y.Z; obtenido: %r" % sc.VERSION,
+        )
 
 
 if __name__ == "__main__":

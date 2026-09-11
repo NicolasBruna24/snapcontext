@@ -1,5 +1,7 @@
 """Tests de volumen Fase 1d: funciones puras pequenas de snapcontext."""
+
 from unittest import mock
+
 import snapcontext as sc
 
 
@@ -31,7 +33,9 @@ class TestParseHelpers:
 
 class TestContextoSelectivo:
     def test_extraer_contexto_vacio(self, tmp_path):
-        with mock.patch.object(sc, "_extraer_contexto_selectivo", wraps=sc._extraer_contexto_selectivo):
+        with mock.patch.object(
+            sc, "_extraer_contexto_selectivo", wraps=sc._extraer_contexto_selectivo
+        ):
             r = sc._extraer_contexto_selectivo(str(tmp_path))
             assert isinstance(r, (str, dict, list, tuple))
 

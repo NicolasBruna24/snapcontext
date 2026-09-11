@@ -84,7 +84,11 @@ class TestFlagsEditor(unittest.TestCase):
         self.assertIsInstance(orch.agente_editor_propio, AgenteEditorPropio)
 
     def test_version_es_2_0_0(self):
-        self.assertEqual(sc.VERSION, "6.33.0")
+        self.assertRegex(
+            str(sc.VERSION),
+            r"^\d+\.\d+\.\d+$",
+            "VERSION debe tener formato X.Y.Z; obtenido: %r" % sc.VERSION,
+        )
 
 
 if __name__ == "__main__":

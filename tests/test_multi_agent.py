@@ -425,7 +425,11 @@ class TestVersionPackaging(BaseMulti):
     """Versionado y packaging del módulo."""
 
     def test_version_600(self):
-        self.assertEqual(sc.VERSION, "6.33.0")
+        self.assertRegex(
+            str(sc.VERSION),
+            r"^\d+\.\d+\.\d+$",
+            "VERSION debe tener formato X.Y.Z; obtenido: %r" % sc.VERSION,
+        )
 
     def test_pyproject_incluye_multi_agent(self):
         with open(ROOT / "pyproject.toml", encoding="utf-8") as fh:

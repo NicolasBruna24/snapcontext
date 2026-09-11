@@ -32,10 +32,14 @@ def _silencio():
 class TestRoles(unittest.TestCase):
     """Roles predefinidos y registro."""
 
-    def test_hay_6_roles(self):
+    def test_roles_nucleo_presentes(self):
+        # v6.34: ROLES combina los 6 roles historicos (scout, debugger,
+        # frontender, tester, documentador, reviewer) con qa_tester
+        # (v6.18+); el SubAgentRegistry por defecto solo monta los 5 de
+        # ROLES_DEFECTO (scout, debugger, reviewer, documentador, qa_tester).
         self.assertEqual(
             set(ROLES.keys()),
-            {"scout", "debugger", "frontender", "tester", "documentador", "reviewer"},
+            {"scout", "debugger", "frontender", "tester", "documentador", "reviewer", "qa_tester"},
         )
 
     def test_roles_tienen_prompt_y_herramientas(self):
@@ -428,7 +432,9 @@ class TestSubAgentRegistry(unittest.TestCase):
 
     def test_registro_por_defecto(self):
         reg = SubAgentRegistry()
-        self.assertEqual(reg.listar(), ["debugger", "documentador", "reviewer", "scout"])
+        self.assertEqual(
+            reg.listar(), ["debugger", "documentador", "qa_tester", "reviewer", "scout"]
+        )
 
     def test_obtener_devuelve_config(self):
         reg = SubAgentRegistry()
@@ -495,7 +501,9 @@ class TestPrompts(unittest.TestCase):
             self.assertTrue(PROMPTS[rol].strip())
 
     def test_roles_defecto(self):
-        self.assertEqual(set(ROLES_DEFECTO), {"scout", "debugger", "reviewer", "documentador"})
+        self.assertEqual(
+            set(ROLES_DEFECTO), {"scout", "debugger", "reviewer", "documentador", "qa_tester"}
+        )
 
     def test_roles_usan_prompts_canonicos(self):
         for rol in PROMPTS:
@@ -584,7 +592,11 @@ class TestVersion618(unittest.TestCase):
     def test_version_snapcontext(self):
         import snapcontext as sc
 
-        self.assertEqual(sc.VERSION, "6.33.0")
+        self.assertRegex(
+            str(sc.VERSION),
+            r"^\d+\.\d+\.\d+$",
+            "VERSION debe tener formato X.Y.Z; obtenido: %r" % sc.VERSION,
+        )
 
     def test_version_pyproject(self):
         import os

@@ -1,4 +1,5 @@
 """Tests para hooks.py: sistema de hooks/plugins."""
+
 import tempfile
 from pathlib import Path
 
@@ -54,7 +55,9 @@ class TestManagerBasico:
         assert hk.MANAGER.total() == 0
 
     def test_desregistrar(self):
-        f = lambda c: None
+        def f(c):
+            return None
+
         hk.MANAGER.registrar(EVENTO_TEST, f)
         ok = hk.MANAGER.desregistrar(EVENTO_TEST, f)
         assert ok is True
@@ -68,6 +71,7 @@ class TestManagerBasico:
     def test_ejecutar_abort(self):
         def aborta(ctx):
             return {"abort": True, "razon": "no"}
+
         hk.MANAGER.registrar(EVENTO_TEST, aborta)
         abortado, _ = hk.MANAGER.ejecutar(EVENTO_TEST, {})
         assert abortado is True
@@ -75,6 +79,7 @@ class TestManagerBasico:
     def test_ejecutar_modifica_contexto(self):
         def mod(ctx):
             return {"nuevo": "valor"}
+
         hk.MANAGER.registrar(EVENTO_TEST, mod)
         _, ctx = hk.MANAGER.ejecutar(EVENTO_TEST, {})
         assert ctx.get("nuevo") == "valor"
@@ -127,5 +132,3 @@ class TestDesactivar:
         hk.ejecutar_hook(EVENTO_TEST, {})
         assert recibidos == []
         hk.activar()
-
-

@@ -195,6 +195,19 @@ class TestDiffConflicto(BaseInteractivo):
 class TestIntegracionAppYFlags(unittest.TestCase):
     """Endpoints de web.app, flags CLI y compatibilidad."""
 
+    # Los 3 tests de esta clase importan web.app (FastAPI), que vive en el
+    # extra 'web' (`pip install -e ".[web]"`). Sin fastapi instalado se
+    # omiten con un mensaje claro en lugar de fallar por dependencia de
+    # entorno (decisión documentada en CHANGELOG v6.34.15).
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import fastapi
+        except ImportError:
+            raise unittest.SkipTest(
+                "fastapi no instalado (extra 'web'); se omite TestIntegracionAppYFlags"
+            )
+
     def setUp(self):
         wi.reiniciar()
 

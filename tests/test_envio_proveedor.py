@@ -15,7 +15,6 @@ import pytest
 
 import snapcontext as sc
 
-
 MENSAJES = [
     {"role": "system", "content": "Eres un asistente."},
     {"role": "user", "content": "hola"},

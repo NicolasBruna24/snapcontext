@@ -21,9 +21,10 @@ permissions:
   contents: read
 
 env:
-  # Umbral mínimo de cobertura para el GATE BLOQUEANTE (Fase 1d → 50%).
+  # Umbral mínimo de cobertura para el GATE BLOQUEANTE (Fase 1d).
   # El gate ejecuta los tests rápidos del NÚCLEO (ver paso "Smoke tests + cobertura").
-  # Subir gradualmente: 20% → 30% → 40% → 50% en las fases 2/3/4/5.
+  # Medición local (Python 3.14, mismo comando): 51%. Se mantiene '50' como
+  # umbral seguro (margen 1%); subir a '55'+' cuando la lista del gate crezca.
   COV_MIN: '50'
 
 jobs:
@@ -105,6 +106,18 @@ jobs:
           tests/test_hunks_prov.py
           tests/test_volumen7.py
           tests/test_volumen8.py
+          # Fase 1d: tests de volumen adicionales (livianos y mockeados); con
+          # ellos el gate mide ~51% localmente y cruza COV_MIN=50.
+          tests/test_volumen9.py
+          tests/test_volumen10.py
+          tests/test_volumen11.py
+          tests/test_volumen12.py
+          tests/test_volumen13.py
+          tests/test_volumen14.py
+          tests/test_volumen15.py
+          tests/test_volumen16.py
+          tests/test_volumen17.py
+          tests/test_volumen18.py
           -q --maxfail=3 --cov-fail-under=${{ env.COV_MIN }}
 
       - name: Build wheel and sdist

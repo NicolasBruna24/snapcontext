@@ -1,9 +1,11 @@
 """Tests de volumen Fase 1d (2): agentes + planificador + react puros."""
+
 from unittest import mock
+
 import agentes as ag
+import orquestador as orq
 import planificador as pl
 import react_agent as ra
-import orquestador as orq
 
 
 class TestAgentesPuros:
@@ -29,9 +31,12 @@ class TestAgentesPuros:
         assert isinstance(ag._prompts_concisos("gemini"), bool)
 
     def test_proveedor_efectivo(self):
-        assert ag._proveedor_efectivo(None) in ("gemini", "ollama", "openai", "anthropic") or isinstance(
-            ag._proveedor_efectivo(None), str
-        )
+        assert ag._proveedor_efectivo(None) in (
+            "gemini",
+            "ollama",
+            "openai",
+            "anthropic",
+        ) or isinstance(ag._proveedor_efectivo(None), str)
 
     def test_agente_contexto_escanear(self, tmp_path):
         (tmp_path / "a.py").write_text("x=1")
@@ -99,9 +104,11 @@ class TestPlanificadorPuro:
         import argparse
 
         args = argparse.Namespace(proveedor="ollama", modelo="x")
-        with mock.patch.object(pl, "_enviar_plan", return_value='[{"descripcion": "x"}]') if hasattr(
-            pl, "_enviar_plan"
-        ) else mock.patch.dict({}, {}):
+        with (
+            mock.patch.object(pl, "_enviar_plan", return_value='[{"descripcion": "x"}]')
+            if hasattr(pl, "_enviar_plan")
+            else mock.patch.dict({}, {})
+        ):
             try:
                 r = pl._generar_plan("hacer algo", args, ".")
                 assert isinstance(r, (list, dict, str, type(None)))

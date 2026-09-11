@@ -1,4 +1,5 @@
 """Tests para hooks.py (HookManager, lifecycle)."""
+
 from pathlib import Path
 from unittest import mock
 
@@ -76,5 +77,3 @@ class TestWrappers:
         with mock.patch.object(hk, "ejecutar_hook", side_effect=Exception("boom")):
             abortado, ctx = hk._hooks_ejecutar("session_end")
         assert abortado is False
-
-

@@ -1,4 +1,5 @@
 """Tests de volumen Fase 1d-3: chat, sandbox, comandos CLI."""
+
 import argparse
 from pathlib import Path
 from unittest import mock

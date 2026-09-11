@@ -77,7 +77,9 @@ class _FakeGenai:
     def GenerativeModel(self, **kw):
         return self
 
-    def generate_content(self, contenidos):
+    def generate_content(self, contenidos, system_instruction=None, **kw):
+        # v6.33: el envío a Gemini también pasa system_instruction; se acepta
+        # como kwarg opcional para no romper con la API actual.
         self.captured = contenidos
         return type("X", (), {"text": "respuesta"})()
 
@@ -249,13 +251,22 @@ class TestEnviarAlProveedorAnthropic(unittest.TestCase):
         self.addCleanup(lambda: setattr(sc, "_importar_anthropic", self.org_import))
 
     def test_anthropic_recibe_cache_control(self):
+        # v6.34: la API de Anthropic exige roles user/assistant en `messages`;
+        # los mensajes "system" se extraen al kwarg `system` y por tanto la
+        # marca cache_control no viaja dentro de `messages` (queda aplicada
+        # solo mientras el mensaje es system, antes de la extracción).
         msgs = [
             {"role": "system", "content": "CLAUDE.md memoria"},
             {"role": "user", "content": "hola"},
         ]
         sc._enviar_al_proveedor("anthropic", None, msgs, prompt_caching=True)
         enviados = self.fake_ai.captured["messages"]
-        self.assertEqual(enviados[0].get("cache_control"), _EPHEMERAL)
+        # El mensaje system se movió al kwarg `system`; `messages` solo tiene
+        # el turno user, sin marcas de caché.
+        self.assertIn("CLAUDE.md", self.fake_ai.captured.get("system", ""))
+        self.assertEqual(len(enviados), 1)
+        self.assertEqual(enviados[0]["role"], "user")
+        self.assertNotIn("cache_control", enviados[0])
 
 
 class TestGeminiSinMarcas(unittest.TestCase):

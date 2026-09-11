@@ -21,7 +21,7 @@ TSCONFIG_OBLIGATORIO = {
     "esModuleInterop": True,
     "skipLibCheck": True,
     "forceConsistentCasingInFileNames": True,
-    "outDir": "./out",
+    "outDir": "./extension/out",
     "rootDir": "./src",
     "sourceMap": True,
     "declaration": True,
@@ -50,7 +50,7 @@ class TestPackageJsonTypeScript(unittest.TestCase):
         self.manifiesto = _leer_json(VSCODE / "package.json")
 
     def test_main_apunta_a_out(self):
-        self.assertEqual(self.manifiesto["main"], "./out/extension.js")
+        self.assertEqual(self.manifiesto["main"], "./extension/out/extension.js")
 
     def test_scripts_de_compilacion(self):
         scripts = self.manifiesto["scripts"]

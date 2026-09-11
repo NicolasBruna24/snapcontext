@@ -1,4 +1,5 @@
 """Tests configuracion extra."""
+
 import json
 import os
 from pathlib import Path
@@ -13,8 +14,10 @@ class TestHelpersConfig:
             cfg._asegurar_permisos_config()
 
     def test_generar_clave(self, tmp_path):
-        with mock.patch.object(cfg, "CONFIG_DIR", tmp_path), \
-             mock.patch.object(cfg, "CONFIG_PATH", tmp_path / "c.json"):
+        with (
+            mock.patch.object(cfg, "CONFIG_DIR", tmp_path),
+            mock.patch.object(cfg, "CONFIG_PATH", tmp_path / "c.json"),
+        ):
             k = cfg._generar_clave_api(guardar=False)
         assert len(k) >= 20
 

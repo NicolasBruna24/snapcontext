@@ -7,9 +7,7 @@ import snapcontext as sc
 
 
 def _parche_valido(archivo="a.py"):
-    return (
-        f"--- a/{archivo}\n+++ b/{archivo}\n@@ -1 +1 @@\n-x = 1\n+y = 2\n"
-    )
+    return f"--- a/{archivo}\n+++ b/{archivo}\n@@ -1 +1 @@\n-x = 1\n+y = 2\n"
 
 
 class TestHunksIncremental:
@@ -62,9 +60,7 @@ class TestEnviarProveedor:
 
     def test_wrapper_con_mock(self):
         msgs = [{"role": "user", "content": "hola"}]
-        with mock.patch.object(
-            sc, "_enviar_al_proveedor_unico", return_value="respuesta mock"
-        ):
+        with mock.patch.object(sc, "_enviar_al_proveedor_unico", return_value="respuesta mock"):
             r = sc._enviar_al_proveedor("ollama", None, msgs)
             assert r == "respuesta mock"
 

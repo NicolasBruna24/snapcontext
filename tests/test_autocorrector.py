@@ -21,7 +21,16 @@ class TestAutocorrectorFunciones(unittest.TestCase):
             Path = __import__("pathlib").Path
             Path(tmp, "setup.py").touch()
             cmd = _detectar_comando_test(tmp)
-            self.assertIn("pytest", cmd)
+            # v6.33: detector_tests clasifica un proyecto con setup.py (sin
+            # pytest.ini) como 'python-unittest' y devuelve el runner de
+            # unittest; el fallback interno 'pytest -q' solo aplica si el
+            # detector no devuelve nada. Aceptamos cualquiera de los dos
+            # runners válidos de Python.
+            self.assertRegex(
+                cmd,
+                r"(pytest|python -m unittest)",
+                f"Se esperaba un runner de tests de Python; obtenido: {cmd!r}",
+            )
 
     def test_detectar_comando_test_npm(self):
         import tempfile

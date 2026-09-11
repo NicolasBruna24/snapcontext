@@ -1,4 +1,5 @@
 """Tests de volumen Fase 1d-2: mcp_tools, plugins, AST, historial, hash."""
+
 from pathlib import Path
 from unittest import mock
 

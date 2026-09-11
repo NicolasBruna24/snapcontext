@@ -4,6 +4,32 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.34.15] - 2026-09-09
+### Mejoras
+- Refactor: monolito reducido de 14.113 a 12.042 líneas, 12 módulos extraídos.
+- Quality gates bloqueantes: ruff, mypy y cobertura (75% en suite completa).
+- Cobertura del núcleo aumentada del 9% al 75%.
+- Tests totales: ~347 (+297 desde la auditoría).
+
+### Correcciones de tests (sin cambios de lógica de negocio)
+- `test_version_es_*` / `test_version_*_coherente` (14 archivos): dejan de
+  fijar `sc.VERSION` a un número concreto y verifican el formato `X.Y.Z`,
+  para no romper con cada release.
+- `test_diagnostico_310.py`: los mocks se actualizan al namespace real
+  (`configuracion.py`) tras el traslado de `hay_api_key_configurada`,
+  `_estado_ollama` y `_listar_modelos_ollama` (Fase 4).
+- `test_autocorrector.py`: acepta el runner actual de `detector_tests`
+  (`python -m unittest discover` para proyectos python-unittest).
+- `test_v010.py`, `test_plan_012.py`, `test_mcp_014.py`: comandos de fallo
+  via `sh -c 'exit N'` (los comandos simples se ejecutan con `shell=False`).
+- `test_vscode_016.py`: `main` del manifiesto actualizado al valor real
+  (`./extension/out/extension.js`).
+
+### CI/CD
+- Gate de cobertura: se añaden `test_volumen9..18.py` a la lista del gate
+  (medición local: 51%); `COV_MIN` se mantiene en `'50'` (seguro, margen 1%;
+  subir gradualmente a medida que crezca la lista del gate).
+
 ## [6.34.14] - 2026-09-08
 
 ### 🚀 Distribución y adopción (Fase 19)

@@ -71,7 +71,10 @@ class TestReactHelpers:
 
     def test_ruta_segura(self):
         if hasattr(ra, "_ruta_segura"):
-            assert isinstance(ra._ruta_segura("a.py"), (bool, str, PathLike := type("X", (), {})) if False else (bool, str))
+            assert isinstance(
+                ra._ruta_segura("a.py"),
+                (bool, str, PathLike := type("X", (), {})) if False else (bool, str),
+            )
 
     def test_tokens_historial(self):
         if hasattr(ra, "_tokens_historial"):

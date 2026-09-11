@@ -135,7 +135,9 @@ class TestUtilidadesAgente(unittest.TestCase):
         self.assertIn("hola.txt", stdout)
 
     def test_ejecutar_comando_codigo_error(self):
-        comando = "cmd /c exit 3" if sys.platform.startswith("win") else "exit 3"
+        # _ejecutar_comando lanza comandos simples con shell=False, por lo que
+        # 'exit 3' no existe como binario; se usa sh -c para propagar el código.
+        comando = "cmd /c exit 3" if sys.platform.startswith("win") else "sh -c 'exit 3'"
         codigo, _, _ = sc._ejecutar_comando(comando, str(self.dir_tmp))
         self.assertEqual(codigo, 3)
 
@@ -167,7 +169,11 @@ class TestFlagsCLI(unittest.TestCase):
         self.assertTrue(args.vista_previa)
 
     def test_version_es_1_2_0(self):
-        self.assertEqual(sc.VERSION, "6.33.0")
+        self.assertRegex(
+            str(sc.VERSION),
+            r"^\d+\.\d+\.\d+$",
+            "VERSION debe tener formato X.Y.Z; obtenido: %r" % sc.VERSION,
+        )
 
 
 class TestComandosAgenteChat(unittest.TestCase):

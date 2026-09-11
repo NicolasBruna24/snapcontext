@@ -1,4 +1,5 @@
 """Tests volumen Fase 1d-5: funciones auxiliares puras de snapcontext (sin I/O)."""
+
 import snapcontext as sc
 
 

@@ -1,4 +1,5 @@
 """Tests extra para hooks.py: carga de plugins y modulos."""
+
 import json
 from pathlib import Path
 from unittest import mock
@@ -58,7 +59,9 @@ class TestRegistrarDesdeManifiesto:
         hk.activar()
         pdir = tmp_path / "demo"
         pdir.mkdir()
-        (pdir / "plugin.json").write_text(json.dumps({"name": "x", "hooks": {"evento_raro": "x.py"}}))
+        (pdir / "plugin.json").write_text(
+            json.dumps({"name": "x", "hooks": {"evento_raro": "x.py"}})
+        )
         n = hk._registrar_desde_manifiesto(pdir)
         assert n == 0
 
@@ -66,7 +69,9 @@ class TestRegistrarDesdeManifiesto:
         hk.activar()
         pdir = tmp_path / "demo"
         pdir.mkdir()
-        (pdir / "plugin.json").write_text(json.dumps({"name": "x", "hooks": {"after_tool_use": "no_existe.py"}}))
+        (pdir / "plugin.json").write_text(
+            json.dumps({"name": "x", "hooks": {"after_tool_use": "no_existe.py"}})
+        )
         n = hk._registrar_desde_manifiesto(pdir)
         assert n == 0
 
@@ -76,7 +81,9 @@ class TestRegistrarDesdeManifiesto:
         pdir.mkdir()
         script = pdir / "hook.py"
         script.write_text("x = 1")
-        (pdir / "plugin.json").write_text(json.dumps({"name": "x", "hooks": {"after_tool_use": "hook.py"}}))
+        (pdir / "plugin.json").write_text(
+            json.dumps({"name": "x", "hooks": {"after_tool_use": "hook.py"}})
+        )
         n = hk._registrar_desde_manifiesto(pdir)
         assert n == 0
 

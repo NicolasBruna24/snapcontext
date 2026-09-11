@@ -205,9 +205,7 @@ class TestMainRamasDeFlags(unittest.TestCase):
             self.assertEqual(sc.main(["hola"]), 130)
 
     def test_runtime_error_devuelve_1(self):
-        with mock.patch.object(
-            sc, "_aplicar_modo_inteligente", side_effect=RuntimeError("boom")
-        ):
+        with mock.patch.object(sc, "_aplicar_modo_inteligente", side_effect=RuntimeError("boom")):
             self.assertEqual(sc.main(["hola"]), 1)
 
 

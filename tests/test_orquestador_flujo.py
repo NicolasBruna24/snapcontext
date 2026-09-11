@@ -42,7 +42,7 @@ def _args_flujo(**extra):
     return argparse.Namespace(**base)
 
 
-import argparse  # noqa: E402  (tras _args_flujo por claridad de lectura)
+import argparse
 
 
 class TestEjecutarFlujo(unittest.TestCase):

@@ -10,6 +10,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import configuracion
 import snapcontext as sc
 
 
@@ -62,8 +63,10 @@ class TestApiKeyDetection(unittest.TestCase):
 
     def test_clave_en_config(self):
         self._patcher.stop()
+        # [Fase 4] hay_api_key_configurada vive en configuracion.py y llama a
+        # cargar_configuracion de SU módulo, no al reexportado en snapcontext.
         with mock.patch.object(
-            sc, "cargar_configuracion", return_value={"api_keys": {"gemini": "x"}}
+            configuracion, "cargar_configuracion", return_value={"api_keys": {"gemini": "x"}}
         ):
             self.assertTrue(sc.hay_api_key_configurada())
 
@@ -100,8 +103,9 @@ class TestEstadoOllama(unittest.TestCase):
         self.assertEqual(estado["modelos"], [])
 
     def test_con_modelos(self):
+        # [Fase 4] _estado_ollama/_listar_modelos_ollama viven en configuracion.py.
         with mock.patch.object(
-            sc, "_listar_modelos_ollama", return_value=(["phi3", "llama3.2"], None)
+            configuracion, "_listar_modelos_ollama", return_value=(["phi3", "llama3.2"], None)
         ):
             estado = sc._estado_ollama()
         self.assertTrue(estado["instalado"])

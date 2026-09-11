@@ -1,4 +1,5 @@
 """Tests para permisos.py: gestion de permisos recordados."""
+
 import json
 from pathlib import Path
 from unittest import mock
@@ -24,7 +25,10 @@ class TestObtenerConfigDir:
 
     def test_con_xdg_config_home(self, monkeypatch, tmp_path):
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-        import importlib, permisos as _p
+        import importlib
+
+        import permisos as _p
+
         importlib.reload(_p)
         resultado = _p._obtener_config_dir()
         assert isinstance(resultado, Path)
@@ -40,16 +44,20 @@ class TestCargarPermisos:
         data = {"comandos": {"ls": "permitido"}}
         ruta = tmp_path / "permisos.json"
         ruta.write_text(json.dumps(data))
-        with mock.patch.object(perm, "_ruta_permisos", return_value=ruta), \
-             mock.patch.object(perm, "_obtener_config_dir", return_value=tmp_path):
+        with (
+            mock.patch.object(perm, "_ruta_permisos", return_value=ruta),
+            mock.patch.object(perm, "_obtener_config_dir", return_value=tmp_path),
+        ):
             resultado = perm._cargar_permisos()
         assert isinstance(resultado, dict)
 
     def test_archivo_corrupto_devuelve_vacio(self, tmp_path):
         ruta = tmp_path / "permisos.json"
         ruta.write_text("{no es json")
-        with mock.patch.object(perm, "_ruta_permisos", return_value=ruta), \
-             mock.patch.object(perm, "_obtener_config_dir", return_value=tmp_path):
+        with (
+            mock.patch.object(perm, "_ruta_permisos", return_value=ruta),
+            mock.patch.object(perm, "_obtener_config_dir", return_value=tmp_path),
+        ):
             resultado = perm._cargar_permisos()
         assert isinstance(resultado, dict)
 
@@ -77,5 +85,3 @@ class TestLimpiarPermisos:
 class TestConfirmarAccion:
     def test_funcion_existe(self):
         assert callable(perm._confirmar_accion)
-
-

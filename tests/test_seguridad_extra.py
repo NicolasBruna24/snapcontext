@@ -1,4 +1,5 @@
 """Tests adicionales para seguridad.py: deteccion de vulnerabilidades y calidad."""
+
 from pathlib import Path
 
 import seguridad as seg
@@ -131,5 +132,3 @@ class TestExtensiones:
     def test_umbrales_defecto(self):
         umbrales = seg._asesor_umbrales()
         assert isinstance(umbrales, dict)
-
-

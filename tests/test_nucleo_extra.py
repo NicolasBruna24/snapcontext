@@ -1,5 +1,7 @@
 """Tests adicionales para snapcontext.py: funciones aisladas del monolito."""
+
 from pathlib import Path
+
 import snapcontext as sc
 
 

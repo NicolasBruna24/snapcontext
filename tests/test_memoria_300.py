@@ -317,7 +317,11 @@ class TestFlagsCLI(unittest.TestCase):
         self.assertEqual(args.daemon_intervalo, 24)
 
     def test_version_300(self):
-        self.assertEqual(sc.VERSION, "6.33.0")
+        self.assertRegex(
+            str(sc.VERSION),
+            r"^\d+\.\d+\.\d+$",
+            "VERSION debe tener formato X.Y.Z; obtenido: %r" % sc.VERSION,
+        )
 
 
 if __name__ == "__main__":

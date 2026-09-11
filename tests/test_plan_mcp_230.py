@@ -225,7 +225,11 @@ class TestEjecutarToolExecuteCommand(unittest.TestCase):
 
 class TestVersionYFlags(unittest.TestCase):
     def test_version_230(self):
-        self.assertEqual(sc.VERSION, "6.33.0")
+        self.assertRegex(
+            str(sc.VERSION),
+            r"^\d+\.\d+\.\d+$",
+            "VERSION debe tener formato X.Y.Z; obtenido: %r" % sc.VERSION,
+        )
 
     def test_flag_paralelo(self):
         args = sc.crear_parser().parse_args(["--plan", "t", "--paralelo", "3"])

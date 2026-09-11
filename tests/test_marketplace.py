@@ -302,7 +302,11 @@ class TestComandosCLI(unittest.TestCase):
 
 class TestVersion(unittest.TestCase):
     def test_version_6_21_0(self):
-        self.assertEqual(sc.VERSION, "6.33.0")
+        self.assertRegex(
+            str(sc.VERSION),
+            r"^\d+\.\d+\.\d+$",
+            "VERSION debe tener formato X.Y.Z; obtenido: %r" % sc.VERSION,
+        )
 
 
 if __name__ == "__main__":

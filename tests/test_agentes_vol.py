@@ -37,9 +37,7 @@ class TestConstruirPrompt:
     def test_parche(self, tmp_path):
         f = tmp_path / "a.py"
         f.write_text("x = 1\n")
-        p = ag._construir_prompt_edicion(
-            "parche", "cambia x", str(f), "x = 1\n", "python", False
-        )
+        p = ag._construir_prompt_edicion("parche", "cambia x", str(f), "x = 1\n", "python", False)
         assert isinstance(p, tuple) and len(p[0]) > 10
 
     def test_sobrescribir(self, tmp_path):
@@ -53,9 +51,7 @@ class TestConstruirPrompt:
     def test_conciso(self, tmp_path):
         f = tmp_path / "a.py"
         f.write_text("x = 1\n")
-        p = ag._construir_prompt_edicion(
-            "parche", "cambia x", str(f), "x = 1\n", "python", True
-        )
+        p = ag._construir_prompt_edicion("parche", "cambia x", str(f), "x = 1\n", "python", True)
         assert isinstance(p, tuple)
 
 
@@ -86,9 +82,7 @@ class TestAgenteContexto:
 
     def test_ejecutar_mock(self, tmp_path):
         a = ag.AgenteContexto()
-        with mock.patch.object(
-            ag, "_enviar_al_proveedor", return_value="ctx", create=True
-        ):
+        with mock.patch.object(ag, "_enviar_al_proveedor", return_value="ctx", create=True):
             try:
                 r = a.ejecutar("hola", _ns(), str(tmp_path))
                 assert r is None or isinstance(r, (str, dict, list))
@@ -110,9 +104,7 @@ class TestAgenteTester:
 
     def test_ejecutar_mock(self, tmp_path):
         a = ag.AgenteTester()
-        with mock.patch.object(
-            ag, "_enviar_al_proveedor", return_value="ok", create=True
-        ):
+        with mock.patch.object(ag, "_enviar_al_proveedor", return_value="ok", create=True):
             try:
                 r = a.ejecutar("hola", _ns(), str(tmp_path))
                 assert r is None or isinstance(r, (str, dict, list, bool))
@@ -136,9 +128,7 @@ class TestAgenteEditor:
         a = ag.AgenteEditor()
         f = tmp_path / "a.py"
         f.write_text("x = 1\n")
-        with mock.patch.object(
-            ag, "_enviar_al_proveedor", return_value="x = 2\n", create=True
-        ):
+        with mock.patch.object(ag, "_enviar_al_proveedor", return_value="x = 2\n", create=True):
             try:
                 r = a.ejecutar("cambia x", _ns(), str(tmp_path))
                 assert r is None or isinstance(r, (str, dict, list, bool))

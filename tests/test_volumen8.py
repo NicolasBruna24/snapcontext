@@ -1,4 +1,5 @@
 """Tests volumen Fase 1d-4: agentes (clases pequeñas), permisos, presentacion."""
+
 from pathlib import Path
 from unittest import mock
 
@@ -93,9 +94,7 @@ class TestAgenteAsesorVol:
         import snapcontext as sc
 
         a = ag.AgenteAsesor()
-        with mock.patch.object(
-            sc, "_asesor_analizar", return_value=[{"sugerencia": "x"}]
-        ):
+        with mock.patch.object(sc, "_asesor_analizar", return_value=[{"sugerencia": "x"}]):
             r = a.analizar(str(tmp_path))
         assert isinstance(r, list)
         with mock.patch.object(sc, "_analizar_seguridad", return_value=[]):
@@ -111,13 +110,11 @@ class TestPermisosConfirmar:
     def test_recordado_nunca_deniega(self):
         import permisos
 
-        with mock.patch.object(
-            permisos, "_cargar_permisos", return_value={"comando": "nunca"}
-        ), mock.patch("builtins.input", return_value="n"):
-            assert (
-                permisos._confirmar_accion("hacer ls", "comando", confirmar=True)
-                is False
-            )
+        with (
+            mock.patch.object(permisos, "_cargar_permisos", return_value={"comando": "nunca"}),
+            mock.patch("builtins.input", return_value="n"),
+        ):
+            assert permisos._confirmar_accion("hacer ls", "comando", confirmar=True) is False
 
 
 class TestPresentacionVol:

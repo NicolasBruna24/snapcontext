@@ -1,4 +1,5 @@
 """Tests mcp_tools: dispatcher y carga de herramientas."""
+
 import json
 from pathlib import Path
 
@@ -19,11 +20,21 @@ class TestMcpTools:
 
     def test_cargar_usuario(self, tmp_path, monkeypatch):
         p = tmp_path / "m.json"
-        p.write_text(json.dumps({"tools": [
-            {"nombre": "buildx", "descripcion": "b", "comando": "npm run build",
-             "requiere_permiso": False},
-            {"nombre": "", "comando": ""},
-        ]}))
+        p.write_text(
+            json.dumps(
+                {
+                    "tools": [
+                        {
+                            "nombre": "buildx",
+                            "descripcion": "b",
+                            "comando": "npm run build",
+                            "requiere_permiso": False,
+                        },
+                        {"nombre": "", "comando": ""},
+                    ]
+                }
+            )
+        )
         monkeypatch.setattr(mcp, "_ruta_mcp_tools", lambda: p)
         assert "buildx" in mcp._cargar_herramientas_mcp()
 
@@ -41,7 +52,8 @@ class TestMcpTools:
 
     def test_ejecutar_list_files(self, tmp_path):
         r = mcp._ejecutar_herramienta_mcp(
-            "list_files", {"directorio": str(tmp_path)}, confirmar=False)
+            "list_files", {"directorio": str(tmp_path)}, confirmar=False
+        )
         assert r["ok"] is True
 
     def test_ejecutar_desconocida(self):

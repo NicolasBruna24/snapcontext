@@ -1,5 +1,7 @@
 """Tests simplificados para hooks.py."""
+
 import hooks as hk
+
 
 class TestEstadoHooks:
     def test_activar_desactivar(self):
@@ -12,7 +14,7 @@ class TestEstadoHooks:
     def test_listar_hooks_texto(self):
         assert isinstance(hk._listar_hooks_texto(), str)
 
+
 class TestManager:
     def test_manager_existe(self):
         assert hk.MANAGER is not None
-

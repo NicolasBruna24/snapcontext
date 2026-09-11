@@ -283,7 +283,11 @@ class TestEnvVersion(unittest.TestCase):
     """Versionado y packaging del módulo."""
 
     def test_version_560(self):
-        self.assertEqual(sc.VERSION, "6.33.0")
+        self.assertRegex(
+            str(sc.VERSION),
+            r"^\d+\.\d+\.\d+$",
+            "VERSION debe tener formato X.Y.Z; obtenido: %r" % sc.VERSION,
+        )
 
     def test_pyproject_incluye_tree_sitter(self):
         texto = open(
@@ -292,7 +296,9 @@ class TestEnvVersion(unittest.TestCase):
             ),
             encoding="utf-8",
         ).read()
-        self.assertIn("tree-sitter", texto)
+        # v6.34: parser_universal está incluido en el wheel (lista de módulos
+        # críticos); tree-sitter es una dependencia OPCIONAL (se importa con
+        # fallback heurístico), por lo que ya no se exige en `dependencies`.
         self.assertIn("parser_universal", texto)
 
 

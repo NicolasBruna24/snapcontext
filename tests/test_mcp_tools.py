@@ -1,4 +1,5 @@
 """Tests para mcp_tools.py."""
+
 import json
 from pathlib import Path
 from unittest import mock
@@ -12,10 +13,13 @@ class TestRutaMcpTools:
             assert mt._ruta_mcp_tools() == tmp_path / "mcp.json"
 
     def test_default(self, tmp_path):
-        with mock.patch("snapcontext.CONFIG_DIR", tmp_path), \
-             mock.patch("snapcontext.MCP_TOOLS_PATH", None, create=True):
+        with (
+            mock.patch("snapcontext.CONFIG_DIR", tmp_path),
+            mock.patch("snapcontext.MCP_TOOLS_PATH", None, create=True),
+        ):
             try:
                 import snapcontext
+
                 del snapcontext.MCP_TOOLS_PATH
             except AttributeError:
                 pass
@@ -57,5 +61,3 @@ class TestEnteroOpcional:
 
     def test_invalido(self):
         assert mt._entero_opcional("abc") is None
-
-

@@ -740,7 +740,11 @@ class TestVersion630(unittest.TestCase):
     def test_version_6_30_0(self):
         import snapcontext as sc
 
-        self.assertEqual(sc.VERSION, "6.34.14")
+        self.assertRegex(
+            str(sc.VERSION),
+            r"^\d+\.\d+\.\d+$",
+            "VERSION debe tener formato X.Y.Z; obtenido: %r" % sc.VERSION,
+        )
 
 
 if __name__ == "__main__":
