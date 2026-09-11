@@ -23,7 +23,7 @@ from pathlib import Path
 from presentacion import error, exito, info
 
 # Colores re-exportados para uso del módulo.
-from snapcontext import _CYAN, _GRIS, _ROJO, _VERDE, _pintar
+from snapcontext import _CYAN, _GRIS, _VERDE, _pintar
 
 # Protocolo MCP soportado (mostrado en la demo).
 _PROTOCOLO_MCP = "2024-11-05"
@@ -36,8 +36,8 @@ def _verificar_ollama(url: str = "http://localhost:11434") -> bool:
     servidor Ollama local disponible para una demo "real".
     """
     try:
-        from urllib.request import urlopen
         from urllib.error import URLError
+        from urllib.request import urlopen
 
         with urlopen(f"{url}/api/tags", timeout=2) as resp:
             return resp.status == 200
@@ -58,7 +58,7 @@ def _crear_proyecto_ejemplo(directorio: Path) -> list[str]:
         '"""Módulo principal del proyecto de ejemplo."""\n'
         "\n"
         "\n"
-        'def saludar(nombre: str) -> str:\n'
+        "def saludar(nombre: str) -> str:\n"
         '    """Devuelve un saludo personalizado."""\n'
         '    return f"Hola, {nombre}"\n'
         "\n"
@@ -72,9 +72,9 @@ def _crear_proyecto_ejemplo(directorio: Path) -> list[str]:
         '"""Utilidades auxiliares."""\n'
         "\n"
         "\n"
-        'def formatear(texto: str) -> str:\n'
+        "def formatear(texto: str) -> str:\n"
         '    """Formatea un texto (mayúsculas y strip)."""\n'
-        '    return texto.strip().upper()\n',
+        "    return texto.strip().upper()\n",
         encoding="utf-8",
     )
 
@@ -118,6 +118,8 @@ def _emitir_linea(texto: str = "") -> None:
 def _mostrar_paso(n: int, total: int, mensaje: str) -> None:
     """Muestra un paso de la demo con formato consistente."""
     _emitir_linea(_pintar(f"[{n}/{total}] {mensaje}", _CYAN))
+
+
 def _mostrar_funcionalidades() -> None:
     """Muestra el catálogo de funcionalidades clave de SnapContext."""
     _emitir_linea()
@@ -152,13 +154,15 @@ def _demo_consulta_simulada(consulta: str) -> dict:
 def _demo_consulta_ollama(directorio: Path, consulta: str) -> dict:
     """Intenta una consulta real a Ollama (si está disponible)."""
     try:
-        from urllib.request import urlopen, Request
+        from urllib.request import Request, urlopen
 
-        payload = json.dumps({
-            "model": "llama3.2:latest",
-            "prompt": f"Proyecto en {directorio}. {consulta}",
-            "stream": False,
-        }).encode("utf-8")
+        payload = json.dumps(
+            {
+                "model": "llama3.2:latest",
+                "prompt": f"Proyecto en {directorio}. {consulta}",
+                "stream": False,
+            }
+        ).encode("utf-8")
 
         req = Request(
             "http://localhost:11434/api/generate",
@@ -244,4 +248,3 @@ def ejecutar_demo() -> int:
         return 1
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-

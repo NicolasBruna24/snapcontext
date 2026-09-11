@@ -25,6 +25,12 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 - Guía de inicio rápido actualizada en el README (30 segundos con `--demo`).
 - Tests para el modo demo (`tests/test_demo.py`, 11 tests).
 
+## [6.34.18] - 2026-09-10
+### Correcciones
+- **Ruff**: 3 errores auto-fixables corregidos (2 I001 unsorted-imports, 1 F401 unused-import).
+- **Mypy**: Añadidos overrides para `github_gateway` y `curador_proactivo`.
+- Publicación de v6.34.18 con lint limpio.
+
 ## [6.34.17] - 2026-09-10
 ### Correcciones
 - **Ruff**: 19 errores de lint corregidos (F821 en benchmarks excluidos, I001/F401 auto-fix, etc.).

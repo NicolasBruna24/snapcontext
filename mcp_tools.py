@@ -241,8 +241,14 @@ def _parametros_desde_schema(schema: dict | None) -> dict:
     propiedades = schema.get("properties") or {}
     if not isinstance(propiedades, dict):
         return {}
-    traduccion = {"string": "str", "integer": "int", "number": "float",
-                  "boolean": "bool", "array": "list", "object": "dict"}
+    traduccion = {
+        "string": "str",
+        "integer": "int",
+        "number": "float",
+        "boolean": "bool",
+        "array": "list",
+        "object": "dict",
+    }
     params: dict = {}
     for nombre, meta in propiedades.items():
         if isinstance(meta, dict):
@@ -469,6 +475,7 @@ def _ejecutar_herramienta_mcp(  # noqa: C901  (refactor de complejidad: Fase 10c
         elif cfg.get("mcp_externo"):
             # v6.34.15 (Fase 3): herramienta de servidor MCP externo.
             from mcp_client import cliente_compartido
+
             try:
                 cliente = cliente_compartido()
                 resultado = cliente.call_tool(

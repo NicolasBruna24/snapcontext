@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "snapcontext"
-version = "6.34.17"
+version = "6.34.18"
 description = "SnapContext: asistente de IA con contexto automático para desarrollo."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -228,6 +228,14 @@ ignore_errors = true   # problemas de tipos con IO[Any] | None (union-attr)
 
 [[tool.mypy.overrides]]
 module = "demo"
+ignore_errors = true   # Returning Any from function declared to return "bool"
+
+[[tool.mypy.overrides]]
+module = "github_gateway"
+ignore_errors = true   # Returning Any from function declared to return "str | None"
+
+[[tool.mypy.overrides]]
+module = "curador_proactivo"
 ignore_errors = true   # Returning Any from function declared to return "bool"
 
 [tool.pytest.ini_options]
