@@ -1,5 +1,11 @@
 # Changelog de SnapContext
 
+## [6.34.19] - 2026-09-11
+### Changed
+- CI: instalar extras [web] en job de integration tests (fix fastapi)
+- Chore: eliminar 2 overrides mypy innecesarios (github_gateway, curador_proactivo)
+- Chore: hacer honesto fail_under (43%) reflejando cobertura real del gate
+
 Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).

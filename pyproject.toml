@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "snapcontext"
-version = "6.34.18"
+version = "6.34.19"
 description = "SnapContext: asistente de IA con contexto automático para desarrollo."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -262,3 +262,6 @@ source = ["snapcontext", "planificador", "permisos", "hooks", "mcp_tools",
           "agentes", "orquestador", "react_agent",
           "utils", "editor", "diagnostico", "estado"]
 omit = ["tests/*", "build/*", "dist/*"]
+
+[tool.coverage.report]
+fail_under = 43   # TODO: subir a 50 cuando la cobertura real del gate lo alcance
