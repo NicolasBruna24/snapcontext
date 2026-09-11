@@ -24,8 +24,34 @@
 
 ## 🚀 Quick Start (30 segundos)
 
+### Opción 1: pipx (recomendado — aislado, sin conflictos de dependencias)
+
+```bash
+pipx install snapcontext
+snapcontext --demo                      # ¡Prueba sin API key!
+```
+
+### Opción 2: pip
+
 ```bash
 pip install snapcontext
+snapcontext --demo                      # ¡Prueba sin API key!
+```
+
+### Opción 3: Desde el código fuente
+
+```bash
+git clone https://github.com/NicolasBruna24/snapcontext
+cd snapcontext
+pip install -e ".[all]"
+snapcontext --demo
+```
+
+La demo muestra las funcionalidades clave en < 30 segundos, **sin necesidad de API key ni configuración previa**. Si tienes Ollama corriendo localmente, la demo lo detecta automáticamente para una experiencia más realista.
+
+Para empezar a usar SnapContext con tu propio proyecto:
+
+```bash
 snapcontext --init                      # asistente inicial: proveedor + API key
 snapcontext "describe este proyecto"    # primera consulta
 ```

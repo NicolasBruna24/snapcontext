@@ -11368,78 +11368,14 @@ def _crear_demo_editor(directorio: Path):
 def _ejecutar_demo() -> int:
     """Ejecuta una demo autónoma de SnapContext (sin API key ni Aider real).
 
-    Fases:
-      1. Crea un proyecto Python de ejemplo en ``tempfile.mkdtemp()``.
-      2. ``--vista-previa --local``: muestra la selección de archivos relevantes.
-      3. ``--test-loop`` (equivalente): ejecuta el bucle de pruebas completo
-         (Editor → Tester → error realimentado → corrección → éxito).
-      4. Resume el tiempo total, los archivos seleccionados y el resultado.
-
-    Devuelve el código de salida (0 = éxito, 1 = fallo).
+    Delega en el módulo ``demo`` (``demo.py``), que implementa un flujo
+    visual de ~30 segundos: proyecto de ejemplo, indexación Graph RAG,
+    consulta (Ollama si está disponible, si no simulada) y resumen de
+    funcionalidades clave.
     """
-    t_inicio = time.monotonic()
-    info("=== SnapContext · Demo (sin API key) ===")
-    info("Creando un proyecto de prueba temporal...")
-    tmp = Path(tempfile.mkdtemp(prefix="snapcontext-demo-"))
-    try:
-        _crear_demo_proyecto(tmp)
-        consulta = "Corrige la función saludar para que devuelva el saludo correcto"
+    from demo import ejecutar_demo
 
-        args = crear_parser().parse_args(
-            _preparar_argv_aliases([consulta, "--directorio", str(tmp), "--local", "--depurar"])
-        )
-
-        # FASE 1: mostrar la selección de archivos (sin tocar código).
-        info("── FASE 1 · Selección de archivos (--vista-previa --local) ──")
-        args.vista_previa = True
-        if flujo_principal(args) != 0:
-            error("La selección de archivos falló durante la demo.")
-            return 1
-
-        # Tras la fase 1, args ya trae carpetas/extensiones ajustadas por tipo.
-        carpetas = list(args.carpetas or CARPETAS_DEFECTO)
-        extensiones = getattr(args, "extensiones", None)
-        seleccion = listar_archivos_candidatos(tmp, carpetas, extensiones=extensiones)[
-            : args.max_archivos
-        ]
-
-        # FASE 2: bucle de pruebas completo (Editor → Tester) offline.
-        info("── FASE 2 · Bucle de pruebas (Editor → Tester) ──")
-        from orquestador import Orquestador  # import diferido para evitar ciclos
-
-        orch = Orquestador()
-        orch.agente_editor.ejecutar_aider = _crear_demo_editor(tmp)
-        comando_test = [
-            sys.executable,
-            "-c",
-            "from src.main import saludar; "
-            "assert saludar('Mundo') == 'Hola, Mundo', 'saludo incorrecto'; "
-            "print('prueba superada')",
-        ]
-        ok = orch._bucle_test(
-            consulta,
-            seleccion,
-            str(tmp),
-            opciones_aider="",
-            comando_test=comando_test,
-            max_iteraciones=3,
-        )
-
-        # RESUMEN
-        total = time.monotonic() - t_inicio
-        _emitir(sys.stdout, "")
-        _emitir(sys.stdout, _pintar("=" * 46, _CYAN))
-        _emitir(sys.stdout, _pintar("  RESUMEN DE LA DEMO", _CYAN))
-        _emitir(sys.stdout, _pintar("=" * 46, _CYAN))
-        exito(f"Tiempo total: {total:.1f} s")
-        exito(f"Archivos seleccionados ({len(seleccion)}):")
-        for archivo in seleccion:
-            _emitir(sys.stdout, "   " + _pintar("• " + archivo, _VERDE))
-        exito(f"Resultado de las pruebas: {'ÉXITO ✔' if ok else 'FALLO ✖'}")
-        _emitir(sys.stdout, "")
-        return 0 if ok else 1
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    return ejecutar_demo()
 
 
 def _registrar_historial_async(args: argparse.Namespace, codigo: int, duracion: float) -> None:

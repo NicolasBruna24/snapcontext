@@ -4,6 +4,12 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.34.16] - 2026-09-10
+### Mejoras
+- Onboarding zero-config: `snapcontext --demo` sin API key, documentado `pipx install`.
+- Guía de inicio rápido actualizada en el README (30 segundos con `--demo`).
+- Tests para el modo demo (`tests/test_demo.py`, 11 tests).
+
 ## [6.34.15] - 2026-09-09
 ### Mejoras
 - Refactor: monolito reducido de 14.113 a 12.042 líneas, 12 módulos extraídos.

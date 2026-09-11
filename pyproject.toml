@@ -110,6 +110,8 @@ py-modules = [
     # Fase 2: bloques extraídos del monolito (utilidades, edición,
     # diagnóstico/reparación/benchmark y estado global de procesos).
     "utils", "editor", "diagnostico", "estado",
+    # Fase 4 (v6.34.16): modo demo para onboarding zero-config.
+    "demo",
     # Fase 8: subsistema de herramientas MCP (dispatcher y registro).
     "mcp_tools",
     # Fase 3 (v6.34.15): cliente MCP estándar para servidores externos.
