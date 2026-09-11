@@ -34,6 +34,7 @@ def _tareas_existen() -> bool:
 def test_runner_compila():
     """El runner compila sin errores."""
     import py_compile
+
     py_compile.compile(str(RUNNER), doraise=True)
 
 

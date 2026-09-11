@@ -24,7 +24,6 @@ from demo import (
     ejecutar_demo,
 )
 
-
 # --- Tests de creación de proyecto ------------------------------------------
 
 
@@ -97,8 +96,10 @@ def test_ejecutar_demo_con_ollama():
     mock_resp.read.return_value = b'{"response": "Respuesta real de Ollama"}'
     mock_resp.__enter__ = MagicMock(return_value=mock_resp)
     mock_resp.__exit__ = MagicMock(return_value=False)
-    with patch("demo._verificar_ollama", return_value=True), \
-         patch("urllib.request.urlopen", return_value=mock_resp):
+    with (
+        patch("demo._verificar_ollama", return_value=True),
+        patch("urllib.request.urlopen", return_value=mock_resp),
+    ):
         resultado = ejecutar_demo()
     assert resultado == 0
 
@@ -106,6 +107,7 @@ def test_ejecutar_demo_con_ollama():
 def test_ejecutar_demo_limpia_temporal():
     """El directorio temporal se elimina al finalizar la demo."""
     import tempfile
+
     with patch("demo._verificar_ollama", return_value=False):
         ejecutar_demo()
     # Verificar que no quedaron directorios temporales de la demo.

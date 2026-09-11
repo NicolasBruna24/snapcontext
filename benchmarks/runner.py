@@ -19,7 +19,6 @@ import argparse
 import ast
 import difflib
 import json
-import os
 import shutil
 import sys
 import tempfile
@@ -38,6 +37,7 @@ def _detectar_ollama() -> bool:
     """Detecta si Ollama está corriendo en localhost:11434."""
     try:
         import urllib.request
+
         with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2) as resp:
             return resp.status == 200
     except Exception:
@@ -81,6 +81,8 @@ def _comparar_codigo(real: str, esperado: str) -> tuple[bool, str]:
         real_norm = "\n".join(line.strip() for line in real.strip().splitlines() if line.strip())
         esp_norm = "\n".join(line.strip() for line in esperado.strip().splitlines() if line.strip())
         return real_norm == esp_norm, "texto"
+
+
 def _aplicar_edicion_con_snapcontext(archivo: Path, instruccion: str) -> str:
     """Aplica una edición usando el motor de SnapContext.
 
@@ -136,9 +138,17 @@ def _ejecutar_tarea_light(tarea: dict) -> dict:
         tmp_path = Path(tmp)
         # Inicializamos un repo git para que `git apply` funcione.
         import subprocess as _sp
+
         _sp.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
-        _sp.run(["git", "config", "user.email", "bench@test"], cwd=tmp_path, capture_output=True, check=True)
-        _sp.run(["git", "config", "user.name", "Bench"], cwd=tmp_path, capture_output=True, check=True)
+        _sp.run(
+            ["git", "config", "user.email", "bench@test"],
+            cwd=tmp_path,
+            capture_output=True,
+            check=True,
+        )
+        _sp.run(
+            ["git", "config", "user.name", "Bench"], cwd=tmp_path, capture_output=True, check=True
+        )
 
         # Copiamos input.py y hacemos commit.
         shutil.copy2(entrada, tmp_path / "input.py")
@@ -163,6 +173,7 @@ def _ejecutar_tarea_light(tarea: dict) -> dict:
 
         if diff_texto:
             from snapcontext import _aplicar_parche
+
             exito_parche = _aplicar_parche(diff_texto, str(tmp_path))
             if exito_parche:
                 resultado = (tmp_path / "input.py").read_text(encoding="utf-8")
@@ -192,6 +203,8 @@ def _ejecutar_tarea_deep(tarea: dict) -> dict:
     # Por ahora, delega al modo light (misma lógica).
     # En una versión futura, se conectaría a Ollama para generar el diff.
     return _ejecutar_tarea_light(tarea)
+
+
 def main() -> int:
     """Ejecuta el benchmark y genera el reporte."""
     parser = argparse.ArgumentParser(description="Benchmark de edición de SnapContext")
@@ -230,7 +243,9 @@ def main() -> int:
             resultado = _ejecutar_tarea_light(tarea)
         resultados.append(resultado)
         estado = "✅" if resultado["exito"] else "❌"
-        print(f"  {estado} {resultado['id']} - {resultado['nombre']} ({resultado['tiempo_segundos']}s)")
+        print(
+            f"  {estado} {resultado['id']} - {resultado['nombre']} ({resultado['tiempo_segundos']}s)"
+        )
 
     exitos = sum(1 for r in resultados if r["exito"])
     total = len(resultados)
@@ -261,5 +276,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-

@@ -134,9 +134,7 @@ def test_guardar_y_leer_roundtrip(tmp_path):
 
 def test_ruta_config_proyecto_sobre_global(tmp_path):
     """Si existe ``mcp_servers.json`` en el proyecto, tiene precedencia."""
-    (tmp_path / "mcp_servers.json").write_text(
-        json.dumps({"servers": {}}), encoding="utf-8"
-    )
+    (tmp_path / "mcp_servers.json").write_text(json.dumps({"servers": {}}), encoding="utf-8")
     assert ruta_config_servidores(tmp_path) == tmp_path / "mcp_servers.json"
 
 
@@ -153,6 +151,8 @@ def test_servers_configurados_filtra_deshabilitados(tmp_path):
     resultado = servers_configurados(raiz=tmp_path)
     assert "activo" in resultado
     assert "inactivo" not in resultado
+
+
 # --- Tests de handshake -----------------------------------------------------
 
 
@@ -279,12 +279,16 @@ def test_cargar_externas_registra_con_prefijo(tmp_path):
     cfg = {"srv": {"command": "fake", "args": [], "env": {}, "enabled": True}}
     # Limpiamos el singleton para que se cree uno nuevo con nuestra config.
     import mcp_client as _mc
+
     _mc._CLIENTE = None
     mock_subprocess = MagicMock()
     mock_subprocess.Popen.return_value = proceso
-    with patch.object(mcp_client, "subprocess", mock_subprocess), \
-         patch("mcp_client.servers_configurados", return_value=cfg):
+    with (
+        patch.object(mcp_client, "subprocess", mock_subprocess),
+        patch("mcp_client.servers_configurados", return_value=cfg),
+    ):
         from mcp_tools import _cargar_herramientas_mcp_externas
+
         externas = _cargar_herramientas_mcp_externas()
     _mc._CLIENTE = None  # cleanup
     assert len(externas) >= 1
@@ -298,6 +302,7 @@ def test_cargar_externas_sin_mcp_client(tmp_path, monkeypatch):
     """Si mcp_client no se puede importar, devuelve vacío (degradación)."""
     monkeypatch.setitem(sys.modules, "mcp_client", None)
     from mcp_tools import _cargar_herramientas_mcp_externas
+
     assert _cargar_herramientas_mcp_externas() == {}
 
 
@@ -363,9 +368,14 @@ def test_integracion_server_filesystem_real(tmp_path):
     Se marca skip por defecto porque necesita npx + descarga del paquete.
     Desmarcar para ejecutar manualmente.
     """
-    cfg = {"filesystem": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", str(tmp_path)], "enabled": True}}
+    cfg = {
+        "filesystem": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-filesystem", str(tmp_path)],
+            "enabled": True,
+        }
+    }
     cliente = MCPClient(config=cfg)
     tools = cliente.list_tools()
     assert any("filesystem" in s for s in tools)
     cliente.cerrar()
-

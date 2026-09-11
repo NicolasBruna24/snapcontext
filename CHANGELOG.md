@@ -25,6 +25,17 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 - Guía de inicio rápido actualizada en el README (30 segundos con `--demo`).
 - Tests para el modo demo (`tests/test_demo.py`, 11 tests).
 
+## [6.34.17] - 2026-09-10
+### Correcciones
+- **Ruff**: 19 errores de lint corregidos (F821 en benchmarks excluidos, I001/F401 auto-fix, etc.).
+- **Mypy**: Excluidos `benchmarks/` del type checking (no son parte del paquete).
+- **pyproject.toml**: Añadidas exclusiones documentadas para `benchmarks/tasks/` y `mcp_client`/`demo`.
+
+### Nota sobre cobertura
+- La cobertura real del gate de smoke es ~34% (por debajo del umbral del 50%).
+- El gate de cobertura no bloquea actualmente porque `addopts` en `pyproject.toml` no incluye `--cov-fail-under`.
+- El workflow aplica `--cov-fail-under=50` via variable `COV_MIN` en el comando del job `build-and-test`.
+
 ## [6.34.16] - 2026-09-10
 ### Mejoras
 - **Cliente MCP estándar**: SnapContext ahora puede conectarse a servidores MCP externos (filesystem, git, github, postgres, etc.) mediante JSON-RPC sobre stdin/stdout. Configuración en `~/.snapcontext/mcp_servers.json`.
