@@ -25,6 +25,20 @@ El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.co
 - Guía de inicio rápido actualizada en el README (30 segundos con `--demo`).
 - Tests para el modo demo (`tests/test_demo.py`, 11 tests).
 
+## [6.34.16] - 2026-09-10
+### Mejoras
+- **Cliente MCP estándar**: SnapContext ahora puede conectarse a servidores MCP externos (filesystem, git, github, postgres, etc.) mediante JSON-RPC sobre stdin/stdout. Configuración en `~/.snapcontext/mcp_servers.json`.
+- **Onboarding zero-config**: `snapcontext --demo` funciona en 0.3s sin API key, mostrando el valor de la herramienta en 30 segundos. Documentación de `pipx install` como método recomendado.
+- **Benchmark de edición público**: 50 tareas reproducibles (20 bug fixes, 15 refactorizaciones, 10 features, 5 complejos), 100% en modo light (motor de edición). Modo deep pendiente de ejecución con Ollama.
+- **Documentación**: `docs/MCP.md` y `benchmarks/README.md` añadidos. Quick Start de 30 segundos actualizado en README.
+
+### Commits incluidos
+- `c669351` feat: cliente MCP estándar (Fase 3)
+- `f4aafb5` feat: onboarding zero-config con --demo (Fase 4)
+- `7250688` fix: --demo se ejecuta antes del background indexing
+- `9d95a87` feat: benchmark de edición público con 10 tareas (Fase 5)
+- `876fb16` feat: benchmark ampliado a 50 tareas (Fase 5b)
+
 ## [6.34.15] - 2026-09-09
 ### Mejoras
 - Refactor: monolito reducido de 14.113 a 12.042 líneas, 12 módulos extraídos.
