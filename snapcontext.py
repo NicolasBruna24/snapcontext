@@ -11761,6 +11761,11 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901  (refactor de comp
                 _cp.iniciar_daemon_fondo()
         except Exception:
             pass
+        # v6.34.15 (Fase 4): el modo --demo se ejecuta antes que cualquier
+        # otra cosa (sin API key, sin indexación background, sin validación
+        # de proyecto). Así la demo funciona siempre en < 30 segundos.
+        if getattr(args, "demo", False):
+            return _ejecutar_demo()
         # v6.35.0 / Fase 16: arranca la indexación del Graph RAG en un hilo
         # demonio (nunca bloquea el CLI). Solo si el Graph RAG está activo y se
         # está fuera de un test runner. Se puede desactivar con SNAPCONTEXT_INDEX_BG=0.
@@ -11842,9 +11847,6 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901  (refactor de comp
         if getattr(args, "git_revert", None) is not None:
             _paso = args.git_revert
             return _ejecutar_revert(None if _paso == -1 else str(_paso))
-        # --demo ejecuta una demo autónoma (sin API key ni Aider) y termina.
-        if getattr(args, "demo", False):
-            return _ejecutar_demo()
         # --historial-limpiar borra la memoria persistente y termina.
         if getattr(args, "historial_limpiar", False):
             return 0 if _limpiar_historial() else 1
