@@ -1,5 +1,11 @@
 # Changelog de SnapContext
 
+## [6.35.1] - 2026-09-11
+### Fixed
+- CI: eliminar classifier de licencia Apache para cumplir PEP 639
+  (setuptools ≥77 ya no permite classifier + license expression juntos).
+  El campo `license = "Apache-2.0"` sigue siendo la fuente de verdad.
+
 ## [6.35.0] - 2026-09-11
 ### Changed
 - **BREAKING (legal)**: Relicencia de MIT a Apache License 2.0.

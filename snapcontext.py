@@ -237,7 +237,7 @@ def __getattr__(nombre: str):
 
 # Ejecución en paralelo de pasos del plan (v1.3.0) — stdlib, sin deps extra.
 
-VERSION = "6.35.0"
+VERSION = "6.35.1"
 
 # v6.34.12: instantánea de los argumentos de la CLI (la fija
 # ``flujo_principal`` en cada invocación). La usan funciones profundas del
