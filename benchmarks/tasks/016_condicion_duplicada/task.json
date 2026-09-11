@@ -1,0 +1,8 @@
+{
+  "id": "016",
+  "nombre": "Condición duplicada",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Condición duplicada",
+  "instruccion": "Corrige la segunda condición."
+}

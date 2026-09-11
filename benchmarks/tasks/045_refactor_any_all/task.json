@@ -1,0 +1,8 @@
+{
+  "id": "045",
+  "nombre": "Bucle que puede ser all()",
+  "tipo": "refactorizacion",
+  "dificultad": "medio",
+  "descripcion": "Bucle que puede ser all()",
+  "instruccion": "Usa all() en lugar del bucle."
+}

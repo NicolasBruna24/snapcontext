@@ -1,0 +1,8 @@
+{
+  "id": "044",
+  "nombre": "If/else bloque que puede ser ternario",
+  "tipo": "refactorizacion",
+  "dificultad": "medio",
+  "descripcion": "If/else bloque que puede ser ternario",
+  "instruccion": "Simplifica con operador ternario."
+}

@@ -4,6 +4,14 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.34.18] - 2026-09-10
+### Mejoras
+- Benchmark de edición ampliado a **50 tareas reproducibles** (Fase 5b).
+- Distribución completa: 20 bug fixes, 15 refactorizaciones, 10 features, 5 complejos.
+- Resultados modo light: **50/50 (100%)** en ~0.5s.
+- Modo deep pendiente (requiere descargar modelo Ollama: `qwen2.5:0.5b`).
+- Documentación actualizada con comparación honesta frente a Aider/Claude Code.
+
 ## [6.34.17] - 2026-09-10
 ### Mejoras
 - Benchmark de edición público con 10 tareas reproducibles (Fase 5).

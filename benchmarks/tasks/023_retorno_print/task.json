@@ -1,0 +1,8 @@
+{
+  "id": "023",
+  "nombre": "Retorno de print",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Retorno de print",
+  "instruccion": "Retorna el valor, no print."
+}

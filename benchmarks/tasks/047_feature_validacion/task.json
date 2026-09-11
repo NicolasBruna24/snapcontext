@@ -1,0 +1,8 @@
+{
+  "id": "047",
+  "nombre": "Añadir validación de tipo",
+  "tipo": "feature",
+  "dificultad": "medio",
+  "descripcion": "Añadir validación de tipo",
+  "instruccion": "Añade isinstance para validar que el argumento es lista."
+}

@@ -1,6 +1,6 @@
 {
-  "total": 1,
-  "exitos": 1,
+  "total": 50,
+  "exitos": 50,
   "porcentaje": 100.0,
   "modo": "light",
   "resultados": [
@@ -11,7 +11,448 @@
       "dificultad": "fácil",
       "exito": true,
       "metodo_comparacion": "ast",
-      "tiempo_segundos": 0.038
+      "tiempo_segundos": 0.043
+    },
+    {
+      "id": "002",
+      "nombre": "Renombrar variable confusa",
+      "tipo": "refactorizacion",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.002
+    },
+    {
+      "id": "003",
+      "nombre": "Añadir validación de entrada",
+      "tipo": "feature_add",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "004",
+      "nombre": "Corregir error off-by-one",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.002
+    },
+    {
+      "id": "005",
+      "nombre": "Simplificar condición redundante",
+      "tipo": "refactorizacion",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "006",
+      "nombre": "Extraer función de cálculo repetido",
+      "tipo": "refactorizacion",
+      "dificultad": "media",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "007",
+      "nombre": "Corregir error de tipo en concatenación",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.002
+    },
+    {
+      "id": "008",
+      "nombre": "Añadir parámetro con valor por defecto",
+      "tipo": "feature_add",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "009",
+      "nombre": "Corregir bug al eliminar de lista",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "010",
+      "nombre": "Refactorizar clase para usar property",
+      "tipo": "refactorizacion",
+      "dificultad": "media",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "011",
+      "nombre": "División por cero",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "012",
+      "nombre": "Error off-by-one",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "013",
+      "nombre": "Lógica invertida",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "014",
+      "nombre": "Tipo en concatenación",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "015",
+      "nombre": "Excepción no capturada",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "016",
+      "nombre": "Condición duplicada",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "017",
+      "nombre": "Retorno None implícito",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.002
+    },
+    {
+      "id": "018",
+      "nombre": "Mutabilidad no deseada",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "019",
+      "nombre": "Operador incorrecto",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "020",
+      "nombre": "Bucle infinito",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "021",
+      "nombre": "Variable no definida",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "022",
+      "nombre": "Comparación incorrecta",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "023",
+      "nombre": "Retorno de print",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "024",
+      "nombre": "Variable fuera de scope",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "025",
+      "nombre": "Error de indentación",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "026",
+      "nombre": "FizzBuzz clasifica mal los múltiplos de 15",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "027",
+      "nombre": "Acceso a clave inexistente en diccionario",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "028",
+      "nombre": "Concatenación de string y entero",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "029",
+      "nombre": "Comparación con 'is' en lugar de '=='",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "030",
+      "nombre": "Return dentro de bucle for prematuro",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "031",
+      "nombre": "Tupla de un elemento sin coma",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "032",
+      "nombre": "Argumento por defecto mutable (lista)",
+      "tipo": "bug_fix",
+      "dificultad": "medio",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "033",
+      "nombre": "Recursion infinita sin caso base correcto",
+      "tipo": "bug_fix",
+      "dificultad": "medio",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "034",
+      "nombre": "Intento de modificar string por índice",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "035",
+      "nombre": "Variable no definida antes de usar en condición",
+      "tipo": "bug_fix",
+      "dificultad": "medio",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "036",
+      "nombre": "Números mágicos en el código",
+      "tipo": "refactorizacion",
+      "dificultad": "medio",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "037",
+      "nombre": "Bucle for que puede ser list comprehension",
+      "tipo": "refactorizacion",
+      "dificultad": "medio",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "038",
+      "nombre": "Usa pathlib en lugar de os.path",
+      "tipo": "refactorizacion",
+      "dificultad": "medio",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "039",
+      "nombre": "Función demasiado larga, extraer lógica",
+      "tipo": "refactorizacion",
+      "dificultad": "medio",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "040",
+      "nombre": "Código muerto: variable no usada",
+      "tipo": "refactorizacion",
+      "dificultad": "medio",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "041",
+      "nombre": "Cadena de if/elif como diccionario",
+      "tipo": "refactorizacion",
+      "dificultad": "medio",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "042",
+      "nombre": "Archivo abierto sin context manager",
+      "tipo": "refactorizacion",
+      "dificultad": "medio",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.001
+    },
+    {
+      "id": "043",
+      "nombre": "Retorno redundante de if/else",
+      "tipo": "refactorizacion",
+      "dificultad": "medio",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.002
+    },
+    {
+      "id": "044",
+      "nombre": "If/else bloque que puede ser ternario",
+      "tipo": "refactorizacion",
+      "dificultad": "medio",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.003
+    },
+    {
+      "id": "045",
+      "nombre": "Bucle que puede ser all()",
+      "tipo": "refactorizacion",
+      "dificultad": "medio",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.006
+    },
+    {
+      "id": "046",
+      "nombre": "Añadir logging a la función",
+      "tipo": "feature",
+      "dificultad": "medio",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.006
+    },
+    {
+      "id": "047",
+      "nombre": "Añadir validación de tipo",
+      "tipo": "feature",
+      "dificultad": "medio",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.004
+    },
+    {
+      "id": "048",
+      "nombre": "Añadir memoización con functools.lru_cache",
+      "tipo": "feature",
+      "dificultad": "medio",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.006
+    },
+    {
+      "id": "049",
+      "nombre": "Refactorizar funciones sueltas a clase",
+      "tipo": "compleja",
+      "dificultad": "difícil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.004
+    },
+    {
+      "id": "050",
+      "nombre": "Separar lógica de I/O de la lógica de negocio",
+      "tipo": "compleja",
+      "dificultad": "difícil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.003
     }
   ]
 }

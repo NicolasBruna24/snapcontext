@@ -1,0 +1,8 @@
+{
+  "id": "031",
+  "nombre": "Tupla de un elemento sin coma",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Tupla de un elemento sin coma",
+  "instruccion": "Añade la coma para que sea una tupla real."
+}

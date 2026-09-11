@@ -1,0 +1,8 @@
+{
+  "id": "026",
+  "nombre": "FizzBuzz clasifica mal los múltiplos de 15",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "FizzBuzz clasifica mal los múltiplos de 15",
+  "instruccion": "Corrige FizzBuzz para que imprima 'FizzBuzz' cuando es múltiplo de 3 y 5."
+}

@@ -1,0 +1,8 @@
+{
+  "id": "019",
+  "nombre": "Operador incorrecto",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Operador incorrecto",
+  "instruccion": "Invierte la condición."
+}

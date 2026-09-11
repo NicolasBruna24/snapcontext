@@ -1,0 +1,8 @@
+{
+  "id": "022",
+  "nombre": "Comparación incorrecta",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Comparación incorrecta",
+  "instruccion": "Compara con 0."
+}

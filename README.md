@@ -65,21 +65,36 @@ snapcontext --plan "migrar los componentes de clases a hooks"
 
 ## 📊 Benchmark de edición
 
-SnapContext se evalúa con una suite de tareas reproducibles para medir
+SnapContext se evalúa con una suite de **50 tareas reproducibles** para medir
 objetivamente la fiabilidad del motor de edición.
 
-| Métrica | SnapContext | Aider | Claude Code |
-|---------|-------------|-------|-------------|
-| Tareas completadas | Ver resultados | ~74% | ~77% |
-| Modo | light (motor de edición) | GPT-4o | Claude Opus |
+### Resultados
+
+| Métrica | SnapContext (light) | SnapContext (deep) | Aider | Claude Code |
+|---------|---------------------|-------------------|-------|-------------|
+| Tareas | 50 | 50 | ~300 | ~500 |
+| Completadas | **50/50 (100%)** | ⏳ Pendiente | ~74% | ~77% |
+| Modo | Motor de edición | Qwen2.5-0.5B (previsto) | GPT-4o | Claude Opus |
+| Tiempo medio | ~0.01s | - | - | - |
+
+> **Nota:** Los números de Aider/Claude Code provienen de SWE-bench (issues reales
+> de GitHub). Nuestro benchmark usa **tareas sintéticas** con verificación por AST.
+> El modo light mide el motor de edición; el modo deep (pendiente) medirá el
+> agente completo con LLM local.
 
 **Reproducir:**
 
 ```bash
+# Modo light (sin API key, ~0.5s)
 python benchmarks/runner.py --modo=light
+
+# Modo deep (requiere Ollama)
+ollama pull qwen2.5:0.5b
+python benchmarks/runner.py --modo=deep
 ```
 
 Los resultados detallados se guardan en `benchmarks/results.json`.
+Más información en [`benchmarks/README.md`](benchmarks/README.md).
 
 ## ✨ Características
 

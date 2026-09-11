@@ -1,0 +1,8 @@
+{
+  "id": "039",
+  "nombre": "Función demasiado larga, extraer lógica",
+  "tipo": "refactorizacion",
+  "dificultad": "medio",
+  "descripcion": "Función demasiado larga, extraer lógica",
+  "instruccion": "Extrae la validación en una función separada."
+}

@@ -1,0 +1,8 @@
+{
+  "id": "041",
+  "nombre": "Cadena de if/elif como diccionario",
+  "tipo": "refactorizacion",
+  "dificultad": "medio",
+  "descripcion": "Cadena de if/elif como diccionario",
+  "instruccion": "Reemplaza la cadena de if/elif por un diccionario."
+}

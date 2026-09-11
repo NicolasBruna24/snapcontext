@@ -1,0 +1,8 @@
+{
+  "id": "034",
+  "nombre": "Intento de modificar string por índice",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Intento de modificar string por índice",
+  "instruccion": "Usa concatenación o slicing en lugar de asignación por índice."
+}

@@ -1,0 +1,8 @@
+{
+  "id": "021",
+  "nombre": "Variable no definida",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Variable no definida",
+  "instruccion": "Inicializa total."
+}

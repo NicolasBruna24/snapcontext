@@ -1,0 +1,8 @@
+{
+  "id": "048",
+  "nombre": "Añadir memoización con functools.lru_cache",
+  "tipo": "feature",
+  "dificultad": "medio",
+  "descripcion": "Añadir memoización con functools.lru_cache",
+  "instruccion": "Añade @lru_cache para cachear resultados."
+}

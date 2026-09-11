@@ -1,0 +1,8 @@
+{
+  "id": "037",
+  "nombre": "Bucle for que puede ser list comprehension",
+  "tipo": "refactorizacion",
+  "dificultad": "medio",
+  "descripcion": "Bucle for que puede ser list comprehension",
+  "instruccion": "Reemplaza el bucle por una list comprehension."
+}

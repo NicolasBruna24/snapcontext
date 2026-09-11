@@ -1,0 +1,8 @@
+{
+  "id": "030",
+  "nombre": "Return dentro de bucle for prematuro",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Return dentro de bucle for prematuro",
+  "instruccion": "Mueve el return fuera del bucle para recorrer todos los elementos."
+}

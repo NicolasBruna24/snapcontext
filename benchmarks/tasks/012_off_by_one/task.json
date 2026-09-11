@@ -1,0 +1,8 @@
+{
+  "id": "012",
+  "nombre": "Error off-by-one",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Error off-by-one",
+  "instruccion": "La función saltea el primer elemento."
+}

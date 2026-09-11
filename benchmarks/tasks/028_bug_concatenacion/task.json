@@ -1,0 +1,8 @@
+{
+  "id": "028",
+  "nombre": "Concatenación de string y entero",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Concatenación de string y entero",
+  "instruccion": "Convierte el entero a string antes de concatenar."
+}

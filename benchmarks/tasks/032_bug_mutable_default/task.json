@@ -1,0 +1,8 @@
+{
+  "id": "032",
+  "nombre": "Argumento por defecto mutable (lista)",
+  "tipo": "bug_fix",
+  "dificultad": "medio",
+  "descripcion": "Argumento por defecto mutable (lista)",
+  "instruccion": "Usa None como valor por defecto y crea la lista dentro de la función."
+}

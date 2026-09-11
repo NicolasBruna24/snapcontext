@@ -1,0 +1,8 @@
+{
+  "id": "017",
+  "nombre": "Retorno None implícito",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Retorno None implícito",
+  "instruccion": "Retorna None explícitamente."
+}

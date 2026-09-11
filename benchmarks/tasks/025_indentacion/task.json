@@ -1,0 +1,8 @@
+{
+  "id": "025",
+  "nombre": "Error de indentación",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Error de indentación",
+  "instruccion": "Indenta correctamente."
+}

@@ -1,0 +1,8 @@
+{
+  "id": "020",
+  "nombre": "Bucle infinito",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Bucle infinito",
+  "instruccion": "Incrementa el contador."
+}

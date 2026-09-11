@@ -1,0 +1,8 @@
+{
+  "id": "046",
+  "nombre": "Añadir logging a la función",
+  "tipo": "feature",
+  "dificultad": "medio",
+  "descripcion": "Añadir logging a la función",
+  "instruccion": "Añade logging.basicConfig y un logger.info al inicio."
+}

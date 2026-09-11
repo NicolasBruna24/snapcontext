@@ -1,0 +1,8 @@
+{
+  "id": "027",
+  "nombre": "Acceso a clave inexistente en diccionario",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Acceso a clave inexistente en diccionario",
+  "instruccion": "Usa .get() con valor por defecto en lugar de acceso directo."
+}

@@ -1,0 +1,8 @@
+{
+  "id": "013",
+  "nombre": "Lógica invertida",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Lógica invertida",
+  "instruccion": "Invierte la condición."
+}

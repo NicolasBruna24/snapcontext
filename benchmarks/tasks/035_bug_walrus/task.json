@@ -1,0 +1,8 @@
+{
+  "id": "035",
+  "nombre": "Variable no definida antes de usar en condición",
+  "tipo": "bug_fix",
+  "dificultad": "medio",
+  "descripcion": "Variable no definida antes de usar en condición",
+  "instruccion": "Asigna el valor antes de comparar."
+}

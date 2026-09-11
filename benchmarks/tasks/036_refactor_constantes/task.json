@@ -1,0 +1,8 @@
+{
+  "id": "036",
+  "nombre": "Números mágicos en el código",
+  "tipo": "refactorizacion",
+  "dificultad": "medio",
+  "descripcion": "Números mágicos en el código",
+  "instruccion": "Extrae los números mágicos como constantes con nombre descriptivo."
+}

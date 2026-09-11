@@ -1,0 +1,8 @@
+{
+  "id": "042",
+  "nombre": "Archivo abierto sin context manager",
+  "tipo": "refactorizacion",
+  "dificultad": "medio",
+  "descripcion": "Archivo abierto sin context manager",
+  "instruccion": "Usa 'with' para manejar el archivo de forma segura."
+}

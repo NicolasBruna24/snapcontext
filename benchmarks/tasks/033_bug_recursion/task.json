@@ -1,0 +1,8 @@
+{
+  "id": "033",
+  "nombre": "Recursion infinita sin caso base correcto",
+  "tipo": "bug_fix",
+  "dificultad": "medio",
+  "descripcion": "Recursion infinita sin caso base correcto",
+  "instruccion": "Añade caso base para n <= 1."
+}

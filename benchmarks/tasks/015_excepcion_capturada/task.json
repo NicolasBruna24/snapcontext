@@ -1,0 +1,8 @@
+{
+  "id": "015",
+  "nombre": "Excepción no capturada",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Excepción no capturada",
+  "instruccion": "Captura ValueError."
+}

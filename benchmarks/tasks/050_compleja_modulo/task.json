@@ -1,0 +1,8 @@
+{
+  "id": "050",
+  "nombre": "Separar lógica de I/O de la lógica de negocio",
+  "tipo": "compleja",
+  "dificultad": "difícil",
+  "descripcion": "Separar lógica de I/O de la lógica de negocio",
+  "instruccion": "Separa la lectura del archivo del procesamiento en funciones distintas."
+}

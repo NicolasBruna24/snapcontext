@@ -1,0 +1,8 @@
+{
+  "id": "049",
+  "nombre": "Refactorizar funciones sueltas a clase",
+  "tipo": "compleja",
+  "dificultad": "difícil",
+  "descripcion": "Refactorizar funciones sueltas a clase",
+  "instruccion": "Agrupa las funciones en una clase Calculadora."
+}

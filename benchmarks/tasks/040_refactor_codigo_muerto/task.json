@@ -1,0 +1,8 @@
+{
+  "id": "040",
+  "nombre": "Código muerto: variable no usada",
+  "tipo": "refactorizacion",
+  "dificultad": "medio",
+  "descripcion": "Código muerto: variable no usada",
+  "instruccion": "Elimina la variable no utilizada."
+}

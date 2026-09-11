@@ -1,0 +1,8 @@
+{
+  "id": "011",
+  "nombre": "División por cero",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "División por cero",
+  "instruccion": "Añade validación para b=0."
+}

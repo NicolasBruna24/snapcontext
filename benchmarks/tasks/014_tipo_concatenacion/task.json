@@ -1,0 +1,8 @@
+{
+  "id": "014",
+  "nombre": "Tipo en concatenación",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Tipo en concatenación",
+  "instruccion": "Usa f-string."
+}

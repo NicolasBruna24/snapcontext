@@ -1,0 +1,8 @@
+{
+  "id": "018",
+  "nombre": "Mutabilidad no deseada",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Mutabilidad no deseada",
+  "instruccion": "Retorna lista nueva."
+}

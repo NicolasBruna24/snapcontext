@@ -1,0 +1,8 @@
+{
+  "id": "024",
+  "nombre": "Variable fuera de scope",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Variable fuera de scope",
+  "instruccion": "Inicializa counter."
+}

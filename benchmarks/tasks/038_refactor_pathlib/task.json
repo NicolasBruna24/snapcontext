@@ -1,0 +1,8 @@
+{
+  "id": "038",
+  "nombre": "Usa pathlib en lugar de os.path",
+  "tipo": "refactorizacion",
+  "dificultad": "medio",
+  "descripcion": "Usa pathlib en lugar de os.path",
+  "instruccion": "Reemplaza os.path.join por pathlib.Path."
+}

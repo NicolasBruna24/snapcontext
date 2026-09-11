@@ -1,0 +1,8 @@
+{
+  "id": "029",
+  "nombre": "Comparación con 'is' en lugar de '=='",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Comparación con 'is' en lugar de '=='",
+  "instruccion": "Usa == para comparar valores, no 'is'."
+}
