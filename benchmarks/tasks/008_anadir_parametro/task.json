@@ -1,0 +1,8 @@
+{
+  "id": "008",
+  "nombre": "Añadir parámetro con valor por defecto",
+  "tipo": "feature_add",
+  "dificultad": "fácil",
+  "descripcion": "Añadir parámetro con valor por defecto",
+  "instruccion": "La función obtener_saludo(idioma) debe aceptar un segundo parámetro 'nombre' con valor por defecto 'Mundo'."
+}

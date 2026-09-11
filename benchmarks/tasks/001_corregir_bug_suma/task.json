@@ -1,0 +1,8 @@
+{
+  "id": "001",
+  "nombre": "Corregir bug en función suma",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "La función suma devuelve el resultado incorrecto cuando uno de los argumentos es negativo.",
+  "instruccion": "Corrige la función suma para que devuelva el resultado correcto."
+}

@@ -1,0 +1,17 @@
+{
+  "total": 1,
+  "exitos": 1,
+  "porcentaje": 100.0,
+  "modo": "light",
+  "resultados": [
+    {
+      "id": "001",
+      "nombre": "Corregir bug en función suma",
+      "tipo": "bug_fix",
+      "dificultad": "fácil",
+      "exito": true,
+      "metodo_comparacion": "ast",
+      "tiempo_segundos": 0.038
+    }
+  ]
+}

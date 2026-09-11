@@ -1,0 +1,8 @@
+{
+  "id": "003",
+  "nombre": "Añadir validación de entrada",
+  "tipo": "feature_add",
+  "dificultad": "fácil",
+  "descripcion": "Añadir validación de entrada",
+  "instruccion": "La función dividir debe validar que el divisor no sea Zero. Añade la validación."
+}

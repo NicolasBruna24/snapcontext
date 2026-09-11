@@ -1,0 +1,8 @@
+{
+  "id": "010",
+  "nombre": "Refactorizar clase para usar property",
+  "tipo": "refactorizacion",
+  "dificultad": "media",
+  "descripcion": "Refactorizar clase para usar property",
+  "instruccion": "La clase Rectangulo debe usar @property para area en lugar de un método calcular_area()."
+}

@@ -1,0 +1,8 @@
+{
+  "id": "009",
+  "nombre": "Corregir bug al eliminar de lista",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Corregir bug al eliminar de lista",
+  "instruccion": "La función eliminar_elemento modifica la lista original. Debe devolver una copia sin modificar el original."
+}

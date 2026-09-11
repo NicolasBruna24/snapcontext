@@ -1,0 +1,8 @@
+{
+  "id": "005",
+  "nombre": "Simplificar condición redundante",
+  "tipo": "refactorizacion",
+  "dificultad": "fácil",
+  "descripcion": "Simplificar condición redundante",
+  "instruccion": "Simplificar la función es_mayor_de_edad. La condición es redundante."
+}

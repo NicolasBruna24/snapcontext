@@ -4,6 +4,13 @@ Todos los cambios notables para SnapContext se documentarán en este archivo.
 
 El formato sigue las [directrices de Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
+## [6.34.17] - 2026-09-10
+### Mejoras
+- Benchmark de edición público con 10 tareas reproducibles (Fase 5).
+- Runner de benchmark con modos light (motor de edición) y deep (Ollama).
+- Tests opcionales del benchmark (`tests/test_benchmark.py`).
+- Documentación del benchmark en `benchmarks/README.md`.
+
 ## [6.34.16] - 2026-09-10
 ### Mejoras
 - Onboarding zero-config: `snapcontext --demo` sin API key, documentado `pipx install`.

@@ -1,0 +1,8 @@
+{
+  "id": "002",
+  "nombre": "Renombrar variable confusa",
+  "tipo": "refactorizacion",
+  "dificultad": "fácil",
+  "descripcion": "Renombrar variable confusa",
+  "instruccion": "La variable 'x' en calcular_area representa el radio. Renombrarla a 'radio'."
+}

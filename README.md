@@ -63,6 +63,24 @@ snapcontext "el botón de pago no actualiza el total" --test-loop
 snapcontext --plan "migrar los componentes de clases a hooks"
 ```
 
+## 📊 Benchmark de edición
+
+SnapContext se evalúa con una suite de tareas reproducibles para medir
+objetivamente la fiabilidad del motor de edición.
+
+| Métrica | SnapContext | Aider | Claude Code |
+|---------|-------------|-------|-------------|
+| Tareas completadas | Ver resultados | ~74% | ~77% |
+| Modo | light (motor de edición) | GPT-4o | Claude Opus |
+
+**Reproducir:**
+
+```bash
+python benchmarks/runner.py --modo=light
+```
+
+Los resultados detallados se guardan en `benchmarks/results.json`.
+
 ## ✨ Características
 
 | Área | Detalle |

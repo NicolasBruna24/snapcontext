@@ -1,0 +1,8 @@
+{
+  "id": "007",
+  "nombre": "Corregir error de tipo en concatenación",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Corregir error de tipo en concatenación",
+  "instruccion": "La función saludar falla porque concatena str con int. Corrige el error."
+}

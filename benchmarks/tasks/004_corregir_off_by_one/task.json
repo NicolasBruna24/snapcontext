@@ -1,0 +1,8 @@
+{
+  "id": "004",
+  "nombre": "Corregir error off-by-one",
+  "tipo": "bug_fix",
+  "dificultad": "fácil",
+  "descripcion": "Corregir error off-by-one",
+  "instruccion": "La función sumar_hasta(n) debe sumar 1+2+...+n. Tiene un error off-by-one."
+}

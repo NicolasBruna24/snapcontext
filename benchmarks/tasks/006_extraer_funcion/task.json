@@ -1,0 +1,8 @@
+{
+  "id": "006",
+  "nombre": "Extraer función de cálculo repetido",
+  "tipo": "refactorizacion",
+  "dificultad": "media",
+  "descripcion": "Extraer función de cálculo repetido",
+  "instruccion": "El cálculo del área de un círculo está repetido 3 veces. Extrae una función calcular_area_circulo(radio)."
+}
