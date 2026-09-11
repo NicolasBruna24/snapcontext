@@ -240,9 +240,27 @@ Gateways para **Discord**, **Telegram**, **web** (`--web`) y **TUI**
 
 ### 🔌 MCP nativo
 
-Herramientas MCP integradas: bases de datos (`mcp_tools_db`), APIs HTTP
-(`mcp_tools_api`) y navegador (`mcp_tools_browser`), más un marketplace de
-servidores MCP (`snapcontext plugin` / índice configurable).
+SnapContext incluye un **cliente MCP estándar** que le permite conectarse a
+servidores MCP externos (como los que usan Claude Code, Cline o OpenCode) y
+exponer sus herramientas al agente ReAct.
+
+**Herramientas MCP integradas:**
+- Bases de datos (`mcp_tools_db`)
+- APIs HTTP (`mcp_tools_api`)
+- Navegador (`mcp_tools_browser`)
+- Marketplace de servidores (`snapcontext plugin`)
+
+**Cliente MCP estándar (Fase 3):** conecta con servidores MCP de terceros
+configurando `~/.snapcontext/mcp_servers.json` y expone sus herramientas con
+el prefijo `mcp_<servidor>_<herramienta>`. Comandos:
+
+```bash
+snapcontext mcp list                          # lista servidores y herramientas
+snapcontext mcp add fs npx -y @modelcontextprotocol/server-filesystem .
+snapcontext mcp remove fs                     # elimina un servidor
+```
+
+Documentación completa: [`docs/MCP.md`](docs/MCP.md).
 
 ### 🕸️ Graph RAG y LSP
 

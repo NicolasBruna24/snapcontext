@@ -223,7 +223,74 @@ def _cargar_herramientas_mcp() -> dict:
 
     for nombre, cfg in _sc._plugins_herramientas().items():
         herramientas.setdefault(nombre, cfg)
+    # v6.34.15 (Fase 3): herramientas de servidores MCP externos.
+    herramientas.update(_cargar_herramientas_mcp_externas())
     return herramientas
+
+
+def _parametros_desde_schema(schema: dict | None) -> dict:
+    """Convierte un JSON Schema de entrada MCP al formato interno ``{nombre: tipo}``.
+
+    MCP describe los parámetros de cada herramienta con un JSON Schema
+    (``inputSchema``); el formato interno de ``HERRAMIENTAS_PREDEFINIDAS`` usa
+    ``{"param": "tipo"}`` (ej. ``"str"``, ``"int"``). Esta función hace la
+    traducción mínima para que el catálogo sea homogéneo.
+    """
+    if not isinstance(schema, dict):
+        return {}
+    propiedades = schema.get("properties") or {}
+    if not isinstance(propiedades, dict):
+        return {}
+    traduccion = {"string": "str", "integer": "int", "number": "float",
+                  "boolean": "bool", "array": "list", "object": "dict"}
+    params: dict = {}
+    for nombre, meta in propiedades.items():
+        if isinstance(meta, dict):
+            tipo = traduccion.get(meta.get("type", "str"), "str")
+            params[nombre] = tipo
+        else:
+            params[nombre] = "str"
+    return params
+
+
+def _cargar_herramientas_mcp_externas() -> dict:
+    """Carga herramientas de servidores MCP externos (Fase 3).
+
+    Usa ``mcp_client`` para conectar con los servidores configurados en
+    ``mcp_servers.json`` y registra cada herramienta con el prefijo
+    ``mcp_<servidor>_<herramienta>`` para evitar colisiones con las nativas.
+
+    Degradación elegante: si ``mcp_client`` no está disponible o ningún
+    servidor arranca, devuelve un diccionario vacío (sin romper el catálogo).
+    """
+    externas: dict = {}
+    try:
+        from mcp_client import cliente_compartido
+    except Exception as exc:
+        depurar(f"[mcp_tools] mcp_client no disponible: {exc}")
+        return externas
+    try:
+        cliente = cliente_compartido()
+        for servidor, herramientas in cliente.list_tools().items():
+            if not herramientas:
+                continue
+            for h in herramientas:
+                nombre_herramienta = h.get("name")
+                if not nombre_herramienta:
+                    continue
+                nombre = f"mcp_{servidor}_{nombre_herramienta}"
+                externas[nombre] = {
+                    "descripcion": h.get("description")
+                    or f"MCP externo: {servidor}/{nombre_herramienta}",
+                    "parametros": _parametros_desde_schema(h.get("inputSchema")),
+                    "requiere_permiso": True,  # las externas siempre piden confirmación
+                    "mcp_externo": True,
+                    "mcp_servidor": servidor,
+                    "mcp_herramienta": nombre_herramienta,
+                }
+    except Exception as exc:
+        depurar(f"[mcp_tools] error cargando herramientas MCP externas: {exc}")
+    return externas
 
 
 # --- Dispatcher MCP: valida permisos y ejecuta la herramienta --------------
@@ -399,6 +466,16 @@ def _ejecutar_herramienta_mcp(  # noqa: C901  (refactor de complejidad: Fase 10c
                     resultado = _btool.browser_cerrar()
                 else:
                     resultado = {"ok": False, "error": f"acción desconocida: {nombre}"}
+        elif cfg.get("mcp_externo"):
+            # v6.34.15 (Fase 3): herramienta de servidor MCP externo.
+            from mcp_client import cliente_compartido
+            try:
+                cliente = cliente_compartido()
+                resultado = cliente.call_tool(
+                    cfg["mcp_servidor"], cfg["mcp_herramienta"], argumentos
+                )
+            except Exception as exc:
+                resultado = {"ok": False, "error": f"error en servidor MCP: {exc}"}
         else:
             # Herramienta de usuario definida en mcp_tools.json → comando.
             if cfg.get("plugin"):

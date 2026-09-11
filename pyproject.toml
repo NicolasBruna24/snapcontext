@@ -112,6 +112,8 @@ py-modules = [
     "utils", "editor", "diagnostico", "estado",
     # Fase 8: subsistema de herramientas MCP (dispatcher y registro).
     "mcp_tools",
+    # Fase 3 (v6.34.15): cliente MCP estándar para servidores externos.
+    "mcp_client",
 ]
 packages = ["web"]
 

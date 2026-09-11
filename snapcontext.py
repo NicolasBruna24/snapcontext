@@ -11737,6 +11737,12 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901  (refactor de comp
     # v6.22.0: hooks — `snapcontext hook list` muestra los hooks registrados.
     if argv and argv[0].lower() in ("hook", "hooks"):
         return _ejecutar_comando_hook(argv[1:])
+    # v6.34.15 (Fase 3): cliente MCP estándar — subcomando `snapcontext mcp`.
+    # Import diferido: mcp_client importa snapcontext en tiempo de ejecución.
+    if argv and argv[0].lower() == "mcp":
+        from mcp_client import _ejecutar_comando_mcp
+
+        return _ejecutar_comando_mcp(argv[1:])
     args = crear_parser().parse_args(_preparar_argv_aliases(argv))
     try:
         # v6.9.0: benchmark de rendimiento por fases (no necesita API key).
