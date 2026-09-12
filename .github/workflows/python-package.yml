@@ -106,8 +106,9 @@ jobs:
           tests/test_hunks_prov.py
           tests/test_volumen7.py
           tests/test_volumen8.py
-          # Fase 1d: tests de volumen adicionales (livianos y mockeados); con
-          # ellos el gate mide ~51% localmente y cruza COV_MIN=50.
+          # Fase 1d: tests de volumen adicionales (livianos y mockeados).
+          # Gate ampliado a source=["."] (55 módulos): mide ~33% localmente
+          # y cruza COV_MIN=31 (ver docs/AUDIT_2026-09.md, Sprint 1.A).
           tests/test_volumen9.py
           tests/test_volumen10.py
           tests/test_volumen11.py
@@ -225,6 +226,35 @@ jobs:
         # addopts (pyproject) aporta --cov; si supera la memoria (exit 137) el job
         # NO bloquea por continue-on-error, pero queda registrado en los checks.
         run: pytest tests/ -q --maxfail=5 --timeout=60
+
+  audit-deps:
+    name: Audit dependencies
+    runs-on: ubuntu-latest
+    # Sprint 1.B: auditoría de CVEs con pip-audit en cada push. NO bloqueante
+    # (continue-on-error) mientras los advisory encontrados no se resuelvan;
+    # una vez resueltos, quitar esta línea para volverlo bloqueante.
+    # Referencia: docs/AUDIT_2026-09.md (dimensión Dependencias 2/5).
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+
+      - name: Install package
+        run: pip install -e .
+
+      - name: Run audit
+        run: pip-audit --format=columns
 
   publish-pypi:
     name: Publish to PyPI
