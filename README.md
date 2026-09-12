@@ -1,12 +1,12 @@
 # SnapContext
 
-![v6.34.14](https://img.shields.io/badge/version-6.34.14-blue.svg)
+[![PyPI version](https://img.shields.io/pypi/v/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![VS Code](https://img.shields.io/badge/VS%20Code-Marketplace-0098FF)](https://marketplace.visualstudio.com/)
 [![JetBrains](https://img.shields.io/badge/JetBrains-Plugin-000000)](https://plugins.jetbrains.com/)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/python-package.yml?branch=main&label=tests)](https://github.com/NicolasBruna24/snapcontext/actions)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 ![Plataformas](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macOS-lightgrey.svg)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 

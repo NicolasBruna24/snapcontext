@@ -180,7 +180,9 @@ class TestDaemonYFlags(BaseAPI):
         self.assertIsNone(defecto.api_token)
 
     def test_generar_clave_api_devuelve_y_guarda(self):
-        with mock.patch.object(sc, "_actualizar_clave_configuracion", return_value=True) as guarda:
+        with mock.patch(
+            "configuracion._actualizar_clave_configuracion", return_value=True
+        ) as guarda:
             clave = sc._generar_clave_api()
         self.assertGreaterEqual(len(clave), 32)
         guarda.assert_called_once_with("api_key", clave)

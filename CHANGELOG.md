@@ -1,5 +1,13 @@
 # Changelog de SnapContext
 
+## [6.35.2] - 2026-09-11
+### Fixed
+- CI: configurar git user/email en integration tests (fix tests de commit)
+- Test: mock correcto de _actualizar_clave_configuracion en test_api_360
+### Changed
+- Coverage: fail_under solo en workflow (fuente única de verdad)
+- README: badges dinámicos de version y license (shields.io)
+
 ## [6.35.1] - 2026-09-11
 ### Fixed
 - CI: eliminar classifier de licencia Apache para cumplir PEP 639
