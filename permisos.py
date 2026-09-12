@@ -151,6 +151,7 @@ def _confirmar_accion(  # noqa: C901  (refactor de complejidad: Fase 10c)
         for linea in str(detalles).splitlines()[:6]:
             _emitir(sys.stdout, f"  detalle     : {linea}")
     ruta = _ruta_permisos()
+    intentos_invalidos = 0
     while True:
         try:
             eleccion = (
@@ -164,7 +165,7 @@ def _confirmar_accion(  # noqa: C901  (refactor de complejidad: Fase 10c)
                 .strip()
                 .lower()
             )
-        except EOFError:
+        except (EOFError, OSError):
             aviso("Sin entrada disponible; acción denegada por seguridad.")
             return False
         if eleccion in ("s", "si", "sí", "y", "yes"):
@@ -183,5 +184,9 @@ def _confirmar_accion(  # noqa: C901  (refactor de complejidad: Fase 10c)
         if eleccion in ("a", "anular", "nunca"):
             _guardar_permiso(tipo, "nunca")
             aviso(f"Se recordará: '{tipo}' nunca permitido ({ruta}).")
+            return False
+        intentos_invalidos += 1
+        if intentos_invalidos >= 3:
+            aviso("Demasiados intentos inválidos; acción denegada por seguridad.")
             return False
         aviso("Opción no válida; responde s, n, t o a.")

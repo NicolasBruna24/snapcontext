@@ -263,6 +263,7 @@ class TestReduccionConfirmaciones(unittest.TestCase):
             mock.patch.object(sc, "_ejecutar_paso_plan", return_value=(True, "ok")),
             mock.patch.object(sc, "_guardar_historial", return_value=True),
             mock.patch.object(sc, "_aprender_de_tarea", return_value=None),
+            mock.patch.object(sc, "_confirmar_accion", return_value=False),
             mock.patch.object(sc, "info") as info,
         ):
             codigo = sc._ejecutar_planificador(self._args(inteligente=True))
@@ -280,6 +281,7 @@ class TestReduccionConfirmaciones(unittest.TestCase):
             mock.patch.object(sc, "_ejecutar_paso_plan", return_value=(True, "ok")),
             mock.patch.object(sc, "_guardar_historial", return_value=True),
             mock.patch.object(sc, "_aprender_de_tarea", return_value=None),
+            mock.patch.object(sc, "_confirmar_accion", return_value=False),
             mock.patch.object(sc, "info") as info,
         ):
             codigo = sc._ejecutar_planificador(self._args(inteligente=False))

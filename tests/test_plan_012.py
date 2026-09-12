@@ -269,6 +269,7 @@ class TestEjecutarPlanificador(unittest.TestCase):
             mock.patch.object(sc, "_generar_plan", return_value=pasos) as gp,
             mock.patch.object(sc, "_preguntar_si", return_value=True),
             mock.patch("builtins.input", return_value="c"),
+            mock.patch.object(sc, "_confirmar_accion", return_value=False),
             mock.patch.object(
                 sc, "_ejecutar_paso_plan", side_effect=[(True, "ok"), (True, "ok")]
             ) as ep,

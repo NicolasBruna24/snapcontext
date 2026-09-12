@@ -1,5 +1,12 @@
 # Changelog de SnapContext
 
+## [6.35.3] - 2026-09-12
+### Fixed
+- Tests: mock de input() con valor válido en test_plan_012 (evita bucle infinito)
+- Tests: mockear _confirmar_accion en test_modo_inteligente (evita OSError de pytest)
+- Permisos: capturar OSError además de EOFError en _confirmar_accion
+- Permisos: límite de 3 intentos inválidos antes de denegar (defensa en profundidad)
+
 ## [6.35.2] - 2026-09-11
 ### Fixed
 - CI: configurar git user/email en integration tests (fix tests de commit)
