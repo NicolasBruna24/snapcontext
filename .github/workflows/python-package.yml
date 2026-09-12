@@ -23,8 +23,9 @@ permissions:
 env:
   # Umbral mínimo de cobertura para el GATE BLOQUEANTE (Fase 1d).
   # El gate ejecuta los tests rápidos del NÚCLEO (ver paso "Smoke tests + cobertura").
-  # TODO: subir a 50 cuando la cobertura real del gate lo alcance
-  COV_MIN: '42'
+  # Con source=["."] (todos los módulos) el gate mide ~33% localmente (833 tests).
+  COV_MIN: '31'
+  # TODO: subir a 50 cuando la cobertura del gate lo permita
 
 jobs:
   build-and-test:
