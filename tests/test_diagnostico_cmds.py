@@ -206,7 +206,10 @@ class TestEjecutarDiagnostico(unittest.TestCase):
             return diag._ejecutar_diagnostico(_args())
 
     def test_todo_ok_devuelve_0(self):
-        self.assertEqual(self._ejecuta(), 0)
+        # Determinista: sin el mock, depende de si snapcontext está instalado
+        # (sin pip install -e . el check de metadatos añade 1 aviso → return 2).
+        with mock.patch("importlib.metadata.version", return_value="6.35.3"):
+            self.assertEqual(self._ejecuta(), 0)
 
     def test_dependencia_faltante_devuelve_2(self):
         self.assertEqual(self._ejecuta(deps=[("questionary", False, "pip install q")]), 2)
@@ -222,6 +225,7 @@ class TestEjecutarDiagnostico(unittest.TestCase):
 
     def test_ollama_listo_devuelve_0(self):
         with (
+            mock.patch("importlib.metadata.version", return_value="6.35.3"),
             mock.patch.object(
                 sc, "_estado_ollama", return_value={"instalado": True, "modelos": ["llama3.2"]}
             ),
