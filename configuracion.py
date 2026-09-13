@@ -364,7 +364,7 @@ def _preguntar_guardar_config() -> bool:
 
 
 # --- _probar_conexion_proveedor (1464-1526) ---
-def _probar_conexion_proveedor(provider: str, model: str | None = None) -> bool:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _probar_conexion_proveedor(provider: str, model: str | None = None) -> bool:
     """Comprueba la conexión con la API del proveedor elegido (usado por --init).
 
     Reutiliza la clave guardada en la configuración o, como plan B, la variable

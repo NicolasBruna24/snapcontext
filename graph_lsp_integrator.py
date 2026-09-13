@@ -229,7 +229,7 @@ class GraphLSPIntegrator:
         self._degradados_avisados.add(clave)
         _aviso("LSP no disponible, usando búsqueda por regex.")
 
-    def _buscar_por_regex(  # noqa: C901  (refactor de complejidad: Fase 10c)
+    def _buscar_por_regex(
         self, archivo: str, linea: int | None, max_coincidencias: int = 25
     ) -> list[dict[str, Any]]:
         """Búsqueda por regex: rápida y sin dependencias externas.

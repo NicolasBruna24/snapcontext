@@ -98,11 +98,12 @@ from planificador import (
     _registrar_resultado_plan,
 )
 
+# v5.4.0: detección de comandos peligrosos para el sandboxing inteligente.
+# v6.36.0: clasificación de 3 niveles (allowlist → default-deny → blocklist).
+from sandbox_utils import clasificar_comando, es_comando_peligroso, patron_peligroso
+
 # seguridad: ejecución segura de comandos (shell=False por defecto).
 from sandbox_utils import ejecutar_comando_con_politica as _ejecutar_con_politica
-
-# v5.4.0: detección de comandos peligrosos para el sandboxing inteligente.
-from sandbox_utils import es_comando_peligroso
 from ui import configurar_auto as _ui_configurar_auto
 from ui import es_auto as _ui_es_auto
 from ui import mostrar_banner as _ui_mostrar_banner
@@ -925,7 +926,7 @@ def _es_archivo_indexable(ruta: str) -> bool:
     return not any(p in DIRS_IGNORADOS for p in partes[:-1])
 
 
-def listar_archivos_candidatos(  # noqa: C901  (refactor de complejidad: Fase 10c)
+def listar_archivos_candidatos(
     raiz: Path, carpetas: list[str], extensiones: list[str] | None = None
 ) -> list[str]:
     """Devuelve las rutas (relativas, formato POSIX) de `carpetas` bajo `raiz`.
@@ -1615,10 +1616,13 @@ def _editor_sobrescribir(archivo: str, contenido: str, directorio: str = ".") ->
             return False
 
     try:
-        destino.parent.mkdir(parents=True, exist_ok=True)
-        destino.write_text(contenido, encoding="utf-8")
+        from utils import RutaInseguraError, escribir_archivo_seguro
+        escribir_archivo_seguro(limpia, contenido, raiz_res)
         exito(f"[EditorPropio] Archivo actualizado: {limpia}")
         return True
+    except RutaInseguraError as exc:
+        error(f"[EditorPropio] Error al escribir {limpia}: {exc}")
+        return False
     except Exception as exc:
         error(f"[EditorPropio] Error al escribir {limpia}: {exc}")
         return False
@@ -1668,7 +1672,7 @@ def _extraer_bloques_ast(contenido: str, archivo: str | None = None) -> list[dic
     return bloques
 
 
-def _extraer_contexto_selectivo(  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _extraer_contexto_selectivo(
     contenido: str, mensaje: str = "", archivo: str | None = None
 ) -> str:
     """Construye contexto reducido para archivos grandes (> MAX_CONTEXT_LINES).
@@ -1820,7 +1824,7 @@ def _comandos_validacion(lenguaje: str, archivo_tmp: str) -> list[list[str]]:
     return []
 
 
-def _validar_sintaxis(archivo: str, contenido: str, directorio: str = ".") -> tuple[bool, str]:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _validar_sintaxis(archivo: str, contenido: str, directorio: str = ".") -> tuple[bool, str]:
     """Valida la sintaxis de ``contenido`` como si fuese el de ``archivo``.
 
     Escribe el ``contenido`` en un archivo temporal (siempre conserva la
@@ -1921,7 +1925,7 @@ def _generar_parche(original: str, nuevo: str, ruta_archivo: str) -> str:
     return "".join(diff)
 
 
-def _aplicar_parche(parche: str, directorio: str = ".") -> bool:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _aplicar_parche(parche: str, directorio: str = ".") -> bool:
     """Aplica un parche unificado en `directorio` usando `git apply` o `patch`.
 
     1. Escribe el parche en un archivo temporal.
@@ -2020,7 +2024,7 @@ UMBRAL_DIFUSO_BLOQUE = 0.80
 MAX_CONTEXTO_DIFUSO_LINEAS = 20
 
 
-def aplicar_reemplazo_estructurado(  # noqa: C901  (refactor de complejidad: Fase 14)
+def aplicar_reemplazo_estructurado(
     archivo: str,
     bloque_original: str,
     bloque_nuevo: str,
@@ -2500,7 +2504,7 @@ def _ast_disponible(ruta: str) -> bool:
     return bool(tree_sitter is not None and _ts_lang is not None and lenguaje)
 
 
-def _resumen_ast_python(contenido: str) -> dict:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _resumen_ast_python(contenido: str) -> dict:
     """Resumen del AST de un archivo Python (funciones, clases, variables, imports)."""
     resumen: dict = {
         "ok": False,
@@ -2774,7 +2778,7 @@ def _aplicar_operaciones_ast(contenido: str, operaciones: list[dict]) -> str | N
     return resultado if resultado != contenido else None
 
 
-def _editor_ast(  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _editor_ast(
     archivo: str,
     tarea: str,
     directorio: str = ".",
@@ -3286,7 +3290,7 @@ def _puerto_de(url: str) -> int:
         return 5000
 
 
-def ejecutar_bucle_agente(  # noqa: C901  (refactor de complejidad: Fase 10c)
+def ejecutar_bucle_agente(
     consulta: str,
     archivos: list[str],
     modo: str = "auto",
@@ -3482,7 +3486,7 @@ def _eliminar_por_indice(seleccion: list[str]) -> list[str]:
     return seleccion
 
 
-def modo_experto(seleccion: list[str], raiz: Path) -> list[str]:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def modo_experto(seleccion: list[str], raiz: Path) -> list[str]:
     """Modo experto: revisar/añadir/eliminar/limpiar archivos de la selección.
 
     Opciones del menú:
@@ -3688,16 +3692,39 @@ def _ejecutar_comando(  # noqa: C901  (refactor de complejidad: Fase 10c)
             comando = _envolver_sandbox(comando, str(raiz))
             raiz = Path.cwd()  # docker se lanza desde el host; el mount ya es absoluto
     try:
-        # seguridad: si el comando va a ejecutarse directo (sin
-        # contenedor, p. ej. con --no-sandbox) y es potencialmente peligroso,
-        # pedir confirmación y abortar en modo --auto/no interactivo.
-        if decision == _SANDBOX_DIRECTO and _es_comando_peligroso(comando):
-            if _ui_es_auto() or not _entrada_interactiva():
-                return (-1, "", "Comando peligroso abortado (modo --auto / no interactivo).")
-            if not _preguntar_si(
-                f"Comando potencialmente peligroso: {comando}\n¿Ejecutar igualmente? (s/n): "
-            ):
-                return (-1, "", "Comando peligroso rechazado por el usuario.")
+        # seguridad (v6.36.0): si el comando va a ejecutarse directo...
+        #   (1) ...y matchea la blocklist legacy → confirmación explícita
+        #       (abortando en modo --auto/no interactivo), como siempre;
+        #   (2) ...por opt-out (--no-sandbox) estando FUERA de la allowlist →
+        #       confirmación explícita mostrando el motivo (no silenciosa).
+        if decision == _SANDBOX_DIRECTO:
+            desc_legacy = (
+                patron_peligroso(comando) if _es_comando_peligroso(comando) else None
+            )
+            opt_out = _NO_SANDBOX or os.environ.get("SNAPCONTEXT_SANDBOX") == "0"
+            nivel, motivo = clasificar_comando(comando)
+            if desc_legacy:
+                razon = f"blocklist legacy: {desc_legacy}"
+                if _ui_es_auto() or not _entrada_interactiva():
+                    return (-1, "", "Comando peligroso abortado (modo --auto / no interactivo).")
+                if not _preguntar_si(
+                    f"Comando potencialmente peligroso: {comando}\n¿Ejecutar igualmente? (s/n): "
+                ):
+                    return (-1, "", "Comando peligroso rechazado por el usuario.")
+            elif opt_out and nivel != "directo":
+                razon = motivo
+                if _ui_es_auto() or not _entrada_interactiva():
+                    return (
+                        -1,
+                        "",
+                        "Comando fuera de la allowlist abortado "
+                        f"(modo --auto / no interactivo): {razon}",
+                    )
+                if not _preguntar_si(
+                    f"⚠️ Comando fuera de la allowlist del sandbox ({razon}): "
+                    f"{comando}\n¿Ejecutar directamente (sin sandbox)? (s/n): "
+                ):
+                    return (-1, "", "Comando rechazado por el usuario (fuera de allowlist).")
         # seguridad: helper seguro. Comandos SIN sintaxis de shell
         # (pipes/redirecciones/glóbulos) se dividen con shlex.split y se
         # ejecutan con shell=False; los que la usan mantienen shell=True tras
@@ -3784,10 +3811,14 @@ def _deberia_usar_sandbox(comando: str | None, args: argparse.Namespace | None =
     # 3. Siempre activo por entorno.
     if os.environ.get("SNAPCONTEXT_SANDBOX") == "1":
         return True
-    # 4. Comando peligroso → sandbox automáticamente.
-    if _SANDBOX_SMART and es_comando_peligroso(comando):
-        return True
-    # 5. Resto (seguro) → sin sandbox.
+    # 4. Clasificación de 3 niveles (v6.36.0, default-deny): solo los
+    #    comandos de la allowlist (sin metacaracteres) corren directo;
+    #    todo lo demás va al contenedor automáticamente.
+    if _SANDBOX_SMART:
+        nivel, _motivo = clasificar_comando(comando or "")
+        if nivel != "directo":
+            return True
+    # 5. Resto (en la allowlist) → sin sandbox.
     return False
 
 
@@ -3957,15 +3988,18 @@ def _decidir_ejecucion_sandbox(comando: str, directorio: str) -> int:
     Devuelve uno de :data:`_SANDBOX_CONTENEDOR`, :data:`_SANDBOX_DIRECTO` o
     :data:`_SANDBOX_ABORTAR`.
 
-    - Si el comando es peligroso y el sandbox Docker **no** está disponible:
-      avisa y (modo interactivo) pregunta si continuar sin sandbox; en modo
-      ``--auto`` (o stdin no interactivo) **aborta**.
-    - Si es peligroso y hay Docker: avisa con el candado y lo encapsula.
+    - Si el comando cae fuera de la allowlist (default-deny, v6.36.0) y el
+      sandbox Docker **no** está disponible: avisa y (modo interactivo)
+      pregunta si continuar sin sandbox; en modo ``--auto`` (o stdin no
+      interactivo) **aborta**.
+    - Si hay Docker: avisa (con el motivo explícito — blocklist legacy o
+      allowlist) y lo encapsula.
     """
     if not _deberia_usar_sandbox(comando):
         return _SANDBOX_DIRECTO
 
     peligroso = _es_comando_peligroso(comando)
+    nivel, motivo = clasificar_comando(comando)
 
     # Sandbox ya forzado / activo globalmente (--sandbox o env=1 en main()).
     if _SANDBOX_ACTIVO:
@@ -3974,7 +4008,12 @@ def _decidir_ejecucion_sandbox(comando: str, directorio: str) -> int:
     # Sandbox detectado por peligro (o env=1) → comprobar disponibilidad.
     if _docker_disponible():
         if peligroso:
-            info("🗝 Comando potencialmente peligroso detectado. Ejecutando en sandbox Docker.")
+            info(
+                f"🗝 Comando potencialmente peligroso "
+                f"({patron_peligroso(comando) or motivo}). Ejecutando en sandbox Docker."
+            )
+        elif nivel != "directo":
+            info(f"🔒 Comando fuera de la allowlist ({motivo}). Ejecutando en sandbox Docker.")
         else:
             depurar("[sandbox] SNAPCONTEXT_SANDBOX=1 → Ejecutando en contenedor.")
         return _SANDBOX_CONTENEDOR
@@ -4249,7 +4288,7 @@ _RE_THINK_ABIERTO = re.compile(r"</?think>", re.I)
 _RAZONAMIENTO_ESTADO = {"banner": False, "aviso_dos_pasos": False}
 
 
-def _extraer_razonamiento(respuesta) -> str | None:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _extraer_razonamiento(respuesta) -> str | None:
     """Extrae el razonamiento (chain-of-thought) de una respuesta del modelo.
 
     Acepta un dict (campos ``reasoning``/``thinking``/``chain_of_thought``/
@@ -4768,7 +4807,7 @@ def _tipo_tarea_actual(categoria: str | None = None) -> str:
     return "general"
 
 
-def _enviar_al_proveedor(  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _enviar_al_proveedor(
     proveedor: str,
     modelo: str | None,
     mensajes: list[dict],
@@ -7460,7 +7499,7 @@ CURADOR_UMBRAL_FUSION = 0.90  # similitud mínima para fusionar skills
 CLAVE_CURADOR_ULTIMA = "curador_ultima_ejecucion"
 
 
-def _curador_ejecutar(  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _curador_ejecutar(
     dias_sin_uso: int = CURADOR_DIAS_SIN_USO, umbral_fusion: float = CURADOR_UMBRAL_FUSION
 ) -> dict:
     """Ejecuta una pasada del curador. Devuelve un resumen de acciones.
@@ -7794,7 +7833,7 @@ def _plugin_descargar_zip(origen: str, destino_tmp: Path) -> Path | None:
     return None
 
 
-def _plugin_instalar(origen: str, confirmar: bool = True, auto: bool = False) -> int:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _plugin_instalar(origen: str, confirmar: bool = True, auto: bool = False) -> int:
     """Instala un plugin desde un repositorio o carpeta local. → código salida.
 
     - Origen local: ruta a una carpeta con ``plugin.json`` (o su padre).
@@ -8311,7 +8350,7 @@ def _ejecutar_comando_curador(subargv: list[str]) -> int:
     return 0
 
 
-def _ejecutar_comando_plugin(subargv: list[str]) -> int:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _ejecutar_comando_plugin(subargv: list[str]) -> int:
     """Despacha el subcomando ``snapcontext plugin <accion> [...]``."""
     global DEPURAR
     if not subargv:
@@ -8695,7 +8734,7 @@ def _lenguaje_archivo(ruta: str, contenido: str | None = None) -> str | None:
     return _detectar_lenguaje_contenido(contenido)
 
 
-def _extraer_simbolos_ts(arbol, lenguaje: str) -> dict:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _extraer_simbolos_ts(arbol, lenguaje: str) -> dict:
     """Recorre el árbol tree-sitter y extrae funciones/clases/imports/llamadas."""
     funciones: list[dict] = []
     clases: list[dict] = []
@@ -9665,7 +9704,7 @@ def _extraer_dependencias(contenido: str, lenguaje: str) -> list[str]:  # noqa: 
     return sorted(d for d in dependencias if d and d != "__future__")
 
 
-def _resolver_dependencia(rel, camino, dep, por_ruta, por_stem, raiz):  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _resolver_dependencia(rel, camino, dep, por_ruta, por_stem, raiz):
     """Intenta localizar un archivo del proyecto que satisfaga una dependencia.
 
     Estrategias, en orden: ruta relativa (./foo), extensión directa,
@@ -9708,7 +9747,7 @@ def _resolver_dependencia(rel, camino, dep, por_ruta, por_stem, raiz):  # noqa: 
     return None
 
 
-def _grafo_dependencias(directorio="."):  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _grafo_dependencias(directorio="."):
     """Construye un grafo de dependencias entre archivos de código del proyecto.
 
     Devuelve {"nodos": [{"id", "etiqueta", "lenguaje"}], "enlaces": [{"origen",
@@ -10192,7 +10231,12 @@ def _asesor_aplicar_automaticas(sugerencias: list[dict], directorio: str = ".") 
             )
             continue
         try:
-            archivo.write_text(nuevo, encoding="utf-8")
+            from utils import RutaInseguraError, escribir_archivo_seguro
+
+            escribir_archivo_seguro(sugg["archivo"], nuevo, raiz)
+        except RutaInseguraError as exc:
+            aviso(f"[asesor-auto] No se pudo escribir {sugg['archivo']}: {exc}")
+            continue
         except OSError as exc:
             aviso(f"[asesor-auto] No se pudo escribir {sugg['archivo']}: {exc}")
             continue

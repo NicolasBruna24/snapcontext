@@ -551,7 +551,7 @@ def _ejecutar_paso_plan(paso: dict, args: argparse.Namespace, raiz: str) -> tupl
 
 
 # --- Condiciones y paralelismo del planificador (v1.4.0) --------------------
-def _evaluar_condicion(condicion: str, raiz: str = ".", contexto: dict | None = None) -> bool:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _evaluar_condicion(condicion: str, raiz: str = ".", contexto: dict | None = None) -> bool:
     """Evalúa la condición de un paso del plan. Devuelve True si se cumple.
 
     Formatos soportados:
@@ -634,7 +634,7 @@ def _evaluar_condicion(condicion: str, raiz: str = ".", contexto: dict | None = 
 _DESCONOCIDO = object()
 
 
-def _resolver_operando_condicion(operando: str, contexto: dict):  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _resolver_operando_condicion(operando: str, contexto: dict):
     """Convierte un operando de condición en un valor Python concreto.
 
     Acepta literales ('texto', números, true/false/null) y referencias al

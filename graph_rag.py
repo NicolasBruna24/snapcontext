@@ -195,7 +195,7 @@ def _extraer_nodos_y_aristas(directorio: str) -> dict:  # noqa: C901  (refactor 
     for rel, arbol in arboles.items():  # type: ignore[assignment]
         # `arbol` es el AST parseado del archivo (tipo `ast.Module`, subclase de `ast.AST`).
 
-        def _visitar(  # noqa: C901  (refactor de complejidad: Fase 10d)
+        def _visitar(
             nodo: ast.AST, contexto: str, _rel: str = rel
         ) -> None:
             # `_rel` vincula el `rel` de esta iteración (B023: la closure se
@@ -304,7 +304,7 @@ def _aristas_archivo(  # noqa: C901  (refactor de complejidad: Fase 10c)
                 vistos.add(clave)
                 aristas.append({"origen": origen, "destino": destino, "tipo": tipo})
 
-    def _visitar(nodo: ast.AST, contexto: str) -> None:  # noqa: C901  (refactor de complejidad: Fase 10c)
+    def _visitar(nodo: ast.AST, contexto: str) -> None:
         if isinstance(nodo, ast.ClassDef):
             for base in nodo.bases:
                 nombre = getattr(base, "id", None) or getattr(base, "attr", None)
@@ -392,7 +392,7 @@ def _grafo_incremental(directorio: str, cache: dict):
     return {"nodos": grafo, "aristas": aristas}, por_archivo_cambios
 
 
-def construir_grafo(directorio: str, forzar: bool = False, ruta_cache: str | None = None) -> dict:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def construir_grafo(directorio: str, forzar: bool = False, ruta_cache: str | None = None) -> dict:
     """Devuelve el grafo del proyecto, usando el cache si sigue válido.
 
     - Si ``~/.snapcontext/graph_cache.pkl`` existe, no se fuerza y el
@@ -663,7 +663,7 @@ def _archivo_de_nodo(ident: str) -> str:
     return ident.split("::", 1)[0]
 
 
-def expandir_contexto(  # noqa: C901  (refactor de complejidad: Fase 10c)
+def expandir_contexto(
     archivos_relevantes: list[str], grafo: dict, max_adicionales: int = 3, notificar: bool = True
 ) -> list[str]:
     """Amplía ``archivos_relevantes`` con archivos relacionados del grafo.

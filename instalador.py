@@ -148,7 +148,7 @@ def snapcontext_en_path() -> bool:
     return shutil.which("snapcontext") is not None
 
 
-def configurar_path() -> int:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def configurar_path() -> int:
     """Configura el PATH del usuario en Windows (--setup-path).
 
     Es independiente de la consulta: localiza la carpeta de ejecutables, la

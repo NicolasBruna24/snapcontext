@@ -99,7 +99,7 @@ def _estado_memoria() -> dict:
         return {"ok": False, "skills": 0, "error": str(exc)}
 
 
-def _ejecutar_diagnostico(args: argparse.Namespace) -> int:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _ejecutar_diagnostico(args: argparse.Namespace) -> int:
     """Modo --diagnostico: revisa la instalación y muestra un resumen.
 
     Comprueba Python, instalación del paquete, dependencias opcionales,

@@ -159,7 +159,7 @@ class Orquestador:
     # ------------------------------------------------------------------
     # Pipeline principal
     # ------------------------------------------------------------------
-    def ejecutar_flujo(self, args) -> int:  # noqa: C901  (refactor de complejidad: Fase 10c)
+    def ejecutar_flujo(self, args) -> int:
         """Replica ``flujo_principal`` coordinando a los agentes.
 
         Devuelve el código de salida (0 = éxito, 1 = error). Si se construyó con

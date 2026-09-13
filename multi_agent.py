@@ -610,7 +610,7 @@ class Supervisor:
     # ------------------------------------------------------------------
     # Pipeline principal
     # ------------------------------------------------------------------
-    def ejecutar(self) -> dict[str, Any]:  # noqa: C901  (refactor de complejidad: Fase 10c)
+    def ejecutar(self) -> dict[str, Any]:
         """Pipeline Arquitecto → Programador → Tester (con realimentación).
 
         Devuelve ``{"ok", "plan", "reintentos", "resultados", "error"}``.

@@ -294,7 +294,7 @@ def _cargar_modulo_python(ruta: Path):
     return modulo
 
 
-def _registrar_desde_manifiesto(ruta_plugin: Path) -> int:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _registrar_desde_manifiesto(ruta_plugin: Path) -> int:
     """Registra los hooks declarados en el ``plugin.json`` de ``ruta_plugin``.
 
     Formato en el manifest::
@@ -360,7 +360,7 @@ def cargar_hooks_desde_plugins() -> int:
     return total
 
 
-def cargar_hooks_desde_archivos(directorio: Path | None = None) -> int:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def cargar_hooks_desde_archivos(directorio: Path | None = None) -> int:
     """Registra hooks desde scripts sueltos en ``~/.snapcontext/hooks/``.
 
     Formato del nombre de archivo: ``<evento>[__<prioridad>].<ext>``

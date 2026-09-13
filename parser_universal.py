@@ -257,7 +257,7 @@ def _nombre_definicion(nodo, contenido: str) -> str:
     return "(anónimo)"
 
 
-def extraer_nodos(archivo: str, contenido: str, tipo_nodo: str = "todos") -> dict | None:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def extraer_nodos(archivo: str, contenido: str, tipo_nodo: str = "todos") -> dict | None:
     """Extrae funciones/clases/imports de ``contenido`` con tree-sitter.
 
     Devuelve un dict::

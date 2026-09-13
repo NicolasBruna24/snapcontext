@@ -23,7 +23,7 @@ class TestEditorPropio:
         p = tmp_path / "f.py"
         p.write_text("nuevo")
         snaps = [(str(p), b"orig", True)]
-        ag.AgenteEditorPropio._rollback(snaps)
+        ag.AgenteEditorPropio._rollback(snaps, raiz=tmp_path)
         assert p.read_bytes() == b"orig"
 
     def test_preparar_contenido(self):

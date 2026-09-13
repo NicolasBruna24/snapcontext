@@ -372,7 +372,7 @@ _RENDIMIENTO_PATRONES = [
 ]
 
 
-def _detectar_rendimiento(contenido: str, lenguaje: str = "") -> list[dict]:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _detectar_rendimiento(contenido: str, lenguaje: str = "") -> list[dict]:
     """Detecta problemas comunes de rendimiento por heurísticas (v4.2.0)."""
     hallazgos: list[dict] = []
     lineas_codigo = [

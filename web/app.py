@@ -460,7 +460,7 @@ def crear_app(api_token: str | None = None, interactiva: bool = False) -> FastAP
         return {"estado": "ok", "servicio": "snapcontext"}
 
     @app.websocket("/ws")
-    async def _ws_punto(websocket: WebSocket):  # noqa: C901  (refactor de complejidad: Fase 10c)
+    async def _ws_punto(websocket: WebSocket):
         await websocket.accept()
         cola: queue.Queue[dict] = queue.Queue()
         try:
@@ -615,7 +615,7 @@ def _construir_args(mensaje: dict):
 # --------------------------------------------------------------------------
 # Acciones rápidas (Fix / Review / Plan / Run / Search / Explorar) — v1.2.0
 # --------------------------------------------------------------------------
-def _ejecutar_accion(mensaje: dict, cola) -> None:  # noqa: C901  (refactor de complejidad: Fase 10c)
+def _ejecutar_accion(mensaje: dict, cola) -> None:
     """Ejecuta una acción rápida del panel web, emitiendo eventos a la cola."""
     import snapcontext as sc
 
