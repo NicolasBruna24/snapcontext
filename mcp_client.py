@@ -251,7 +251,9 @@ class MCPClient:
         """``tools/list`` de cada servidor → ``{servidor: [herramientas]}``.
 
         Un servidor caído aparece como ``[]`` (degradación elegante, sin
-        romper el resto).
+        romper el resto). Valida que la respuesta sea lista y que cada
+        elemento sea dict: un servidor malicioso podría intentar inyectar
+        tipos arbitrarios que crashearian en herramientas_aplanadas.
         """
         catalogo: dict[str, list] = {}
         for servidor in self._config:
@@ -260,7 +262,21 @@ class MCPClient:
                 continue
             try:
                 resultado = self._peticion(servidor, "tools/list")
-                herramientas = (resultado or {}).get("tools") or []
+                herramientas_raw = (resultado or {}).get("tools")
+                if not isinstance(herramientas_raw, list):
+                    aviso(
+                        f"[mcp] Servidor '{servidor}' devolvió 'tools' "
+                        f"tipo {type(herramientas_raw).__name__}; se ignora."
+                    )
+                    herramientas_raw = []
+                # Filtrar elementos no-dict: h.get("name") crashearía si h no es dict.
+                herramientas = [h for h in herramientas_raw if isinstance(h, dict)]
+                if len(herramientas) != len(herramientas_raw):
+                    aviso(
+                        f"[mcp] Servidor '{servidor}' devolvió "
+                        f"{len(herramientas_raw) - len(herramientas)} "
+                        f"herramientas no-dict que se ignoraron."
+                    )
                 self._herramientas[servidor] = herramientas
                 catalogo[servidor] = herramientas
             except (RuntimeError, json.JSONDecodeError) as exc:
