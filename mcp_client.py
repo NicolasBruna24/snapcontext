@@ -140,13 +140,27 @@ class MCPClient:
         return respuesta.get("result") or {}
 
     def _enviar(self, servidor: str, mensaje: dict) -> None:
-        """Serializa ``mensaje`` y lo escribe como una línea JSON en stdin."""
-        proceso = self._procesos[servidor]
+        """Serializa ``mensaje`` y lo escribe como una línea JSON en stdin.
+
+        Degradación elegante: si no hay proceso activo (servidor nunca
+        arrancado, ya terminado o marcado como caído) se eleva
+        ``RuntimeError`` —nunca ``KeyError``— para que ``list_tools`` /
+        ``call_tool`` lo conviertan en ``[]`` / ``ok=False``. Si la
+        escritura falla, el servidor se marca como caído y se termina
+        el proceso para no reintentar con un proceso muerto en la
+        siguiente llamada (``_asegurar_proceso`` prioriza ``_procesos``
+        sobre ``_caidos``).
+        """
+        proceso = self._procesos.get(servidor)
+        if proceso is None:
+            self._caidos.add(servidor)
+            raise RuntimeError(f"servidor MCP '{servidor}' no disponible")
         try:
             proceso.stdin.write(json.dumps(mensaje, ensure_ascii=False) + "\n")
             proceso.stdin.flush()
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, AttributeError) as exc:
             self._caidos.add(servidor)
+            self._terminar(servidor)
             raise RuntimeError(f"servidor MCP '{servidor}' no acepta entrada: {exc}") from exc
 
     def _esperar_respuesta(self, servidor: str, id_peticion: int) -> dict:
@@ -154,8 +168,13 @@ class MCPClient:
 
         Las notificaciones (mensajes sin ``id``) se descartan. Si el proceso
         muere o el stdout se cierra, se marca el servidor como caído.
+        Un proceso ya terminado (_terminar lo eliminó de ``_procesos``)
+        eleva ``RuntimeError``, nunca ``KeyError``.
         """
-        proceso = self._procesos[servidor]
+        proceso = self._procesos.get(servidor)
+        if proceso is None:
+            self._caidos.add(servidor)
+            raise RuntimeError(f"servidor MCP '{servidor}' no disponible")
         while True:
             linea = proceso.stdout.readline()
             if not linea:

@@ -588,18 +588,26 @@ class TestSpawnProceso:
 
     def test_enviar_fallo_oserror_marca_caido(self):
         """Escribir a stdin con error marca servidor como caido."""
-        proceso, _ = _proceso_con_lineas([])
+        # El handshake debe COMPLETARSE para aislar el fallo en el _enviar
+        # posterior: stdout devuelve la respuesta al initialize (id=1), y
+        # stdin acepta las 2 escrituras del handshake (initialize +
+        # notifications/initialized) pero falla en la 3ª (la del test).
+        # Sin estas líneas, el handshake ya fallaría y _asegurar_proceso
+        # devolvería None (el bug original delatado por el KeyError).
+        lineas = [json.dumps(_respuesta_mcp(1, _handshake_result()))]
+        proceso, _ = _proceso_con_lineas(lineas)
         proceso.stdin = MagicMock()
-        proceso.stdin.write.side_effect = OSError("broken pipe")
+        proceso.stdin.write.side_effect = [None, None, OSError("broken pipe")]
         cfg = _cfg_para("srv")
         cliente = MCPClient(config=cfg)
         mock_sub = MagicMock()
         mock_sub.Popen.return_value = proceso
         with patch.object(mcp_client, "subprocess", mock_sub):
-            cliente._asegurar_proceso("srv")
+            assert cliente._asegurar_proceso("srv") is not None
             with pytest.raises(RuntimeError, match="no acepta entrada"):
                 cliente._enviar("srv", {"x": 1})
         assert "srv" in cliente._caidos
+        assert "srv" not in cliente._procesos  # proceso muerto, no reintentable
         cliente.cerrar()
 
     def test_list_tools_con_servidor_caido_devuelve_vacio(self):
