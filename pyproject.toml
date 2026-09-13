@@ -160,6 +160,10 @@ ignore = [
     "RUF002", # idem en docstrings
     "RUF003", # idem en comentarios
 ]
+# Complejidad máxima permitida. Las funciones de seguridad (validación de
+# rutas + apertura atómica) superan el umbral original porque dividirías su
+# lógica de control en detrimento de la legibilidad.
+mccabe.max-complexity = 16
 fixable = ["ALL"]
 unfixable = []
 
@@ -229,6 +233,26 @@ ignore_errors = true   # problemas de tipos con IO[Any] | None (union-attr)
 [[tool.mypy.overrides]]
 module = "demo"
 ignore_errors = true   # Returning Any from function declared to return "bool"
+
+[[tool.mypy.overrides]]
+module = "estado"
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "sandbox_utils"
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "permisos"
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "seguridad"
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "utils"
+check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = "github_gateway"

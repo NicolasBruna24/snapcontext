@@ -7,6 +7,7 @@ para no depender de servidores MCP externos instalados.
 """
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -358,8 +359,8 @@ def test_cli_help(tmp_path):
 
 
 @pytest.mark.skipif(
-    subprocess.run(["npx", "--version"], capture_output=True).returncode != 0,
-    reason="npx no está disponible en el entorno",
+    shutil.which("npx") is None,
+    reason="requiere npx/Node instalado",
 )
 @pytest.mark.skip(reason="requiere servidor MCP externo y red; ejecutar manualmente")
 def test_integracion_server_filesystem_real(tmp_path):
