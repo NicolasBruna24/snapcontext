@@ -62,10 +62,22 @@ def _lanzar_proceso_fondo(comando: str, directorio: str = ".", capture_output: b
             info(f"[sandbox] Ejecutando en contenedor (background): {comando}")
             comando = _sc._envolver_sandbox(comando, str(raiz))
             raiz = Path.cwd()
-    # seguridad: en background no hay confirmación interactiva útil;
-    # si no hay sandbox y el comando es peligroso, se rechaza sin lanzarlo.
-    if not _sc._SANDBOX_ACTIVO and _sc._es_comando_peligroso(comando):
-        return {"ok": False, "error": f"Comando peligroso rechazado (sin sandbox): {comando}"}
+    # seguridad (v6.36.0): en background no hay confirmación interactiva
+    # útil; se aplica la MISMA clasificación de 3 niveles que decide el
+    # sandbox. Sin sandbox activo, todo comando fuera de la allowlist
+    # (default-deny) se rechaza sin lanzarlo.
+    if not _sc._SANDBOX_ACTIVO:
+        import sandbox_utils as _su
+
+        nivel, motivo = _su.clasificar_comando(comando)
+        if nivel != "directo":
+            return {
+                "ok": False,
+                "error": (
+                    f"Comando peligroso rechazado (sin sandbox): {comando} "
+                    f"[{motivo}]"
+                ),
+            }
     try:
         # seguridad (A1): lanzamiento en background vía helper con política
         # (shell=False para comandos simples; shell=True solo para pipes,

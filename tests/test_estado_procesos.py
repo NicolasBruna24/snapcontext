@@ -72,7 +72,9 @@ class TestLanzarProcesoFondo(unittest.TestCase):
             mock.patch.object(estado_mod, "_PROCESOS_FONDO", registro),
             mock.patch("sandbox_utils.lanzar_proceso_fondo_seguro", return_value=proc) as lanzar,
         ):
-            resultado = _lanzar_proceso_fondo("flutter run", ".", capture_output=False)
+            # v6.36.0: en background sin sandbox solo pasan comandos de la
+            # allowlist (npm) — 'flutter run' ahora caería en default-deny.
+            resultado = _lanzar_proceso_fondo("npm run dev", ".", capture_output=False)
         self.assertTrue(resultado["ok"])
         self.assertEqual(resultado["pid"], 4242)
         lanzar.assert_called_once()
