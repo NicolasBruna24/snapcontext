@@ -98,7 +98,7 @@ class ReactAgent:
     # v6.19.0: acciones que modifican archivos → commit automático (git profundo).
     ACCIONES_CON_COMMIT = ("editar_archivo", "aplicar_parche")
 
-    def __init__(  # noqa: C901  (refactor de complejidad: Fase 10c)
+    def __init__(
         self,
         directorio: str = ".",
         auto: bool = False,
@@ -321,13 +321,18 @@ class ReactAgent:
         camino = self._ruta_segura(ruta)
         if camino is None:
             return {"ok": False, "error": f"ruta fuera del proyecto: {ruta}"}
+        from utils import RutaInseguraError, escribir_archivo_seguro
+
         try:
             original = (
                 camino.read_text(encoding="utf-8", errors="replace") if camino.exists() else ""
             )
-            camino.parent.mkdir(parents=True, exist_ok=True)
-            camino.write_text(contenido, encoding="utf-8")
-        except OSError as exc:
+            try:
+                relativa = camino.relative_to(Path(self.directorio).resolve())
+            except ValueError:
+                relativa = Path(ruta)
+            escribir_archivo_seguro(str(relativa), contenido, Path(self.directorio).resolve())
+        except (RutaInseguraError, OSError) as exc:
             return {"ok": False, "error": str(exc)}
         diff = sc._generar_parche(original, contenido, ruta)
         return {
@@ -395,7 +400,7 @@ class ReactAgent:
     # ------------------------------------------------------------------
     # v6.10.0: herramientas de navegador (Playwright) — modo --browser
     # ------------------------------------------------------------------
-    def _tool_browser(self, argumentos: dict, accion: str = "") -> dict:  # noqa: C901  (refactor de complejidad: Fase 10c)
+    def _tool_browser(self, argumentos: dict, accion: str = "") -> dict:
         """Despacha una herramienta de navegador a mcp_tools_browser.
 
         Todas las herramientas comparten esta pasarela: el módulo valida el
@@ -561,7 +566,7 @@ class ReactAgent:
             return {"ok": False, "error": "LSP no devolvió resultados para esa posición."}
         return {"ok": True, **r}
 
-    def _tool_buscar_codigo(self, argumentos: dict) -> dict:  # noqa: C901  (refactor de complejidad: Fase 10c)
+    def _tool_buscar_codigo(self, argumentos: dict) -> dict:
         """Busca una regex en los archivos de texto del proyecto."""
         patron = str(argumentos.get("patron", "")).strip()
         if not patron:

@@ -18,6 +18,7 @@ logs de depuración visibles con ``--depurar`` (marcas ``[Agente…]``).
 """
 
 import subprocess
+from pathlib import Path
 from typing import Union
 
 # v6.1.0 — Manejo de contexto inteligente: por encima de este umbral (tokens)
@@ -531,7 +532,7 @@ class AgenteEditorPropio:
 
         return "\n".join(resultado) + "\n", aplicados
 
-    def _aplicar_modo_parche(  # noqa: C901  (refactor de complejidad: Fase 10c)
+    def _aplicar_modo_parche(
         self,
         archivo: str,
         mensaje: str,
@@ -686,7 +687,7 @@ class AgenteEditorPropio:
             sc.info(f"Reintentando parche ({intento}/{max_val})...")
         return False
 
-    def _aplicar_con_conflicto(  # noqa: C901  (refactor de complejidad: Fase 10c)
+    def _aplicar_con_conflicto(
         self,
         archivo: str,
         diff: str,
@@ -757,7 +758,7 @@ class AgenteEditorPropio:
             sc.info(f"Se conserva la versión original de '{archivo}'.")
             return "cancelar"
 
-    def _aplicar_modo_sobrescribir(  # noqa: C901  (refactor de complejidad: Fase 10c)
+    def _aplicar_modo_sobrescribir(
         self,
         archivo: str,
         mensaje: str,
@@ -898,7 +899,7 @@ class AgenteEditorPropio:
 
         return self.sobrescribir(archivo, nuevo_contenido, directorio)
 
-    def _analizar_impacto_previo(self, archivos, directorio, auto):  # noqa: C901  (refactor de complejidad: Fase 10c)
+    def _analizar_impacto_previo(self, archivos, directorio, auto):
         """Análisis de Impacto Previo (v4.7.0).
 
         Usa ``sc._grafo_dependencias`` para detectar qué otros archivos del
@@ -979,7 +980,7 @@ class AgenteEditorPropio:
             sc.info(f"[impacto] Archivos añadidos a la edición por impacto: {', '.join(anadidos)}")
         return objetivos
 
-    def _editar_archivo_en_cadena(  # noqa: C901  (refactor de complejidad: Fase 10c)
+    def _editar_archivo_en_cadena(
         self,
         arch: str,
         mensaje: str,
@@ -1102,7 +1103,7 @@ class AgenteEditorPropio:
             pass
         return False
 
-    def ejecutar(  # noqa: C901  (refactor de complejidad: Fase 10c)
+    def ejecutar(
         self,
         archivos: list[str],
         mensaje: str,
@@ -1234,29 +1235,47 @@ class AgenteEditorPropio:
         if not todo_ok or fallo_excepcion is not None:
             if fallo_excepcion is not None:
                 sc.error(f"✖ Excepción durante la edición múltiple: {fallo_excepcion}")
-            self._rollback(snapshots)
+            self._rollback(snapshots, raiz)
             return False
 
         return todo_ok
 
     @staticmethod
-    def _rollback(snapshots) -> None:
+    def _rollback(snapshots, raiz: Path | None = None) -> None:
         """Restaura todos los archivos a su estado previo a la edición (v4.6.0).
 
         ``snapshots`` es la lista construida en :meth:`ejecutar` con tuplas
-        ``(ruta_str, contenido_bytes, existia)``. Los archivos que no existían
+        ``(ruta_str, bytes, existia)``. Los archivos que no existían
         se eliminan; los que sí, se reescriben con su contenido original.
         Nunca lanza excepciones (los errores se reportan sin abortar).
-        """
-        from pathlib import Path
 
+        ``raiz`` es el directorio raíz del proyecto (opcional). Si se
+        proporciona, se usa para validar las rutas antes de escribir.
+        """
         import snapcontext as sc
+        from utils import RutaInseguraError, escribir_archivo_seguro
 
         sc.error(
             "[EditorPropio] Edición incompleta; revirtiendo TODOS los "
             "archivos al estado original (rollback v4.6.0)..."
         )
         restaurados = 0
+
+        proyecto_root: Path | None = raiz
+        if proyecto_root is None and snapshots:
+            primera = Path(snapshots[0][0])
+            candidato = primera.parent
+            while candidato != candidato.parent:
+                git_dir = candidato / ".git"
+                if git_dir.exists() and git_dir.is_dir():
+                    break
+                marcador_py = candidato / "pyproject.toml"
+                marcador_setup = candidato / "setup.py"
+                if marcador_py.exists() or marcador_setup.exists():
+                    break
+                candidato = candidato.parent
+            proyecto_root = candidato
+
         for ruta_str, contenido_bytes, existia in snapshots:
             camino = Path(ruta_str)
             try:
@@ -1264,9 +1283,20 @@ class AgenteEditorPropio:
                     if camino.exists():
                         camino.unlink()
                 else:
-                    camino.write_bytes(contenido_bytes)
+                    if proyecto_root is not None:
+                        try:
+                            relativa_str = str(camino.relative_to(proyecto_root))
+                        except ValueError:
+                            relativa_str = camino.name
+                        escribir_archivo_seguro(
+                            relativa_str,
+                            contenido_bytes.decode("utf-8", errors="replace"),
+                            proyecto_root,
+                        )
+                    else:
+                        camino.write_bytes(contenido_bytes)
                 restaurados += 1
-            except Exception as exc:
+            except (RutaInseguraError, Exception) as exc:
                 sc.error(
                     f"[EditorPropio] No se pudo revertir '{ruta_str}': "
                     f"{exc}. Copia manual disponible en "

@@ -281,11 +281,43 @@ Flujo con Arquitecto (plan técnico), Programador (ediciones), QA Tester
 adversarial (pruebas de hasta 2 iteraciones) y Supervisor. Los sub-agentes
 independientes se ejecutan con un pool paralelo (`--multi-agent`).
 
-### 🐳 Sandboxing con Docker (único)
 
-Detecta comandos peligrosos (`_es_comando_peligroso`) y los ejecuta dentro de
-un contenedor efímero (`--sandbox`) o en una sesión persistente por proyecto
-(`--sandbox-session`). Autocuración: si la sesión se corrompe, se recrea.
+### 📁 Escritura segura de archivos (v6.37.0)
+
+Todas las escrituras de archivos dentro del proyecto pasan por
+`utils.escribir_archivo_seguro()`, que valida la ruta y abre el descriptor
+atómicamente (`O_NOFOLLOW`) para eliminar la ventana TOCTOU. Rechaza
+symlinks que apuntan fuera del proyecto y rutas con `..` que intenten escapar.
+
+**Clave relacionada en `config.json`:** ninguna (es comportamiento fijo, no
+configurable, por seguridad).
+
+
+### 🐳 Sandboxing con Docker (default-deny)
+
+Los comandos se clasifican en 3 niveles (`sandbox_utils.clasificar_comando`):
+
+1. **Allowlist** — ejecución directa, fricción cero: comandos sin
+   metacaracteres de shell (`|`, `;`, `>`, `$(...)`, `` ` ``, `$VAR`, …) cuyo
+   binario base está en `sandbox_allowlist_binarios`.
+2. **Sandbox obligatorio** — default-deny: todo lo demás (pipes,
+   redirecciones, expansión de variables, binarios fuera de la allowlist) se
+   ejecuta dentro del contenedor, ya sea efímero (`--sandbox`) o en una
+   sesión persistente por proyecto (`--sandbox-session`). Autocuración: si la
+   sesión se corrompe, se recrea.
+3. **Blocklist legacy** — defensa en profundidad: los patrones de alto riesgo
+   (`rm -rf /`, fork bombs, escrituras a discos, `curl | sh`…) fuerzan el
+   sandbox y muestran un warning explícito con el motivo exacto.
+
+> **Nota sobre `sandbox_allowlist_binarios`** (clave del nivel superior de
+> `~/.snapcontext/config.json`; ejemplo completo en `config.example.json`):
+> define qué binarios corren directos **sin** metacaracteres de shell. Si la
+> defines, **sobrescribe por completo** la lista por defecto (no hace merge),
+> así que incluye en ella también los binarios de tu stack (p. ej.
+> `flutter`, `dart`, `cargo`, `go`). Cualquier binario fuera de la lista va
+> al sandbox Docker por defecto; con `--no-sandbox` se pide confirmación
+> explícita mostrando el motivo, y los procesos en segundo plano sin sandbox
+> se rechazan directamente.
 
 ### 👁️ Visión y navegador
 

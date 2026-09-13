@@ -1,5 +1,78 @@
 # Changelog de SnapContext
 
+## [6.37.0] — 2026-12-09
+
+### 🛡️ Seguridad: punto único de escritura segura (anti-TOCTOU)
+
+**BREAKING (menor):** Todas las escrituras de archivos dentro del proyecto
+ahora pasan por `utils.escribir_archivo_seguro()`, que valida la ruta
+**y** abre el descriptor en la misma operación con `O_NOFOLLOW` (no hay
+ventana entre validación y escritura). Si algún módulo tenía una escritura
+directa con `write_text()` sobre una ruta provista por el LLM, ahora lanzará
+`RutaInseguraError` en vez de seguir silenciosamente un symlink.
+
+**Call-sites migrados:**
+- `snapcontext.py`: sobrescritura de archivos (editor propio) y snapshots de rollback.
+- `agentes.py`: `_rollback` de `AgenteEditorPropio`.
+- `react_agent.py`: `_tool_editar_archivo`.
+- `autocorrector.py`: `aplicar_correccion`.
+
+**Para el usuario:** Si alguna vez viste que SnapContext escribía donde no
+debía, ya no debería ocurrir. Si tenías un flujo que escribía con rutas
+absolutas dentro del proyecto, ahora deben ser relativas. Los snapshots de
+rollback ahora validan el directorio antes de restaurar (usa el `raiz` del
+proyecto).
+
+### Fixed
+- TOCTOU en `_validar_ruta_segura`: la validación y la apertura ahora son atómicas.
+- Symlinks que apuntan fuera del proyecto ya no se siguen (rechazados por `O_NOFOLLOW`).
+- Cobertura: añadidos 21 tests en `tests/test_file_safety.py`.
+
+
+## [6.36.0] - 2026-09-12
+### Changed
+- **BREAKING (comportamiento)**: el modelo de decisión del sandbox cambió de
+  blocklist a **default-deny**, con clasificación en 3 niveles
+  (`sandbox_utils.clasificar_comando`):
+  1. *Allowlist*: comandos sin metacaracteres de shell (`| ; > & $(...) \``
+     `$VAR`) cuyo binario base está en `sandbox_allowlist_binarios` →
+     ejecución directa (fricción cero).
+  2. *Default-deny*: cualquier otro comando (pipes, redirecciones, expansión
+     de variables, binarios fuera de la allowlist, casos explícitos como
+     `eval`, `base64 -d | sh`, `mkfs`, `shred`, `truncate`, escrituras a
+     `/dev/*`) → sandbox Docker obligatorio, sin confirmación adicional más
+     allá de la que ya aplique `permisos.json`.
+  3. *Blocklist legacy* (`es_comando_peligroso`, intacta): defensa en
+     profundidad — ya no decide sandbox sí/no; si un comando la matchea se
+     muestra un warning más explícito (con el patrón que disparó) antes de
+     confirmar.
+- **BREAKING (procesos en background)**: `_lanzar_proceso_fondo` (estado.py)
+  sin sandbox activo aplica ahora la misma clasificación: los comandos que
+  antes corrían simplemente por no estar en la blocklist (p. ej.
+  `flutter run`) **se rechazan** si su binario no está en la allowlist.
+- Nueva clave de configuración `sandbox_allowlist_binarios` (nivel superior
+  de `~/.snapcontext/config.json`; ejemplo en `config.example.json`): lista
+  de binarios con ejecución directa. Si se define **sobrescribe completa** la
+  lista por defecto (no hace merge). Por defecto:
+  `ls, cat, head, tail, wc, stat, file, diff, tree, grep, rg, git, pytest,
+  ruff, mypy, black, isort, npm, pip, pip3, echo, which, date`.
+- `--no-sandbox` sigue forzando ejecución directa, pero los comandos fuera de
+  la allowlist ya no pasan en silencio: piden confirmación explícita
+  mostrando el motivo (y abortan en modo `--auto`/stdin no interactivo).
+- Motivación: la blocklist regex anterior era trivialmente evadible
+  (`echo <b64> | base64 -d | sh`, `python -c 'shutil.rmtree("/")'`,
+  `find / -delete`, `eval "$VAR"`, heredocs, expansión de variables). Tests
+  nuevos en `tests/test_sandbox_inteligente.py` (un caso por evasión,
+  allowlist con metacaracteres, `--no-sandbox` y gate de background).
+
+### Migración
+- Al actualizar, si notas que comandos de tu flujo habitual que antes corrían
+  directo ahora piden sandbox o confirmación, revisa
+  `sandbox_allowlist_binarios` en tu `~/.snapcontext/config.json` y añade los
+  binarios específicos de tu stack (p. ej. `flutter`, `dart`, `cargo`, `go`).
+  Recuerda que la lista definida **reemplaza** la por defecto: copia primero
+  la lista base de `config.example.json` y agrega los tuyos.
+
 ## [6.35.3] - 2026-09-12
 ### Fixed
 - Tests: mock de input() con valor válido en test_plan_012 (evita bucle infinito)

@@ -180,7 +180,21 @@ Responde SOLO con el codigo corregido completo (sin explicaciones)."""
 
         codigo_corregido = _extraer_codigo(correccion, contenido)
         if codigo_corregido and codigo_corregido != contenido:
-            ruta.write_text(codigo_corregido, encoding="utf-8")
+            from utils import RutaInseguraError, escribir_archivo_seguro
+
+            try:
+                relativa = ruta.relative_to(directorio)
+            except (ValueError, OSError):
+                relativa = ruta
+            try:
+                escribir_archivo_seguro(
+                    str(relativa),
+                    codigo_corregido,
+                    Path(directorio).resolve(),
+                )
+                return True
+            except (RutaInseguraError, OSError):
+                pass
             return True
     except Exception:
         pass
