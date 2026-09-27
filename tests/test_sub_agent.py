@@ -601,14 +601,16 @@ class TestVersion618(unittest.TestCase):
     def test_version_pyproject(self):
         import os
 
-        ruta = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pyproject.toml"
-        )
-        with open(ruta, encoding="utf-8") as fh:
-            self.assertIn('version = "%s"' % sc.VERSION, fh.read())
+        raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        # B9.63-A: `VERSION` es la fuente única; pyproject la deriva de forma
+        # dinámica, así que ya no hay `version = "..."` literal que comparar.
+        with open(os.path.join(raiz, "VERSION"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read().strip(), sc.VERSION)
+        with open(os.path.join(raiz, "pyproject.toml"), encoding="utf-8") as fh2:
+            texto = fh2.read()
+        self.assertIn('dynamic = ["version"]', texto)
         # El módulo de sub-agentes se empaqueta en el .whl.
-        with open(ruta, encoding="utf-8") as fh2:
-            self.assertIn("sub_agent_prompts", fh2.read())
+        self.assertIn("sub_agent_prompts", texto)
 
 
 if __name__ == "__main__":

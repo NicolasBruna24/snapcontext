@@ -175,13 +175,16 @@ class TestIntegracionCLI(unittest.TestCase):
         self.assertFalse(args.tui)
 
     def test_version_actualizada(self):
-        # Dinámico: solo verifica coherencia entre snapcontext y pyproject.toml.
+        # B9.63-A: la versión vive en el fichero `VERSION` (fuente única) y
+        # pyproject la deriva dinámicamente; ya no hay literal duplicado.
         self.assertIsInstance(sc.VERSION, str)
-        ruta = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pyproject.toml"
-        )
-        with open(ruta, encoding="utf-8") as fh:
-            self.assertIn('version = "%s"' % sc.VERSION, fh.read())
+        raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(raiz, "VERSION"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read().strip(), sc.VERSION)
+        with open(os.path.join(raiz, "pyproject.toml"), encoding="utf-8") as fh:
+            texto = fh.read()
+        self.assertIn('dynamic = ["version"]', texto)
+        self.assertIn("[tool.setuptools.dynamic]", texto)
 
     def test_grupo_tui_en_pyproject(self):
         ruta = os.path.join(

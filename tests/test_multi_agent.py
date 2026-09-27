@@ -435,7 +435,11 @@ class TestVersionPackaging(BaseMulti):
         with open(ROOT / "pyproject.toml", encoding="utf-8") as fh:
             texto = fh.read()
         self.assertIn("multi_agent", texto)
-        self.assertIn('version = "%s"' % sc.VERSION, texto)
+        # B9.63-A: la versión se deriva dinámicamente de `VERSION` (fuente
+        # única) en lugar de un literal duplicado en pyproject.
+        self.assertIn('dynamic = ["version"]', texto)
+        with open(ROOT / "VERSION", encoding="utf-8") as fh:
+            self.assertEqual(fh.read().strip(), sc.VERSION)
 
     def test_funciones_publicas_disponibles(self):
         for clase in ("Supervisor", "Arquitecto", "Programador", "Tester", "Buzon"):

@@ -7,6 +7,11 @@ dist/
 .venv/
 venv/
 
+# Artefactos generados de medición (B9.63-A).
+# `benchmarks/runner.py` lo regenera en cada ejecución: versionarlo solo
+# produce diffs de tiempos no reproducibles.
+benchmarks/results.json
+
 # Entorno
 .env
 .env.*

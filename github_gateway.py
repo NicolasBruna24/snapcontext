@@ -14,6 +14,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -127,6 +128,54 @@ def validar_firma(
 
 
 # ---------------------------------------------------------------------------
+# B9.61-D (D-01) — Validación estricta de referencias Git
+#
+# `rama` llega de un webhook (input NO confiable). Antes se interpolaba en
+# `f"git checkout {rama} && pytest"` (shell=True). Ahora se valida contra la
+# gramática de `git check-ref-format` y, si no es válida, el evento se rechaza
+# (`ok: False`). No se "sanea": un valor inválido es un DENY, no un silent fix.
+# ---------------------------------------------------------------------------
+_RE_REF_SIMPLE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$")
+
+#: Caracteres con significado para un shell o para la ExpansionParameter de git.
+#: Se rechazan por la vía del ref, nunca "limpiados" (deny, no silent fix).
+_REF_CARACTERES_PROHIBIDOS = set(";&|$`\n\r\t\\'\"()<>*?[]{}!#%^~ ")
+
+
+def referencia_git_valida(ref: object) -> bool:
+    """``True`` solo si ``ref`` es una referencia Git válida y utilizable como
+    argumento estructurado (nunca como fragmento de shell)."""
+    if not isinstance(ref, str):
+        return False
+    valor = ref.strip()
+    if not valor or len(valor) > 200:
+        return False
+    if valor.startswith("-") or valor in (".", "..", "@", "/", "//"):
+        return False
+    if valor.endswith(("/", ".lock", ".", "/.")):
+        return False
+    if ".." in valor or "@{" in valor:
+        return False
+    if any(c in _REF_CARACTERES_PROHIBIDOS for c in valor):
+        return False
+    if "//" in valor:
+        return False
+    return bool(_RE_REF_SIMPLE.match(valor))
+
+
+def _tipo_tarea_webhook_permitido(tipo: str) -> bool:
+    """B9.61-D (D-01/D-02): el webhook solo puede encolar tipos ejecutables.
+
+    El contrato ratificado (B9.59 §5, B9.60 §10) limita la ejecución a
+    `query` y `plan`. `tests` y `pr_review` **no se encolan**: en M1 su
+    ejecución está DENY y mantenerlos encolados solo alimentaría una cola
+    distribuida que no puede ejecutarse. No se inventa una excepción al
+    contrato para conservar el comportamiento histórico.
+    """
+    return tipo in ("query", "plan")
+
+
+# ---------------------------------------------------------------------------
 # Parseo de Eventos de GitHub
 # ---------------------------------------------------------------------------
 def parsear_evento(
@@ -184,11 +233,21 @@ def parsear_evento(
             }
         )
     elif evento == "push":
+        # B9.61-D (D-01): `ref` es input no confiable. Se valida como referencia
+        # Git; si es inválido el evento se rechaza entero (no se sanea).
+        ref = str(datos.get("ref") or "")
+        rama = ref.replace("refs/heads/", "", 1) if ref.startswith("refs/heads/") else ""
+        if not referencia_git_valida(rama):
+            return {
+                "ok": False,
+                "error": "referencia de rama invalida",
+                "tipo_evento": evento,
+            }
         head_commit = datos.get("head_commit") or {}
         resultado.update(
             {
-                "ref": datos.get("ref", ""),
-                "rama": (datos.get("ref", "")).replace("refs/heads/", ""),
+                "ref": ref,
+                "rama": rama,
                 "head_sha": datos.get("after", ""),
                 "mensaje_commit": head_commit.get("message", ""),
                 "autor_commit": (head_commit.get("author") or {}).get("name", ""),
@@ -226,9 +285,17 @@ def procesar_evento(
 ) -> int | None:
     """Crea y encola una tarea en `task_queue` según el evento de GitHub.
 
-    - Pull Request (opened, synchronize, reopened) → tarea `pr_review`.
-    - Issue (opened) → tarea `issue_triage` / `plan`.
-    - Push (rama principal) → tarea `tests`.
+    B9.61-D (D-01/D-02) — solo se encolan tipos **ejecutables** en M1:
+
+    - Issue (opened/reopened) → tarea ``plan``.
+    - ``issue_comment`` ``/snap``/``/fix``/``/review`` en un issue → ``plan``.
+    - Pull Request → **sin tarea**: la revisión exige red + pipeline y su
+      ejecución está DENY en M1 (B9.59 §5). El evento se autentica y registra.
+    - Push → **sin tarea**: exigiría ``git checkout {rama} && pytest`` con
+      ``shell=True`` sobre un ``ref`` remoto. La rama se valida igualmente
+      (:func:`referencia_git_valida`) al parsear el evento.
+
+    Devuelve ``None`` cuando el evento no genera tarea ejecutable.
     """
     if not evento_parseado.get("ok"):
         return None
@@ -245,11 +312,12 @@ def procesar_evento(
     datos_tarea = dict(evento_parseado)
 
     if tipo_evento == "pull_request":
+        # B9.61-D (D-01/D-02): la revisión de PR requiere `obtener_pr_diff`
+        # (salida de red) y `flujo_principal`; su ejecución está DENY en M1
+        # (B9.59 §5). El evento se autentica y se registra, pero NO genera
+        # tarea ejecutable. Requirirlo en M1 exigiría una decisión nueva.
         if accion in ("opened", "synchronize", "reopened"):
-            tarea_tipo = "pr_review"
-            datos_tarea["instruccion"] = (
-                f"Revisar PR #{evento_parseado.get('numero')}: {evento_parseado.get('titulo')}"
-            )
+            return None
     elif tipo_evento == "issues":
         if accion in ("opened", "reopened"):
             tarea_tipo = "plan"
@@ -257,16 +325,29 @@ def procesar_evento(
                 f"Resolver Issue #{evento_parseado.get('numero')}: {evento_parseado.get('titulo')}\n{evento_parseado.get('cuerpo')}"
             )
     elif tipo_evento == "push":
-        tarea_tipo = "tests"
-        datos_tarea["rama"] = evento_parseado.get("rama", "main")
-        datos_tarea["instruccion"] = f"Ejecutar pruebas tras push en {datos_tarea['rama']}"
+        # B9.61-D (D-01): `tests` exigiría `git checkout {rama} && pytest` con
+        # `shell=True`. No se genera tarea: el push solo se registra. La
+        # referencia ya fue validada en `parsear_evento`.
+        return None
     elif tipo_evento == "issue_comment":
         cuerpo = (evento_parseado.get("cuerpo_comentario") or "").strip()
         if cuerpo.startswith("/snap") or cuerpo.startswith("/fix") or cuerpo.startswith("/review"):
-            tarea_tipo = "pr_review" if evento_parseado.get("es_pr") else "plan"
+            if evento_parseado.get("es_pr"):
+                return None  # comentario en PR → pr_review DENY en M1
+            tarea_tipo = "plan"
             datos_tarea["consulta"] = cuerpo
 
     if tarea_tipo:
+        # B9.61-D (D-01/D-02): frontera de tipos. El webhook nunca encola
+        # `tests` ni `pr_review` (su ejecución está DENY en M1) ni tipos
+        # desconocidos. Sin esto, un evento remoto depositaba trabajo no
+        # ejecutable que además reintroducía la ruta a `git checkout`/red.
+        if not _tipo_tarea_webhook_permitido(tarea_tipo):
+            return None
+        try:
+            import task_queue as tq
+        except ImportError:
+            return None
         task_id = tq.encolar_tarea(
             tipo=tarea_tipo,
             datos=datos_tarea,

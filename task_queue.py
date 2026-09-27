@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sqlite3
 import threading
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +29,131 @@ _WORKER_PARAR = threading.Event()
 # por timeout `intervalo_segundos` como red de seguridad para tareas de otros
 # procesos/CLI).
 _WORKER_DESPERTAR = threading.Event()
+
+# ---------------------------------------------------------------------------
+# D-02 — Frontera de tipos ejecutables (B9.59 §5, B9.60 §10)
+#
+# Solo `query` y `plan` son tipos ejecutables en M1. `tests`, `pr_review` y
+# cualquier tipo desconocido quedan DENY **explícito**: no existe rama `else`
+# que los ejecute. Consecuencia ratificada: los eventos de GitHub siguen
+# autenticándose y encolándose, pero los tipos `tests`/`pr_review` no se
+# ejecutan (sin `git checkout`, sin `pytest`, sin salida de red).
+# ---------------------------------------------------------------------------
+TIPOS_PERMITIDOS: frozenset[str] = frozenset({"query", "plan"})
+
+#: Estados considered "encolados" (aún no terminal) para la invalidación.
+ESTADOS_NO_TERMINALES: tuple[str, ...] = ("pendiente",)
+
+#: Estado terminal aplicado a las tareas invalidadas por rotación de credencial
+#: (B9.59 §9/§10, B9.60 §4/§10).
+ESTADO_CANCELADA_ROTACION = "cancelada-por-rotacion"
+
+
+@dataclass(frozen=True)
+class TaskSecurityContext:
+    """Contexto de seguridad **congelado** en el momento de encolar (D-02).
+
+    B9.59 §10 congela e inmoviliza al crear la tarea: raíz resuelta,
+    capabilities del creator, política aplicable e identidad de la credencial
+    (nunca el secreto). El worker **revalida** contra este snapshot antes de
+    ejecutar; nunca reconstruye una política más permisiva desde globals.
+
+    Es ``frozen``: el worker no puede mutarlo, solo compararlo.
+    """
+
+    owner: str
+    workspace_root: str
+    capabilities: tuple[str, ...] = ()
+    policy: str = "m1"
+    generacion: int = 0
+    origen: str = "local"
+
+    def a_dict(self) -> dict[str, Any]:
+        datos = asdict(self)
+        datos["capabilities"] = list(self.capabilities)
+        return datos
+
+    @staticmethod
+    def desde_dict(bruto: Any) -> TaskSecurityContext | None:
+        """Reconstruye el contexto; **fail-closed** ante cualquier campo ausente
+        o corrupto (B9.59 §10: "campo ausente/corrupto -> abortar")."""
+        if not isinstance(bruto, dict):
+            return None
+        try:
+            owner = str(bruto["owner"])
+            root = str(bruto["workspace_root"])
+            caps = bruto["capabilities"]
+            policy = str(bruto["policy"])
+            gen = int(bruto["generacion"])
+            origen = str(bruto["origen"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if not owner or not root or not policy or not origen:
+            return None
+        if not isinstance(caps, (list, tuple)):
+            return None
+        return TaskSecurityContext(
+            owner=owner,
+            workspace_root=root,
+            capabilities=tuple(str(c) for c in caps),
+            policy=policy,
+            generacion=gen,
+            origen=origen,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Generación de credencial (D-03)
+#
+# Se incrementa en cada rotación. Las tareas encoladas con una generación
+# anterior dejan de ser ejecutables (revalidación del worker) y se marcan
+# `cancelada-por-rotacion` (invalidación de las pendientes).
+# ---------------------------------------------------------------------------
+_CANDADO_GENERACION = threading.Lock()
+_GENERACION = 0
+
+
+def generacion_actual() -> int:
+    """Generación vigente de la credencial del gateway."""
+    with _CANDADO_GENERACION:
+        return _GENERACION
+
+
+def _avanzar_generacion() -> int:
+    global _GENERACION
+    with _CANDADO_GENERACION:
+        _GENERACION += 1
+        return _GENERACION
+
+
+def contexto_por_defecto(
+    *,
+    owner: str | None = None,
+    workspace_root: str | Path | None = None,
+    capabilities: tuple[str, ...] | list[str] = (),
+    policy: str = "m1",
+    origen: str = "local",
+) -> TaskSecurityContext:
+    """Snapshot explícito para una tarea creada por una superficie local.
+
+    ``encolar_tarea`` **siempre** persiste un contexto: si el llamador no
+    aporta uno, se crea uno local explícito. Así el worker nunca ejecuta una
+    tarea sin contexto de seguridad verificable (fail-closed) y la tarea nunca
+    depende de globals re-resueltos en el worker.
+    """
+    raiz = Path(workspace_root) if workspace_root else Path.cwd()
+    try:
+        raiz_resuelto = str(raiz.resolve())
+    except OSError:
+        raiz_resuelto = str(raiz)
+    return TaskSecurityContext(
+        owner=owner or f"local:{os.getpid()}",
+        workspace_root=raiz_resuelto,
+        capabilities=tuple(str(c) for c in capabilities),
+        policy=policy,
+        generacion=generacion_actual(),
+        origen=origen,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +196,13 @@ def init_db(con_or_path: sqlite3.Connection | str | Path | None = None) -> None:
                 actualizado TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        # B9.61-D (D-02): owner + contexto de seguridad congelado. Migración
+        # aditiva e idempotente: nunca destruye tareas ya encoladas.
+        columnas = {f[1] for f in con.execute("PRAGMA table_info(tareas)").fetchall()}
+        if "owner" not in columnas:
+            con.execute("ALTER TABLE tareas ADD COLUMN owner TEXT")
+        if "contexto" not in columnas:
+            con.execute("ALTER TABLE tareas ADD COLUMN contexto TEXT")
         con.execute("CREATE INDEX IF NOT EXISTS idx_tareas_estado ON tareas(estado);")
     if debe_cerrar:
         con.close()
@@ -83,10 +217,19 @@ def encolar_tarea(
     chat_id: str | int | None = None,
     canal: str | None = None,
     db_path: str | Path | None = None,
+    contexto: TaskSecurityContext | None = None,
 ) -> int:
-    """Inserta una nueva tarea en estado 'pendiente' y devuelve su ID."""
+    """Inserta una nueva tarea en estado 'pendiente' y devuelve su ID.
+
+    B9.61-D (D-02): el **snapshot del contexto de seguridad se toma aquí**, en el
+    punto de creación, nunca en el worker. Si el llamador no aporta contexto se
+    crea uno local explícito, de modo que toda tarea persistida lleva owner +
+    raíz + capabilities + política + generación. El worker solo lo revalida.
+    """
+    ctx = contexto or contexto_por_defecto(origen="local")
     con = _get_connection(db_path)
     datos_json = json.dumps(datos, ensure_ascii=False)
+    contexto_json = json.dumps(ctx.a_dict(), ensure_ascii=False)
     chat_str = str(chat_id) if chat_id is not None else None
     canal_str = str(canal).lower() if canal else None
 
@@ -95,10 +238,11 @@ def encolar_tarea(
             with con:
                 cur = con.execute(
                     """
-                    INSERT INTO tareas (tipo, estado, datos, chat_id, canal, creado, actualizado)
-                    VALUES (?, 'pendiente', ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    INSERT INTO tareas (tipo, estado, datos, chat_id, canal, owner, contexto,
+                                        creado, actualizado)
+                    VALUES (?, 'pendiente', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     """,
-                    (tipo, datos_json, chat_str, canal_str),
+                    (tipo, datos_json, chat_str, canal_str, ctx.owner, contexto_json),
                 )
                 tarea_id = int(cur.lastrowid or 0)
         # v6.9.0: despertar al worker al instante (sin esperar el polling).
@@ -136,6 +280,11 @@ def consumir_tarea(db_path: str | Path | None = None) -> dict[str, Any] | None:
                 resultado["datos"] = json.loads(resultado["datos"])
             except Exception:
                 pass
+        if resultado and isinstance(resultado.get("contexto"), str):
+            try:
+                resultado["contexto"] = json.loads(resultado["contexto"])
+            except Exception:
+                pass  # se deja como str: _revalidar_contexto lo denegará
         return resultado
     finally:
         if str(db_path) != ":memory:":
@@ -189,6 +338,14 @@ def obtener_tarea(tarea_id: int, db_path: str | Path | None = None) -> dict[str,
         if "resultado" in tarea and isinstance(tarea["resultado"], str) and tarea["resultado"]:
             try:
                 tarea["resultado"] = json.loads(tarea["resultado"])
+            except Exception:
+                pass
+        # B9.61-D (D-02): el contexto se devuelve parseado para que el consumidor
+        # pueda inspeccionarlo (tests, auditoría). Si estuviera corrupto se deja
+        # como texto: `_revalidar_contexto` lo denegará (fail-closed).
+        if isinstance(tarea.get("contexto"), str):
+            try:
+                tarea["contexto"] = json.loads(tarea["contexto"])
             except Exception:
                 pass
 
@@ -311,13 +468,110 @@ def enviar_notificacion(
 
 
 # ---------------------------------------------------------------------------
-# Ejecutor de Tareas
+# D-02 / D-03 — Revalidación del contexto y frontera de tipos
 # ---------------------------------------------------------------------------
+def _revalidar_contexto(tarea: dict[str, Any]) -> tuple[TaskSecurityContext | None, str]:
+    """Revalida el snapshot antes de ejecutar. Fail-closed en toda anomalía.
+
+    Devuelve ``(contexto, "")`` si la tarea es ejecutable, o ``(None, motivo)``.
+    Comprobaciones (B9.59 §10): contexto presente y no corrupto; tipo en
+    :data:`TIPOS_PERMITIDOS`; generación vigente (si la credencial rotó, la
+    tarea ya no es válida); raíz del workspace todavía en el mismo realpath.
+    """
+    tipo = str(tarea.get("tipo") or "")
+    if tipo not in TIPOS_PERMITIDOS:
+        return None, f"tipo no permitido: {tipo or '(vacio)'}"
+
+    crudo = tarea.get("contexto")
+    if isinstance(crudo, str):
+        try:
+            crudo = json.loads(crudo)
+        except (TypeError, ValueError):
+            return None, "contexto corrupto"
+    ctx = TaskSecurityContext.desde_dict(crudo)
+    if ctx is None:
+        return None, "contexto ausente o invalido"
+
+    if ctx.generacion != generacion_actual():
+        return None, ESTADO_CANCELADA_ROTACION
+
+    try:
+        actual = str(Path(ctx.workspace_root).resolve())
+    except OSError:
+        return None, "raiz del workspace no resoluble"
+    if actual != ctx.workspace_root:
+        return None, "raiz del workspace cambiada desde el snapshot"
+
+    return ctx, ""
+
+
+def cancelar_pendientes_por_rotacion(db_path: str | Path | None = None) -> int:
+    """D-03: invalida las tareas encoladas bajo la credencial anterior.
+
+    Solo afecta a estados **no terminales** (pendientes). Las ya terminadas o en
+    ejecución no se tocan: no se mata trabajo local ya empezado
+    (B9.59 §9/§10, B9.60 §4/§10).
+    """
+    _avanzar_generacion()
+    con = _get_connection(db_path)
+    try:
+        with _CANDADO_COLA:
+            with con:
+                marcadores = ", ".join("?" for _ in ESTADOS_NO_TERMINALES)
+                cur = con.execute(
+                    f"""
+                    UPDATE tareas
+                    SET estado = ?, resultado = ?, actualizado = CURRENT_TIMESTAMP
+                    WHERE estado IN ({marcadores})
+                    """,
+                    (
+                        ESTADO_CANCELADA_ROTACION,
+                        json.dumps(
+                            {
+                                "ok": False,
+                                "error": ESTADO_CANCELADA_ROTACION,
+                                "mensaje": "Tarea cancelada por rotacion de credencial.",
+                            },
+                            ensure_ascii=False,
+                        ),
+                        *ESTADOS_NO_TERMINALES,
+                    ),
+                )
+                affected = cur.rowcount
+        _WORKER_DESPERTAR.set()
+        return affected
+    finally:
+        if str(db_path) != ":memory:":
+            con.close()
+def _argv_con_snapshot(consulta: str, flags: list[str], ctx: TaskSecurityContext) -> list[str]:
+    """Construye el argv con el `--directorio` congelado, sin shell.
+
+    El directorio sale del **snapshot**, nunca del ``directorio`` crudo ni del
+    cwd del worker (B9.59 §10: "prohibido re-resolver directorio crudo").
+    """
+    argv = [consulta, *flags, "--auto", "--no-confirmar"]
+    try:
+        actual = str(Path.cwd().resolve())
+    except OSError:
+        actual = ""
+    if ctx.workspace_root and ctx.workspace_root != actual:
+        argv += ["--directorio", ctx.workspace_root]
+    return argv
+
+
 def ejecutar_tarea(tarea: dict[str, Any]) -> dict[str, Any]:
-    """Ejecuta la tarea asignada según su tipo usando el motor de SnapContext."""
+    """Ejecuta la tarea **solo** si su contexto de seguridad sigue vigente.
+
+    B9.61-D (D-02/D-03): frontera fail-closed. Se revalida el contexto
+    congelado y el tipo antes de hacer nada. ``tests``, ``pr_review`` y
+    cualquier tipo desconocido reciben DENY explícito — **no existe rama
+    ``else`` ejecutable**, y en particular no hay ninguna ruta desde esta
+    función hacia un shell ni hacia la red (B9.59 §5, B9.60 §10: sin
+    ``git checkout``, sin ``pytest``, sin ``obtener_pr_diff``).
+    """
     import snapcontext as sc
 
-    tipo = tarea.get("tipo", "")
+    tipo = str(tarea.get("tipo") or "")
     datos = tarea.get("datos") or {}
     if isinstance(datos, str):
         try:
@@ -325,73 +579,43 @@ def ejecutar_tarea(tarea: dict[str, Any]) -> dict[str, Any]:
         except Exception:
             datos = {}
 
+    ctx, motivo = _revalidar_contexto(tarea)
+    if ctx is None:
+        cancelada = motivo == ESTADO_CANCELADA_ROTACION
+        return {
+            "ok": False,
+            "estado": ESTADO_CANCELADA_ROTACION if cancelada else "fallida",
+            "error": motivo,
+            "mensaje": f"Tarea no ejecutada: {motivo}.",
+        }
+
     resultado: dict[str, Any] = {"ok": False}
 
     try:
-        if tipo in ("tests", "ejecutar_pruebas"):
-            rama = datos.get("rama")
-            comando = f"git checkout {rama} && " if rama else ""
-            comando += sc.COMANDO_TEST_DEFECTO if hasattr(sc, "COMANDO_TEST_DEFECTO") else "pytest"
-            codigo, stdout, stderr = sc._ejecutar_comando(comando, timeout=300)
-            resultado = {
-                "ok": codigo == 0,
-                "codigo_salida": codigo,
-                "salida": (stdout + "\n" + stderr).strip(),
-                "mensaje": "Pruebas pasaron con éxito"
-                if codigo == 0
-                else f"Pruebas fallaron (código {codigo})",
-            }
-
-        elif tipo in ("pr_review", "review"):
-            repo = datos.get("repositorio") or ""
-            numero = datos.get("numero") or 0
-            titulo = datos.get("titulo") or ""
-            cuerpo = datos.get("cuerpo") or ""
-            diff = ""
-            if repo and numero:
-                try:
-                    import github_gateway as gh
-
-                    diff = gh.obtener_pr_diff(repo, numero) or ""
-                except Exception:
-                    diff = ""
-
-            consulta = f"Revisar Pull Request #{numero}: {titulo}\n{cuerpo}\nDiff:\n{diff[:5000]}"
-            parser = sc.crear_parser()
-            args = parser.parse_args([consulta, "--experto", "--auto", "--no-confirmar"])
+        if tipo == "query":
+            consulta = datos.get("consulta") or datos.get("instruccion") or "Tarea"
+            args = sc.crear_parser().parse_args(_argv_con_snapshot(consulta, [], ctx))
             codigo = sc.flujo_principal(args)
             resultado = {
                 "ok": codigo == 0,
                 "codigo_salida": codigo,
-                "mensaje": f"Revisión de PR #{numero} completada con éxito."
-                if codigo == 0
-                else f"Revisión de PR #{numero} finalizó con advertencias.",
+                "mensaje": "Tarea ejecutada." if codigo == 0 else "Tarea finalizada con errores.",
             }
-
         elif tipo == "plan":
             consulta = datos.get("consulta") or datos.get("instruccion") or "Planificar cambios"
-            parser = sc.crear_parser()
-            args = parser.parse_args([consulta, "--plan", "--auto", "--no-confirmar"])
+            args = sc.crear_parser().parse_args(_argv_con_snapshot(consulta, ["--plan"], ctx))
             codigo = sc._ejecutar_planificador(args)
             resultado = {
                 "ok": codigo == 0,
                 "codigo_salida": codigo,
-                "mensaje": "Plan generado y ejecutado con éxito."
-                if codigo == 0
-                else "Plan finalizó con errores.",
+                "mensaje": "Plan generado." if codigo == 0 else "Plan finalizado con errores.",
             }
-
-        else:
-            consulta = datos.get("consulta") or datos.get("instruccion") or "Tarea"
-            parser = sc.crear_parser()
-            args = parser.parse_args([consulta, "--auto", "--no-confirmar"])
-            codigo = sc.flujo_principal(args)
-            resultado = {
-                "ok": codigo == 0,
-                "codigo_salida": codigo,
-                "mensaje": f"Tarea ejecutada (código {codigo}).",
+        else:  # pragma: no cover - _revalidar_contexto ya habría denegado
+            return {
+                "ok": False,
+                "error": f"tipo no permitido: {tipo}",
+                "mensaje": f"Tarea no ejecutada: tipo no permitido: {tipo}.",
             }
-
     except Exception as exc:
         resultado = {
             "ok": False,
@@ -414,7 +638,13 @@ def procesar_siguiente_tarea(db_path: str | Path | None = None) -> dict[str, Any
     canal = tarea.get("canal") or "telegram"
 
     res = ejecutar_tarea(tarea)
-    nuevo_estado = "completada" if res.get("ok") else "fallida"
+    # D-03: si la revalidación invalidó la tarea, se respeta su estado terminal
+    # (`cancelada-por-rotacion`) en vez de degradarla a "fallida".
+    estado_ctx = res.get("estado")
+    if estado_ctx:
+        nuevo_estado = str(estado_ctx)
+    else:
+        nuevo_estado = "completada" if res.get("ok") else "fallida"
     actualizar_estado_tarea(tarea_id, nuevo_estado, resultado=res, db_path=db_path)
 
     # Notificación de resultado

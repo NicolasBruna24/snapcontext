@@ -282,7 +282,11 @@ adversarial (pruebas de hasta 2 iteraciones) y Supervisor. Los sub-agentes
 independientes se ejecutan con un pool paralelo (`--multi-agent`).
 
 
-### 📁 Escritura segura de archivos (v6.37.0)
+### 📁 Escritura segura de archivos (no publicado)
+
+> B9.63-A: esta característica pertenece al bloque `## [Unreleased]` del
+> CHANGELOG. **Todavía no hay release publicada** (último tag real: `v6.35.3`),
+> por lo que no debe describirse como una versión disponible.
 
 Todas las escrituras de archivos dentro del proyecto pasan por
 `utils.escribir_archivo_seguro()`, que valida la ruta y abre el descriptor

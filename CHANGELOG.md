@@ -1,6 +1,15 @@
 # Changelog de SnapContext
 
-## [6.37.0] — 2026-12-09
+## [Unreleased]
+
+> **B9.63-A — estado real:** este bloque acumula lo que las entradas `6.37.0`
+> y `6.36.0` describían. **Ninguna de las dos fue publicada**: no existe tag
+> `v6.36.0` ni `v6.37.0`; el último tag real es **`v6.35.3`**, que es también
+> la versión canónica declarada en el fichero `VERSION` de la raíz. Las fechas
+> que adolecían esas entradas (2026-09-12 y 2026-12-09) se conservan como
+> referencia histórica del momento de redacción, **no** como fechas de release.
+> El contenido de ambas se mantiene íntegro y sin alteración; la decisión sobre
+> el número de la próxima release corresponde a un bloque posterior.
 
 ### 🛡️ Seguridad: punto único de escritura segura (anti-TOCTOU)
 
@@ -29,7 +38,6 @@ proyecto).
 - Cobertura: añadidos 21 tests en `tests/test_file_safety.py`.
 
 
-## [6.36.0] - 2026-09-12
 ### Changed
 - **BREAKING (comportamiento)**: el modelo de decisión del sandbox cambió de
   blocklist a **default-deny**, con clasificación en 3 niveles

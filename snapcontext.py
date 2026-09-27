@@ -42,6 +42,7 @@ import contextlib
 import difflib
 import fnmatch
 import json
+import ntpath
 import os
 import re
 import shlex
@@ -238,7 +239,42 @@ def __getattr__(nombre: str):
 
 # Ejecución en paralelo de pasos del plan (v1.3.0) — stdlib, sin deps extra.
 
-VERSION = "6.35.3"
+# B9.63-A: `VERSION` (fichero en la raíz del repositorio) es la ÚNICA fuente de
+# verdad de la versión del proyecto. Antes este módulo, `pyproject.toml` y el
+# `FastAPI` de `web/app.py` mantenían cada uno su literal, lo que permitía que
+# divergieran. No hay ningún literal de respaldo aquí: si la versión no se puede
+# resolver, `VERSION` queda a `None` y el error es visible en lugar de silencioso.
+_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-.\w+]*)?$")
+
+
+def _leer_version_unica() -> str | None:
+    """Resuelve la versión desde la fuente única.
+
+    Orden de resolución:
+      1. el fichero `VERSION` junto a este módulo (source checkout y sdist);
+      2. los metadatos de la distribución instalada, que el backend de build
+         generó **a partir del mismo fichero `VERSION`**.
+
+    No se ejecuta ningún código ni se lee ningún otro literal.
+    """
+    try:
+        bruto = (Path(__file__).resolve().parent / "VERSION").read_text(encoding="utf-8").strip()
+    except OSError:
+        bruto = ""
+    if bruto and _VERSION_RE.match(bruto):
+        return bruto
+    # Instalado como distribución: la metadata se derivó de `VERSION` en build.
+    try:
+        from importlib.metadata import PackageNotFoundError, version as _version_metadata
+
+        return _version_metadata("snapcontext")
+    except PackageNotFoundError:
+        return None
+    except Exception:
+        return None
+
+
+VERSION: str | None = _leer_version_unica()
 
 # v6.34.12: instantánea de los argumentos de la CLI (la fija
 # ``flujo_principal`` en cada invocación). La usan funciones profundas del
@@ -7802,27 +7838,303 @@ def _plugin_guardar_manifest(manifest: dict) -> bool:
         return False
 
 
+def _validar_entries_zip(comprimido, destino: Path) -> list:
+    """Valida cada entry de un zip y devuelve las seguras (OD-8, REX-6).
+
+    Rechaza antes de escribir:
+
+    - rutas absolutas y cualquier componente ``..`` (zip-slip);
+    - entradas que no sean archivo o directorio regular (device/fifo/socket);
+    - enlaces simbolicos y enlaces duros (pueden apuntar fuera del destino);
+    - rutas duplicadas;
+    - escapes por normalizacion de symlink preexistente en el destino.
+
+    Devuelve la lista de entries a extraer, ya normalizadas.
+    """
+    seguras: list[tuple] = []
+    vistas: set[str] = set()
+    for entrada_zip in comprimido.infolist():
+        nombre = entrada_zip.filename
+        if not nombre or nombre.endswith("/"):
+            # Directorio: se valida igualmente por componentes.
+            limpio = nombre.rstrip("/")
+        else:
+            limpio = nombre
+        if not limpio:
+            continue
+        # Windows drive / UNC y rutas absolutas.
+        if limpio.startswith(("/", "\\")) or ntpath.isabs(limpio) or ntpath.splitdrive(limpio)[0]:
+            aviso(f"[plugin] Archivo remoto rechazado (ruta absoluta): {nombre}")
+            continue
+        partes = [p for p in limpio.replace("\\", "/").split("/") if p not in ("", ".")]
+        if any(p == ".." for p in partes):
+            aviso(f"[plugin] Archivo remoto rechazado (traversal): {nombre}")
+            continue
+        # Symlinks y hardlinks: no se extraen (pueden redirigir la escritura).
+        if _zip_entry_es_enlace(entrada_zip):
+            aviso(f"[plugin] Archivo remoto rechazado (enlace): {nombre}")
+            continue
+        if not limpio.endswith("/") and not entrada_zip.is_dir():
+            # Solo archivos regulares y directorios.
+            modo = (entrada_zip.external_attr >> 16) & 0o170000
+            if modo == 0o120000:  # symlink
+                aviso(f"[plugin] Archivo remoto rechazado (symlink): {nombre}")
+                continue
+            if modo and modo not in (0o100000, 0o040000):
+                aviso(f"[plugin] Archivo remoto rechazado (no regular): {nombre}")
+                continue
+        relativo = "/".join(partes)
+        if not relativo:
+            continue
+        if relativo in vistas:
+            aviso(f"[plugin] Archivo remoto rechazado (duplicado): {nombre}")
+            continue
+        vistas.add(relativo)
+        # Contencion final: canonicalizar el destino y exigir que la entry
+        # quede dentro. Reutiliza la misma logica de componentes que la
+        # frontera de B9.61-B (sin duplicar containment con startswith).
+        destino_resuelto = Path(os.path.realpath(destino))
+        final = destino_resuelto / relativo
+        if final != destino_resuelto and destino_resuelto not in final.parents:
+            aviso(f"[plugin] Archivo remoto rechazado (fuera del destino): {nombre}")
+            continue
+        seguras.append((entrada_zip, relativo))
+    return seguras
+
+
+def _zip_entry_es_enlace(info) -> bool:
+    """True si la entry del zip es un enlace (symlink o hardlink)."""
+    if getattr(info, "create_system", 0) == 3 and (info.external_attr >> 16) & 0o170000 == 0o120000:
+        return True
+    return False
+
+
+class _ErrorZipSeguro(Exception):
+    """Fallo al escribir una entry de forma segura (se rechaza la entry)."""
+
+
+def _zip_modo_permitido(modo_bits: int) -> int:
+    """Permisos aplicables a una entry extraída (nunca setuid/setgid/sticky)."""
+    return (modo_bits & 0o777) & ~0o7000
+
+
+def _abrir_dir_componente(nombre: str, dir_fd: int) -> int:
+    """Abre (creando si falta) un directorio HIJO de ``dir_fd`` sin seguir enlaces.
+
+    Devuelve un descriptor del directorio real. Si ``nombre`` es un symlink
+    (preexistente o creado entre la validación y la escritura), la apertura con
+    ``O_NOFOLLOW`` falla: la entrada se rechaza y no se escribe fuera.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        return os.open(nombre, flags, dir_fd=dir_fd)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        raise _ErrorZipSeguro(str(exc)) from None
+    try:
+        os.mkdir(nombre, 0o700, dir_fd=dir_fd)
+    except FileExistsError:
+        # Alguien (o una entry duplicada) lo creó entremedias: se abre con
+        # O_NOFOLLOW, que falla si es un symlink.
+        pass
+    except OSError as exc:
+        raise _ErrorZipSeguro(str(exc)) from None
+    try:
+        return os.open(nombre, flags, dir_fd=dir_fd)
+    except OSError as exc:
+        raise _ErrorZipSeguro(str(exc)) from None
+
+
+def _escribir_entry_segura(comprimido, entrada_zip, raiz_fd: int, relativo: str) -> None:
+    """Escribe una entry del zip **sin seguir symlinks** y dentro de la raíz.
+
+    Todas las operaciones son relativas a un descriptor de directorio ya
+    abierto (``raiz_fd`` o el de un padre ya verificado). No existe ninguna
+    ventana entre "validar" y "escribir": la validación, la creación de cada
+    componente y la apertura del archivo ocurren con ``O_NOFOLLOW`` sobre el
+    descriptor, de modo que un symlink preexistente o introducido entremedias
+    rompe la operación en lugar de redirigirla (C-R1-01).
+    """
+    partes = [p for p in relativo.split("/") if p]
+    if not partes:
+        return
+    fd_actual = raiz_fd
+    abiertos: list[int] = []
+    try:
+        for componente in partes[:-1]:
+            fd_actual = _abrir_dir_componente(componente, fd_actual)
+            abiertos.append(fd_actual)
+        nombre = partes[-1]
+        es_dir = entrada_zip.is_dir() or relativo.endswith("/")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        if es_dir:
+            try:
+                os.mkdir(nombre, 0o700, dir_fd=fd_actual)
+            except FileExistsError:
+                # Ya existe: se abre con O_NOFOLLOW|O_DIRECTORY (falla si es
+                # symlink o archivo).
+                _abrir_dir_componente(nombre, fd_actual)
+            return
+        try:
+            fd_archivo = os.open(nombre, flags, 0o600, dir_fd=fd_actual)
+        except FileExistsError:
+            # Archivo preexistente: se abre SIN O_CREAT y con O_NOFOLLOW, de
+            # modo que un symlink preexistente no se sigue ni se trunca.
+            flags2 = os.O_WRONLY
+            if hasattr(os, "O_NOFOLLOW"):
+                flags2 |= os.O_NOFOLLOW
+            fd_archivo = os.open(nombre, flags2, dir_fd=fd_actual)
+        except IsADirectoryError as exc:
+            raise _ErrorZipSeguro(str(exc)) from None
+        except OSError as exc:
+            raise _ErrorZipSeguro(str(exc)) from None
+        with os.fdopen(fd_archivo, "wb") as salida:
+            with comprimido.open(entrada_zip, "r") as origen:
+                shutil.copyfileobj(origen, salida, 1024 * 64)
+            # Permisos sobre el descriptor ya abierto (sin carrera por ruta).
+            modo = _zip_modo_permitido((entrada_zip.external_attr >> 16) & 0o7777)
+            os.fchmod(salida.fileno(), modo or 0o600)
+    except _ErrorZipSeguro:
+        raise
+    except (OSError, RuntimeError) as exc:
+        raise _ErrorZipSeguro(str(exc)) from None
+    finally:
+        for fd in abiertos:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
+def _extraer_zip_contenido(comprimido, destino: Path) -> None:
+    """Extrae un zip validando cada entry (OD-8). Nunca ``extractall`` ciego.
+
+    C-R1-01: la escritura se hace con descriptores de directorio relativos
+    (``dir_fd``) y ``O_NOFOLLOW`` en cada componente. Un symlink preexistente en
+    el destino, o introducido entre la validación y la escritura, hace que la
+    entry se **rechace** en lugar de redirigir la escritura fuera del destino.
+    """
+    # `comprimido` es un ``zipfile.ZipFile`` ya abierto por el caller.
+    seguras = _validar_entries_zip(comprimido, destino)
+    if not seguras:
+        aviso("[plugin] El archivo remoto no contiene entradas utilizables.")
+        return
+    destino.mkdir(parents=True, exist_ok=True)
+    raiz = Path(os.path.realpath(destino))
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        raiz_fd = os.open(raiz, flags)
+    except OSError as exc:
+        error(f"[plugin] No se pudo preparar el destino de extracción: {exc}")
+        return
+    try:
+        for entrada_zip, relativo in seguras:
+            try:
+                _escribir_entry_segura(comprimido, entrada_zip, raiz_fd, relativo)
+            except _ErrorZipSeguro:
+                aviso(
+                    "[plugin] Archivo remoto rechazado (escritura no segura): "
+                    f"{entrada_zip.filename}"
+                )
+            except Exception:  # zip corrupto o entrada ilegible
+                aviso(
+                    "[plugin] Archivo remoto rechazado (contenido ilegible): "
+                    f"{entrada_zip.filename}"
+                )
+    finally:
+        os.close(raiz_fd)
+
+
+#: Formato GitHub ``usuario/repositorio`` aceptado por la CLI. Deliberadamente
+#: estricto: dos segmentos, sin separadores extra, sin query, fragmento,
+#: credenciales ni traversal (C-R1-02). Nada de esto se convierte en una URL
+#: arbitraria: el host se fija en el codigo (``codeload.github.com``).
+_RE_SLUG_GITHUB = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,38})/[A-Za-z0-9._-]{1,100}$")
+
+
+def _prefijo_esquema(texto: str) -> str | None:
+    """Esquema explicito de la forma ``esquema://`` (minusculas) o ``None``.
+
+    Misma primitiva que usa el gateway (``web.app._prefijo_esquema``): no
+    infiere nada por forma. ``user/repo`` o ``./a/b`` no tienen esquema.
+    """
+    marca = (texto or "").find("://")
+    if marca <= 0:
+        return None
+    return texto[:marca].lower()
+
+
+def _url_zip_remota_valida(url: str) -> bool:
+    """``True`` solo para una URL absoluta ``https`` sin credenciales/fragmento.
+
+    Rechaza cualquier otro esquema (no hay downgrade a ``http``) y cualquier
+    forma que ``urlopen`` pudiera resolver como lectura local (``file://``).
+    """
+    if not url.lower().startswith("https://"):
+        return False
+    from urllib.parse import urlsplit
+
+    partes = urlsplit(url)
+    if partes.scheme != "https" or not partes.hostname:
+        return False
+    if partes.fragment or "@" in (partes.netloc or ""):
+        return False
+    return True
+
+
 def _plugin_descargar_zip(origen: str, destino_tmp: Path) -> Path | None:
     """Descarga el ZIP de un plugin desde GitHub y lo extrae en ``destino_tmp``.
 
-    ``origen`` acepta:
-      - URL de codeload/GitHub directa al zip.
-      - Slug ``usuario/repositorio`` → codeload con la rama ``main``.
-    Devuelve la carpeta extraída que contiene ``plugin.json`` o None.
+    ``origen`` acepta **solo** dos formatos validados de forma estricta:
+
+    - URL absoluta ``https://`` (nunca ``http``, ``ftp``, ``file`` ni esquemas
+      arbitrarios: no hay downgrade y ``urlopen`` no recibe nada más).
+    - Slug ``usuario/repositorio`` → se construye la URL de codeload con host
+      fijo; la entrada nunca controla esquema, host, query ni fragmento.
+
+    Cualquier otra forma se rechaza **antes** de abrir la red. Devuelve la
+    carpeta extraída que contiene ``plugin.json`` o ``None``.
     """
     import urllib.request
     import zipfile
 
-    if origen.startswith("http"):
-        url_zip = origen
+    texto = (origen or "").strip()
+    if not texto:
+        error("Origen de plugin vacío.")
+        return None
+    if _prefijo_esquema(texto) is not None:
+        if not _url_zip_remota_valida(texto):
+            error(
+                "Origen remoto no soportado: solo se admite una URL https:// "
+                "('http', 'ftp', 'file' y otros esquemas se rechazan)."
+            )
+            return None
+        url_zip = texto
     else:
-        url_zip = f"https://codeload.github.com/{origen}/zip/refs/heads/main"
+        if not _RE_SLUG_GITHUB.match(texto):
+            error(
+                f"'{texto}' no es un origen válido: use una URL https:// o un "
+                "slug 'usuario/repositorio'."
+            )
+            return None
+        url_zip = f"https://codeload.github.com/{texto}/zip/refs/heads/main"
     zip_path = destino_tmp / "plugin.zip"
     try:
         with urllib.request.urlopen(url_zip, timeout=60) as respuesta:
             zip_path.write_bytes(respuesta.read())
         with zipfile.ZipFile(zip_path) as comprimido:
-            comprimido.extractall(destino_tmp)
+            # B9.61-C (OD-8): extraccion segura. `extractall` no valida entries
+            # y permite zip-slip, rutas absolutas y symlinks que escapan. Se
+            # valida cada entry ANTES de escribir y se confine al destino
+            # usando la frontera de filesystem de B9.61-B.
+            _extraer_zip_contenido(comprimido, destino_tmp)
     except Exception as exc:
         error(f"No se pudo descargar el plugin desde '{origen}': {exc}")
         return None
@@ -9802,13 +10114,22 @@ def _buscar_en_codigo(tema, directorio=".", max_resultados=50):
     herramienta = _herramienta_busqueda()
     if herramienta is None:
         return []
+    # B9.61-B-CORRECTION F-02: `tema` es un ARGUMENTO, nunca código shell.
+    # Antes se interpolaba en un f-string con comillas dobles, lo que permitía
+    # cerrar la comilla e inyectar `; cat /etc/passwd; echo "`, ejecutado con
+    # shell=True y cwd confinado (el cwd no protegía: el shell sí).
+    # Se usa `shlex.quote` (mismo módulo `shlex` que ya emplea el proyecto),
+    # de modo que el tema llega al buscador como un único argumento literal.
+    # No es una blacklist: cualquier metacarácter es válido como contenido.
+    literal = shlex.quote(str(tema))
     if herramienta == "rg":
-        comando = f'rg -n -i --max-count 5 "{tema}"'
+        comando = f"rg -n -i --max-count 5 {literal}"
     elif herramienta == "grep":
-        comando = f'grep -rn -i -m 5 "{tema}" .'
+        comando = f"grep -rn -i -m 5 {literal} ."
     else:
         comando = (
-            f'findstr /s /n /i "{tema}" *.py *.dart *.js *.ts *.go *.rs *.java *.kt *.rb *.php'
+            f"findstr /s /n /i {literal} *.py *.dart *.js *.ts *.go *.rs "
+            "*.java *.kt *.rb *.php"
         )
     codigo, stdout, _stderr = _ejecutar_comando(comando, directorio, timeout=60)
     if codigo != 0 or not stdout:
@@ -10644,6 +10965,15 @@ def crear_parser() -> argparse.ArgumentParser:
         dest="api_host",
         default="127.0.0.1",
         help="Host de escucha de la API (por defecto 127.0.0.1).",
+    )
+    parser.add_argument(
+        "--workspace-root",
+        dest="workspace_root",
+        default=None,
+        help="Raíz del workspace que confina TODA operación de filesystem del "
+        "gateway (B9.59 §4). Obligatoria fuera de loopback: sin ella el "
+        "arranque aborta. Nunca se aceptan '/', '/home' ni el home del "
+        "usuario.",
     )
     parser.add_argument(
         "--api-token",
@@ -11582,6 +11912,7 @@ def iniciar_api(args: argparse.Namespace) -> int:
     puerto = int(getattr(args, "api_puerto", 8001) or 8001)
     host = getattr(args, "api_host", "127.0.0.1") or "127.0.0.1"
     token = getattr(args, "api_token", None)
+    workspace_root = getattr(args, "workspace_root", None)
     try:
         from web.app import arrancar_api
     except ImportError as exc:
@@ -11604,7 +11935,7 @@ def iniciar_api(args: argparse.Namespace) -> int:
         f"(docs interactivas en /docs y /redoc). Ctrl+C para salir..."
     )
     try:
-        arrancar_api(puerto=puerto, host=host, token=token)
+        arrancar_api(puerto=puerto, host=host, token=token, workspace_root=workspace_root)
     except KeyboardInterrupt:
         info("API detenida.")
     return 0

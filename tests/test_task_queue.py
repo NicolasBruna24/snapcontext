@@ -111,26 +111,39 @@ class TestTaskExecution(unittest.TestCase):
         self.temp_dir.cleanup()
 
     @patch("snapcontext._ejecutar_comando")
-    def test_ejecutar_tarea_tests(self, mock_cmd):
-        mock_cmd.return_value = (0, "10 passed", "")
+    def test_ejecutar_tarea_tests_ahora_deny(self, mock_cmd):
+        """B9.61-D (D-02): `tests` exige `git checkout {rama} && pytest` con
+        shell=True → ejecución DENY en M1 (B9.59 §5, B9.60 §10)."""
         tarea = {"tipo": "tests", "datos": {"rama": "main"}}
         res = tq.ejecutar_tarea(tarea)
-        self.assertTrue(res["ok"])
-        self.assertEqual(res["codigo_salida"], 0)
+        self.assertFalse(res["ok"])
+        self.assertIn("tipo no permitido", res["error"])
+        mock_cmd.assert_not_called()
 
     @patch("snapcontext._ejecutar_planificador")
     def test_ejecutar_tarea_plan(self, mock_plan):
         mock_plan.return_value = 0
-        tarea = {"tipo": "plan", "datos": {"consulta": "refactorizar"}}
+        tarea = {
+            "tipo": "plan",
+            "datos": {"consulta": "refactorizar"},
+            "contexto": tq.contexto_por_defecto(workspace_root=Path.cwd()).a_dict(),
+        }
         res = tq.ejecutar_tarea(tarea)
         self.assertTrue(res["ok"])
+        mock_plan.assert_called_once()
 
     @patch("snapcontext.flujo_principal")
-    def test_ejecutar_tarea_generica(self, mock_flujo):
-        mock_flujo.return_value = 0
-        tarea = {"tipo": "custom", "datos": {"instruccion": "hacer algo"}}
+    def test_tipo_desconocido_ya_no_cae_en_flujo_principal(self, mock_flujo):
+        """B9.61-D (D-02): no existe rama `else` ejecutable."""
+        tarea = {
+            "tipo": "custom",
+            "datos": {"instruccion": "hacer algo"},
+            "contexto": tq.contexto_por_defecto(workspace_root=Path.cwd()).a_dict(),
+        }
         res = tq.ejecutar_tarea(tarea)
-        self.assertTrue(res["ok"])
+        self.assertFalse(res["ok"])
+        self.assertIn("tipo no permitido", res["error"])
+        mock_flujo.assert_not_called()
 
     @patch("task_queue.enviar_notificacion")
     @patch("task_queue.ejecutar_tarea")

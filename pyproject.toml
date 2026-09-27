@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "snapcontext"
-version = "6.35.3"
+dynamic = ["version"]
 description = "SnapContext: asistente de IA con contexto automático para desarrollo."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -110,6 +110,11 @@ py-modules = [
     # Fase 2: bloques extraídos del monolito (utilidades, edición,
     # diagnóstico/reparación/benchmark y estado global de procesos).
     "utils", "editor", "diagnostico", "estado",
+    # B9.63-B: `exceptions` lo importa `utils` a nivel de módulo y `web/app.py`;
+    # `prompt_profiles` lo importa `snapcontext` en runtime. Sin ellos, el wheel
+    # instalado no puede ni importar `snapcontext` (detectado por
+    # `verify-release` I11 en una instalación limpia).
+    "exceptions", "prompt_profiles",
     # Fase 4 (v6.34.16): modo demo para onboarding zero-config.
     "demo",
     # Fase 8: subsistema de herramientas MCP (dispatcher y registro).
@@ -118,6 +123,11 @@ py-modules = [
     "mcp_client",
 ]
 packages = ["web"]
+
+# B9.63-A: `VERSION` en la raíz es la ÚNICA fuente de verdad de la versión.
+# El backend la lee en build; no queda ningún literal duplicado en pyproject.
+[tool.setuptools.dynamic]
+version = {file = ["VERSION"]}
 
 [tool.setuptools.package-data]
 web = ["static/*", "static/**/*"]

@@ -256,9 +256,50 @@ jobs:
       - name: Run audit
         run: pip-audit --format=columns
 
+  # B9.63-B — GATE DE INTEGRIDAD DE RELEASE (fail-closed).
+  # Verifica el contrato I1–I12 sobre el checkout/tag ACTUAL: coherencia de
+  # versión en todas las superficies, build, contenido real del wheel,
+  # instalación limpia fuera del source tree e imports del Web Gateway.
+  # No publica nada. Si falla, `publish-pypi` no puede ejecutarse.
+  verify-release:
+    name: Verify release integrity (I1-I12)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+
+      - name: Verify release contract (I1-I12, fail-closed)
+        run: |
+          TAG=""
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+            echo "Verificando release candidate: $TAG"
+          else
+            echo "Sin tag: se omiten los invariantes que dependen del tag (I1)."
+          fi
+          if [ -n "$TAG" ]; then
+            python scripts/verify_release.py --tag "$TAG"
+          else
+            # En pushes a main no se publica nada; aun así se valida el resto
+            # del contrato para detectar regresiones de empaquetado.
+            python scripts/verify_release.py --allow-no-tag \
+              --only I2 I3 I4 I5 I6 I7 I8 I9 I10 I11 I12
+          fi
+
   publish-pypi:
     name: Publish to PyPI
-    needs: [build-and-test, quality]
+    needs: [build-and-test, quality, verify-release]
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment:

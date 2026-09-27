@@ -137,7 +137,10 @@ class TestParsearEvento(unittest.TestCase):
 class TestProcesarEvento(unittest.TestCase):
     """Encolado de tareas según el tipo de evento."""
 
-    def test_procesar_evento_pr(self):
+    def test_procesar_evento_pr_no_encola_tarea_ejecutable(self):
+        """B9.61-D (D-01/D-02): `pr_review` exige red + pipeline y su ejecución
+        está DENY en M1 (B9.59 §5). El evento se autentica pero no genera tarea.
+        """
         evento = {
             "ok": True,
             "tipo_evento": "pull_request",
@@ -147,13 +150,30 @@ class TestProcesarEvento(unittest.TestCase):
             "repositorio": "org/proyecto",
         }
         tid = gh.procesar_evento(evento, chat_id="12345", canal="telegram", db_path=":memory:")
-        self.assertIsNotNone(tid)
+        self.assertIsNone(tid)
 
-    def test_procesar_evento_push(self):
+    def test_procesar_evento_push_no_encola_tarea_tests(self):
+        """B9.61-D (D-01): `tests` exigiría `git checkout {rama} && pytest` con
+        shell=True sobre una referencia remota → no se encola.
+        """
         evento = {
             "ok": True,
             "tipo_evento": "push",
             "rama": "main",
+        }
+        tid = gh.procesar_evento(evento, db_path=":memory:")
+        self.assertIsNone(tid)
+
+    def test_procesar_evento_issue_encola_plan(self):
+        """El contrato se mantiene donde sí es ejecutable: `plan`."""
+        evento = {
+            "ok": True,
+            "tipo_evento": "issues",
+            "accion": "opened",
+            "numero": 7,
+            "titulo": "Bug",
+            "cuerpo": "detalle",
+            "repositorio": "org/proyecto",
         }
         tid = gh.procesar_evento(evento, db_path=":memory:")
         self.assertIsNotNone(tid)
