@@ -2,41 +2,204 @@
 
 ## [Unreleased]
 
-> **B9.63-A — estado real:** este bloque acumula lo que las entradas `6.37.0`
-> y `6.36.0` describían. **Ninguna de las dos fue publicada**: no existe tag
-> `v6.36.0` ni `v6.37.0`; el último tag real es **`v6.35.3`**, que es también
-> la versión canónica declarada en el fichero `VERSION` de la raíz. Las fechas
-> que adolecían esas entradas (2026-09-12 y 2026-12-09) se conservan como
-> referencia histórica del momento de redacción, **no** como fechas de release.
-> El contenido de ambas se mantiene íntegro y sin alteración; la decisión sobre
-> el número de la próxima release corresponde a un bloque posterior.
+## [6.36.0] - 2026-09-26
 
-### 🛡️ Seguridad: punto único de escritura segura (anti-TOCTOU)
+> **Política de compatibilidad: `PRE_RELEASE_PRODUCT`.** SnapContext no declara
+> usuarios externos ni consumidores publicados a la fecha de este release, por lo
+> que **aún no existe un contrato público de compatibilidad establecido por
+> adopción externa**. Esta es una afirmación del mantenedor sobre el estado del
+> producto —no una propiedad técnica verificable desde el repositorio— y es la
+> base por la que este release se clasifica como MINOR pese a contener cambios que
+> serían incompatibles sobre superficies ya adoptadas. Si apareciera un consumidor
+> externo, esta clasificación quedaría invalidada.
+>
+> **Alcance:** baseline de seguridad del Gateway Web (B9.61), integridad de
+> artefactos y fuente única de versión (B9.63), e integración del repositorio
+> (B9.64), además de C2 (sandbox default-deny) y C3 (punto único de escritura
+> segura), que hasta ahora figuraban bajo `Unreleased` desde las entradas
+> `6.36.0`/`6.37.0` que **nunca fueron publicadas** (no existió tag `v6.36.0` ni
+> `v6.37.0`; la última tag real era `v6.35.3`).
 
-**BREAKING (menor):** Todas las escrituras de archivos dentro del proyecto
-ahora pasan por `utils.escribir_archivo_seguro()`, que valida la ruta
-**y** abre el descriptor en la misma operación con `O_NOFOLLOW` (no hay
-ventana entre validación y escritura). Si algún módulo tenía una escritura
-directa con `write_text()` sobre una ruta provista por el LLM, ahora lanzará
-`RutaInseguraError` en vez de seguir silenciosamente un symlink.
+### 🛡️ Seguridad: Gateway Web — baseline B9.61
 
-**Call-sites migrados:**
-- `snapcontext.py`: sobrescritura de archivos (editor propio) y snapshots de rollback.
-- `agentes.py`: `_rollback` de `AgenteEditorPropio`.
-- `react_agent.py`: `_tool_editar_archivo`.
-- `autocorrector.py`: `aplicar_correccion`.
+**Restricciones de diseño sin ruta de migración:**
 
-**Para el usuario:** Si alguna vez viste que SnapContext escribía donde no
-debía, ya no debería ocurrir. Si tenías un flujo que escribía con rutas
-absolutas dentro del proyecto, ahora deben ser relativas. Los snapshots de
-rollback ahora validan el directorio antes de restaurar (usa el `raiz` del
-proyecto).
+- **Ejecución remota → `DENY ALL` en M1.** `web/remota.py` aplica política
+  *deny-by-default*: la allowlist remota (`sandbox_allowlist_remota`) está
+  **vacía por diseño (OD-1)**, por lo que toda ejecución remota se rechaza.
+  Los shells e intérpretes quedan prohibidos. **No existe ruta de migración en
+  M1**: no hay allowlist poblada, ni signing, ni sandbox de red, ni workers
+  distribuidos. Cualquier despliegue que dependiera de ejecución remota deja de
+  funcionar.
+- **Instalación remota de plugins → denegada.** Sin sustituto. **No existe
+  migración.**
+- **Tipos de tarea `tests` y `pr_review` → no ejecutables por el worker**
+  (`TIPOS_PERMITIDOS` = `{query, plan}`). **No existe migración** (ver
+  *Limitaciones conocidas*).
+
+**Con migración disponible:**
+
+- **Autenticación fail-closed** (`web/seguridad.py`). Una credencial ausente,
+  vacía o de menos de 32 caracteres deja de ser utilizable: las superficies
+  autenticadas responden 401/1008. Antes el webhook podía aceptarse en modo
+  *fail-open*. Migración: `preparar_credencial_inicio()` genera la credencial y
+  corrige a `0600` toda superficie que no lo esté. **Requiere acción del
+  usuario**: las configuraciones que confiaban en acceso anónimo se rompen.
+- **Ciclo de vida de credenciales**: `generar_credencial()`, `cargar_credencial()`
+  (relee configuración en cada llamada) y `rotar_credencial()`.
+- **Modelo de capacidades cerrado** (`CAPABILIDADES`, 9 de B9.59 §7). Sin
+  capability nueva; un cliente sin la capacidad requerida recibe 403.
+- **Clasificación de exposición** (`clasificar_exposicion`): distingue loopback de
+  exposición remota, valida `Host`/`Origin` (`host_valido`, `origin_admitido`,
+  `es_loopback_hostname`) y aplica rate limiting por cliente.
+- **Frontera de sistema de ficheros** (`web/filesystem.py`): validación de forma
+  → `resolve` (realpath) → **containment semántico** (no `startswith`, que
+  confundiría `/workspace` con `/workspace-other`) → política. Fuera de loopback
+  se exige `--workspace-root` explícito; sin él el arranque **aborta**
+  (fail-closed). Sin valor por defecto fuera de loopback por diseño. Códigos de
+  error explícitos: `invalid_path` / `outside_workspace`.
+- **Validación de webhook** (D-01): fail-closed y sin shell injection.
+- **Contexto de tarea congelado** (D-02): `TaskSecurityContext` inmutable con
+  revalidación en la frontera de ejecución.
+- **Rotación y tareas pendientes** (D-03): rotar la credencial invalida las tareas
+  pendientes asociadas.
+- **Seguridad del WebSocket interactivo**: `/interactive` y `WS /ws/interactive`
+  pasan por el protector de exposición.
+
+> **Cobertura: no completa.** Ver *Excepción de seguridad conocida* más abajo.
+
+### 🛡️ Seguridad: sandbox default-deny (C2)
+
+**BREAKING (comportamiento):** el modelo de decisión del sandbox cambió de
+blocklist a **default-deny**, con clasificación en 3 niveles
+(`sandbox_utils.clasificar_comando`):
+
+1. *Allowlist*: comandos sin metacaracteres de shell (`| ; > & $(...) \`` `$VAR`)
+   cuyo binario base está en `sandbox_allowlist_binarios` → ejecución directa
+   (fricción cero).
+2. *Default-deny*: cualquier otro comando (pipes, redirecciones, expansión de
+   variables, binarios fuera de la allowlist, y casos explícitos como `eval`,
+   `base64 -d | sh`, `mkfs`, `shred`, `truncate`, escrituras a `/dev/*`) →
+   sandbox Docker obligatorio, sin confirmación adicional más allá de la que ya
+   aplique `permisos.json`.
+3. *Blocklist legacy* (`es_comando_peligroso`, intacta): defensa en profundidad;
+   ya no decide sandbox sí/no, solo dispara un warning más explícito (con el
+   patrón que disparó) antes de confirmar.
+
+**BREAKING (procesos en background):** `_lanzar_proceso_fondo` (estado.py) sin
+sandbox activo aplica ahora la misma clasificación: los comandos que antes
+corrían simplemente por no estar en la blocklist (p. ej. `flutter run`)
+**se rechazan** si su binario no está en la allowlist.
+
+- Nueva clave de configuración `sandbox_allowlist_binarios` (nivel superior de
+  `~/.snapcontext/config.json`; ejemplo en `config.example.json`): lista de
+  binarios con ejecución directa. Si se define **sobrescribe completa** la lista
+  por defecto (no hace merge). Por defecto: `ls, cat, head, tail, wc, stat,
+  file, diff, tree, grep, rg, git, pytest, ruff, mypy, black, isort, npm, pip,
+  pip3, echo, which, date`.
+- `--no-sandbox` sigue forzando ejecución directa, pero los comandos fuera de la
+  allowlist ya no pasan en silencio: piden confirmación explícita mostrando el
+  motivo y **aborta en modo `--auto` / stdin no interactivo**. Este efecto sobre
+  el modo no interactivo es el cambio con mayor probabilidad de afectar a un
+  flujo existente.
+- Motivación: la blocklist regex anterior era trivialmente evadible
+  (`echo <b64> | base64 -d | sh`, `python -c 'shutil.rmtree("/")'`,
+  `find / -delete`, `eval "$VAR"`, heredocs, expansión de variables). Tests
+  nuevos en `tests/test_sandbox_inteligente.py` (un caso por evasión, allowlist
+  con metacaracteres, `--no-sandbox` y gate de background).
+
+### 🛡️ Seguridad: punto único de escritura segura (C3, anti-TOCTOU)
+
+**BREAKING (menor):** todas las escrituras dentro del proyecto pasan por
+`utils.escribir_archivo_seguro()`, que valida la ruta **y** abre el descriptor en
+la misma operación con `O_NOFOLLOW`: no hay ventana entre validación y escritura
+(**escritura atómica**). Si algún módulo escribía con `write_text()` sobre una
+ruta provista por el LLM, ahora lanza `RutaInseguraError` en vez de seguir
+silenciosamente un symlink.
+
+**Call-sites migrados:** `snapcontext.py` (editor propio y snapshots de rollback),
+`agentes.py` (`_rollback` de `AgenteEditorPropio`), `react_agent.py`
+(`_tool_editar_archivo`), `autocorrector.py` (`aplicar_correccion`).
+
+**Migración:** las rutas absolutas dentro del proyecto deben pasar a relativas; los
+snapshots de rollback ahora validan el directorio antes de restaurar (usan el
+`raiz` del proyecto). Si alguna vez viste que SnapContext escribía donde no
+debía, ya no debería ocurrir.
+
+
+### 🔧 Integridad de release y fuente única de versión (B9.63)
+
+- **`VERSION` (raíz) es la única fuente de verdad.** `pyproject.toml` usa
+  `dynamic = ["version"]` con `version = {file = ["VERSION"]}`; la versión del
+  paquete se deriva en build. La versión en runtime (`snapcontext.VERSION`) y la
+  de FastAPI se derivan de ella.
+- **`scripts/version_sync.py`**: `check` (solo lectura, sale con código ≠ 0 ante
+  cualquier divergencia; es el gate de CI) y `sync` (reescribe las superficies
+  derivadas). Sincroniza VS Code (manifest + lock) y JetBrains
+  (`gradle.properties`, `build.gradle.kts`, `plugin.xml`).
+- **`scripts/verify_release.py`** — 12 comprobaciones *fail-closed* (I1–I12):
+  tag == `VERSION`; correspondencia del artefacto; `snapcontext.VERSION` del wheel
+  instalado; `importlib.metadata.version`; coherencia VS Code; coherencia
+  JetBrains; entrada de CHANGELOG publicada; presencia de los 6 módulos de test de
+  seguridad; **sdist → wheel sin intervención**; el wheel contiene los módulos
+  runtime y `web/static`; instalación limpia; y `web/static/*` presente en el
+  paquete instalado.
+- **Gates de publicación**: el job `verify-release` precede a `publish-pypi` y a
+  `publish-vscode`. Si falla, la publicación no puede ejecutarse.
+- **Correcciones de packaging**: la distribución ahora incluye `exceptions.py` y
+  `prompt_profiles.py`. Antes, una wheel instalada **no podía importar
+  `snapcontext`**; este es un fix, no un cambio de comportamiento. El paquete
+  incluye además `web/seguridad.py`, `web/filesystem.py` y `web/remota.py`.
+- Gates de CI: auditoría de dependencias (no bloqueante) y gate de cobertura
+  ampliado a los 55 módulos.
+
+### 🛡️ Integración del repositorio (B9.64)
+
+Los módulos de seguridad del Gateway Web y sus módulos de test estaban presentes
+en el árbol de trabajo pero **ausentes de Git** (hallazgos P0 `F-01` y `F-02` de
+B9.62). Este release los incorpora al control de versiones: `web/seguridad.py`,
+`web/filesystem.py`, `web/remota.py` y los 6 módulos de test de seguridad
+(`test_gateway_seguridad.py`, `test_gateway_filesystem.py`,
+`test_gateway_remota.py`, `test_web_riesgo.py`, `test_task_queue.py`,
+`test_github_gateway.py`) están ahora **trackeados**, y el release se validó desde
+un checkout limpio. `F-01` y `F-02` quedan cerrados.
+
+### ⚠️ Excepción de seguridad conocida y NO resuelta en 6.36.0
+
+- **R-2 — el Gateway de Telegram alcanza `flujo_principal` sin el
+  `TaskSecurityContext` congelado.** Esa ruta **no pasa** por `task_queue` ni por
+  la frontera de contexto de tareas introducida en B9.61. Constituye una
+  **excepción de seguridad conocida, aceptada de forma explícita y NO resuelta en
+  6.36.0**; se difiere a un release posterior.
+- **B9.61 no cubre completamente la ruta de Telegram**, y esta release no debe
+  leerse como cobertura de seguridad integral del Gateway Web.
+- Lo que **sí** continúa aplicándose a todas las rutas, incluida Telegram: la
+  **frontera de tipos ejecutables** (`TIPOS_PERMITIDOS` en el worker), la
+  autenticación fail-closed y la frontera de sistema de ficheros. Lo que queda
+  fuera del perímetro de B9.61 es precisamente el `TaskSecurityContext` congelado
+  en la entrada de Telegram.
+
+### ⚠️ Limitaciones conocidas (no resueltas en 6.36.0)
+
+- **R-1 — Discord puede encolar tareas `tests` / `pr_review` que el worker después
+  deniega.** El usuario recibe una confirmación de encolado de algo que no llegará
+  a ejecutarse. Es comportamiento conocido, **no resuelto en 6.36.0** y **diferido
+  al siguiente release**. No debe interpretarse como una capacidad operativa
+  válida.
+- **R-3** (P3) — un test puede producir volumen excesivo de salida en ciertas
+  ejecuciones focalizadas (higiene de CI / disco). Deuda **post-release**.
+- **R-4** (P3) — `_TAREAS_API` registra owner/contexto que la ruta in-process no
+  consume para revalidar. Deuda arquitectónica **post-release**, sin bypass.
 
 ### Fixed
 - TOCTOU en `_validar_ruta_segura`: la validación y la apertura ahora son atómicas.
-- Symlinks que apuntan fuera del proyecto ya no se siguen (rechazados por `O_NOFOLLOW`).
+- Symlinks que apuntan fuera del proyecto ya no se siguen (`O_NOFOLLOW`).
 - Cobertura: añadidos 21 tests en `tests/test_file_safety.py`.
-
+- `mcp_client`: `KeyError` no manejado en `_enviar`/`_esperar_respuesta` al
+  reutilizar un proceso muerto tras un fallo de `stdin`.
+- `mcp_client.list_tools`: valida el tipo de los elementos y filtra los que no
+  son `dict`; cobertura del módulo 22% → 87%.
+- Baseline de esta release: **3130 passed, 43 skipped, 0 failed**.
 
 ### Changed
 - **BREAKING (comportamiento)**: el modelo de decisión del sandbox cambió de
@@ -74,12 +237,16 @@ proyecto).
   allowlist con metacaracteres, `--no-sandbox` y gate de background).
 
 ### Migración
-- Al actualizar, si notas que comandos de tu flujo habitual que antes corrían
-  directo ahora piden sandbox o confirmación, revisa
-  `sandbox_allowlist_binarios` en tu `~/.snapcontext/config.json` y añade los
-  binarios específicos de tu stack (p. ej. `flutter`, `dart`, `cargo`, `go`).
+- Comandos de tu flujo habitual que antes corrían directo y ahora piden sandbox o
+  confirmación, revisa `sandbox_allowlist_binarios` en tu `~/.snapcontext/config.json`
+  y añade los binarios específicos de tu stack (p. ej. `flutter`, `dart`, `cargo`, `go`).
   Recuerda que la lista definida **reemplaza** la por defecto: copia primero
   la lista base de `config.example.json` y agrega los tuyos.
+- Escrituras: convierte en relativas las rutas absolutas dentro del proyecto.
+- Gateway Web: arranca con `--workspace-root` explícito si no es loopback, y genera
+  la credencial con `preparar_credencial_inicio()` (permisos `0600`).
+- **Sin migración posible** (restricciones por diseño en 6.36.0): ejecución remota,
+  instalación remota de plugins y los tipos de tarea `tests`/`pr_review`.
 
 ## [6.35.3] - 2026-09-12
 ### Fixed

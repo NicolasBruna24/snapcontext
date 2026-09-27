@@ -4,13 +4,31 @@ Proceso completo para publicar SnapContext en los tres canales oficiales.
 
 ## 1. Preparación (cada release)
 
-1. Sube la versión en **los cuatro sitios** (deben coincidir):
-   - `version` en `pyproject.toml`
-   - `VERSION` en `snapcontext.py`
-   - `version` en `vscode/package.json`
-   - `version` en `jetbrains/build.gradle.kts` (+ `pluginVersion` en `gradle.properties`)
-2. Añade la entrada correspondiente en `CHANGELOG.md`.
-3. Verifica: `python -c "import snapcontext; print(snapcontext.VERSION)"`.
+> **Procedimiento vigente desde B9.63.** Antes de B9.63 la versión se subía a mano
+> en varios sitios; esa descripción ya no aplica.
+
+1. **Edita `VERSION` en la raíz.** Es la **única fuente de verdad**: el resto de
+   superficies se deriva de ella.
+2. Sincroniza las superficies derivadas:
+   ```bash
+   python3 scripts/version_sync.py sync
+   python3 scripts/version_sync.py check    # debe salir con código 0
+   ```
+   `sync` reescribe `vscode/package.json`, `vscode/package-lock.json`,
+   `jetbrains/gradle.properties`, `jetbrains/build.gradle.kts` y
+   `jetbrains/src/main/resources/META-INF/plugin.xml`. `check` es de solo lectura
+   y es el gate que ejecuta CI.
+   - `pyproject.toml` **no** lleva versión literal: usa
+     `dynamic = ["version"]` con `version = {file = ["VERSION"]}`.
+   - `snapcontext.VERSION` y la versión de FastAPI se derivan de `VERSION`.
+3. Añade la entrada correspondiente en `CHANGELOG.md`.
+4. Verifica el artefacto:
+   ```bash
+   python3 -m build
+   python3 scripts/verify_release.py --tag vX.Y.Z
+   python3 -m pytest -q
+   ```
+5. Commit de release, y **solo después** el tag (ver §2).
 
 ## 2. Publicar (automático con el tag)
 
@@ -43,18 +61,33 @@ npx @vscode/vsce publish -p TU_VSCE_PAT   # o sube el .vsix desde la web
 
 ## 4. Publicación manual del plugin JetBrains
 
-1. Genera un token gratuito en <https://plugins.jetbrains.com/docs/marketplace/api-requests.html>.
-2. Colócalo en `jetbrains/gradle.properties` (`publishToken=...`) o exporta
-   `JETBRAINS_TOKEN`.
+1. Genera un token gratuito en <https://plugins.jetbrains.com/docs/marketplace/api-requests.html>
+   (Marketplace → Profile → My Tokens).
+2. Proporciona el token. El plugin Gradle de IntelliJ (1.x) lo lee de:
+   - **`jetbrains/gradle.properties`**: `publishToken=...` y `publishChannel=default`
+   - **variables de entorno**: `PUBLISH_TOKEN` y `PUBLISH_CHANNEL`
+
+   > No existe una variable `JETBRAINS_TOKEN`. La documentación anterior de esta
+   > guía la mencionaba por error; el plugin no la lee.
+
+   La primera publicación de un plugin en JetBrains Marketplace debe hacerse
+   **manualmente** desde la web; Gradle solo publica versiones posteriores.
 3. Compila y publica:
 
 ```bash
 cd jetbrains
 ./gradlew buildPlugin     # → build/distributions/*.zip
-./gradlew publishPlugin   # sube al canal "default"
+./gradlew publishPlugin   # sube al canal indicado (por defecto "default")
 ```
 
-Requiere JDK 17+. La primera ejecución descarga el SDK de IntelliJ.
+Requiere JDK 17+ (`kotlin { jvmToolchain(17) }`). La primera ejecución descarga
+el SDK de IntelliJ. **No hay pipeline de CI para este canal**: la publicación es
+siempre manual.
+
+> El canal JetBrains **no está automatizado**. Su versión sí está sincronizada con
+> `VERSION` (`build.gradle.kts`, `gradle.properties:pluginVersion`, `plugin.xml`),
+> y `verify_release.py` lo comprueba (I6), pero la subida al Marketplace es un
+> paso manual que hay que ejecutar explícitamente.
 
 ## 5. Verificación post-release
 
