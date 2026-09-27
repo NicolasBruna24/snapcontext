@@ -122,6 +122,7 @@ def i2_package_version(ctx: Ctx) -> tuple[bool, str]:
     if not ok:
         return False, msg
     esperado = f"snapcontext-{ctx.version}-"
+    assert ctx.wheel is not None
     if not ctx.wheel.name.startswith(esperado):
         return False, f"wheel {ctx.wheel.name} no corresponde a {esperado}"
     return True, f"el artefacto corresponde a snapcontext-{ctx.version}"
@@ -148,6 +149,7 @@ def i10_wheel_contents(ctx: Ctx) -> tuple[bool, str]:
     ok, msg = construir(ctx)
     if not ok:
         return False, msg
+    assert ctx.wheel is not None
     with zipfile.ZipFile(ctx.wheel) as z:
         nombres = set(z.namelist())
     faltan = [m for m in MODULOS_WHEEL if m not in nombres]
@@ -190,6 +192,7 @@ def _venv_limpia(ctx: Ctx) -> tuple[bool, str]:
 
 def _instalar_wheel(ctx: Ctx) -> Path | None:
     """Instala SOLO el wheel; usa el extra `web` si sus dependencias resuelven."""
+    assert ctx.venv is not None
     venv_py = ctx.venv / "bin" / "python"
     r = _run([str(venv_py), "-m", "pip", "install", "--quiet", f"{ctx.wheel}[web]"])
     if r.returncode != 0:

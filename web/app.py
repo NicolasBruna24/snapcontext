@@ -336,13 +336,13 @@ def crear_app(  # noqa: C901  (refactor de complejidad: Fase 10c)
     # Fuente de verdad de la credencial: web.seguridad (config.json / env /
     # token de arranque); NUNCA un global de módulo (sin _API_TOKEN).
     limitador = seguridad.LimitadorFallos()
-    _ws_activas: dict[WebSocket, object] = {}
+    _ws_activas: dict[WebSocket, asyncio.AbstractEventLoop] = {}
 
     def _al_rotar_credencial() -> None:
         """Hook de rotación: cierra los WS autenticados (<60 s, B9.59 §9)."""
         for ws, bucle in list(_ws_activas.items()):
             try:
-                bucle.call_soon_threadsafe(asyncio.ensure_future, _cerrar_ws_seguro(ws))  # type: ignore[union-attr]
+                bucle.call_soon_threadsafe(asyncio.ensure_future, _cerrar_ws_seguro(ws))
             except RuntimeError:
                 pass  # bucle del evento ya cerrado
 
@@ -1231,7 +1231,7 @@ def _autorizar_ws(
     websocket: WebSocket,
     *,
     credencial: str | None,
-    exposicion: str,
+    exposicion: seguridad.Exposicion,
     limitador: seguridad.LimitadorFallos,
     capacidad: str | None = None,
     requiere_loopback: bool = False,
