@@ -230,11 +230,11 @@ jobs:
   audit-deps:
     name: Audit dependencies
     runs-on: ubuntu-latest
-    # Sprint 1.B: auditoría de CVEs con pip-audit en cada push. NO bloqueante
-    # (continue-on-error) mientras los advisory encontrados no se resuelvan;
-    # una vez resueltos, quitar esta línea para volverlo bloqueante.
+    # Sprint 1.B: auditoría de CVEs con pip-audit en cada push. BLOQUEANTE
+    # desde ca86a85+: la medición sobre el grafo de dependencias declarado en
+    # pyproject.toml (base, dev, web, browser, db, tui) devuelve 0 advisories,
+    # por lo que ya no hay nada que preservar con continue-on-error.
     # Referencia: docs/AUDIT_2026-09.md (dimensión Dependencias 2/5).
-    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
