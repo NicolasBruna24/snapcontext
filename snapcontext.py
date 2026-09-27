@@ -265,7 +265,8 @@ def _leer_version_unica() -> str | None:
         return bruto
     # Instalado como distribución: la metadata se derivó de `VERSION` en build.
     try:
-        from importlib.metadata import PackageNotFoundError, version as _version_metadata
+        from importlib.metadata import PackageNotFoundError
+        from importlib.metadata import version as _version_metadata
 
         return _version_metadata("snapcontext")
     except PackageNotFoundError:
@@ -1653,6 +1654,7 @@ def _editor_sobrescribir(archivo: str, contenido: str, directorio: str = ".") ->
 
     try:
         from utils import RutaInseguraError, escribir_archivo_seguro
+
         escribir_archivo_seguro(limpia, contenido, raiz_res)
         exito(f"[EditorPropio] Archivo actualizado: {limpia}")
         return True
@@ -3734,9 +3736,7 @@ def _ejecutar_comando(  # noqa: C901  (refactor de complejidad: Fase 10c)
         #   (2) ...por opt-out (--no-sandbox) estando FUERA de la allowlist →
         #       confirmación explícita mostrando el motivo (no silenciosa).
         if decision == _SANDBOX_DIRECTO:
-            desc_legacy = (
-                patron_peligroso(comando) if _es_comando_peligroso(comando) else None
-            )
+            desc_legacy = patron_peligroso(comando) if _es_comando_peligroso(comando) else None
             opt_out = _NO_SANDBOX or os.environ.get("SNAPCONTEXT_SANDBOX") == "0"
             nivel, motivo = clasificar_comando(comando)
             if desc_legacy:
@@ -10128,8 +10128,7 @@ def _buscar_en_codigo(tema, directorio=".", max_resultados=50):
         comando = f"grep -rn -i -m 5 {literal} ."
     else:
         comando = (
-            f"findstr /s /n /i {literal} *.py *.dart *.js *.ts *.go *.rs "
-            "*.java *.kt *.rb *.php"
+            f"findstr /s /n /i {literal} *.py *.dart *.js *.ts *.go *.rs *.java *.kt *.rb *.php"
         )
     codigo, stdout, _stderr = _ejecutar_comando(comando, directorio, timeout=60)
     if codigo != 0 or not stdout:

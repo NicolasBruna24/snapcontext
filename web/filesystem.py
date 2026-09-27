@@ -173,8 +173,7 @@ def resolver_raiz_workspace(valor: str | Path | None, exposicion: str) -> Path:
     # relativa depende del cwd del proceso y no es una frontera estable.
     if not Path(os.path.expanduser(crudo)).is_absolute():
         raise WorkspaceRootInvalido(
-            f"--workspace-root debe ser una ruta absoluta: '{crudo}'. "
-            "Arranque abortado."
+            f"--workspace-root debe ser una ruta absoluta: '{crudo}'. Arranque abortado."
         )
     try:
         real = Path(os.path.realpath(os.path.expanduser(crudo)))

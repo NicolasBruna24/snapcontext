@@ -169,19 +169,35 @@ def patron_peligroso(comando: str) -> str | None:
 ALLOWLIST_BINARIOS_DEFECTO = frozenset(
     {
         # inspección de archivos
-        "ls", "cat", "head", "tail", "wc", "stat", "file", "diff", "tree",
+        "ls",
+        "cat",
+        "head",
+        "tail",
+        "wc",
+        "stat",
+        "file",
+        "diff",
+        "tree",
         # búsqueda
-        "grep", "rg",
+        "grep",
+        "rg",
         # control de versiones
         "git",
         # pruebas y calidad
-        "pytest", "ruff", "mypy", "black", "isort",
+        "pytest",
+        "ruff",
+        "mypy",
+        "black",
+        "isort",
         # ecosistema JS (solo subcomandos de inspección/test)
         "npm",
         # ecosistema Python (listado/instalación; no ejecuta código del repo)
-        "pip", "pip3",
+        "pip",
+        "pip3",
         # misceláneos inocuos
-        "echo", "which", "date",
+        "echo",
+        "which",
+        "date",
     }
 )
 
@@ -189,9 +205,24 @@ ALLOWLIST_BINARIOS_DEFECTO = frozenset(
 # (nivel 2 explícito). Se comprueba por nombre base y por prefijo ``mkfs*``.
 _BINARIOS_SIEMPRE_SANDBOX = frozenset(
     {
-        "eval", "exec", "source", "dd", "shred", "truncate", "base64",
-        "xargs", "chmod", "chown", "curl", "wget", "find", "rm", "mkswap",
-        "wipefs", "fdisk", "parted",
+        "eval",
+        "exec",
+        "source",
+        "dd",
+        "shred",
+        "truncate",
+        "base64",
+        "xargs",
+        "chmod",
+        "chown",
+        "curl",
+        "wget",
+        "find",
+        "rm",
+        "mkswap",
+        "wipefs",
+        "fdisk",
+        "parted",
     }
 )
 
@@ -257,9 +288,7 @@ def clasificar_comando(comando: str, allowlist: set[str] | None = None) -> tuple
     # Casos explícitos de nivel 2 (aunque no tengan metacaracteres obvios).
     if base in _BINARIOS_SIEMPRE_SANDBOX or base.startswith("mkfs"):
         return "sandbox", f"binario '{base}' es de riesgo y siempre va al sandbox"
-    permitidos = (
-        _leer_allowlist_configurada() if allowlist is None else set(allowlist)
-    )
+    permitidos = _leer_allowlist_configurada() if allowlist is None else set(allowlist)
     if base not in permitidos:
         return "sandbox", f"binario '{base}' fuera de la allowlist del sandbox"
     return "directo", f"binario '{base}' en la allowlist y sin metacaracteres"

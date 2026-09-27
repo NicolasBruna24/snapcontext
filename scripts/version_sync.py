@@ -55,9 +55,7 @@ def escribir_vscode_package(v: str) -> bool:
     if _version_json(ruta) == v:
         return False
     # Reescribe SÓLO la clave "version" de nivel superior.
-    ruta.write_text(
-        _reemplazar_primero(texto, r'("version"\s*:\s*")[^"]*(")', v), encoding="utf-8"
-    )
+    ruta.write_text(_reemplazar_primero(texto, r'("version"\s*:\s*")[^"]*(")', v), encoding="utf-8")
     return True
 
 
@@ -71,9 +69,7 @@ def escribir_vscode_lock(v: str) -> bool:
     if _version_json(ruta) == v:
         return False
     # Sólo la versión raíz del lockfile, no la de sus dependencias.
-    ruta.write_text(
-        _reemplazar_primero(texto, r'("version"\s*:\s*")[^"]*(")', v), encoding="utf-8"
-    )
+    ruta.write_text(_reemplazar_primero(texto, r'("version"\s*:\s*")[^"]*(")', v), encoding="utf-8")
     return True
 
 
@@ -86,8 +82,7 @@ def leer_gradle_properties() -> str:
 def escribir_gradle_properties(v: str) -> bool:
     ruta = RAIZ / "jetbrains" / "gradle.properties"
     texto = ruta.read_text(encoding="utf-8")
-    nuevo = re.sub(r"^pluginVersion=.*$", f"pluginVersion={v}", texto,
-                   count=1, flags=re.MULTILINE)
+    nuevo = re.sub(r"^pluginVersion=.*$", f"pluginVersion={v}", texto, count=1, flags=re.MULTILINE)
     if nuevo == texto:
         return False
     ruta.write_text(nuevo, encoding="utf-8")
@@ -133,8 +128,11 @@ SUPERFICIES = (
 )
 
 ESCRITORES = (
-    escribir_vscode_package, escribir_vscode_lock, escribir_gradle_properties,
-    escribir_build_gradle, escribir_plugin_xml,
+    escribir_vscode_package,
+    escribir_vscode_lock,
+    escribir_gradle_properties,
+    escribir_build_gradle,
+    escribir_plugin_xml,
 )
 
 

@@ -27,6 +27,7 @@ from web.app import API_PREFIJO, CAPABILITY_MAP, crear_app
 
 CLAVE_TEST = "clave-super-segura-de-prueba-32chars"
 
+
 # ===========================================================================
 # 1. Authentication & Credential Lifecycle Tests (Casos 1 - 11)
 # ===========================================================================
@@ -134,7 +135,9 @@ class TestCredentialLifecycle:
         assert CLAVE_TEST not in r.text
         assert "clave_incorrecta" not in r.text
 
+
 HEADERS_TEST = {"X-API-Key": CLAVE_TEST}
+
 
 # ===========================================================================
 # 2. HTTP Capability Enforcement Tests (Casos 12 - 19)
@@ -203,4 +206,3 @@ class TestHTTPCapabilityEnforcement:
         assert client.get("/docs").status_code == 200
         r_lan = client.get("/docs", headers={"X-Forwarded-For": "10.0.0.1"})
         assert r_lan.status_code == 403
-

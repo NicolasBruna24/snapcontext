@@ -879,7 +879,7 @@ class TestF01RaizDelServidor:
         assert fs_web.frontera_activa().base_operacion("web") == raiz / "web"
 
     def test_directorio_igual_a_raiz_se_permite(self):
-        """"." se resuelve a la raiz del servidor."""
+        """La ruta "." se resuelve a la raiz del servidor."""
         fs_web.reiniciar_frontera()
         raiz = fs_web.frontera_activa().raiz_efectiva()
         assert fs_web.frontera_activa().base_operacion(".") == raiz
@@ -1067,9 +1067,7 @@ class TestF03PluginPorFrontera:
             _, _, fuera = self._ws(tmp)
             cola = queue.Queue()
             with mock.patch.object(sc, "_plugin_instalar") as inst:
-                wa._ejecutar_accion(
-                    {"accion": "plugin_install", "origen": str(fuera)}, cola
-                )
+                wa._ejecutar_accion({"accion": "plugin_install", "origen": str(fuera)}, cola)
                 inst.assert_not_called()
             eventos = _eventos(cola)
             fin = [e for e in eventos if e.get("tipo") == "accion_ejecutada"]
@@ -1139,9 +1137,7 @@ class TestR2F01ClasificacionFailClosed:
         with tempfile.TemporaryDirectory() as tmp:
             raiz, cwd_b, anterior = self._montaje(tmp)
             try:
-                app = wa.crear_app(
-                    api_token=clave, host="127.0.0.1", workspace_root=str(raiz)
-                )
+                app = wa.crear_app(api_token=clave, host="127.0.0.1", workspace_root=str(raiz))
                 assert fs_web.frontera_activa().raiz == raiz.resolve()
                 cli = TestClient(app)
                 with mock.patch.object(sc, "_plugin_leer_manifest") as man:
@@ -1168,9 +1164,23 @@ class TestR2F01ClasificacionFailClosed:
     @pytest.mark.parametrize(
         "origen",
         [
-            "./x", "./a/b", "a/b", "a/b/c", "a/b.zip", "user/repo", "user/repo.git",
-            "../x", "../../x", "foo/../x", "./plugin", "./user/repo", "foo/bar",
-            "foo/bar/plugin", "foo/bar.zip", "foo/../bar", "foo/bar/../../outside",
+            "./x",
+            "./a/b",
+            "a/b",
+            "a/b/c",
+            "a/b.zip",
+            "user/repo",
+            "user/repo.git",
+            "../x",
+            "../../x",
+            "foo/../x",
+            "./plugin",
+            "./user/repo",
+            "foo/bar",
+            "foo/bar/plugin",
+            "foo/bar.zip",
+            "foo/../bar",
+            "foo/bar/../../outside",
         ],
     )
     def test_ninguna_forma_ambigua_se_clasifica_como_remota(self, origen):
@@ -1186,8 +1196,15 @@ class TestR2F01ClasificacionFailClosed:
 
     @pytest.mark.parametrize(
         "origen",
-        ["./plugin", "./user/repo", "foo/bar", "foo/bar/plugin", "foo/bar.zip",
-         "user/repo", "user/repo.git"],
+        [
+            "./plugin",
+            "./user/repo",
+            "foo/bar",
+            "foo/bar/plugin",
+            "foo/bar.zip",
+            "user/repo",
+            "user/repo.git",
+        ],
     )
     def test_locales_ambiguos_pasan_por_la_frontera(self, origen):
         """Se canonicalizan contra la raíz, nunca contra el cwd."""
@@ -1204,8 +1221,10 @@ class TestR2F01ClasificacionFailClosed:
             finally:
                 os.chdir(anterior)
 
-    @pytest.mark.parametrize("origen", ["../plugin", "../../plugin", "../../outside",
-                                        "foo/../../outside", "a/b/../../../x"])
+    @pytest.mark.parametrize(
+        "origen",
+        ["../plugin", "../../plugin", "../../outside", "foo/../../outside", "a/b/../../../x"],
+    )
     def test_traversal_que_escapa_se_deniega(self, origen):
         """Traversal que sale de la raíz: DENY."""
         import os
@@ -1241,8 +1260,7 @@ class TestR2F01ClasificacionFailClosed:
             finally:
                 os.chdir(anterior)
 
-    @pytest.mark.parametrize("origen", ["/etc/passwd", "/tmp/plugin", "/root/plugin",
-                                        "~/.ssh"])
+    @pytest.mark.parametrize("origen", ["/etc/passwd", "/tmp/plugin", "/root/plugin", "~/.ssh"])
     def test_absolutos_y_home_se_deniegan(self, origen):
         import os
 
@@ -1325,9 +1343,7 @@ class TestR2F01ClasificacionFailClosed:
             try:
                 cola = queue.Queue()
                 with mock.patch.object(sc, "_plugin_instalar") as inst:
-                    wa._ejecutar_accion(
-                        {"accion": "plugin_install", "origen": "user/repo"}, cola
-                    )
+                    wa._ejecutar_accion({"accion": "plugin_install", "origen": "user/repo"}, cola)
                     inst.assert_called()
                     for c in inst.call_args_list:
                         assert str(c.args[0]).startswith(str(raiz))

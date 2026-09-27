@@ -189,9 +189,7 @@ def cargar_credencial(*, token_explicito: str | None = None) -> str | None:
         return entorno
     valor, estado = _credencial_config()
     if estado == "permisos":
-        logger.warning(
-            "Credencial denegada: permisos de config.json inseguros (se exige 0600)."
-        )
+        logger.warning("Credencial denegada: permisos de config.json inseguros (se exige 0600).")
         return None
     if estado == "corrupta":
         logger.warning("Credencial denegada: api_key de config.json corrupta.")
@@ -213,9 +211,7 @@ def generar_credencial() -> str | None:
         logger.warning("No se pudo persistir la API key generada; credencial no usable.")
         return None
     if not _permisos_config_validos():
-        logger.warning(
-            "No se garantizaron permisos 0600 para la API key; credencial no usable."
-        )
+        logger.warning("No se garantizaron permisos 0600 para la API key; credencial no usable.")
         return None
     print(
         "🔑 Nueva API key generada y guardada en config.json (permisos 0600). "
@@ -239,17 +235,13 @@ def preparar_credencial_inicio(
     """
     if token_explicito:
         if len(token_explicito) < MIN_LONGITUD_CREDENCIAL:
-            print(
-                "⚠ API key manual corta (<32): se admite solo en loopback; "
-                "se rechazará fuera."
-            )
+            print("⚠ API key manual corta (<32): se admite solo en loopback; se rechazará fuera.")
         return token_explicito
     entorno = os.environ.get("SNAPCONTEXT_API_KEY", "").strip()
     if entorno:
         if len(entorno) < MIN_LONGITUD_CREDENCIAL:
             print(
-                "⚠ SNAPCONTEXT_API_KEY corta (<32): se admite solo en loopback; "
-                "se rechazará fuera."
+                "⚠ SNAPCONTEXT_API_KEY corta (<32): se admite solo en loopback; se rechazará fuera."
             )
         return entorno
     valor, estado = _credencial_config()
@@ -257,8 +249,7 @@ def preparar_credencial_inicio(
         return valor
     if estado == "permisos":
         logger.warning(
-            "Arranque con api_key DENEGADA: permisos de config.json inseguros "
-            "(se exige 0600)."
+            "Arranque con api_key DENEGADA: permisos de config.json inseguros (se exige 0600)."
         )
         return None
     if estado == "corrupta":
@@ -306,6 +297,7 @@ def rotar_credencial() -> str:
         except Exception:  # un hook no debe impedir la rotación
             logger.error("Hook de rotación falló (sin detalles de la credencial).")
     return clave
+
 
 # ---------------------------------------------------------------------------
 # Clasificación de exposición / Host / Origin (B9.59 §8-§11, B9.60 §13-§14)
@@ -416,8 +408,7 @@ def origin_admitido(origin: str | None, host: str | None, exposicion: Exposicion
         permitido = exposicion == "loopback"
         if permitido:
             logger.warning(
-                "Origin ausente en loopback: permitido con credencial válida "
-                "(B9.59 §8(3))."
+                "Origin ausente en loopback: permitido con credencial válida (B9.59 §8(3))."
             )
         else:
             logger.warning("Origin ausente en no-loopback → DENY (B9.59 §8(3)).")

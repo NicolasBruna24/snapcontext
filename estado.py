@@ -73,10 +73,7 @@ def _lanzar_proceso_fondo(comando: str, directorio: str = ".", capture_output: b
         if nivel != "directo":
             return {
                 "ok": False,
-                "error": (
-                    f"Comando peligroso rechazado (sin sandbox): {comando} "
-                    f"[{motivo}]"
-                ),
+                "error": (f"Comando peligroso rechazado (sin sandbox): {comando} [{motivo}]"),
             }
     try:
         # seguridad (A1): lanzamiento en background vía helper con política

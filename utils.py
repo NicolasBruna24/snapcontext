@@ -154,7 +154,6 @@ def _leer_archivo(ruta: str | Path) -> str | None:
         return None
 
 
-
 def _verificar_padre_seguro(destino: Path, proyecto_root: Path) -> None:
     """Valida que el directorio padre resuelto esté dentro del proyecto
     y no sea un symlink (defensa en profundidad contra TOCTOU en directorios).
@@ -166,15 +165,11 @@ def _verificar_padre_seguro(destino: Path, proyecto_root: Path) -> None:
         if padre != proyecto_root and proyecto_root not in padre.parents:
             raise ValueError
     except (ValueError, TypeError) as exc:
-        raise RutaInseguraError(
-            f"directorio padre fuera del proyecto: '{padre}'"
-        ) from exc
+        raise RutaInseguraError(f"directorio padre fuera del proyecto: '{padre}'") from exc
     try:
         real_padre = padre.resolve(strict=False)
         if real_padre != padre and real_padre.is_symlink():
-            raise RutaInseguraError(
-                f"directorio padre es symlink: '{padre}'"
-            )
+            raise RutaInseguraError(f"directorio padre es symlink: '{padre}'")
     except OSError as exc:
         raise RutaInseguraError(
             f"no se pudo verificar el directorio padre '{padre}': {exc}"
@@ -223,9 +218,7 @@ def escribir_archivo_seguro(
     # absolutas (que no estan dentro del proyecto por definion).
     crudo = str(ruta_relativa).replace("\\", "/")
     if crudo.startswith("/"):
-        raise RutaInseguraError(
-            f"acceso denegado: '{ruta_relativa}' es una ruta absoluta"
-        )
+        raise RutaInseguraError(f"acceso denegado: '{ruta_relativa}' es una ruta absoluta")
     if ".." in crudo.split("/"):
         raise RutaInseguraError(
             f"acceso denegado: '{ruta_relativa}' contiene '..' (posible path traversal)"
@@ -239,9 +232,7 @@ def escribir_archivo_seguro(
     try:
         destino_resuelto = _validar_ruta_segura(destino, proyecto_root.resolve())
     except ValueError as exc:
-        raise RutaInseguraError(
-            f"acceso denegado: '{limpia}' fuera del proyecto"
-        ) from exc
+        raise RutaInseguraError(f"acceso denegado: '{limpia}' fuera del proyecto") from exc
 
     crear = not destino_resuelto.exists()
     if crear:
@@ -278,7 +269,4 @@ def escribir_archivo_seguro(
                 os.close(fd)
             except OSError:
                 pass
-        raise RutaInseguraError(
-            f"no se pudo escribir '{limpia}': {exc}"
-        ) from exc
-
+        raise RutaInseguraError(f"no se pudo escribir '{limpia}': {exc}") from exc

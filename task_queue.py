@@ -543,6 +543,8 @@ def cancelar_pendientes_por_rotacion(db_path: str | Path | None = None) -> int:
     finally:
         if str(db_path) != ":memory:":
             con.close()
+
+
 def _argv_con_snapshot(consulta: str, flags: list[str], ctx: TaskSecurityContext) -> list[str]:
     """Construye el argv con el `--directorio` congelado, sin shell.
 

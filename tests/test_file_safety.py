@@ -67,6 +67,7 @@ class TestPathTraversal:
         raiz = _raiz_temporal(tmp_path)
         with pytest.raises(RutaInseguraError):
             escribir_archivo_seguro("src/../../../etc/passwd", "x", raiz)
+
     def test_archivo_es_symlink_fuera(self, tmp_path: Path):
         raiz = _raiz_temporal(tmp_path)
         # Apuntar FUERA del tmp_path completo (no solo del proyecto).
@@ -189,4 +190,3 @@ class TestDirectorioPadre:
         raiz = _raiz_temporal(tmp_path)
         with pytest.raises(RutaInseguraError):
             escribir_archivo_seguro("src/../../../etc/passwd", "x", raiz)
-

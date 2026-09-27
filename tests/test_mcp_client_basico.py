@@ -32,7 +32,6 @@ from mcp_client import (
     ruta_config_servidores,
 )
 
-
 # --- Helpers ---
 
 
@@ -98,7 +97,11 @@ def _cfg_para(nombre, comando="fake"):
 
 class TestErroresConexion:
     def test_json_malo_y_luego_valido(self):
-        lineas = ["esto no es json", "{mal json", json.dumps(_respuesta_mcp(1, _handshake_result()))]
+        lineas = [
+            "esto no es json",
+            "{mal json",
+            json.dumps(_respuesta_mcp(1, _handshake_result())),
+        ]
         proceso, _ = _proceso_con_lineas(lineas)
         cfg = _cfg_para("srv")
         cliente = MCPClient(config=cfg)
@@ -124,7 +127,9 @@ class TestErroresConexion:
 
     def test_error_jsonrpc_propaga(self):
         handshake = json.dumps(_respuesta_mcp(1, _handshake_result()))
-        error_resp = json.dumps(_respuesta_mcp(2, error={"code": -32600, "message": "Invalid Request"}))
+        error_resp = json.dumps(
+            _respuesta_mcp(2, error={"code": -32600, "message": "Invalid Request"})
+        )
         proceso, _ = _proceso_con_lineas([handshake, error_resp])
         cfg = _cfg_para("srv")
         cliente = MCPClient(config=cfg)
@@ -135,7 +140,6 @@ class TestErroresConexion:
             with pytest.raises(RuntimeError, match="fall"):
                 cliente._peticion("srv", "tools/list")
         cliente.cerrar()
-
 
 
 # === 2. Parsing de respuestas con tipos inesperados ===
@@ -249,6 +253,11 @@ class TestSpawnProceso:
         cliente = MCPClient(config=cfg)
         mock_sub = MagicMock()
         mock_sub.Popen.return_value = proceso
+        with patch.object(mcp_client, "subprocess", mock_sub):
+            cliente._asegurar_proceso("srv")
+        cliente.cerrar()
+        cliente.cerrar()
+        cliente.cerrar()
 
 
 # === 4. CLI: config corrupta ===
@@ -291,11 +300,6 @@ class TestCLI:
                 assert resultado["servers"]["fs"]["command"] == "new"
         finally:
             ruta.unlink(missing_ok=True)
-        with patch.object(mcp_client, "subprocess", mock_sub):
-            cliente._asegurar_proceso("srv")
-        cliente.cerrar()
-        cliente.cerrar()
-        cliente.cerrar()
 
     def test_terminar_timeout(self):
         proceso, _ = _proceso_con_lineas([])
@@ -324,6 +328,7 @@ class TestCLI:
         assert resultado["ok"] is False
         assert "fallo" in resultado["error"]
         cliente.cerrar()
+
     def test_crashea_medio_sesion(self):
         handshake = json.dumps(_respuesta_mcp(1, _handshake_result()))
         proceso, _ = _proceso_con_lineas([handshake, ""])
@@ -728,9 +733,7 @@ class TestPrefijosHerramientas:
     def test_herramienta_sin_descripcion(self):
         """Herramienta sin descripcion recibe descripcion por defecto."""
         handshake = json.dumps(_respuesta_mcp(1, _handshake_result()))
-        tools_resp = json.dumps(
-            _respuesta_mcp(2, {"tools": [{"name": "tool"}]})
-        )
+        tools_resp = json.dumps(_respuesta_mcp(2, {"tools": [{"name": "tool"}]}))
         proceso, _ = _proceso_con_lineas([handshake, tools_resp])
         cfg = {"srv": {"command": "fake"}}
         cliente = MCPClient(config=cfg)
@@ -744,9 +747,7 @@ class TestPrefijosHerramientas:
     def test_herramienta_con_caracteres_raros(self):
         """Nombres de herramienta con caracteres especiales se registran."""
         handshake = json.dumps(_respuesta_mcp(1, _handshake_result()))
-        tools_resp = json.dumps(
-            _respuesta_mcp(2, {"tools": [{"name": "read-file_v2.0"}]})
-        )
+        tools_resp = json.dumps(_respuesta_mcp(2, {"tools": [{"name": "read-file_v2.0"}]}))
         proceso, _ = _proceso_con_lineas([handshake, tools_resp])
         cfg = {"srv": {"command": "fake"}}
         cliente = MCPClient(config=cfg)
@@ -796,4 +797,3 @@ class TestEstadoInterno:
         mcp_client.cerrar_cliente()
         # Sin error: idempotente.
         assert mcp_client._CLIENTE is None
-

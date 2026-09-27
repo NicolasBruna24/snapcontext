@@ -74,9 +74,7 @@ class TestRex1AllowlistVacia:
         """OD-1: `run` es la superficie de ejecución remota arbitraria."""
         cola = queue.Queue()
         with mock.patch.object(sc, "_ejecutar_comando") as ejec:
-            wa._ejecutar_accion(
-                {"accion": "run", "comando": "echo HOLA", "directorio": "."}, cola
-            )
+            wa._ejecutar_accion({"accion": "run", "comando": "echo HOLA", "directorio": "."}, cola)
             ejec.assert_not_called()
         fin = [e for e in _eventos(cola) if e.get("tipo") == "accion_ejecutada"]
         assert fin and fin[0]["ok"] is False
@@ -132,9 +130,7 @@ class TestRex2Identidad:
     def test_no_hay_bypass_por_basename(self):
         """Un binario denegado no se autoriza por renombrarlo (OD-2/REX-12)."""
         with mock.patch.object(remota_web, "PATH_REMOTO", ("/tmp/fakebin",)):
-            with mock.patch.object(
-                remota_web, "_which_cerrado", return_value="/tmp/fakebin/sh"
-            ):
+            with mock.patch.object(remota_web, "_which_cerrado", return_value="/tmp/fakebin/sh"):
                 permitido, _, _ = remota_web.autorizar_comando_remoto(["sh", "-c", "id"])
                 assert permitido is False
 
@@ -151,7 +147,8 @@ class TestRex2Identidad:
 
     def test_identidad_incluye_ruta_resuelta(self):
         with mock.patch.object(
-            remota_web, "allowlist_remota_efectiva",
+            remota_web,
+            "allowlist_remota_efectiva",
             return_value=({"binario": "echo", "argv_permitidos": ("x",)},),
         ):
             permitido, _, ident = remota_web.autorizar_comando_remoto(["echo", "x"])
@@ -166,8 +163,24 @@ class TestRex2Identidad:
 class TestRex3ShellsInterpretes:
     @pytest.mark.parametrize(
         "binario",
-        ["sh", "bash", "zsh", "fish", "cmd", "powershell", "python", "python3",
-         "node", "perl", "ruby", "npm", "npx", "pip", "xargs", "env"],
+        [
+            "sh",
+            "bash",
+            "zsh",
+            "fish",
+            "cmd",
+            "powershell",
+            "python",
+            "python3",
+            "node",
+            "perl",
+            "ruby",
+            "npm",
+            "npx",
+            "pip",
+            "xargs",
+            "env",
+        ],
     )
     def test_shell_o_interprete_denegado(self, binario):
         permitido, motivo, _ = remota_web.autorizar_comando_remoto([binario, "-c", "id"])
@@ -204,6 +217,7 @@ class TestRex3ShellsInterpretes:
         permitido, _, _ = remota_web.autorizar_comando_remoto(["echo", "a;b"])
         assert permitido is False
 
+
 class TestRex4Entorno:
     def test_entorno_no_hereda_secrets(self):
         os.environ["GEMINI_API_KEY"] = "secreto"
@@ -229,8 +243,14 @@ class TestRex4Entorno:
             os.environ.pop("PYTHONPATH", None)
 
     def test_variables_sensibles_documentadas(self):
-        for var in ("LD_PRELOAD", "PYTHONPATH", "NODE_PATH", "GIT_CONFIG",
-                    "SSH_AUTH_SOCK", "GEMINI_API_KEY"):
+        for var in (
+            "LD_PRELOAD",
+            "PYTHONPATH",
+            "NODE_PATH",
+            "GIT_CONFIG",
+            "SSH_AUTH_SOCK",
+            "GEMINI_API_KEY",
+        ):
             assert var in remota_web.VARIABLES_EXCLUIDAS
 
 
@@ -273,9 +293,7 @@ class TestRex8OrigenPlugin:
             assert isinstance(origen, wa.LocalPath)
             assert origen.ruta == (ws / "p").resolve()
 
-    @pytest.mark.parametrize(
-        "origen", ["../fuera", "/etc", "/root/x", "~/x", "a/../../fuera"]
-    )
+    @pytest.mark.parametrize("origen", ["../fuera", "/etc", "/root/x", "~/x", "a/../../fuera"])
     def test_local_fuera_se_deniega(self, origen):
         with tempfile.TemporaryDirectory() as tmp:
             ws = Path(tmp) / "ws"
@@ -290,8 +308,15 @@ class TestRex8OrigenPlugin:
             ws = Path(tmp) / "ws"
             ws.mkdir()
             fs_web.fijar_frontera(Frontera(exposicion="lan", raiz=ws.resolve()))
-            for entrada in ("p", "./a/b", "user/repo", "user/repo.git",
-                            "foo/bar.zip", "https://x/y.zip", ".."):
+            for entrada in (
+                "p",
+                "./a/b",
+                "user/repo",
+                "user/repo.git",
+                "foo/bar.zip",
+                "https://x/y.zip",
+                "..",
+            ):
                 try:
                     resultado = wa._origen_plugin_por_frontera(entrada)
                 except ErrorFrontera:
@@ -365,9 +390,7 @@ class TestRex6InstalacionRemotaDenegada:
             fs_web.fijar_frontera(Frontera(exposicion="lan", raiz=ws.resolve()))
             cola = queue.Queue()
             with mock.patch.object(sc, "_plugin_instalar") as inst:
-                wa._ejecutar_accion(
-                    {"accion": "plugin_install", "origen": str(fuera)}, cola
-                )
+                wa._ejecutar_accion({"accion": "plugin_install", "origen": str(fuera)}, cola)
                 inst.assert_not_called()
 
 
@@ -560,8 +583,12 @@ class TestRex8ExtraccionZip:
         with tempfile.TemporaryDirectory() as tmp:
             destino = Path(tmp) / "dest"
             destino.mkdir()
-            for nombre in (r"..\..\evil.txt", r"\\servidor\recurso\x.txt",
-                           r"C:\Windows\evil.txt", r"a\..\..\evil.txt"):
+            for nombre in (
+                r"..\..\evil.txt",
+                r"\\servidor\recurso\x.txt",
+                r"C:\Windows\evil.txt",
+                r"a\..\..\evil.txt",
+            ):
                 self._zip([(nombre, "PWN", 0o100644)], destino)
             assert list(destino.rglob("*")) == []
 
@@ -612,8 +639,13 @@ class TestRex8ExtraccionZip:
 class TestC1R2EsquemasRemotos:
     @pytest.mark.parametrize(
         "url",
-        ["http://example.com/x.zip", "ftp://example.com/x.zip",
-         "file:///tmp/x.zip", "custom://x", "a://b"],
+        [
+            "http://example.com/x.zip",
+            "ftp://example.com/x.zip",
+            "file:///tmp/x.zip",
+            "custom://x",
+            "a://b",
+        ],
     )
     def test_esquema_no_soportado_no_es_remote_url(self, url):
         assert not wa._es_origen_plugin_remoto(url), url
@@ -624,8 +656,17 @@ class TestC1R2EsquemasRemotos:
         assert isinstance(origen, wa.RemoteURL)
 
     @pytest.mark.parametrize(
-        "forma", ["user/repo", "user/repo.git", "./user/repo", "foo/bar/plugin",
-                  "a/b/c", "plugin.zip", "./x"])
+        "forma",
+        [
+            "user/repo",
+            "user/repo.git",
+            "./user/repo",
+            "foo/bar/plugin",
+            "a/b/c",
+            "plugin.zip",
+            "./x",
+        ],
+    )
     def test_formas_ambiguas_no_vuelven_url(self, forma):
         """R3-01 no se reabre: sin heuristicas por forma (C-R1-02)."""
         assert not wa._es_origen_plugin_remoto(forma), forma
@@ -659,9 +700,15 @@ class TestC1R2EsquemasRemotos:
 class TestC1R2DescargaCli:
     @pytest.mark.parametrize(
         "origen",
-        ["http://example.com/x.zip", "ftp://example.com/x.zip", "file:///tmp/x.zip",
-         "custom://x", "a://b", "https://user:pass@ejemplo/x.zip",
-         "https://ejemplo/x.zip#frag"],
+        [
+            "http://example.com/x.zip",
+            "ftp://example.com/x.zip",
+            "file:///tmp/x.zip",
+            "custom://x",
+            "a://b",
+            "https://user:pass@ejemplo/x.zip",
+            "https://ejemplo/x.zip#frag",
+        ],
     )
     def test_no_descarga_esquema_no_soportado(self, origen):
         with tempfile.TemporaryDirectory() as tmp:
@@ -682,9 +729,20 @@ class TestC1R2DescargaCli:
 
     @pytest.mark.parametrize(
         "slug",
-        ["user/repo/extra", "../../etc/passwd", "user repo", "user/", "/repo",
-         "user/repo?x=1", "user/repo#f", "user/repo/../otro", "user@repo",
-         "user/repo\\x", "http://evil.example/x.zip", "file:///tmp/x.zip"],
+        [
+            "user/repo/extra",
+            "../../etc/passwd",
+            "user repo",
+            "user/",
+            "/repo",
+            "user/repo?x=1",
+            "user/repo#f",
+            "user/repo/../otro",
+            "user@repo",
+            "user/repo\\x",
+            "http://evil.example/x.zip",
+            "file:///tmp/x.zip",
+        ],
     )
     def test_slug_invalido_no_abre_red(self, slug):
         with tempfile.TemporaryDirectory() as tmp:
@@ -780,7 +838,6 @@ class TestD1WebhookFailClosed:
     def test_rama_valida_se_acepta(self, rama):
         assert gh.referencia_git_valida(rama)
 
-
     def test_webhook_malicioso_no_alcanza_shell(self):
         """Integración D-01: HTTP webhook -> parseo -> cola, sin shell.
 
@@ -812,7 +869,9 @@ class TestD1WebhookFailClosed:
     @pytest.mark.parametrize("tipo", ["tests", "pr_review", "review", "ejecutar_pruebas", "xx", ""])
     def test_worker_deniega_tipos_no_permitidos(self, tipo):
         ctx = tq.contexto_por_defecto(workspace_root=Path.cwd())
-        res = tq.ejecutar_tarea({"tipo": tipo, "datos": {"consulta": "x"}, "contexto": ctx.a_dict()})
+        res = tq.ejecutar_tarea(
+            {"tipo": tipo, "datos": {"consulta": "x"}, "contexto": ctx.a_dict()}
+        )
         assert res["ok"] is False
         assert "tipo no permitido" in res["error"]
 
@@ -860,7 +919,9 @@ class TestD2ContextoCongelado:
             generacion=tq.generacion_actual() + 99,
             origen="gateway",
         )
-        res = tq.ejecutar_tarea({"tipo": "query", "datos": {"consulta": "x"}, "contexto": ctx.a_dict()})
+        res = tq.ejecutar_tarea(
+            {"tipo": "query", "datos": {"consulta": "x"}, "contexto": ctx.a_dict()}
+        )
         assert res["ok"] is False
         assert res["estado"] == tq.ESTADO_CANCELADA_ROTACION
 
@@ -933,14 +994,18 @@ class TestD3Rotacion:
 
 class TestRex9PoliticaCerrada:
     def test_allowlist_corrupta_no_habilita(self):
-        with mock.patch("configuracion.cargar_configuracion",
-                        return_value={"sandbox_allowlist_remota": "no-es-lista"}):
+        with mock.patch(
+            "configuracion.cargar_configuracion",
+            return_value={"sandbox_allowlist_remota": "no-es-lista"},
+        ):
             assert remota_web.allowlist_remota_efectiva() == ()
 
     def test_allowlist_con_contenido_no_habilita_en_m1(self):
         """M1 no habilita comandos aunque la clave tenga entradas (OD-1)."""
-        with mock.patch("configuracion.cargar_configuracion",
-                        return_value={"sandbox_allowlist_remota": [{"binario": "echo"}]}):
+        with mock.patch(
+            "configuracion.cargar_configuracion",
+            return_value={"sandbox_allowlist_remota": [{"binario": "echo"}]},
+        ):
             assert remota_web.allowlist_remota_efectiva() == ()
 
     def test_config_ausente_no_habilita(self):
@@ -965,9 +1030,7 @@ class TestRex3Rex13:
     def test_run_usa_cwd_confinado(self):
         """Aunque se deniegue, el cwd se valida antes de tocar nada."""
         cola = queue.Queue()
-        wa._ejecutar_accion(
-            {"accion": "run", "comando": "echo x", "directorio": "../../etc"}, cola
-        )
+        wa._ejecutar_accion({"accion": "run", "comando": "echo x", "directorio": "../../etc"}, cola)
         fin = [e for e in _eventos(cola) if e.get("tipo") == "accion_ejecutada"]
         assert fin and fin[0]["ok"] is False
 
@@ -989,7 +1052,8 @@ class TestRex3Rex13:
     def test_manifest_no_concede_capabilities(self):
         """REX-5: un manifest declara, no concede."""
         manifest = {
-            "nombre": "x", "herramientas": [{}],
+            "nombre": "x",
+            "herramientas": [{}],
             "permisos": ["WRITE_WORKSPACE", "EXECUTE_REMOTE"],
             "capabilities": ["MANAGE_DAEMON"],
         }
@@ -1012,9 +1076,7 @@ class TestRex10Rotacion:
         """REX-10: sin lista de comandos autorizados no hay nada que revalidar."""
         cola = queue.Queue()
         with mock.patch.object(sc, "_ejecutar_comando") as ejec:
-            wa._ejecutar_accion(
-                {"accion": "run", "comando": "echo x", "directorio": "."}, cola
-            )
+            wa._ejecutar_accion({"accion": "run", "comando": "echo x", "directorio": "."}, cola)
             ejec.assert_not_called()
 
     def test_identidad_no_se_transfiere(self):
@@ -1028,9 +1090,7 @@ class TestRex10Rotacion:
 # ===========================================================================
 class TestRex14Errores:
     def test_motivo_no_contiene_ruta_del_host(self):
-        permitido, motivo, _ = remota_web.autorizar_comando_remoto(
-            ["/root/secreto/x"]
-        )
+        permitido, motivo, _ = remota_web.autorizar_comando_remoto(["/root/secreto/x"])
         assert permitido is False
         assert "/root/secreto" not in motivo
 

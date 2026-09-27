@@ -26,7 +26,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ / "scripts"))
 
-import version_sync  # noqa: E402  (script hermano, sin dependencias externas)
+import version_sync
 
 RE_TAG = re.compile(r"^v(\d+\.\d+\.\d+)$")
 
@@ -188,7 +188,7 @@ def _venv_limpia(ctx: Ctx) -> tuple[bool, str]:
     return True, str(venv)
 
 
-def _instalar_wheel(ctx: Ctx) -> "Path | None":
+def _instalar_wheel(ctx: Ctx) -> Path | None:
     """Instala SOLO el wheel; usa el extra `web` si sus dependencias resuelven."""
     venv_py = ctx.venv / "bin" / "python"
     r = _run([str(venv_py), "-m", "pip", "install", "--quiet", f"{ctx.wheel}[web]"])
@@ -278,9 +278,17 @@ def i8_security_tests(ctx: Ctx) -> tuple[bool, str]:
 
 
 INVARIANTES = {
-    "I1": i1_tag, "I2": i2_package_version, "I3": i3_runtime, "I4": i4_metadata,
-    "I5": i5_vscode, "I6": i6_jetbrains, "I7": i7_changelog, "I8": i8_security_tests,
-    "I9": i9_sdist_a_wheel, "I10": i10_wheel_contents, "I11": i11_clean_install,
+    "I1": i1_tag,
+    "I2": i2_package_version,
+    "I3": i3_runtime,
+    "I4": i4_metadata,
+    "I5": i5_vscode,
+    "I6": i6_jetbrains,
+    "I7": i7_changelog,
+    "I8": i8_security_tests,
+    "I9": i9_sdist_a_wheel,
+    "I10": i10_wheel_contents,
+    "I11": i11_clean_install,
     "I12": i12_static_assets,
 }
 
@@ -290,7 +298,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--tag", default=None, help="tag que disparó el workflow")
     p.add_argument("--only", nargs="*", default=None, help="subconjunto de invariantes")
     p.add_argument(
-        "--allow-no-tag", action="store_true",
+        "--allow-no-tag",
+        action="store_true",
         help="omite I1 (uso local; NO usar en el gate de publicación)",
     )
     args = p.parse_args(argv)

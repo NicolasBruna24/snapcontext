@@ -272,9 +272,7 @@ class TestClasificacionTresNiveles(unittest.TestCase):
 
     def test_allowlist_personalizada_desde_config(self):
         fake_cfg = {"sandbox_allowlist_binarios": ["mibinario"]}
-        with mock.patch(
-            "configuracion.cargar_configuracion", return_value=fake_cfg
-        ):
+        with mock.patch("configuracion.cargar_configuracion", return_value=fake_cfg):
             nivel, _ = sandbox_utils.clasificar_comando("mibinario --flag")
             self.assertEqual(nivel, "directo")
             nivel, _ = sandbox_utils.clasificar_comando("ls")
@@ -457,9 +455,7 @@ class TestEstadoFondoClasificacion(unittest.TestCase):
         import estado as estado_mod
 
         with mock.patch.object(estado_mod, "_PROCESOS_FONDO", {}):
-            resultado = estado_mod._lanzar_proceso_fondo(
-                "echo Y21kIGRlbA== | base64 -d | sh", "."
-            )
+            resultado = estado_mod._lanzar_proceso_fondo("echo Y21kIGRlbA== | base64 -d | sh", ".")
         self.assertFalse(resultado["ok"])
 
 

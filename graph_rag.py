@@ -195,9 +195,7 @@ def _extraer_nodos_y_aristas(directorio: str) -> dict:  # noqa: C901  (refactor 
     for rel, arbol in arboles.items():  # type: ignore[assignment]
         # `arbol` es el AST parseado del archivo (tipo `ast.Module`, subclase de `ast.AST`).
 
-        def _visitar(
-            nodo: ast.AST, contexto: str, _rel: str = rel
-        ) -> None:
+        def _visitar(nodo: ast.AST, contexto: str, _rel: str = rel) -> None:
             # `_rel` vincula el `rel` de esta iteración (B023: la closure se
             # define dentro del bucle; el binding por defecto la fija).
             if isinstance(nodo, ast.ClassDef):

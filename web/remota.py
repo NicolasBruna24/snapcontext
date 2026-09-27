@@ -52,19 +52,68 @@ PATH_REMOTO: tuple[str, ...] = (
 BINARIOS_DENEGADOS: frozenset[str] = frozenset(
     {
         # shells
-        "sh", "bash", "zsh", "fish", "dash", "ksh", "csh", "tcsh", "busybox",
-        "cmd", "cmd.exe", "powershell", "pwsh",
+        "sh",
+        "bash",
+        "zsh",
+        "fish",
+        "dash",
+        "ksh",
+        "csh",
+        "tcsh",
+        "busybox",
+        "cmd",
+        "cmd.exe",
+        "powershell",
+        "pwsh",
         # intérpretes
-        "python", "python2", "python3", "pythonw", "pypy", "pypy3",
-        "perl", "ruby", "node", "lua", "php", "deno", "bun",
+        "python",
+        "python2",
+        "python3",
+        "pythonw",
+        "pypy",
+        "pypy3",
+        "perl",
+        "ruby",
+        "node",
+        "lua",
+        "php",
+        "deno",
+        "bun",
         # gestores de paquetes (ejecutan código de terceros)
-        "npm", "npx", "pnpm", "yarn", "pip", "pip3", "uv", "poetry",
+        "npm",
+        "npx",
+        "pnpm",
+        "yarn",
+        "pip",
+        "pip3",
+        "uv",
+        "poetry",
         # lanzadores de otros comandos
-        "xargs", "env", "eval", "exec", "source", "nice", "timeout",
-        "setsid", "stdbuf", "script", "su", "sudo", "doas",
+        "xargs",
+        "env",
+        "eval",
+        "exec",
+        "source",
+        "nice",
+        "timeout",
+        "setsid",
+        "stdbuf",
+        "script",
+        "su",
+        "sudo",
+        "doas",
         # red (OD-5: EXECUTE_REMOTE no concede red)
-        "curl", "wget", "nc", "ncat", "netcat", "telnet", "ftp", "sftp",
-        "ssh", "scp", "rsync",
+        "curl",
+        "wget",
+        "nc",
+        "ncat",
+        "netcat",
+        "telnet",
+        "ftp",
+        "sftp",
+        "ssh",
+        "scp",
+        "rsync",
     }
 )
 
@@ -76,19 +125,51 @@ CLAVE_ALLOWLIST_REMOTA = "sandbox_allowlist_remota"
 #: frontera sea auditable.
 VARIABLES_EXCLUIDAS: frozenset[str] = frozenset(
     {
-        "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-        "DEEPSEEK_API_KEY", "GROQ_API_KEY", "OLLAMA_URL", "SNAPCONTEXT_API_KEY",
-        "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
-        "AWS_PROFILE", "GOOGLE_APPLICATION_CREDENTIALS", "AZURE_CLIENT_SECRET",
-        "GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN",
-        "SSH_AUTH_SOCK", "SSH_AGENT_PID",
-        "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT",
-        "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP",
-        "NODE_PATH", "NODE_OPTIONS", "NPM_CONFIG_PREFIX",
-        "GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_SSH_COMMAND",
-        "BASH_ENV", "ENV", "IFS", "SHELLOPTS", "PERL5LIB", "RUBYLIB",
-        "http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY",
-        "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy",
+        "GEMINI_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "GROQ_API_KEY",
+        "OLLAMA_URL",
+        "SNAPCONTEXT_API_KEY",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "AWS_PROFILE",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "AZURE_CLIENT_SECRET",
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+        "GITLAB_TOKEN",
+        "SSH_AUTH_SOCK",
+        "SSH_AGENT_PID",
+        "LD_PRELOAD",
+        "LD_LIBRARY_PATH",
+        "LD_AUDIT",
+        "PYTHONPATH",
+        "PYTHONHOME",
+        "PYTHONSTARTUP",
+        "NODE_PATH",
+        "NODE_OPTIONS",
+        "NPM_CONFIG_PREFIX",
+        "GIT_CONFIG",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_SYSTEM",
+        "GIT_SSH_COMMAND",
+        "BASH_ENV",
+        "ENV",
+        "IFS",
+        "SHELLOPTS",
+        "PERL5LIB",
+        "RUBYLIB",
+        "http_proxy",
+        "https_proxy",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "all_proxy",
+        "NO_PROXY",
+        "no_proxy",
     }
 )
 
@@ -223,15 +304,11 @@ def autorizar_comando_remoto(
     except ErrorFrontera as exc:
         return False, exc.mensaje, None
 
-    identidad = IdentidadComandoRemoto(
-        nombre_logico=nombre, ruta_resuelta=ruta, argv=argv_norm
-    )
+    identidad = IdentidadComandoRemoto(nombre_logico=nombre, ruta_resuelta=ruta, argv=argv_norm)
 
     permitidos = allowlist_remota_efectiva()
     if not permitidos:
-        logger.info(
-            "REMOTA/DENY identidad=%s (política M1: DENY ALL)", identidad
-        )
+        logger.info("REMOTA/DENY identidad=%s (política M1: DENY ALL)", identidad)
         return False, "ejecución remota deshabilitada (política M1)", None
 
     for entrada in permitidos:

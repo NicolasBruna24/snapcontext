@@ -85,6 +85,7 @@ def credencial_efectiva_propietaria() -> str:
         return "sin-credencial"
     return "api:" + hashlib.sha256(cred.encode("utf-8")).hexdigest()[:16]
 
+
 API_PREFIJO = "/api/v1"
 
 
@@ -1132,9 +1133,7 @@ def _ejecutar_accion(mensaje: dict, cola) -> None:  # noqa: C901  (bloque H1b pr
             # v4.0.0: ecosistema de plugins → panel de plugins.
             try:
                 if accion == "plugin_install":
-                    origen_texto = (
-                        mensaje.get("origen") or mensaje.get("consulta") or ""
-                    ).strip()
+                    origen_texto = (mensaje.get("origen") or mensaje.get("consulta") or "").strip()
                     codigo = 1
                     if origen_texto:
                         # OD-7: clasificacion explicita (LocalPath | RemoteURL).
@@ -1147,9 +1146,7 @@ def _ejecutar_accion(mensaje: dict, cola) -> None:  # noqa: C901  (bloque H1b pr
                                 "not_allowed",
                                 "instalación remota de plugins deshabilitada",
                             )
-                        codigo = sc._plugin_instalar(
-                            origen.como_texto(), auto=True
-                        )
+                        codigo = sc._plugin_instalar(origen.como_texto(), auto=True)
                 elif accion == "plugin_remove":
                     nombre = (mensaje.get("nombre") or mensaje.get("consulta") or "").strip()
                     # Desde la web no hay TTY: se omite la confirmación.

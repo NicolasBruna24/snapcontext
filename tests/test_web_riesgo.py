@@ -119,7 +119,6 @@ class TestAuthAPI:
             client.close()
 
 
-
 # ---------------------------------------------------------------------------
 # 2. Path traversal: _resolver_camino / leer / guardar via WS
 # ---------------------------------------------------------------------------
@@ -308,8 +307,9 @@ class TestMalformados:
         assert r.status_code == 404
 
     def test_github_no_json_es_400_sin_traceback(self):
-        r = self.client.post("/webhook/github", content=b"no-json",
-                             headers={"Content-Type": "application/json"})
+        r = self.client.post(
+            "/webhook/github", content=b"no-json", headers={"Content-Type": "application/json"}
+        )
         assert r.status_code in (400, 503)
         assert "Traceback" not in r.text
 
@@ -473,8 +473,14 @@ class TestWebsocket:
         try:
             with self._ws(cli) as ws:
                 ws.send_text(
-                    json.dumps({"tipo": "accion", "accion": "run",
-                                "comando": "echo X | sh", "directorio": "."})
+                    json.dumps(
+                        {
+                            "tipo": "accion",
+                            "accion": "run",
+                            "comando": "echo X | sh",
+                            "directorio": ".",
+                        }
+                    )
                 )
                 evs = [ws.receive_json(), ws.receive_json()]
             fin = [e for e in evs if e.get("tipo") == "accion_ejecutada"]
@@ -509,7 +515,8 @@ class TestWebhooks:
             pytest.skip("discord_gateway no importable")
         with mock.patch("discord_gateway.obtener_public_key", return_value="00" * 32):
             r = self.client.post(
-                "/webhook/discord", json={"type": 1},
+                "/webhook/discord",
+                json={"type": 1},
                 headers={"X-Signature-Ed25519": "00" * 64, "X-Signature-Timestamp": "1"},
             )
         assert r.status_code in (401, 503)
@@ -534,7 +541,8 @@ class TestWebhooks:
             mock.patch("github_gateway.validar_firma", return_value=False),
         ):
             r = self.client.post(
-                "/webhook/github", json={"action": "opened"},
+                "/webhook/github",
+                json={"action": "opened"},
                 headers={"X-Hub-Signature-256": "sha256=x", "X-GitHub-Event": "pull_request"},
             )
         assert r.status_code == 401
@@ -559,7 +567,8 @@ class TestWebhooks:
             mock.patch("github_gateway.procesar_evento", return_value="t-1") as procesar,
         ):
             r = self.client.post(
-                "/webhook/github", json={"action": "opened"},
+                "/webhook/github",
+                json={"action": "opened"},
                 headers={"X-GitHub-Event": "pull_request"},
             )
         assert r.status_code == 503
@@ -585,15 +594,19 @@ class TestRamasApi:
         wa._DAEMON_HILO = None
         try:
             with mock.patch.object(sc, "_daemon_tick", return_value=None):
-                r = self.client.post(f"{API_PREFIJO}/daemon",
-                                     json={"accion": "iniciar", "intervalo_horas": 1},
-                                     headers=HEADERS)
+                r = self.client.post(
+                    f"{API_PREFIJO}/daemon",
+                    json={"accion": "iniciar", "intervalo_horas": 1},
+                    headers=HEADERS,
+                )
                 assert r.status_code == 200 and r.json()["activo"] is True
-                r2 = self.client.post(f"{API_PREFIJO}/daemon", json={"accion": "iniciar"},
-                                      headers=HEADERS)
+                r2 = self.client.post(
+                    f"{API_PREFIJO}/daemon", json={"accion": "iniciar"}, headers=HEADERS
+                )
                 assert "ya estaba" in r2.json()["detalle"]
-                r3 = self.client.post(f"{API_PREFIJO}/daemon", json={"accion": "detener"},
-                                      headers=HEADERS)
+                r3 = self.client.post(
+                    f"{API_PREFIJO}/daemon", json={"accion": "detener"}, headers=HEADERS
+                )
                 assert r3.status_code == 200
         finally:
             wa._DAEMON_HILO = anterior
@@ -602,8 +615,9 @@ class TestRamasApi:
         import web.app as wa
 
         with mock.patch.object(wa, "_importar_snapcontext", return_value=None):
-            r = self.client.post(f"{API_PREFIJO}/daemon", json={"accion": "iniciar"},
-                                 headers=HEADERS)
+            r = self.client.post(
+                f"{API_PREFIJO}/daemon", json={"accion": "iniciar"}, headers=HEADERS
+            )
             assert r.status_code == 500
 
     def test_chat_sin_snapcontext_es_500(self):
@@ -638,12 +652,13 @@ class TestRamasApi:
         with (
             mock.patch("discord_gateway.obtener_public_key", return_value="k"),
             mock.patch("discord_gateway.verify_signature", return_value=True),
-            mock.patch("discord_gateway.handle_discord_interaction",
-                        return_value={"type": 1}),
+            mock.patch("discord_gateway.handle_discord_interaction", return_value={"type": 1}),
         ):
-            r = self.client.post("/webhook/discord", content=cuerpo,
-                                 headers={"X-Signature-Ed25519": "f",
-                                          "X-Signature-Timestamp": "t"})
+            r = self.client.post(
+                "/webhook/discord",
+                content=cuerpo,
+                headers={"X-Signature-Ed25519": "f", "X-Signature-Timestamp": "t"},
+            )
         assert r.status_code == 200
 
 
@@ -658,9 +673,9 @@ class TestHelpersWs:
         # Token explícito tiene prioridad.
         assert seg.cargar_credencial(token_explicito="abc") == "abc"
 
-        import tempfile as _tmp
         import json as _json
         import os as _os
+        import tempfile as _tmp
         from pathlib import Path as _P
 
         with _tmp.TemporaryDirectory() as t:
@@ -674,10 +689,11 @@ class TestHelpersWs:
     def test_clave_sin_snapcontext_vacia(self):
         """B9.61-A fail-closed: sin config y sin token, cargar_credencial
         devuelve None (nunca regenera en runtime y nunca abre)."""
-        import configuracion
-        import web.seguridad as seg
         import tempfile as _tmp
         from pathlib import Path as _P
+
+        import configuracion
+        import web.seguridad as seg
 
         with _tmp.TemporaryDirectory() as t:
             cfg = _P(t) / "config.json"
@@ -695,14 +711,18 @@ class TestHelpersWs:
         try:
             with mock.patch.object(sc, "_ejecutar_planificador", return_value=0):
                 # directorio fuera del workspace -> 400 controlado, no 202.
-                r = client.post(f"{API_PREFIJO}/plan",
-                                json={"consulta": "t", "directorio": "/tmp"},
-                                headers=HEADERS)
+                r = client.post(
+                    f"{API_PREFIJO}/plan",
+                    json={"consulta": "t", "directorio": "/tmp"},
+                    headers=HEADERS,
+                )
                 assert r.status_code == 400
                 # directorio "." (raíz del servidor) -> aceptado.
-                r2 = client.post(f"{API_PREFIJO}/plan",
-                                 json={"consulta": "t", "directorio": "."},
-                                 headers=HEADERS)
+                r2 = client.post(
+                    f"{API_PREFIJO}/plan",
+                    json={"consulta": "t", "directorio": "."},
+                    headers=HEADERS,
+                )
                 assert r2.status_code == 202
         finally:
             client.close()
@@ -729,8 +749,7 @@ class TestHelpersWs:
             assert any(e.get("tipo") == "accion_ejecutada" for e in evs)
             cola2 = queue.Queue()
             with mock.patch.object(wa, "_explorar_web", return_value=["l1"]):
-                _ejecutar_accion({"accion": "explorar", "consulta": "t", "directorio": "."},
-                                 cola2)
+                _ejecutar_accion({"accion": "explorar", "consulta": "t", "directorio": "."}, cola2)
             evs2 = []
             while not cola2.empty():
                 evs2.append(cola2.get_nowait())
@@ -744,8 +763,9 @@ class TestHelpersWs:
         cli = TestClient(crear_app(api_token=CLAVE))
         try:
             with (
-                mock.patch.object(wa, "_dependencias_web",
-                                  return_value={"nodos": [], "enlaces": []}),
+                mock.patch.object(
+                    wa, "_dependencias_web", return_value={"nodos": [], "enlaces": []}
+                ),
                 mock.patch.object(wa, "_semantica_web", return_value=[{"a": 1}]),
                 mock.patch.object(wa, "_explorar_web", return_value=["x"]),
                 cli.websocket_connect(f"/ws?api_key={CLAVE}") as ws,
@@ -768,10 +788,19 @@ class TestRemanenteWebhooks:
         self.client.close()
 
     def test_construir_args_completo(self):
-        args = _construir_args({"consulta": "hola", "directorio": ".", "local": True,
-                                "vista_previa": True, "max_archivos": 5,
-                                "carpetas": ["a"], "test_loop": True,
-                                "comando_test": "pytest -q", "max_iteraciones": 2})
+        args = _construir_args(
+            {
+                "consulta": "hola",
+                "directorio": ".",
+                "local": True,
+                "vista_previa": True,
+                "max_archivos": 5,
+                "carpetas": ["a"],
+                "test_loop": True,
+                "comando_test": "pytest -q",
+                "max_iteraciones": 2,
+            }
+        )
         assert args is not None
 
     def test_construir_args_accion_variantes(self):
