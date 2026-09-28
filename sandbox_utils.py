@@ -252,6 +252,34 @@ def _leer_allowlist_configurada() -> set[str]:
     return set(ALLOWLIST_BINARIOS_DEFECTO)
 
 
+def clasificar_comando_argv(argv: list[str]) -> tuple[str, str]:
+    """Clasifica un comando ya expresado como **argv** (lista de argumentos).
+
+    Un ``argv`` no pasa por un intérprete de shell: cada elemento llega al
+    proceso tal cual. Por eso los metacaracteres que contenga son **literales**
+    y no sintaxis, y no deben forzar ``sandbox`` por sí solos.
+
+    Esto NO es una excepción para un binario concreto: es la clasificación
+    correcta de un tipo de entrada distinto. Sirve para casos como el pathspec
+    de Git ``:(exclude).work``, donde el ``(`` es sintaxis de *Git*, no de
+    shell. El resto de reglas (blocklist legacy, binarios de riesgo y
+    allowlist) se aplican igual que en :func:`clasificar_comando`.
+    """
+    if not argv:
+        return "sandbox", "argv vacío"
+    texto = " ".join(argv)
+    desc = patron_peligroso(texto)
+    if desc:
+        return "sandbox", f"blocklist legacy: {desc}"
+    base = os.path.basename(argv[0])
+    if base in _BINARIOS_SIEMPRE_SANDBOX or base.startswith("mkfs"):
+        return "sandbox", f"binario '{base}' es de riesgo y siempre va al sandbox"
+    permitidos = _leer_allowlist_configurada()
+    if base not in permitidos:
+        return "sandbox", f"binario '{base}' fuera de la allowlist del sandbox"
+    return "directo", f"argv con binario '{base}' en la allowlist (sin shell)"
+
+
 def clasificar_comando(comando: str, allowlist: set[str] | None = None) -> tuple[str, str]:
     """Clasifica ``comando`` para decidir si corre directo o en sandbox (v6.36.0).
 

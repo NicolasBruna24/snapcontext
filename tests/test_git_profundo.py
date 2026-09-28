@@ -4,6 +4,8 @@ generados con IA, tabla ``pasos`` en la BD y revert nativo."""
 
 import argparse
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -93,6 +95,13 @@ class TestCommitPaso(unittest.TestCase):
         self.dir = _dir_tmp()
         self.paso = {"accion": "editar", "descripcion": "crear modulo"}
         Path(self.dir, "nuevo.py").write_text("x = 1\n", encoding="utf-8")
+        # B15-CI: identidad Git **local** al repo temporal. Antes el test
+        # dependía de la identidad global del runner (CI la define en el paso
+        # "Configurar git"), lo que lo hacía frágil e irreproducible fuera de
+        # ese entorno. Se usa una identidad ficticia.
+        _git("-C", self.dir, "init", "-q")
+        _git("-C", self.dir, "config", "user.email", "test@b15ci.local")
+        _git("-C", self.dir, "config", "user.name", "B15CI Test")
         self._bd = _BDAislada()
         self._bd.__enter__()
         # Evita llamadas reales al proveedor: sin config, el generador usa
@@ -130,6 +139,11 @@ class TestCommitPaso(unittest.TestCase):
         self.assertEqual(out.strip(), "manual: x")
 
     def test_inicializa_repo_si_no_existe(self):
+        # B15-CI: `setUp` deja el repo listo (identidad local) para que el test
+        # no dependa de la config global del runner. Este caso parte de "no es
+        # repo", así que se parte de ese estado sin quitar el `assertTrue`
+        # final, que es la aserción que verifica la inicialización.
+        shutil.rmtree(Path(self.dir, ".git"), ignore_errors=True)
         self.assertFalse(Path(self.dir, ".git").exists())
         # Fuerza el caso "no es repo" aunque el entorno tenga un repo ancestro.
         with mock.patch.object(sc, "_es_repo_git", return_value=False):
@@ -142,6 +156,178 @@ class TestCommitPaso(unittest.TestCase):
             self.assertTrue(h)
         _, out, _ = _git("-C", self.dir, "log", "-1", "--pretty=%s")
         self.assertTrue(out.strip().startswith("paso: crear modulo"))
+
+
+class TestStagePathspecB15CI(unittest.TestCase):
+    """B15-CI — el staging por pathspec no debe activar la frontera CONTAINER.
+
+    El pathspec ``:(exclude).work`` lleva un ``(`` que, escrito como cadena de
+    shell, el detector global de metacaracteres tomaba por sintaxis y mandaba
+    ``git add`` al contenedor, partiendo la transacción Git entre el
+    contenedor y el host. Expresado como argv el ``(`` es un literal de Git.
+    """
+
+    def setUp(self):
+        self.dir = _dir_tmp()
+        self.addCleanup(lambda: shutil.rmtree(self.dir, ignore_errors=True))
+        _git("-C", self.dir, "init", "-q")
+        _git("-C", self.dir, "config", "user.email", "test@b15ci.local")
+        _git("-C", self.dir, "config", "user.name", "B15CI Test")
+
+    def _staged(self) -> list[str]:
+        out = subprocess.run(
+            ["git", "-C", self.dir, "diff", "--cached", "--name-only"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        return out.split()
+
+    # --- A. Clasificación -------------------------------------------------
+    def test_a1_el_stage_por_string_seria_sandbox(self):
+        """Documenta el defecto: la forma string activa CONTAINER."""
+        import sandbox_utils as su
+
+        nivel, _ = su.clasificar_comando(sc._comando_stage_paso())
+        self.assertEqual(nivel, "sandbox")
+
+    def test_a2_el_stage_por_argv_es_directo(self):
+        """A — la representación argv se clasifica DIRECT."""
+        import sandbox_utils as su
+
+        nivel, motivo = su.clasificar_comando_argv(sc._argv_stage_paso())
+        self.assertEqual(nivel, "directo", motivo)
+
+    def test_a3_el_stage_por_argv_usa_shell_false(self):
+        """No se introduce shell=True ni escaping manual."""
+        argv = sc._argv_stage_paso()
+        self.assertEqual(argv[0], "git")
+        self.assertIn(":(exclude).work", argv)
+        self.assertNotIn('":(exclude).work"', argv)
+
+    def test_a4_la_politica_global_no_se_relaja(self):
+        """La corrección NO toca el clasificador de strings."""
+        import sandbox_utils as su
+
+        self.assertIn("|", su._METACARACTERES_AMPLIOS.pattern)
+        nivel, _ = su.clasificar_comando("ls && rm -rf /")
+        self.assertEqual(nivel, "sandbox")
+
+    # --- B. Exclusión funcional ------------------------------------------
+    def test_b1_stage_excluye_work_y_stagea_el_resto(self):
+        """B — el archivo normal se stagea y `.work` sigue excluido."""
+        Path(self.dir, "nuevo.py").write_text("x = 1\n", encoding="utf-8")
+        work = Path(self.dir, ".work")
+        work.mkdir()
+        (work / "state.md").write_text("contenido work\n", encoding="utf-8")
+
+        rc, _, err = sc._ejecutar_stage_paso(self.dir)
+        self.assertEqual(rc, 0, err)
+
+        staged = self._staged()
+        self.assertIn("nuevo.py", staged)
+        self.assertNotIn(".work/state.md", staged)
+
+    # --- C. _commit_paso: transacción completa ----------------------------
+    def test_c1_transaccion_git_completa(self):
+        """C — init/add/commit/rev-parse producen un commit válido."""
+        Path(self.dir, "nuevo.py").write_text("x = 1\n", encoding="utf-8")
+        paso = {"accion": "editar", "descripcion": "crear modulo"}
+        with _BDAislada(), mock.patch.object(
+            sc, "cargar_configuracion", side_effect=RuntimeError("offline")
+        ):
+            h = sc._commit_paso(paso, _args(), self.dir)
+        self.assertTrue(h and len(h) >= 7)
+        _, out, _ = _git("-C", self.dir, "log", "-1", "--pretty=%H")
+        self.assertEqual(out.strip(), h)
+
+
+class TestStageFalloB15CI(unittest.TestCase):
+    """B15-CI — ruta latente y fallos de staging correctamente reportados."""
+
+    def setUp(self):
+        self.dir = _dir_tmp()
+        self.addCleanup(lambda: shutil.rmtree(self.dir, ignore_errors=True))
+        _git("-C", self.dir, "init", "-q")
+        _git("-C", self.dir, "config", "user.email", "test@b15ci.local")
+        _git("-C", self.dir, "config", "user.name", "B15CI Test")
+        Path(self.dir, "nuevo.py").write_text("x = 1\n", encoding="utf-8")
+
+    # --- D. _git_commit_paso ---------------------------------------------
+    def test_d1_git_commit_paso_usa_la_misma_frontera(self):
+        """D — la ruta latente tampoco manda el staging a CONTAINER."""
+        with mock.patch.object(
+            sc, "_ejecutar_stage_paso", wraps=sc._ejecutar_stage_paso
+        ) as stage:
+            self.assertTrue(sc._git_commit_paso("crear modulo", self.dir))
+        stage.assert_called_once()
+
+    def test_d2_git_commit_paso_stagea_de_verdad(self):
+        """D — el commit contiene el archivo y excluye `.work`."""
+        work = Path(self.dir, ".work")
+        work.mkdir()
+        (work / "state.md").write_text("contenido work\n", encoding="utf-8")
+
+        self.assertTrue(sc._git_commit_paso("crear modulo", self.dir))
+        _, out, _ = _git("-C", self.dir, "show", "--name-only", "--pretty=", "HEAD")
+        self.assertIn("nuevo.py", out.split())
+        self.assertNotIn(".work/state.md", out.split())
+
+    # --- E. Fallo de staging ---------------------------------------------
+    def test_e1_no_se_reporta_como_fallo_de_commit(self):
+        """E — el commit NO se intenta y el diagnóstico dice 'staging'."""
+        # `_ejecutar_comando` se mantiene funcional: solo se rompe el staging,
+        # de modo que las sondas previas (`_es_repo_git`, `git status`) siguen
+        # devolviendo un resultado válido y el flujo llega al staging.
+        def runner(comando, *a, **k):
+            if "commit" in str(comando):
+                raise AssertionError("no debía intentar el commit")
+            if "status" in str(comando):
+                return (0, "nuevo.py\n", "")
+            return (0, "true", "")
+
+        with (
+            mock.patch.object(
+                sc, "_ejecutar_stage_paso", return_value=(128, "", "fatal: index error")
+            ),
+            mock.patch.object(sc, "_ejecutar_comando", side_effect=runner),
+            mock.patch.object(sc, "aviso") as aviso_mock,
+        ):
+            resultado = sc._commit_paso(
+                {"accion": "editar", "descripcion": "x"}, _args(), self.dir
+            )
+
+        self.assertIsNone(resultado)
+        texto = " ".join(str(c) for c in aviso_mock.call_args_list)
+        self.assertIn("staging", texto.lower())
+        self.assertNotIn("El commit del paso falló", texto)
+
+    def test_e2_git_commit_paso_no_continua_al_commit(self):
+        """E — `_git_commit_paso` devuelve False sin intentar el commit."""
+
+        def runner(comando, *a, **k):
+            if "commit" in str(comando):
+                raise AssertionError("no debía intentar el commit")
+            return (0, "true", "")
+
+        with (
+            mock.patch.object(
+                sc, "_ejecutar_stage_paso", return_value=(128, "", "fatal: index error")
+            ),
+            mock.patch.object(sc, "_ejecutar_comando", side_effect=runner),
+        ):
+            self.assertFalse(sc._git_commit_paso("crear modulo", self.dir))
+
+    def test_e3_stage_rechazado_por_politica_no_se_ejecuta(self):
+        """E — si la política marcara el argv como sandbox, no se ejecuta."""
+        import sandbox_utils as su
+
+        with mock.patch.object(
+            su, "clasificar_comando_argv", return_value=("sandbox", "fuera de allowlist")
+        ):
+            rc, _, err = sc._ejecutar_stage_paso(self.dir)
+        self.assertEqual(rc, -1)
+        self.assertIn("staging rechazado", err)
 
 
 class TestRevertPaso(unittest.TestCase):

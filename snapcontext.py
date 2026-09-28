@@ -5879,6 +5879,50 @@ def _git_crear_rama(nombre: str, directorio: str = ".") -> bool:
     return False
 
 
+def _argv_stage_paso() -> list[str]:
+    """``argv`` del staging de un paso, sin quoting shell.
+
+    B15-CI: el pathspec ``:(exclude).work`` contiene un ``(`` que, escrito como
+    cadena de shell, ``_METACARACTERES_AMPLIOS`` interpretaba como sintaxis y
+    mandaba el staging a CONTAINER, partiendo la transacción Git entre el
+    contenedor y el host. Expresado como **argv** el ``(`` es un carácter
+    literal de Git, no de shell, y el staging vuelve a la misma frontera
+    DIRECT que ``git init``/``commit``/``rev-parse``.
+    """
+    try:  # pragma: no cover - import ligero con fallback al literal
+        from work_context import EXCLUSION_STAGING_GIT as _exclusion
+    except Exception:  # pragma: no cover
+        _exclusion = ":(exclude).work"
+    # `_exclusion` llega entrecomillado desde work_context; se quita el quoting
+    # para obtener el pathspec desnudo (sin comillas ni caracteres de escape).
+    return ["git", "add", ".", _exclusion.strip().strip('"').strip("'")]
+
+
+def _ejecutar_stage_paso(directorio: str, timeout: int = 60) -> tuple[int, str, str]:
+    """Ejecuta el staging del paso en ``directorio`` y devuelve ``(rc, out, err)``.
+
+    Usa la vía de lista (``shell=False``) del helper seguro. La política sigue
+    aplicando: si el binario no estuviera en la allowlist, la clasificación por
+    argv lo marcaría ``sandbox`` y aquí se aborta explícitamente en lugar de
+    ejecutarlo sin aislamiento.
+    """
+    argv = _argv_stage_paso()
+    from sandbox_utils import clasificar_comando_argv, ejecutar_comando_seguro
+
+    nivel, motivo = clasificar_comando_argv(argv)
+    if nivel != "directo":
+        aviso(
+            f"[git-profundo] Staging no permitido sin sandbox ({motivo}); "
+            "no se ejecuta."
+        )
+        return (-1, "", f"staging rechazado: {motivo}")
+    try:
+        proc = ejecutar_comando_seguro(argv, cwd=str(directorio), timeout=timeout)
+    except (OSError, ValueError) as exc:
+        return (-1, "", str(exc))
+    return (proc.returncode, proc.stdout or "", proc.stderr or "")
+
+
 def _comando_stage_paso() -> str:
     """Comando de staging de un paso, excluyendo el contenedor WORK (B11-D).
 
@@ -5903,7 +5947,13 @@ def _git_commit_paso(descripcion: str, directorio: str = ".") -> bool:
     if not _es_repo_git(directorio):
         depurar("[plan] No es repo git; se omite el commit del paso.")
         return True
-    _ejecutar_comando(_comando_stage_paso(), directorio, timeout=60)
+    _ejecutar_stage_paso_resultado = _ejecutar_stage_paso(directorio, timeout=60)
+    if _ejecutar_stage_paso_resultado[0] != 0:
+        aviso(
+            "El staging del paso falló: "
+            f"{(_ejecutar_stage_paso_resultado[2] or '').strip()}"
+        )
+        return False
     mensaje = f"paso: {descripcion}".replace('"', "'")
     codigo, _, stderr = _ejecutar_comando(f'git commit -m "{mensaje}"', directorio, timeout=60)
     if codigo == 0:
@@ -5990,7 +6040,13 @@ def _commit_paso(paso: dict, args: argparse.Namespace, directorio: str = ".") ->
         if codigo_estado != 0 or not (salida_estado or "").strip():
             depurar("[git-profundo] Sin cambios; no se commitea.")
             return None
-        _ejecutar_comando(_comando_stage_paso(), directorio, timeout=60)
+        rc_stage, _, err_stage = _ejecutar_stage_paso(directorio, timeout=60)
+        if rc_stage != 0:
+            # B15-CI: el staging ya no se descarta en silencio. Se informa del
+            # fallo real (staging) y NO se intenta un commit que no tiene nada
+            # staged, que reportaría engañosamente "el commit falló".
+            aviso(f"El staging del paso falló: {(err_stage or '').strip()}")
+            return None
         if getattr(args, "git_mensaje", None):
             mensaje = str(args.git_mensaje).replace('"', "'")
         else:

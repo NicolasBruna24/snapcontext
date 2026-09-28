@@ -133,11 +133,22 @@ class TestGitPlan(unittest.TestCase):
         ej.assert_not_called()
 
     def test_commit_paso_en_repo_mock(self):
-        """En repo (mockeado): staging sin `.work/` + commit."""
+        """En repo (mockeado): staging sin `.work/` + commit.
+
+        B15-CI: el staging ya no pasa por `_ejecutar_comando` (eso lo mandaba
+        al sandbox por el ``(`` del pathspec); ahora usa la vía argv
+        `_ejecutar_stage_paso`. Se mockea esa frontera y se mantiene la
+        aserción de que la exclusión de `.work` sigue presente.
+        """
         llamadas = []
+        comandos = []
+
+        def fake_stage(directorio=".", timeout=60):
+            llamadas.append(directorio)
+            return (0, "", "")
 
         def fake_ejecutar(comando, directorio=".", timeout=120):
-            llamadas.append(comando)
+            comandos.append(comando)
             if comando.startswith("git commit"):
                 # Simular que sí había cambios.
                 return (0, "", "")
@@ -145,17 +156,20 @@ class TestGitPlan(unittest.TestCase):
 
         with (
             mock.patch.object(sc, "_es_repo_git", return_value=True),
+            mock.patch.object(sc, "_ejecutar_stage_paso", side_effect=fake_stage),
             mock.patch.object(sc, "_ejecutar_comando", side_effect=fake_ejecutar),
         ):
             self.assertTrue(sc._git_commit_paso('arreglar "login"', str(self.dir_tmp)))
-        self.assertEqual(len(llamadas), 2)
-        self.assertEqual(llamadas[0], sc._comando_stage_paso())
-        self.assertIn(".work", llamadas[0])
-        self.assertIn("git commit -m \"paso: arreglar 'login'\"", llamadas[1])
+        # El staging se invoca una vez, sobre el directorio del repo.
+        self.assertEqual(llamadas, [str(self.dir_tmp)])
+        # Y conserva la exclusión de `.work` (ahora en forma argv).
+        self.assertIn(":(exclude).work", sc._argv_stage_paso())
+        self.assertIn("git commit -m \"paso: arreglar 'login'\"", comandos[0])
 
     def test_commit_paso_sin_cambios_es_ok(self):
         with (
             mock.patch.object(sc, "_es_repo_git", return_value=True),
+            mock.patch.object(sc, "_ejecutar_stage_paso", return_value=(0, "", "")),
             mock.patch.object(
                 sc,
                 "_ejecutar_comando",
