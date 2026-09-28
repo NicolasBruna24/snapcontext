@@ -41,13 +41,13 @@ class TestProveedorAnthropic(unittest.TestCase):
         self.assertIn("ANTHROPIC_API_KEY", str(ctx.exception))
 
     def test_libreria_faltante_mensaje_instalacion(self):
-        """Sin librería instalada, se sugiere pip install snapcontext[anthropic]."""
+        """Sin librería instalada, se sugiere pip install "anthropic>=0.30.0"."""
         original = sc.anthropic
         sc.anthropic = None
         try:
             with self.assertRaises(RuntimeError) as ctx:
                 sc.seleccionar_archivos_con_anthropic("c", ["a.py"])
-            self.assertIn("snapcontext[anthropic]", str(ctx.exception))
+            self.assertIn("anthropic>=0.30.0", str(ctx.exception))
         finally:
             sc.anthropic = original
 

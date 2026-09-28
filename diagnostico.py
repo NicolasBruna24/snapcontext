@@ -46,7 +46,7 @@ def _diagnostico_item(nombre: str, ok: bool, detalle: str, solucion: str | None 
 def _comprobar_dependencias_opcionales() -> list[tuple]:
     """Devuelve (modulo, instalado, instalacion) para dependencias opcionales."""
     modulos = [
-        ("questionary", "questionary", "pip install snapcontext[interactive]"),
+        ("questionary", "questionary", "pip install questionary"),
         ("fastapi", "fastapi", "pip install snapcontext[web]"),
         ("uvicorn", "uvicorn", "pip install snapcontext[web]"),
         ("sentence_transformers", "sentence-transformers", "pip install sentence-transformers"),

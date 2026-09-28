@@ -4344,7 +4344,7 @@ AYUDA_CHAT = """Comandos disponibles:
                            (p. ej.: /tool grep login · /tool read_file a.py)
                            args en JSON también válidos: /tool read_file {"ruta": "a.py", "linea_inicio": 10}
   /search <consulta>     → búsqueda semántica de archivos (embeddings; requiere
-                           pip install snapcontext[embeddings])
+                           pip install sentence-transformers)
   /buscar <consulta>     → alias de /search (v1.4.0)
   /grafo                 → grafo de dependencias del proyecto en texto ASCII
   /dependencias <archivo> → imports y dependencias inversas de un archivo
@@ -9507,7 +9507,7 @@ def _tool_ast_avanzado(ruta: str) -> dict:
     """Herramienta `ast_avanzado` (v1.4.0).
 
     Análisis sintáctico multi-lenguaje con **tree-sitter** si está instalado
-    (`pip install snapcontext[mcp_avanzado]`). Si no, hace fallback al módulo
+    (`pip install tree-sitter tree-sitter-languages`). Si no, hace fallback al módulo
     `ast` de la stdlib (solo para archivos Python). Nunca lanza excepciones.
     """
     contenido = _leer_archivo(ruta)
@@ -9548,7 +9548,7 @@ def _tool_ast_avanzado(ruta: str) -> dict:
         "ruta": ruta,
         "lenguaje": lenguaje,
         "error": "sin analizador disponible para este lenguaje "
-        "(instala tree-sitter: pip install snapcontext[mcp_avanzado])",
+        "(instala tree-sitter: pip install tree-sitter tree-sitter-languages)",
     }
 
 
@@ -9565,8 +9565,8 @@ def _tool_semantic_search(consulta: str, directorio: str = ".", max_resultados: 
         return {
             "ok": False,
             "consulta": consulta,
-            "error": "búsqueda semántica no disponible; instala el extra "
-            "'embeddings' (pip install snapcontext[embeddings])",
+            "error": "búsqueda semántica no disponible; instala "
+            "'sentence-transformers' (pip install sentence-transformers)",
         }
     try:
         resultados = _buscar_semanticamente(
@@ -9795,7 +9795,7 @@ def _actualizar_claude_md_automatico(resumen_tarea: str, directorio: str = ".") 
 # ---------------------------------------------------------------------------
 MENSAJE_EMBEDDINGS_FALTANTE = (
     "La búsqueda semántica requiere la librería 'sentence-transformers'.\n"
-    "Instálala con:  pip install snapcontext[embeddings]\n"
+    "Instálala con:  pip install sentence-transformers\n"
     "  (descarga torch; primera ejecución descarga el modelo "
     "all-MiniLM-L6-v2, ~90 MB)"
 )

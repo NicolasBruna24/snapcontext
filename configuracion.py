@@ -124,8 +124,7 @@ MENSAJE_OPENAI_FALTANTE = (
 # --- MENSAJE_ANTHROPIC_FALTANTE (640-644) ---
 MENSAJE_ANTHROPIC_FALTANTE = (
     "Este proveedor usa la librería 'anthropic' (API oficial de Claude).\n"
-    "Instálala con:  pip install snapcontext[anthropic]\n"
-    "  (o directamente: pip install anthropic>=0.30.0)"
+    "Instálala con:  pip install \"anthropic>=0.30.0\""
 )
 
 
@@ -443,7 +442,6 @@ def asistente_configuracion_inicial() -> int:  # noqa: C901  (refactor de comple
         aviso(
             "El asistente requiere questionary. "
             "Instálalo con: pip install questionary"
-            "  (o: pip install snapcontext[interactive])"
         )
         return 1
 

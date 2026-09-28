@@ -130,12 +130,18 @@ O manualmente:
 ```bash
 pip install snapcontext                 # base
 pip install "snapcontext[db]"           # bases de datos (PostgreSQL/MySQL)
-pip install "snapcontext[embeddings]"   # búsqueda semántica local (opcional)
-pip install "snapcontext[anthropic]"    # Claude
-pip install "snapcontext[lsp]"          # servidores LSP de Python (--lsp)
+pip install sentence-transformers       # búsqueda semántica local (opcional)
+pip install "anthropic>=0.30.0"         # Claude (proveedor Anthropic)
 pip install "snapcontext[web]"          # interfaz web (--web)
 pip install aider-chat                  # ediciones de código (opcional)
 ```
+
+`--lsp` utiliza servidores LSP externos ya instalados en `PATH`
+(SnapContext no los instala mediante un extra): `pyright-langserver`/`pylsp`
+(Python), `typescript-language-server` (JS/TS), `gopls`, `rust-analyzer`,
+`jdtls`, `OmniSharp`, `clangd` (ver `lsp_client.py`). Si no hay servidor
+disponible, SnapContext degrada al mecanismo alternativo documentado en
+[`docs/GRAPH_RAG_LSP.md`](docs/GRAPH_RAG_LSP.md).
 
 ```bash
 snapcontext --init                      # asistente inicial + API key
