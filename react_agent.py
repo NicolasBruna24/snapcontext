@@ -116,9 +116,15 @@ class ReactAgent:
         sub_agents: bool = True,
         git_commit: bool = False,
         git_mensaje: str | None = None,
+        work_id: str | None = None,
     ):
         self.directorio = str(Path(directorio).resolve())
         self.auto = bool(auto)
+        # B15-K: trabajo del canal WORK al que pertenece esta sesión. Solo si
+        # está ligado a uno, F4 persiste la última verificación en
+        # `.work/<work_id>/state.md`; sin él, nada se escribe.
+        self.work_id = str(work_id).strip() if work_id else None
+        self._verificacion_persistida_error: str | None = None
         # v6.10.0: modo navegador (--browser). Activa las herramientas de
         # Playwright; si está inactivo, las herramientas dan error claro.
         self.browser = bool(browser)
@@ -681,14 +687,126 @@ class ReactAgent:
                 "error": "No se pudo detectar automáticamente el comando de "
                 "test. Por favor, especifica uno manualmente.",
             }
+
+        # B15-I: captura del estado Git **ANTES** de verificar. Es el único
+        # instante en el que se puede afirmar qué contenido se comprobó, así que
+        # el anchor del Verdict sale de aquí y no de una captura posterior.
+        # Se delega en el adapter `work_verdict.leer_estado_git`; F4 no ejecuta
+        # Git ni calcula el hash del árbol por su cuenta.
+        #
+        # Si Git es inobservable NO se inventa un anchor: el resultado se marca
+        # con `verdict=None` y `verdict_error` con el motivo, sin ocultar nada.
+        # La ejecución sí se realiza para no cambiar el contrato previo de F4
+        # en directorios que no son repositorio (B15-I §3, §12 Test 10).
+        from work_verdict import leer_estado_git
+
+        estado = None
+        error_estado = None
+        try:
+            estado = leer_estado_git(self.directorio)
+        except Exception as exc:  # incluye EstadoGitIndisponibleError
+            error_estado = str(exc)
+
         codigo, stdout, stderr = sc._ejecutar_comando(comando, self.directorio, timeout=600)
-        return {
+
+        # B15-I: producción del Verdict canónico con el estado pre-ejecución.
+        # No se re-observa Git, no se evalúa validez y no se persiste (B15-I §10-§11).
+        verdict = None
+        if estado is not None:
+            from work_verdict import producir_verdict
+
+            verdict = producir_verdict(
+                exito=(codigo == 0),
+                comando=comando,
+                estado=estado,
+            )
+
+        # B15-J: estado Git ACTUAL y evaluación de validez. Esta segunda lectura
+        # NO sustituye al estado PRE: solo sirve para preguntarle al evaluador puro
+        # si el Verdict sigue describiendo el árbol actual. No se persiste nada
+        # ni se introduce transición de estado (B15-J §2, §11, §12).
+        validity = None
+        error_validez = None
+        if verdict is not None:
+            from work_verdict import leer_estado_git as _leer_estado_git
+            from work_verdict import evaluar_validez_verdict
+
+            try:
+                estado_actual = _leer_estado_git(self.directorio)
+            except Exception as exc:  # incluye EstadoGitIndisponibleError
+                # No se inventa VALID ni OBSOLETE: la validez es indeterminable
+                # porque Git no es observable. La ejecución ya ocurrió y su
+                # Verdict sigue siendo válido como hecho (B15-J §13).
+                motivo = getattr(exc, "motivo", None)
+                detalle = f"{exc} [{motivo}]" if motivo else str(exc)
+                error_validez = (
+                    f"no se pudo observar el estado Git actual para evaluar la "
+                    f"validez del verdict: {detalle}"
+                )
+            else:
+                validity = evaluar_validez_verdict(verdict, estado_actual)
+
+        # Cambio **aditivo**: las claves y semántica preexistentes no cambian.
+        resultado = {
             "ok": codigo == 0,
             "codigo": codigo,
             "comando": comando,
             "stdout": stdout,
             "stderr": stderr,
+            "verdict": verdict,
+            "validity": validity,
         }
+        if error_estado is not None:
+            resultado["verdict_error"] = (
+                f"no se pudo observar el estado Git antes de verificar: {error_estado}"
+            )
+        if error_validez is not None:
+            resultado["validity_error"] = error_validez
+
+        # B15-K: persistencia de la **última** verificación en `state.md`.
+        # Solo si el agente está ligado a un trabajo del canal WORK; sin
+        # `work_id` no hay documento al que escribir y nada se persiste.
+        # Nunca se escribe sin `Verdict`, ni `veredictos_obsoletos` (protegido),
+        # ni ninguna clave del mandato (B15-K §7, §10).
+        persistido = self._persistir_verificacion(verdict, validity)
+        if persistido is True:
+            resultado["verificacion_persistida"] = True
+        elif persistido is False:
+            resultado["verificacion_persistida"] = False
+            resultado["persistencia_error"] = self._verificacion_persistida_error
+        return resultado
+
+    def _persistir_verificacion(self, verdict, validity) -> bool | None:
+        """Escribe la última verificación en `state.md` si hay `work_id`.
+
+        Devuelve ``True``/``False`` (escrito/no escrito) o ``None`` cuando no
+        hay contexto de trabajo. Un fallo de persistencia **no** invalida la
+        verificación ya ocurrida: se informa en `persistencia_error` y el
+        resultado de F4 sigue siendo válido.
+        """
+        work_id = self.work_id
+        if not work_id or verdict is None:
+            return None
+        from work_context import registrar_verificacion
+
+        try:
+            registrar_verificacion(
+                work_id,
+                verdict.resultado,
+                verdict.git_anchor.tree_sha,
+                comando=verdict.comando,
+                validity=validity.status if validity is not None else None,
+                motivo=validity.motivo if validity is not None else None,
+                commit=verdict.git_anchor.commit,
+                working_tree_clean=verdict.git_anchor.working_tree_clean,
+                scope=verdict.scope,
+                directorio=self.directorio,
+            )
+        except Exception as exc:  # el documento no existe o no es escribible
+            self._verificacion_persistida_error = f"{type(exc).__name__}: {exc}"
+            return False
+        self._verificacion_persistida_error = None
+        return True
 
     def _tool_leer_archivo(self, argumentos: dict) -> dict:
         """Lee un archivo del proyecto (truncado a 8 KB)."""
