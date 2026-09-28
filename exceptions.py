@@ -27,6 +27,24 @@ class ContratoEstadoInvalidoError(ValueError):
     pass
 
 
+class EstadoGitIndisponibleError(RuntimeError):
+    """No se pudo obtener el estado factual del repositorio (B15-B).
+
+    Deliberadamente **no** es un `ValueError`: no es entrada inválida ni un
+    documento inválido, es la imposibilidad de observar Git. Los motivos
+    (`sin_repositorio`, `head_no_disponible`, `git_no_disponible`) quedan en
+    :attr:`motivo`, para que el consumidor pueda distinguirlos.
+
+    NUNCA se convierte en un estado de validez: el adaptador falla *antes* de
+    entrar a cualquier evaluación (B15-A §10).
+    """
+
+    def __init__(self, mensaje: str, motivo: str = "indeterminado"):
+        super().__init__(mensaje)
+        #: `sin_repositorio` | `head_no_disponible` | `git_no_disponible` | …
+        self.motivo = motivo
+
+
 class AutoridadInsuficienteError(ValueError):
     """Operacion valida pero no autorizada por la politica de escritura (B14-H).
 

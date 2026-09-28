@@ -8954,14 +8954,11 @@ def _exigir_autoridad(cambios, autorizacion: bool) -> None:
     if not cambios:
         raise ValueError("'cambios' está vacío: no hay nada que actualizar")
 
-    desconocidos = sorted(set(cambios) - set(_CAMPOS_ESCRIBIBLES))
-    if desconocidos:
-        # Entrada inválida: no es cuestión de autoridad, el nombre no existe.
-        raise ValueError(
-            f"campos no escribibles: {desconocidos}. "
-            f"Admitidos: {sorted(_CAMPOS_ESCRIBIBLES)}"
-        )
-
+    # El campo protegido se comprueba **antes** que el nombre no contractual:
+    # `veredictos_obsoletos` ya no está en la allowlist genérica (B15-L dejó de
+    # ser escribible por `actualizar_estado`), pero sigue siendo un campo
+    # *protegido* del mandato, no un nombre inventado. La clasificación
+    # ratified en B14-G/H se conserva: es una cuestión de autoridad.
     protegidos = sorted(set(cambios) & _CAMPOS_ESCRITURA_PROTEGIDOS)
     if protegidos:
         # Ninguna autorización lo salva: el Mandato se ratifica en
@@ -8971,6 +8968,13 @@ def _exigir_autoridad(cambios, autorizacion: bool) -> None:
             tuple(protegidos),
         )
 
+    desconocidos = sorted(set(cambios) - set(_CAMPOS_ESCRIBIBLES))
+    if desconocidos:
+        # Entrada inválida: no es cuestión de autoridad, el nombre no existe.
+        raise ValueError(
+            f"campos no escribibles: {desconocidos}. "
+            f"Admitidos: {sorted(_CAMPOS_ESCRIBIBLES)}"
+        )
 
     if not autorizacion:
         requieren = sorted(set(cambios) & _CAMPOS_ESCRITURA_CON_AUTORIZACION)
