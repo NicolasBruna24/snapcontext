@@ -52,9 +52,28 @@ class TestCondicionesPlan(unittest.TestCase):
         )
 
     def test_comando_exito_y_fallo(self):
-        version = f'"{sys.executable}" --version'
-        self.assertTrue(sc._evaluar_condicion(f"comando_exito('{version}')", self.tmp))
-        self.assertFalse(sc._evaluar_condicion("comando_exito('cmd_que_no_existe_123')", self.tmp))
+        """``comando_exito()`` refleja el código de salida, no la política.
+
+        El contrato probado es: código 0 -> ``True``, comando inexistente o
+        fallido -> ``False``. Se aísla explícitamente de la política de sandbox
+        (patrón ya usado en ``tests/test_volumen18.py``) forzando la decisión a
+        ``_SANDBOX_DIRECTO`` y neutralizando el opt-out por entorno, de modo que
+        el resultado no dependa de si el host tiene Docker, de la allowlist ni
+        de la ruta concreta del intérprete.
+        """
+        with (
+            mock.patch.dict(os.environ),
+            mock.patch.object(sc, "_decidir_ejecucion_sandbox", return_value=sc._SANDBOX_DIRECTO),
+        ):
+            # `SNAPCONTEXT_SANDBOX=0` sería un opt-out: en modo no interactivo
+            # abortaría los comandos fuera de la allowlist en vez de ejecutarlos.
+            os.environ.pop("SNAPCONTEXT_SANDBOX", None)
+            version = f'"{sys.executable}" --version'
+            self.assertTrue(sc._evaluar_condicion(f"comando_exito('{version}')", self.tmp))
+            self.assertFalse(sc._evaluar_condicion("comando_exito('cmd_que_no_existe_123')", self.tmp))
+            # Fallo de un binario que sí existe: contrato != "no ejecutable".
+            fallo = f'"{sys.executable}" -c exit_1'
+            self.assertFalse(sc._evaluar_condicion(f"comando_exito('{fallo}')", self.tmp))
 
     def test_vacia_se_cumple(self):
         self.assertTrue(sc._evaluar_condicion("", self.tmp))
