@@ -3718,26 +3718,44 @@ def _ejecutar_comando(  # noqa: C901  (refactor de complejidad: Fase 10c)
     if decision == _SANDBOX_ABORTAR:
         return (-1, "", "Comando peligroso abortado (no hay sandbox Docker disponible).")
     if decision == _SANDBOX_CONTENEDOR:
+        # B15-CI: `CONTAINER` es una decisión VINCULANTE. La política ya
+        # comprobó que Docker está disponible, así que aquí no puede volver a
+        # caer a ejecución directa en el host. Se envuelve con
+        # `_construir_comando_docker` (rewriter puro, sin globals) en lugar de
+        # `_envolver_sandbox`, que dependía de `_SANDBOX_ACTIVO` y devolvía el
+        # comando intacto: esa era la divergencia que hacía que un comando
+        # clasificado como `sandbox` se ejecutara sin aislar.
+        #
         # v6.4.0: con --sandbox-session se reutiliza una sesión Docker en toda
         # la tarea; si está solicitada, se ejecuta con `docker exec` del mismo
         # contenedor (se crea de forma perezosa en el primer comando).
         if _SESION_DOCKER_SOLICITADA:
             import sandbox_session as ss
 
-            if _asegurar_sesion_docker(str(raiz)):
-                info(f"🐳 Ejecutando en sesión Docker: {comando}")
-                comando = ss.comando_en_sesion(comando)
-                raiz = Path.cwd()  # docker se lanza desde el host
-            else:
-                if _SANDBOX_ACTIVO:
-                    info(f"[sandbox] Ejecutando en contenedor: {comando}")
-                comando = _envolver_sandbox(comando, str(raiz))
-                raiz = Path.cwd()
+            sesion = _asegurar_sesion_docker(str(raiz))
         else:
-            if _SANDBOX_ACTIVO:
-                info(f"[sandbox] Ejecutando en contenedor: {comando}")
-            comando = _envolver_sandbox(comando, str(raiz))
-            raiz = Path.cwd()  # docker se lanza desde el host; el mount ya es absoluto
+            sesion = None
+        if sesion:
+            info(f"🐳 Ejecutando en sesión Docker: {comando}")
+            comando = ss.comando_en_sesion(comando)
+            # `docker exec` hereda el workspace y el montaje de la sesión
+            # (creados con `directorio` como /workspace): el host `cwd` es
+            # irrelevante para el comando, que corre dentro del contenedor.
+        else:
+            comando = _construir_comando_docker(comando, str(raiz))
+        # B15-CI Invariante A: `raiz` NO se sustituye por `Path.cwd()`. El
+        # `cwd` del proceso host solo lanza el binario de Docker, cuyo
+        # workspace real es el montaje `-v <raiz>:/workspace`; el comando
+        # debe operar sobre el `directorio` solicitado, que es además el que
+        # observa el adaptador Git de B15 antes y después.
+        #
+        # Invariante B (fail-closed): aquí NO se degrada nunca a host. El
+        # comando ya va envuelto en `docker run`; si el daemon no responde,
+        # el propio `docker run` devuelve un código de error y ese error se
+        # propaga al llamador. No hace falta una segunda comprobación de
+        # `_docker_disponible()`: reintroducirla aquí duplicaría la política
+        # en la capa de ejecución (y rompería el sandbox explícito
+        # `--sandbox`, donde el usuario ya pidió fail-closed por diseño).
     try:
         # seguridad (v6.36.0): si el comando va a ejecutarse directo...
         #   (1) ...y matchea la blocklist legacy → confirmación explícita
@@ -4160,19 +4178,24 @@ def sandbox_activo() -> bool:
     return _SANDBOX_ACTIVO
 
 
-def _envolver_sandbox(comando: str, directorio: str = ".") -> str:
-    """Envuelve ``comando`` en un ``docker run`` dentro del sandbox.
+def _construir_comando_docker(comando: str, directorio: str = ".") -> str:
+    """Construye la invocación ``docker run`` que ejecuta ``comando``.
 
-    Genera algo como::
+    Es un **command rewriter puro**: no consulta ningún estado global ni
+    decide nada. Solo traduce (comando, directorio) en la cadena de Docker
+    que monta ``directorio`` como ``/workspace``.
 
-        docker run --rm -v "<dir>:/workspace" -w /workspace \
-                   -e GEMINI_API_KEY ... <imagen> sh -c "<comando>"
+    El montaje es read/write e incluye ``.git`` (no se filtra ni se monta por
+    separado), de modo que el workspace del contenedor **es** el directorio
+    solicitado y cualquier cambio del comando es visible en el host. Esa
+    propiedad es la que necesitan tanto el contrato de B15 (el árbol Git
+    observado antes y después es el mismo) como el sandbox en general.
 
-    Si hay comando de preparación (--sandbox-comando), se antepone con
-    ``&&``. Sin sandbox activo devuelve ``comando`` tal cual.
+    ``_envolver_sandbox`` es su envoltorio condicionado por ``_SANDBOX_ACTIVO``
+    (contrato histórico, ver Invariante C); esta función es la que usa
+    directamente ``_ejecutar_comando`` cuando la política ya decidió
+    ``CONTAINER`` y por tanto el sandbox es obligatorio.
     """
-    if not _SANDBOX_ACTIVO:
-        return comando
     raiz = Path(directorio).expanduser().resolve()
     partes = [
         "docker",
@@ -4195,6 +4218,31 @@ def _envolver_sandbox(comando: str, directorio: str = ".") -> str:
         comando = f"{_SANDBOX_COMANDO_PREP} && ({comando})"
     partes.extend(["sh", "-c", comando])
     return shlex.join(partes)
+
+
+def _envolver_sandbox(comando: str, directorio: str = ".") -> str:
+    """Envuelve ``comando`` en un ``docker run`` dentro del sandbox.
+
+    Genera algo como::
+
+        docker run --rm -v "<dir>:/workspace" -w /workspace \
+                   -e GEMINI_API_KEY ... <imagen> sh -c "<comando>"
+
+    Si hay comando de preparación (--sandbox-comando), se antepone con
+    ``&&``. Sin sandbox activo devuelve ``comando`` tal cual.
+
+    Contrato histórico preservado (B15-CI, Invariante C): esta función es un
+    *command rewriter* condicionado por ``_SANDBOX_ACTIVO`` y **no** decide
+    nada. ``_SANDBOX_ACTIVO`` sigue significando únicamente "el usuario pidió
+    sandbox explícitamente" (--sandbox / --sandbox-session /
+    SNAPCONTEXT_SANDBOX=1); ya no es un segundo selector que pueda anular una
+    decisión de política. Cuando la política por comando decide ``CONTAINER``
+    se usa directamente :func:`_construir_comando_docker`, que no depende de
+    ese global.
+    """
+    if not _SANDBOX_ACTIVO:
+        return comando
+    return _construir_comando_docker(comando, directorio)
 
 
 # --- Persistencia Docker por sesión (v6.4.0) ---------------------------------

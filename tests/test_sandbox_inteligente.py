@@ -14,6 +14,7 @@ Cubre:
 import argparse
 import os
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import sandbox_utils
@@ -342,14 +343,26 @@ class TestEjecutarComandoIntegracion(unittest.TestCase):
         self.assertEqual(codigo, 0)
 
     def test_peligroso_se_envuelve_en_sandbox(self):
+        """CONTAINER ⇒ el proceso que nace es `docker run` (B15-CI).
+
+        Antes este test parcheaba `_envolver_sandbox` y comprobaba que se
+        llamaba: eso solo demostraba que hubo una llamada al wrapper, y por
+        eso dejó pasar el defecto (wrapper no-op con `_SANDBOX_ACTIVO=False`
+        y ejecución en el host). Ahora se intercepta el LÍMITE REAL —el
+        proceso que se lanza— y se comprueba que ese proceso es Docker,
+        con el mount del directorio solicitado.
+        """
         with (
             mock.patch.object(sc, "_docker_disponible", return_value=True),
-            mock.patch.object(sc, "_envolver_sandbox", return_value="docker run rm -rf /") as env,
             mock.patch.object(sandbox_utils.subprocess, "run") as fake,
         ):
             fake.return_value = mock.Mock(returncode=0, stdout="", stderr="")
             sc._ejecutar_comando("rm -rf /", ".")
-        env.assert_called_once()
+        fake.assert_called_once()
+        args, _ = fake.call_args
+        ejecutado = " ".join(str(a) for a in args[0]) if isinstance(args[0], (list, tuple)) else str(args[0])
+        self.assertIn("docker run", ejecutado)
+        self.assertIn(f"{Path('.').resolve()}:{sc.SANDBOX_DIR_TRABAJO}", ejecutado)
 
     def test_peligroso_abortado_devuelve_error(self):
         with (
