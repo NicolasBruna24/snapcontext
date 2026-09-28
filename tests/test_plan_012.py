@@ -133,7 +133,7 @@ class TestGitPlan(unittest.TestCase):
         ej.assert_not_called()
 
     def test_commit_paso_en_repo_mock(self):
-        """En repo (mockeado): git add . + git commit -m 'paso: ...'."""
+        """En repo (mockeado): staging sin `.work/` + commit."""
         llamadas = []
 
         def fake_ejecutar(comando, directorio=".", timeout=120):
@@ -149,7 +149,8 @@ class TestGitPlan(unittest.TestCase):
         ):
             self.assertTrue(sc._git_commit_paso('arreglar "login"', str(self.dir_tmp)))
         self.assertEqual(len(llamadas), 2)
-        self.assertEqual(llamadas[0], "git add .")
+        self.assertEqual(llamadas[0], sc._comando_stage_paso())
+        self.assertIn(".work", llamadas[0])
         self.assertIn("git commit -m \"paso: arreglar 'login'\"", llamadas[1])
 
     def test_commit_paso_sin_cambios_es_ok(self):

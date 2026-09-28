@@ -50,6 +50,34 @@ HERRAMIENTAS_PREDEFINIDAS = {
         "parametros": {"ruta": "str", "linea_inicio": "int?", "linea_fin": "int?"},
         "requiere_permiso": False,  # solo lectura
     },
+    # B14-D: primera integración real del Work State Reader. Expone el
+    # `state.md` de un trabajo ya parseado, para que un agente consultando el
+    # estado no tenga que interpretar Markdown a mano. Solo lee `state.md`:
+    # no resuelve `decisions.md`, no ejecuta Git ni interpreta el veredicto.
+    "work_state": {
+        "descripcion": "Lee el estado documental de un trabajo del canal WORK "
+        "(`.work/<id>/state.md`): objetivo, criterios, estado operativo, "
+        "siguiente paso y referencias Git declaradas. No resuelve decisiones "
+        "ni verifica nada.",
+        "parametros": {"work_id": "str", "directorio": "str='.'"},
+        "requiere_permiso": False,  # solo lectura
+    },
+    "work_state_update": {
+        "descripcion": "Actualiza campos declarativos del estado de un trabajo "
+        "del canal WORK. Aplica la política de autoridad: `ciclo_de_vila` y "
+        "`cierre_estado` exigen `autorizacion`; el mandato y "
+        "`veredictos_obsoletos` están protegidos. No verifica verdicts ni "
+        "ejecuta Git.",
+        "parametros": {
+            "work_id": "str",
+            "cambios": "dict",
+            "autorizacion": "bool=False",
+            "directorio": "str='.'",
+        },
+        # Es una capacidad de mutación: a diferencia de `work_state`, pide
+        # permiso explícito antes de ejecutarse.
+        "requiere_permiso": True,
+    },
     "list_files": {
         "descripcion": "Lista archivos de una carpeta, con filtro de extensión.",
         "parametros": {"directorio": "str='.'", "extensiones": "list?", "max_archivos": "int=200"},
@@ -355,6 +383,24 @@ def _ejecutar_herramienta_mcp(  # noqa: C901  (refactor de complejidad: Fase 10c
                 str(argumentos.get("ruta", "")),
                 _entero_opcional(argumentos.get("linea_inicio")),
                 _entero_opcional(argumentos.get("linea_fin")),
+            )
+        elif nombre == "work_state":
+            # B14-D: delega en el Reader (B14-C). El dispatcher no interpreta
+            # nada: traduce el resultado documental a la forma estructurada que
+            # ya usan el resto de herramientas de solo lectura.
+            resultado = _sc._tool_work_state(
+                str(argumentos.get("work_id", "")),
+                str(argumentos.get("directorio", ".")),
+            )
+        elif nombre == "work_state_update":
+            # B14-H: la política de autoridad vive únicamente en
+            # `_exigir_autoridad` (snapcontext). Este dispatcher solo traduce
+            # argumentos: no reimplementa ninguna regla.
+            resultado = _sc._tool_work_state_update(
+                str(argumentos.get("work_id", "")),
+                dict(argumentos.get("cambios") or {}),
+                bool(argumentos.get("autorizacion", False)),
+                str(argumentos.get("directorio", ".")),
             )
         elif nombre == "list_files":
             resultado = _sc._tool_list_files(

@@ -56,7 +56,7 @@ import time
 import unicodedata
 import warnings
 import webbrowser
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -678,6 +678,14 @@ MAX_INTENTOS_VALIDACION = 3  # reintentos de validación del editor propio
 # Carpetas / extensiones que se ignoran al escanear manualmente. Con git no
 # suelen aparecer porque .gitignore ya las excluye, pero sirven de red de
 # seguridad en repositorios sin git.
+# B11-E: el contenedor WORK (``work_context.WORK_CONTAINER``) queda excluido
+# del contexto PROJECT implícito. La importación es perezosa (con fallback al
+# literal) para no introducir ciclos de importación: work_context solo importa
+# utils/exceptions de forma diferida, nunca snapcontext.
+try:  # pragma: no cover - import ligero sin dependencias pesadas
+    from work_context import WORK_CONTAINER as _WORK_CONTAINER
+except Exception:  # pragma: no cover - entorno sin el módulo disponible
+    _WORK_CONTAINER = ".work"
 DIRS_IGNORADOS = {
     ".git",
     ".dart_tool",
@@ -690,6 +698,7 @@ DIRS_IGNORADOS = {
     "venv",
     ".pub-cache",
     "coverage",
+    _WORK_CONTAINER,
 }
 EXT_IGNORADAS = {
     ".png",
@@ -5446,6 +5455,21 @@ def _ejecutar_chat(  # noqa: C901  (refactor de complejidad: Fase 10c)
                             argumentos["linea_fin"] = trozos[2]
                     elif nombre == "list_files":
                         argumentos = {"directorio": bruto.strip('"').strip("'")}
+                    elif nombre == "work_state":
+                        # B14-D: /tool work_state <work_id> [directorio]
+                        trozos = shlex.split(bruto)
+                        argumentos = {"work_id": trozos[0] if trozos else ""}
+                        if len(trozos) > 1:
+                            argumentos["directorio"] = trozos[1]
+                    elif nombre == "work_state_update":
+                        # B14-H: `cambios` es un dict, así que solo se admite
+                        # el formato JSON. La política de autoridad NO se
+                        # decide aquí: vive en `_exigir_autoridad`.
+                        aviso(
+                            "Uso: /tool work_state_update "
+                            '\'{"work_id": "...", "cambios": {...}}\''
+                        )
+                        argumentos = {"cambios": {}}
                     elif nombre == "ast":
                         argumentos = {"ruta": bruto.strip('"').strip("'")}
                     elif nombre == "git_diff":
@@ -5807,6 +5831,22 @@ def _git_crear_rama(nombre: str, directorio: str = ".") -> bool:
     return False
 
 
+def _comando_stage_paso() -> str:
+    """Comando de staging de un paso, excluyendo el contenedor WORK (B11-D).
+
+    B10 S3.4: ``git add .`` incluiria ``.work/`` (visible para Git por B8 R1,
+    no ignorado por B8 R5). El pathspec de exclusion conserva la semantica
+    "commitear los cambios normales del paso" sin migrar a staging explicito
+    por archivo. Cubre el camino vivo (``_commit_paso``) y el latente
+    (``_git_commit_paso``).
+    """
+    try:  # pragma: no cover - import ligero con fallback al literal
+        from work_context import EXCLUSION_STAGING_GIT as _exclusion
+    except Exception:  # pragma: no cover
+        _exclusion = '":(exclude).work"'
+    return f"git add . {_exclusion}"
+
+
 def _git_commit_paso(descripcion: str, directorio: str = ".") -> bool:
     """`git add .` + `git commit -m "paso: <descripcion>"`. True si ok.
 
@@ -5815,7 +5855,7 @@ def _git_commit_paso(descripcion: str, directorio: str = ".") -> bool:
     if not _es_repo_git(directorio):
         depurar("[plan] No es repo git; se omite el commit del paso.")
         return True
-    _ejecutar_comando("git add .", directorio, timeout=60)
+    _ejecutar_comando(_comando_stage_paso(), directorio, timeout=60)
     mensaje = f"paso: {descripcion}".replace('"', "'")
     codigo, _, stderr = _ejecutar_comando(f'git commit -m "{mensaje}"', directorio, timeout=60)
     if codigo == 0:
@@ -5902,7 +5942,7 @@ def _commit_paso(paso: dict, args: argparse.Namespace, directorio: str = ".") ->
         if codigo_estado != 0 or not (salida_estado or "").strip():
             depurar("[git-profundo] Sin cambios; no se commitea.")
             return None
-        _ejecutar_comando("git add .", directorio, timeout=60)
+        _ejecutar_comando(_comando_stage_paso(), directorio, timeout=60)
         if getattr(args, "git_mensaje", None):
             mensaje = str(args.git_mensaje).replace('"', "'")
         else:
@@ -8789,6 +8829,263 @@ def _tool_read_file(
     }
 
 
+def _tool_work_state(work_id: str, directorio: str = ".") -> dict:
+    """Herramienta `work_state`: estado documental de un trabajo del canal WORK.
+
+    B14-D — primera integración real del Work State Reader (B14-C). Es la
+    alternativa estructurada a `read_file .work/<id>/state.md`: el agente
+    obtiene los campos ya parseados en vez de interpretar Markdown a mano.
+
+    Frontera (B14-D §5-§7): esta herramienta **solo lee**. No resuelve
+    `decisions.md`, no ejecuta Git, no interpreta el veredicto ni calcula
+    obsolescencia: `ultimo_veredicto` y las referencias Git se devuelven
+    tal como los declara el documento, como texto.
+
+    Los placeholders del canal se conservan literalmente (B14-B §6): el
+    documento no afirma que `(pendiente de declarar)` esté vacío, y esta
+    capa tampoco lo decide.
+    """
+    from exceptions import ContratoEstadoInvalidoError, RutaInseguraError
+
+    try:
+        from work_context import leer_estado
+    except ImportError as exc:  # el canal WORK es opcional en el despliegue
+        return {"ok": False, "work_id": work_id, "error": f"canal WORK no disponible: {exc}"}
+
+    try:
+        estado = leer_estado(work_id, directorio)
+    except ContratoEstadoInvalidoError as exc:
+        return {
+            "ok": False,
+            "work_id": work_id,
+            "error": f"estado documental inválido: {exc}",
+        }
+    except (RutaInseguraError, ValueError) as exc:
+        # Ruta insegura o `work_id` mal formado: se informa, nunca se ejecuta.
+        return {"ok": False, "work_id": work_id, "error": f"identificador o ruta inválidos: {exc}"}
+
+    return {
+        "ok": True,
+        "work_id": estado.work_id,
+        "titulo": estado.titulo,
+        "proyecto": estado.proyecto,
+        "ciclo_de_vida": estado.ciclo_de_vida,
+        "objetivo": estado.objetivo,
+        "criterios": list(estado.criterios),
+        "trabajo_completado": list(estado.trabajo_completado),
+        "trabajo_pendiente": list(estado.trabajo_pendiente),
+        "bloqueos": list(estado.bloqueos),
+        "siguiente_paso": estado.siguiente_paso,
+        "comando_verificacion": estado.comando_verificacion,
+        # Texto declarativo, sin interpretar (B14-A-R).
+        "ultimo_veredicto": estado.ultimo_veredicto,
+        "git": {
+            "base": estado.git_base,
+            "actual": estado.git_actual,
+            "rama": estado.git_rama,
+            "pr_issue": estado.git_pr_issue,
+        },
+        "cierre": {"estado": estado.cierre_estado, "motivo": estado.cierre_motivo},
+    }
+
+
+# ---------------------------------------------------------------------------
+# B14-H — Frontera de autoridad de escritura (política ratificada en B14-G-R)
+# ---------------------------------------------------------------------------
+# Clasificación **positiva**: solo estos nombres existen. No hay lista de alias
+# prohibidos porque los alias no se reconocen en absoluto (caen en la
+# comprobación de nombres contractuales → `ValueError` de entrada inválida).
+_CAMPOS_ESCRITURA_DIRECTA = frozenset(
+    {
+        "titulo",
+        "trabajo_completado",
+        "trabajo_pendiente",
+        "bloqueos",
+        "siguiente_paso",
+        "comando_verificacion",
+        "ultimo_veredicto",
+        "git_base",
+        "git_actual",
+        "git_rama",
+        "git_pr_issue",
+        "cierre_motivo",
+    }
+)
+
+#: Requieren autorización explícita en la misma operación. `cierre_motivo` no
+#: está aquí: es directo salvo que la operación toque `cierre_estado` (regla
+#: por operación, no por campo).
+_CAMPOS_ESCRITURA_CON_AUTORIZACION = frozenset({"ciclo_de_vida", "cierre_estado"})
+
+#: Nunca escribibles desde un agente, ni siquiera con `autorizacion=True`.
+_CAMPOS_ESCRITURA_PROTEGIDOS = frozenset(
+    {
+        "objetivo",
+        "criterios",
+        "alcance_incluido",
+        "alcance_excluido",
+        "restricciones",
+        "dependencias_entorno",
+        "veredictos_obsoletos",
+    }
+)
+
+
+def _exigir_autoridad(cambios, autorizacion: bool) -> None:
+    """Aplica la política de autoridad de B14-G-R **antes** de persistir.
+
+    Tres desenlaces, con señales distintas:
+
+    * nombre no contractual → ``TypeError``/``ValueError`` (entrada inválida);
+    * campo protegido, o campo que exige autorización sin tenerla →
+      :class:`AutoridadInsuficienteError` (operación válida, no autorizada);
+    * operación permitida → no hace nada y deja continuar.
+
+    La decisión se toma sobre la **operación completa**: una sola llamada con un
+    campo protegido, o sin autorización, se rechaza entera. Nunca hay escritura
+    parcial, porque aquí todavía no se ha escrito nada.
+    """
+    from exceptions import AutoridadInsuficienteError
+
+    from work_context import _CAMPOS_ESCRIBIBLES
+
+    if not isinstance(cambios, Mapping):
+        raise TypeError("'cambios' debe ser un mapping de campo → valor")
+    if not cambios:
+        raise ValueError("'cambios' está vacío: no hay nada que actualizar")
+
+    desconocidos = sorted(set(cambios) - set(_CAMPOS_ESCRIBIBLES))
+    if desconocidos:
+        # Entrada inválida: no es cuestión de autoridad, el nombre no existe.
+        raise ValueError(
+            f"campos no escribibles: {desconocidos}. "
+            f"Admitidos: {sorted(_CAMPOS_ESCRIBIBLES)}"
+        )
+
+    protegidos = sorted(set(cambios) & _CAMPOS_ESCRITURA_PROTEGIDOS)
+    if protegidos:
+        # Ninguna autorización lo salva: el Mandato se ratifica en
+        # `decisions.md` y la obsolescencia pertenece al Verification Engine.
+        raise AutoridadInsuficienteError(
+            f"campos protegidos: no son escribibles por un agente: {protegidos}",
+            tuple(protegidos),
+        )
+
+
+    if not autorizacion:
+        requieren = sorted(set(cambios) & _CAMPOS_ESCRITURA_CON_AUTORIZACION)
+        if requieren:
+            raise AutoridadInsuficienteError(
+                f"la operación requiere autorización explícita para: {requieren}",
+                tuple(requieren),
+            )
+
+
+def _tool_work_state_update(
+    work_id: str,
+    cambios: dict,
+    autorizacion: bool = False,
+    directorio: str = ".",
+) -> dict:
+    """Herramienta `work_state_update`: escritura declarativa con autoridad.
+
+    B14-H — frontera de autoridad ratificada en B14-G-R. Es la **única** capa
+    donde vive esa política: el dispatcher MCP y el CLI la comparten en vez de
+    duplicarla.
+
+    * 12 campos de escritura directa (`_CAMPOS_ESCRITURA_DIRECTA`).
+    * 2 campos exigen ``autorizacion=True``: `ciclo_de_vida`, `cierre_estado`.
+    * 7 campos protegidos se rechazan siempre, con o sin autorización.
+
+    ``autorizacion`` es un flag explícito de la llamada. No es global, no se
+    persiste, no se infiere de la identidad del proceso ni de ningún documento
+    y no sobrevive a la operación.
+
+    Frontera: esta herramienta **no** verifica verdicts, **no** ejecuta Git,
+    **no** calcula obsolescencia y **no** toca `decisions.md` ni
+    `assertions.md`. Escribe texto declarativo.
+    """
+    from exceptions import (
+        AutoridadInsuficienteError,
+        ContratoEstadoInvalidoError,
+        RutaInseguraError,
+    )
+
+    try:
+        from work_context import actualizar_estado
+    except ImportError as exc:  # el canal WORK es opcional en el despliegue
+        return {
+            "ok": False,
+            "categoria": "entrada",
+            "work_id": work_id,
+            "error": f"canal WORK no disponible: {exc}",
+        }
+
+    try:
+        # 1) Autoridad: se comprueba ANTES de leer o escribir nada.
+        _exigir_autoridad(cambios, bool(autorizacion))
+        # 2) Escritura declarativa (valida nombres, tipos, contrato y rutas).
+        estado = actualizar_estado(work_id, cambios, directorio)
+    except AutoridadInsuficienteError as exc:
+        return {
+            "ok": False,
+            "categoria": "autoridad",
+            "work_id": work_id,
+            "error": str(exc),
+            "campos": list(exc.campos),
+        }
+    except ContratoEstadoInvalidoError as exc:
+        return {
+            "ok": False,
+            "categoria": "documento",
+            "work_id": work_id,
+            "error": str(exc),
+        }
+    except RutaInseguraError as exc:
+        return {
+            "ok": False,
+            "categoria": "ruta",
+            "work_id": work_id,
+            "error": f"identificador o ruta inválidos: {exc}",
+        }
+    except (TypeError, ValueError) as exc:
+        return {
+            "ok": False,
+            "categoria": "entrada",
+            "work_id": work_id,
+            "error": str(exc),
+        }
+
+    return {
+        "ok": True,
+        "categoria": "actualizado",
+        "work_id": estado.work_id,
+        "actualizados": sorted(cambios),
+        "autorizado": bool(autorizacion),
+        "estado": {
+            "titulo": estado.titulo,
+            "ciclo_de_vida": estado.ciclo_de_vida,
+            "siguiente_paso": estado.siguiente_paso,
+            "comando_verificacion": estado.comando_verificacion,
+            "trabajo_completado": list(estado.trabajo_completado),
+            "trabajo_pendiente": list(estado.trabajo_pendiente),
+            "bloqueos": list(estado.bloqueos),
+            # Texto declarativo: la herramienta no lo validó ni lo interpretó.
+            "ultimo_veredicto": estado.ultimo_veredicto,
+            "git": {
+                "base": estado.git_base,
+                "actual": estado.git_actual,
+                "rama": estado.git_rama,
+                "pr_issue": estado.git_pr_issue,
+            },
+            "cierre": {
+                "estado": estado.cierre_estado,
+                "motivo": estado.cierre_motivo,
+            },
+        },
+    }
+
+
 def _tool_list_files(
     directorio: str = ".", extensiones: list[str] | None = None, max_archivos: int = 200
 ) -> dict:
@@ -8800,6 +9097,11 @@ def _tool_list_files(
     encontrados: list[str] = []
     for camino in sorted(raiz.rglob("*")):
         if not camino.is_file():
+            continue
+        # B11-E: el contenedor WORK no entra al contexto PROJECT implícito.
+        # La lectura explícita por ruta (read_file / _leer_archivo) no usa
+        # esta función y sigue funcionando con normalidad.
+        if _WORK_CONTAINER in camino.parts:
             continue
         if any(parte in (".git", "__pycache__", "node_modules") for parte in camino.parts):
             continue
@@ -9426,6 +9728,7 @@ CARPETAS_IGNORADAS = {
     "build",
     ".idea",
     ".vscode",
+    _WORK_CONTAINER,  # B11-E: WORK no es PROJECT context implícito
 }
 CHUNK_CARACTERES = 2000  # ~512 tokens con heurística de 4 chars/token
 

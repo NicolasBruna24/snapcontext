@@ -45,6 +45,7 @@ _DIRECTORIOS_IGNORADOS = {
     ".snapcontext",
     "_backups",
     "out",
+    ".work",  # B11-E: WORK no es PROJECT context implícito (cf. work_context.WORK_CONTAINER)
 }
 
 __all__ = [

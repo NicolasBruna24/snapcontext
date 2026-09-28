@@ -591,6 +591,7 @@ class ReactAgent:
             "build",
             "dist",
             ".idea",
+            ".work",  # B11-E: WORK no es PROJECT context implícito (cf. work_context.WORK_CONTAINER)
         }
         hallazgos: list[str] = []
         raiz = Path(self.directorio)

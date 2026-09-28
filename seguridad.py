@@ -47,6 +47,8 @@ ASESOR_CARPETAS_IGNORADAS = {
     ".vscode",
     ".mypy_cache",
     ".pytest_cache",
+    # B11-E: WORK no es PROJECT context implícito (cf. work_context.WORK_CONTAINER).
+    ".work",
 }
 ASESOR_UMBRALES_DEFECTO = {
     "funcion_larga": 20,  # máx. líneas por función
