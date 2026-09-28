@@ -107,7 +107,7 @@ Más información en [`benchmarks/README.md`](benchmarks/README.md).
 | 🌍 Omnicanalidad | Discord, Telegram, web y TUI inmersiva (Textual) |
 | 🔌 MCP nativo | Herramientas DB, API y Browser, con marketplace de servidores |
 | 🕸️ Graph RAG + LSP | Grafo de dependencias del código y análisis con servidores LSP |
-| ⚡ XPU (Intel Arc) | Soporte experimental para aceleración local Intel |
+| ⚡ XPU (Intel Arc) | Soporte establecido para Arc serie B vía IPEX-LLM; otros escenarios Intel en estabilización |
 | 🗺️ Planificador | Planes multi-paso con dependencias, paralelismo y modo autónomo |
 | 🧩 Hooks y plugins | Ciclo de vida, scripts personalizados y `snapcontext plugin` |
 | 📝 Git profundo | Commits por paso, diffs interactivos y `snapcontext revert` |
@@ -244,7 +244,7 @@ Más detalles en [`docs/PROMPT_PROFILES.md`](docs/PROMPT_PROFILES.md).
 
 ## 🧪 Intel XPU (Arc B-series) — Fase 18
 
-Soporte oficial para GPUs **Intel Arc serie B (Battlemage)** — p. ej. la
+Soporte para GPUs **Intel Arc serie B (Battlemage)** — p. ej. la
 **Arc B70 de 32 GB** — mediante **IPEX-LLM** con cuantización *low-bit*
 (`sym_int4` por defecto) y fallback a IPEX clásico. Es un extra opcional:
 
@@ -255,6 +255,7 @@ snapcontext "hola" --provider xpu --xpu-model Qwen/Qwen2.5-7B
 
 Si hay una GPU Intel detectable, el CLI te lo sugiere automáticamente al
 arrancar; si faltan dependencias, el aviso indica el comando exacto.
+El soporte para otros escenarios de hardware Intel continúa en estabilización.
 Guía completa (drivers, oneAPI 2025+, solución de problemas): **[docs/XPU.md](docs/XPU.md)**.
 
 ## 🧭 Comandos
@@ -397,8 +398,10 @@ misma tecnología de Cursor y Claude Code.
 
 ### ⚡ XPU (Intel Arc)
 
-Soporte experimental de aceleración Intel vía OpenVINO/onnx para embeddings y
-modelos locales (`--xpu-model`, `--xpu-max-tokens`, `--xpu-temperature`).
+Aceleración Intel vía IPEX-LLM para modelos locales, con fallback a IPEX
+clásico. Para GPUs Intel Arc serie B/Battlemage, la ruta IPEX-LLM requiere
+`ipex-llm>=2.2.0`. Consulta la sección Fase 18 y `docs/XPU.md` para instalación
+y uso (`--xpu-model`, `--xpu-max-tokens`, `--xpu-temperature`).
 
 ### 🗺️ Planificador de tareas
 
