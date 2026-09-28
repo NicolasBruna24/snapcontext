@@ -3,7 +3,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![PyPI](https://badge.fury.io/py/snapcontext.svg)](https://pypi.org/project/snapcontext/)
 [![VS Code](https://img.shields.io/badge/VS%20Code-Marketplace-0098FF)](https://marketplace.visualstudio.com/)
-[![JetBrains](https://img.shields.io/badge/JetBrains-Plugin-000000)](https://plugins.jetbrains.com/)
+[![JetBrains](https://img.shields.io/badge/JetBrains-Plugin-000000)](https://plugins.jetbrains.com/plugin/33750-snapcontext)
 [![CI](https://img.shields.io/github/actions/workflow/status/NicolasBruna24/snapcontext/python-package.yml?branch=main&label=tests)](https://github.com/NicolasBruna24/snapcontext/actions)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -143,6 +143,32 @@ snapcontext --init                      # asistente inicial + API key
 
 También hay instalador `.exe` para Windows sin Python, y una extensión para
 VS Code (carpeta `vscode/`).
+
+## 🧩 JetBrains (IntelliJ IDEA / PyCharm)
+
+Plugin oficial para **IntelliJ IDEA**, **PyCharm** y otros IDEs de la plataforma
+JetBrains: [SnapContext en JetBrains Marketplace](https://plugins.jetbrains.com/plugin/33750-snapcontext).
+
+- **Instalación**: en el IDE, `Settings → Plugins → Marketplace`, busca
+  **SnapContext** e instálalo (alternativa: descarga el `.zip` desde la ficha y
+  usa `Settings → Plugins → ⚙ → Install Plugin from Disk…`).
+- **Requisito**: SnapContext instalado en el sistema — `pip install snapcontext`
+  (o `pipx install snapcontext`) — o el ejecutable `snapcontext` disponible.
+- **Configuración**: `Settings → Tools → SnapContext` (comando del ejecutable,
+  proveedor, clave de API opcional y confirmaciones).
+
+Dentro del IDE puedes ejecutar consultas de SnapContext, planificar tareas
+(`--plan`), corregir con bucle de pruebas (`--test-loop`), abrir la interfaz web
+(editor + grafo de dependencias), añadir archivos del *Project View* al contexto
+y seguir la salida en tiempo real en la consola «SnapContext».
+
+> La extensión de **VS Code** («SnapContext AI») y el plugin de **JetBrains** son
+> clientes del mismo CLI: ambos necesitan SnapContext instalado.
+
+Desarrollado y mantenido por **Nicolás Bruna Fuentealba** ·
+[nicobrunaf.dev](https://www.nicobrunaf.dev) ·
+[GitHub](https://github.com/NicolasBruna24/snapcontext) ·
+[LinkedIn](https://www.linkedin.com/in/nicol%C3%A1s-bruna-fuentealba-6086b8410/)
 
 
 ## 🔧 Configuración

@@ -84,6 +84,30 @@ Requiere JDK 17+ (`kotlin { jvmToolchain(17) }`). La primera ejecución descarga
 el SDK de IntelliJ. **No hay pipeline de CI para este canal**: la publicación es
 siempre manual.
 
+### 4.1 Metadata del listing (vive fuera del repositorio)
+
+La ficha pública (<https://plugins.jetbrains.com/plugin/33750-snapcontext>) tiene
+metadata que **no** se deriva del repositorio y que hay que revisar a mano:
+
+- **Descripción editada desde la UI del Marketplace.** Si la ficha conserva
+  ediciones hechas en el panel, `plugin.xml` **no** representa literalmente la
+  descripción que ve el usuario: lo publicado puede diferir de lo que hay en el
+  repositorio. Al cambiar la descripción, comprobar en la ficha qué texto está
+  realmente publicado y editarlo en el panel si hace falta.
+- **Vendor.** El vendor mostrado debe mantenerse alineado con la identidad
+  pública del mantenedor: **Nicolás Bruna Fuentealba**
+  (<https://www.nicobrunaf.dev>). El estado de verificación del vendor y el
+  email público se gestionan en el panel, no en `plugin.xml`.
+- **Enlaces de la ficha** (`Website`, `Source code`, `Bug tracker`,
+  `Privacy policy`): se configuran en el panel del Marketplace; `plugin.xml` no
+  los propaga automáticamente.
+- **Versión publicada.** El repositorio puede ir por delante de la última versión
+  subida. Antes de anunciar una release, comparar `VERSION` con la versión más
+  reciente que muestra la ficha.
+
+> La publicación del canal JetBrains continúa siendo **manual**. No automatizarla
+> sin revisar antes el gate `verify-release` y la compatibilidad declarada.
+
 > El canal JetBrains **no está automatizado**. Su versión sí está sincronizada con
 > `VERSION` (`build.gradle.kts`, `gradle.properties:pluginVersion`, `plugin.xml`),
 > y `verify_release.py` lo comprueba (I6), pero la subida al Marketplace es un
@@ -92,7 +116,8 @@ siempre manual.
 ## 5. Verificación post-release
 
 - PyPI: `pip install snapcontext==X.Y.Z && snapcontext --version`
-- VS Code: <https://marketplace.visualstudio.com/items?itemName= NicolasBrunaFuentealbaIsaias.snapcontext-ai>
+- VS Code: <https://marketplace.visualstudio.com/items?itemName=NicolasBrunaFuentealbaIsaias.snapcontext-ai>
+- JetBrains: <https://plugins.jetbrains.com/plugin/33750-snapcontext>
 - Landing: <https://nicolasbruna24.github.io/snapcontext/>
 
 ## 6. Notas

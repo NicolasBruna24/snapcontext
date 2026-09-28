@@ -2,24 +2,32 @@
     <id>com.snapcontext.jetbrains</id>
     <name>SnapContext</name>
      <version>6.36.0</version>
-    <vendor url="https://github.com/NicolasBruna24/snapcontext">SnapContext Contributors</vendor>
+    <vendor url="https://www.nicobrunaf.dev">Nicolás Bruna Fuentealba</vendor>
     <description><![CDATA[
         <p><b>SnapContext</b> — Asistente de IA con contexto automático para
         desarrollo dentro de IntelliJ IDEA, PyCharm y otros IDEs de JetBrains.</p>
         <ul>
-            <li>Ejecuta consultas de SnapContext (pipeline completo con Aider)
-                desde el menú <b>Tools → SnapContext</b>.</li>
+            <li>Ejecuta consultas de SnapContext desde el menú
+                <b>Tools → SnapContext</b>.</li>
             <li>Planifica tareas (<code>--plan</code>) y ejecuta bucles de pruebas
                 (<code>--test-loop</code>).</li>
             <li>Abre la interfaz web (editor Monaco + grafo de dependencias) en
                 la herramienta «SnapContext».</li>
-            <li>Añade archivos del explorador al contexto (equivalente a
-                <code>/add</code> en la CLI) desde el menú contextual.</li>
+            <li>Añade archivos seleccionados del Project View al contexto de
+                SnapContext desde el menú contextual.</li>
+            <li>Vacía la lista de archivos de contexto cuando ya no los
+                necesitas.</li>
             <li>Salida en tiempo real en la consola «SnapContext».</li>
         </ul>
         <p>Requiere tener SnapContext instalado (<code>pip install snapcontext</code>)
         o el ejecutable <code>snapcontext</code> disponible; configúralo en
-        <b>Settings → Tools → SnapContext</b>.</p>
+        <b>Settings → Tools → SnapContext</b>. El plugin cubre los flujos de
+        trabajo de SnapContext, con integración <b>opcional</b> de Aider
+        (<code>--editor aider</code>).</p>
+        <p>Desarrollado y mantenido por <b>Nicolás Bruna Fuentealba</b>.<br/>
+        Sitio oficial: <a href="https://www.nicobrunaf.dev">https://www.nicobrunaf.dev</a><br/>
+        Código fuente: <a href="https://github.com/NicolasBruna24/snapcontext">https://github.com/NicolasBruna24/snapcontext</a><br/>
+        LinkedIn: <a href="https://www.linkedin.com/in/nicol%C3%A1s-bruna-fuentealba-6086b8410/">https://www.linkedin.com/in/nicol%C3%A1s-bruna-fuentealba-6086b8410/</a></p>
     ]]></description>
 
     <!-- Compatible con cualquier IDE JetBrains basado en la plataforma. -->
