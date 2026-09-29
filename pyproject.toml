@@ -125,6 +125,10 @@ py-modules = [
     "mcp_tools",
     # Fase 3 (v6.34.15): cliente MCP estándar para servidores externos.
     "mcp_client",
+    # Canal WORK (v6.37.0): `snapcontext` (work_state / work_state_update),
+    # `react_agent` (F4) los importan en runtime. Sin ellos, el wheel instalado
+    # expone el canal MCP y el agente ReAct sin su nucleo documental.
+    "work_context", "work_verdict", "work_obsolencia",
 ]
 packages = ["web"]
 

@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.snapcontext.jetbrains</id>
     <name>SnapContext</name>
-     <version>6.36.0</version>
+     <version>6.37.0</version>
     <vendor url="https://www.nicobrunaf.dev">Nicolás Bruna Fuentealba</vendor>
     <description><![CDATA[
         <p><b>SnapContext</b> — Asistente de IA con contexto automático para

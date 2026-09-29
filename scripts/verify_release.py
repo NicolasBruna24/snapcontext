@@ -46,6 +46,11 @@ MODULOS_WHEEL = (
     "utils.py",
     "exceptions.py",
     "prompt_profiles.py",
+    # Canal WORK (v6.37.0): los importa `snapcontext` (work_state /
+    # work_state_update) y `react_agent` (F4) en runtime.
+    "work_context.py",
+    "work_verdict.py",
+    "work_obsolencia.py",
 )
 
 #: Tests de regresión de seguridad de B9.61 (I8; F-02).

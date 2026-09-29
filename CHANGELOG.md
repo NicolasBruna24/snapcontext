@@ -2,6 +2,115 @@
 
 ## [Unreleased]
 
+## [6.37.0] - 2026-09-28
+
+> **Política de compatibilidad: `PRE_RELEASE_PRODUCT`.** Se mantiene la
+> declaración de 6.36.0: no consta adopción externa, por lo que no existe un
+> contrato público de compatibilidad establecido por terceros. Los cambios
+> descritos abajo son aditivos (superficies nuevas, parámetros opcionales) y
+> no eliminan ni re-typian ninguna superficie previa, lo que sustenta la
+> clasificación **MINOR** y no MAJOR.
+
+**Alcance:** el canal WORK (`.work/`) completo —contenedor documental,
+lector/escritor de estado y motor de verificación de verdicts—, dos
+correcciones de la frontera de ejecución, y la identidad pública del
+proyecto. 15 commits desde `v6.36.0` (`72aeb79`).
+
+### Added — Canal WORK (`.work/`)
+
+- **`work_context.py`**: contenedor `.work/<id>/` con los documentos canónicos
+  `state.md`, `decisions.md` y `assertions.md`. Escritor atómico (temporal en el
+  mismo directorio + `os.replace`): si algo falla antes del reemplazo, el
+  contenido anterior queda intacto.
+- **`work_verdict.py`**: adaptador Git de solo lectura (`GitAnchor` con
+  `tree_sha`, `CurrentGitState`), productor canónico `producir_verdict()` y
+  evaluador puro `evaluar_validez_verdict()` (`VALID` / `OBSOLETE` /
+  `UNDETERMINED`). Si Git no es observable lanza `EstadoGitIndisponibleError`
+  y **nunca** degrada a un estado de validez.
+- **`work_obsolencia.py`**: `detectar_obsolescencia()` explícita, append-only e
+  idempotente. La obsolescencia significa únicamente que el contenido efectivo
+  del árbol dejó de coincidir con el `tree_sha` que produjo la verificación.
+- **Herramientas MCP nuevas**:
+  - `work_state` — lee `state.md` de un trabajo. Solo lectura, no pide permiso.
+  - `work_state_update` — actualiza campos declarativos. Es una capacidad de
+    mutación: **requiere permiso explícito**.
+- **`ReactAgent(work_id=…)`**: el agente ReAct (F4) puede vincularse a un
+  trabajo del canal WORK; al ejecutar, captura el estado Git previo, produce el
+  `Verdict`, evalúa su validez y persiste la última verificación. El resultado
+  F4 incorpora las claves `verdict`, `validity` y `verificacion_persistida`
+  (más `*_error` si procede). **Cambio aditivo**: las claves y semántica
+  preexistentes no cambian.
+- **`.work` excluido del contexto PROJECT** (B11-E): añadido a las listas de
+  directorios ignorados de `graph_rag.py`, `graph_lsp_integrator.py` y
+  `seguridad.py`, y a la exclusión del staging automático de Git.
+- **Excepciones nuevas** en `exceptions.py`: `ContratoEstadoInvalidoError`,
+  `EstadoGitIndisponibleError` (expone `motivo`) y `AutoridadInsuficienteError`.
+
+### Security
+
+- **Frontera de ejecución CONTAINER ahora vinculante**: la rama `CONTAINER`
+  ya no delega en `_envolver_sandbox`, que devolvía el comando intacto cuando
+  el sandbox explícito no estaba activo. Un comando clasificado como `sandbox`
+  se ejecutaba **sin aislamiento y sobre el árbol equivocado**; con este
+  cambio la decisión de política gobierna la ejecución. Se elimina además la
+  sustitución del directorio solicitado por `Path.cwd()`. Sin fallback
+  silencioso a host.
+- **Política de autoridad fail-closed** al escribir estado: los campos
+  protegidos del mandato (como `veredictos_obsoletos`) se rechazan **antes**
+  que la allowlist genérica y **ninguna** autorización los salva;
+  `ciclo_de_vida` y `cierre_estado` exigen `autorizacion=True`. La decisión se
+  toma sobre la operación completa, por lo que nunca hay escritura parcial.
+- **CI**: la auditoría de dependencias (`pip-audit`) deja de ser
+  `continue-on-error` y pasa a **bloqueante**, al medirse 0 advisories sobre el
+  grafo de dependencias declarado.
+
+### Fixed
+
+- **Staging de un paso**: `git add . ":(exclude).work"` se clasificaba como
+  `sandbox` porque el `(` del pathspec magic se interpretaba como metacarácter
+  de shell, con lo que el staging viajaba al contenedor y el commit se
+  ejecutaba en el host sobre un índice vacío («nothing to commit» y un
+  diagnóstico engañoso). El staging se ejecuta ahora por argv con
+  `shell=False`; si el argv no fuera `directo` se aborta explícitamente.
+- **Tipos del work context**: alineación de tipos con valores opcionales.
+- **Mypy**: el gate de calidad vuelve a estar en verde.
+- **Mensajes de instalación**: `configuracion.py` y `diagnostico.py` ya no
+  recomiendan extras que no existen (`snapcontext[anthropic]`,
+  `snapcontext[interactive]`, `snapcontext[embeddings]`, `snapcontext[lsp]`) y
+  pasan a indicar el paquete a instalar directamente.
+- **Packaging**: `work_context`, `work_verdict` y `work_obsolencia` se
+  declaran en `[tool.setuptools] py-modules`. Sin ellos, el wheel publicado no
+  contenía el canal WORK y las herramientas `work_state` / `work_state_update`
+  fallaban en una instalación limpia. `verify_release.py` los incluye ahora en
+  `MODULOS_WHEEL` para que el invariante I10 detecte su ausencia en el futuro.
+
+### Changed
+
+- **Metadata de identidad pública**: `pyproject.toml` corrige el nombre del
+  autor (mojibake `NicolÃ¡s` → `Nicolás Bruna`) y añade `[project.urls]` con
+  `Homepage` y `Repository`. El `plugin.xml` de JetBrains pasa de vendor
+  «SnapContext Contributors» a **Nicolás Bruna Fuentealba** (`nicobrunaf.dev`),
+  con descripción reescrita y enlaces al perfil público.
+- **Documentación de publicación**: `docs/RELEASE.md` documenta que parte del
+  metadata del listing de JetBrains vive fuera del repositorio (descripción
+  editada desde la UI, vendor, enlaces, versión publicada) y añade la
+  verificación post-release de JetBrains. `PUBLISHING.md` queda como nota
+  histórica y remite a `docs/RELEASE.md` como autoridad vigente.
+- **Instalación documentada**: el README deja de anunciar extras inexistentes y
+  explica que `--lsp` usa servidores LSP externos ya instalados en `PATH`.
+
+### Limitaciones conocidas
+
+- **XPU / Intel Arc serie B**: el backend (`backend_xpu.py`) no detecta
+  específicamente «Arc B» ni «Battlemage»; comprueba `torch.xpu` e IPEX de
+  forma genérica. El soporte de Battlemage **depende de `ipex-llm>=2.2.0`**,
+  una dependencia externa. Los tests de integración real se saltan sin GPU
+  Intel. La capacidad es, por tanto, *parcialmente* soportada y delegada en el
+  proveedor de la librería.
+- El canal WORK no implementa lifecycle, ratificación, resolución de conflictos
+  ni descubrimiento de trabajos: solo el formato físico seguro de los
+  documentos. La obsolescencia es explícita, sin daemon, polling ni watcher.
+
 ## [6.36.0] - 2026-09-26
 
 > **Política de compatibilidad: `PRE_RELEASE_PRODUCT`.** SnapContext no declara
@@ -17,8 +126,9 @@
 > artefactos y fuente única de versión (B9.63), e integración del repositorio
 > (B9.64), además de C2 (sandbox default-deny) y C3 (punto único de escritura
 > segura), que hasta ahora figuraban bajo `Unreleased` desde las entradas
-> `6.36.0`/`6.37.0` que **nunca fueron publicadas** (no existió tag `v6.36.0` ni
-> `v6.37.0`; la última tag real era `v6.35.3`).
+> `6.36.0`/`6.37.0` que nunca fueron publicadas. Este es el contenido que la
+> tag `v6.36.0` (commit `72aeb79`) publica por primera vez; la última tag
+> real anterior a ella era `v6.35.3`.
 
 ### 🛡️ Seguridad: Gateway Web — baseline B9.61
 
