@@ -58,6 +58,15 @@ jobs:
     name: Publish VS Code extension
     needs: verify-release
     runs-on: ubuntu-latest
+    # B2.21: `env` a nivel de JOB, no de step. Un `env` declarado en el propio
+    # step no está disponible para evaluar el `if:` de ese mismo step
+    # (el runner evalúa el `if` antes de inyectar el env del step), por lo que
+    # `if: env.VSCE_PAT != ''` era siempre falso y el paso nunca se ejecutaba,
+    # publicando el .vsix como artifact pero nunca al Marketplace. El secreto
+    # se mantiene como secret de Actions: aquí solo se referencia su VALOR en
+    # el entorno del job, nunca se imprime.
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -94,10 +103,10 @@ jobs:
       - name: Publish to VS Code Marketplace
         # Si el secreto no está configurado, el empaquetado (.vsix) igual se
         # sube como artifact y la publicación se hace manualmente después.
-        # Nota: `secrets` no está permitido en `if`; se pasa por `env`.
+        # B2.21: `VSCE_PAT` llega por `env` a nivel de JOB (ver arriba), de
+        # modo que esta condición sí ve el valor. `secrets` no está permitido
+        # en `if`, por eso se evalúa a través del entorno del job.
         if: env.VSCE_PAT != ''
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
           cd vscode
           npx @vscode/vsce publish \
