@@ -687,14 +687,14 @@ def _extraer_lista(
 
 def _parsear_cuerpo(
     lineas: list[str],
-) -> tuple[dict[str, str | tuple[str, ...]], dict[str, str]]:
+) -> tuple[dict[str, str | tuple[str, ...] | None], dict[str, str]]:
     """Extrae las claves documentales del cuerpo.
 
     Tolerante por diseño: ignora texto Markdown no contractual, claves
     desconocidas (que van a ``extra``) y líneas en blanco. Las claves
     duplicadas del cuerpo se resuelven con la **última** ocurrencia.
     """
-    valores: dict[str, str | tuple[str, ...]] = {}
+    valores: dict[str, str | tuple[str, ...] | None] = {}
     seccion = ""
     indice = 0
     while indice < len(lineas):
