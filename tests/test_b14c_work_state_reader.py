@@ -93,9 +93,7 @@ class TestDocumentoCanonico(_BaseReader):
         self.assertNotIn("esta_cerrado", nombres)
         for campo in dataclasses.fields(estado):
             with self.subTest(campo=campo.name):
-                self.assertIsInstance(
-                    getattr(estado, campo.name), (str, tuple, dict, type(None))
-                )
+                self.assertIsInstance(getattr(estado, campo.name), (str, tuple, dict, type(None)))
 
     def test_d_placeholders_se_preservan_literalmente(self):
         """B14-B §6: los placeholders NO se convierten en ausencia."""
@@ -148,7 +146,9 @@ class TestDocumentoEvolucionado(_BaseReader):
         """B14-A-R: el Reader NO parsea el verdict (ni hace split(';'))."""
         _crear(self.raiz)
         self._reescribir(
-            self._sustituir((PLACEHOLDER_VERDICT, f"- Último veredicto de verificación: {VERDICT_B12}"))
+            self._sustituir(
+                (PLACEHOLDER_VERDICT, f"- Último veredicto de verificación: {VERDICT_B12}")
+            )
         )
         estado = leer_estado(WORK_ID, self.raiz)
         self.assertIsInstance(estado.ultimo_veredicto, str)
@@ -159,7 +159,10 @@ class TestDocumentoEvolucionado(_BaseReader):
         _crear(self.raiz)
         self._reescribir(
             self._sustituir(
-                (PLACEHOLDER_VERDICT, "- Último veredicto de verificación: no se pudo ejecutar nada")
+                (
+                    PLACEHOLDER_VERDICT,
+                    "- Último veredicto de verificación: no se pudo ejecutar nada",
+                )
             )
         )
         estado = leer_estado(WORK_ID, self.raiz)
@@ -229,7 +232,8 @@ class TestTolerancia(_BaseReader):
     def test_e_markdown_adicional_no_rompe(self):
         _crear(self.raiz)
         self._reescribir(
-            self._estado() + "\n## Notas del lector\n\nTexto libre sin contrato.\n\n- Rama: feat/x\n"
+            self._estado()
+            + "\n## Notas del lector\n\nTexto libre sin contrato.\n\n- Rama: feat/x\n"
         )
         estado = leer_estado(WORK_ID, self.raiz)
         self.assertEqual(estado.criterios, ("safe_divide existe", "b == 0 lanza ValueError"))
@@ -368,11 +372,7 @@ class TestFronteraSoloLectura(_BaseReader):
         )
         # Se descarta el docstring: no es código ejecutable.
         cuerpo = list(funcion.body)
-        if (
-            cuerpo
-            and isinstance(cuerpo[0], ast.Expr)
-            and isinstance(cuerpo[0].value, ast.Constant)
-        ):
+        if cuerpo and isinstance(cuerpo[0], ast.Expr) and isinstance(cuerpo[0].value, ast.Constant):
             cuerpo = cuerpo[1:]
 
         atributos = {

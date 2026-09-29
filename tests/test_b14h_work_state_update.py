@@ -101,9 +101,7 @@ class _Base(unittest.TestCase):
         return self._state.read_text(encoding="utf-8")
 
     def _update(self, cambios, autorizacion=False, **kwargs) -> dict:
-        return sc._tool_work_state_update(
-            WORK_ID, cambios, autorizacion, str(self.raiz), **kwargs
-        )
+        return sc._tool_work_state_update(WORK_ID, cambios, autorizacion, str(self.raiz), **kwargs)
 
     def _mcp(self, cambios, autorizacion=False) -> dict:
         """Invoca por el dispatcher MCP oficial, confirmando el permiso.
@@ -210,20 +208,14 @@ class TestProteccion(_Base):
             with self.subTest(campo=campo):
                 work_id = f"b14hp-{campo}"
                 crear_trabajo(work_id, self.raiz, objetivo="o")
-                antes = (self.raiz / ".work" / work_id / "state.md").read_text(
-                    encoding="utf-8"
-                )
-                r = sc._tool_work_state_update(
-                    work_id, {campo: ["x"]}, False, str(self.raiz)
-                )
+                antes = (self.raiz / ".work" / work_id / "state.md").read_text(encoding="utf-8")
+                r = sc._tool_work_state_update(work_id, {campo: ["x"]}, False, str(self.raiz))
                 self.assertFalse(r["ok"])
                 self.assertEqual(r["categoria"], "autoridad")
                 self.assertIn(campo, r["campos"])
                 # El rechazo no modifica el documento.
                 self.assertEqual(
-                    (self.raiz / ".work" / work_id / "state.md").read_text(
-                        encoding="utf-8"
-                    ),
+                    (self.raiz / ".work" / work_id / "state.md").read_text(encoding="utf-8"),
                     antes,
                 )
 
@@ -244,8 +236,7 @@ class TestProteccion(_Base):
     def test_no_se_toca_decisions_ni_assertions(self):
         base = self.raiz / ".work" / WORK_ID
         antes = {
-            n: (base / n).read_text(encoding="utf-8")
-            for n in ("decisions.md", "assertions.md")
+            n: (base / n).read_text(encoding="utf-8") for n in ("decisions.md", "assertions.md")
         }
         self._update({"siguiente_paso": "x"})
         self._update({"cierre_estado": "cerrado"}, autorizacion=True)
@@ -337,9 +328,7 @@ class TestOperacionesMixtas(_Base):
         self.assertEqual(self._texto(), antes)
 
     def test_directo_mas_confirmacion_con_autorizacion_actualiza(self):
-        r = self._update(
-            {"siguiente_paso": "nuevo", "cierre_estado": "cerrado"}, autorizacion=True
-        )
+        r = self._update({"siguiente_paso": "nuevo", "cierre_estado": "cerrado"}, autorizacion=True)
         self.assertTrue(r["ok"], r.get("error"))
         estado = leer_estado(WORK_ID, self.raiz)
         self.assertEqual(estado.siguiente_paso, "nuevo")
@@ -422,7 +411,12 @@ class TestVerdictYGit(_Base):
 
     def test_referencias_git_se_almacenan_como_texto(self):
         r = self._update(
-            {"git_base": "main", "git_actual": "feat/x", "git_rama": "feat/x", "git_pr_issue": "#42"}
+            {
+                "git_base": "main",
+                "git_actual": "feat/x",
+                "git_rama": "feat/x",
+                "git_pr_issue": "#42",
+            }
         )
         self.assertTrue(r["ok"], r.get("error"))
         estado = leer_estado(WORK_ID, self.raiz)
@@ -433,10 +427,13 @@ class TestVerdictYGit(_Base):
     def test_la_herramienta_no_importa_subprocess_ni_os(self):
         import ast as astmod
 
-        arbol = astmod.parse((Path(__file__).resolve().parents[1] / "snapcontext.py").read_text(encoding="utf-8"))
+        arbol = astmod.parse(
+            (Path(__file__).resolve().parents[1] / "snapcontext.py").read_text(encoding="utf-8")
+        )
         for nombre in ("_tool_work_state_update", "_exigir_autoridad"):
             nodo = next(
-                n for n in astmod.walk(arbol)
+                n
+                for n in astmod.walk(arbol)
                 if isinstance(n, astmod.FunctionDef) and n.name == nombre
             )
             cuerpo = list(nodo.body)
@@ -571,9 +568,7 @@ class TestFronteraMcp(_Base):
         """`actualizar_estado()` conserva su capacidad técnica completa."""
         from work_context import actualizar_estado
 
-        estado = actualizar_estado(
-            WORK_ID, {"criterios": ["cambio interno"]}, str(self.raiz)
-        )
+        estado = actualizar_estado(WORK_ID, {"criterios": ["cambio interno"]}, str(self.raiz))
         self.assertEqual(estado.criterios, ("cambio interno",))
         # El Mandato sigue protegido para el AGENTE, no para el código interno.
         r = self._update({"criterios": ["cambio interno"]})
@@ -584,9 +579,7 @@ class TestFronteraMcp(_Base):
 
         from work_context import leer_estado
 
-        self.assertEqual(
-            list(inspect.signature(leer_estado).parameters), ["work_id", "directorio"]
-        )
+        self.assertEqual(list(inspect.signature(leer_estado).parameters), ["work_id", "directorio"])
 
 
 if __name__ == "__main__":

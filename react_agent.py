@@ -729,8 +729,8 @@ class ReactAgent:
         validity = None
         error_validez = None
         if verdict is not None:
-            from work_verdict import leer_estado_git as _leer_estado_git
             from work_verdict import evaluar_validez_verdict
+            from work_verdict import leer_estado_git as _leer_estado_git
 
             try:
                 estado_actual = _leer_estado_git(self.directorio)

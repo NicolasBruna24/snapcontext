@@ -24,17 +24,17 @@ from unittest import mock
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
-import react_agent  # noqa: E402
-import snapcontext as sc  # noqa: E402
-import work_verdict  # noqa: E402
-from exceptions import EstadoGitIndisponibleError  # noqa: E402
-from work_verdict import (  # noqa: E402
+import react_agent
+import snapcontext as sc
+import work_verdict
+from exceptions import EstadoGitIndisponibleError
+from work_verdict import (
     MOTIVO_COINCIDE,
     MOTIVO_TREE_DISTINTO,
     OBSOLETE,
     VALID,
-    Verdict,
     ValidityResult,
+    Verdict,
     evaluar_validez_verdict,
     leer_estado_git,
 )
@@ -52,11 +52,9 @@ def _git(repo: Path, *args: str) -> str:
 #: Comando compuesto que NO toca el árbol.
 OK_SIN_CAMBIOS = "python3 -c \"print('ok')\""
 #: Comando compuesto que SÍ modifica el working tree y luego verifica.
-OK_CON_CAMBIO = (
-    "python3 -c \"open('generado.txt','w').write('x')\" && python3 -c \"print('ok')\""
-)
+OK_CON_CAMBIO = "python3 -c \"open('generado.txt','w').write('x')\" && python3 -c \"print('ok')\""
 #: Verificación que falla sin tocar el árbol.
-FALLA_SIN_CAMBIOS = "python3 -c \"raise SystemExit(1)\""
+FALLA_SIN_CAMBIOS = 'python3 -c "raise SystemExit(1)"'
 
 
 def _cuerpo_f4() -> str:
@@ -173,6 +171,7 @@ class TestValidObsoleto(BaseConsumidor):
         self.assertEqual(pre.commit, post.commit)  # commit idéntico
         self.assertEqual(r["validity"].status, OBSOLETE)  # pero OBSOLETE
 
+
 class TestSecuenciaDeObservaciones(BaseConsumidor):
     """Tests 6-9: orden PRE/CURRENT y argumentos reales del evaluador."""
 
@@ -198,9 +197,7 @@ class TestSecuenciaDeObservaciones(BaseConsumidor):
 
     def test_leer_estado_git_se_llama_exactamente_dos_veces(self):
         """Test 7 — PRE y CURRENT, ni una más."""
-        with mock.patch.object(
-            work_verdict, "leer_estado_git", wraps=leer_estado_git
-        ) as espia:
+        with mock.patch.object(work_verdict, "leer_estado_git", wraps=leer_estado_git) as espia:
             self.ejecutar(OK_SIN_CAMBIOS)
 
         self.assertEqual(espia.call_count, 2)
@@ -227,9 +224,7 @@ class TestSecuenciaDeObservaciones(BaseConsumidor):
     def test_f4_delega_en_el_evaluador_canonico(self):
         """Test 9 — sustituir el evaluador cambia el resultado de F4."""
         propio = ValidityResult(status=OBSOLETE, motivo="evaluador alternativo")
-        with mock.patch.object(
-            work_verdict, "evaluar_validez_verdict", return_value=propio
-        ):
+        with mock.patch.object(work_verdict, "evaluar_validez_verdict", return_value=propio):
             r = self.ejecutar(OK_SIN_CAMBIOS)
 
         # El árbol no cambió (sería VALID), pero F4 reporta lo que devuelve el
@@ -237,13 +232,12 @@ class TestSecuenciaDeObservaciones(BaseConsumidor):
         self.assertIs(r["validity"], propio)
 
     def test_f4_no_reimplementa_la_comparacion(self):
-        codigo = "\n".join(
-            linea.split("#", 1)[0] for linea in _cuerpo_verificacion().splitlines()
-        )
+        codigo = "\n".join(linea.split("#", 1)[0] for linea in _cuerpo_verificacion().splitlines())
         for prohibido in (VALID, OBSOLETE, "working_tree_clean"):
             self.assertNotIn(prohibido, codigo, f"F4 no debe usar {prohibido!r}")
         for duplicado in ("rev-parse", "write-tree", "git add", "git status", "subprocess"):
             self.assertNotIn(duplicado, _cuerpo_f4())
+
 
 class TestFallosDeGit(BaseConsumidor):
     """Tests 10-11: sin validez inventada."""
@@ -299,6 +293,7 @@ class TestFallosDeGit(BaseConsumidor):
         ev.assert_not_called()
         self.assertIsNone(r["validity"])
 
+
 class TestContratoF4(BaseConsumidor):
     """Test 12 — las claves históricas mantienen su semántica."""
 
@@ -348,9 +343,7 @@ class TestContratoF4(BaseConsumidor):
         prohibido en F4 es el acceso directo al documento y a las claves
         protegidas.
         """
-        codigo = "\n".join(
-            linea.split("#", 1)[0] for linea in _cuerpo_verificacion().splitlines()
-        )
+        codigo = "\n".join(linea.split("#", 1)[0] for linea in _cuerpo_verificacion().splitlines())
         for prohibido in (
             "actualizar_estado",
             "state.md",
@@ -366,6 +359,7 @@ class TestContratoF4(BaseConsumidor):
                 fuente = (RAIZ / modulo).read_text(encoding="utf-8")
                 self.assertNotIn("evaluar_validez_verdict", fuente)
                 self.assertNotIn("producir_verdict", fuente)
+
 
 class TestPurezaDelEvaluador(unittest.TestCase):
     """§7 / §16 — el evaluador sigue siendo puro."""
@@ -422,8 +416,3 @@ class TestPurezaDelEvaluador(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-
-
-

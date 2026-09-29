@@ -27,25 +27,23 @@ from unittest import mock
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
-import react_agent  # noqa: E402
-import work_verdict  # noqa: E402
-from exceptions import EstadoGitIndisponibleError  # noqa: E402
-from work_context import (  # noqa: E402
+import react_agent
+import work_verdict
+from exceptions import EstadoGitIndisponibleError
+from work_context import (
     VALIDIDAD_NO_EVALUADA,
     crear_trabajo,
     leer_estado,
     leer_ultima_verificacion,
     registrar_verificacion,
 )
-from work_verdict import OBSOLETE, VALID  # noqa: E402
+from work_verdict import OBSOLETE, VALID
 
 WORK_ID = "b15k-persistencia"
 
 OK_SIN_CAMBIOS = "python3 -c \"print('ok')\""
-OK_CON_CAMBIO = (
-    "python3 -c \"open('generado.txt','w').write('x')\" && python3 -c \"print('ok')\""
-)
-FALLA_SIN_CAMBIOS = "python3 -c \"raise SystemExit(1)\""
+OK_CON_CAMBIO = "python3 -c \"open('generado.txt','w').write('x')\" && python3 -c \"print('ok')\""
+FALLA_SIN_CAMBIOS = 'python3 -c "raise SystemExit(1)"'
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -162,6 +160,7 @@ class TestPersistenciaDesdeF4(BasePersistencia):
         self.assertNotIn("verificacion_persistida", r)
         self.assertEqual(self.texto(), antes)
 
+
 class TestProcesoIndependiente(BasePersistencia):
     """Tests 5, 23: un proceso nuevo recupera lo persistido."""
 
@@ -233,6 +232,7 @@ class TestProcesoIndependiente(BasePersistencia):
         v = self.persistida()
         self.assertIsNotNone(v)
         self.assertTrue(v.tree_sha)
+
 
 class TestReplacementYFormato(BasePersistencia):
     """Tests 6, 7, 8, 9, 14, 15, 19."""
@@ -327,6 +327,7 @@ class TestReplacementYFormato(BasePersistencia):
                 texto = (self.raiz / ".work" / WORK_ID / nombre).read_text(encoding="utf-8")
                 self.assertNotIn("verificacion:v", texto)
 
+
 class TestFallosDeGit(BasePersistencia):
     """Tests 10 y 11: no se persiste lo que no se sabe."""
 
@@ -408,7 +409,10 @@ class TestCompatibilidadYPureza(unittest.TestCase):
             # Veredicto de texto libre (el agente de B14): también legible.
             registrar_verificacion  # noqa: B018  (disponibilidad de la API)
             estado = leer_estado("w", raiz)
-            estado.ultimo_veredicto  # campo intacto
+            self.assertEqual(
+                estado.ultimo_veredicto,
+                "(no hay verificación registrada)",
+            )  # campo intacto
 
             from work_context import actualizar_estado
 
@@ -454,7 +458,3 @@ class TestCompatibilidadYPureza(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-
-

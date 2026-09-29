@@ -26,16 +26,16 @@ from unittest import mock
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
-import react_agent  # noqa: E402
-import snapcontext as sc  # noqa: E402
-import work_context  # noqa: E402
-import work_obsolencia  # noqa: E402
-import work_verdict  # noqa: E402
-from exceptions import (  # noqa: E402
+import react_agent
+import snapcontext as sc
+import work_context
+import work_obsolencia
+import work_verdict
+from exceptions import (
     ContratoEstadoInvalidoError,
     EstadoGitIndisponibleError,
 )
-from work_context import (  # noqa: E402
+from work_context import (
     actualizar_estado,
     crear_trabajo,
     escribir_documento_trabajo,
@@ -45,13 +45,13 @@ from work_context import (  # noqa: E402
     leer_veredictos_obsoletos,
     registrar_veredicto_obsoleto,
 )
-from work_obsolencia import (  # noqa: E402
+from work_obsolencia import (
     ES_OBSOLETO,
     ES_SIN_VERIFICACION,
     ES_VIGENTE,
     detectar_obsolescencia,
 )
-from work_verdict import OBSOLETE, VALID  # noqa: E402
+from work_verdict import OBSOLETE, VALID
 
 WORK_ID = "b15l-obsoleto"
 OK = "python3 -c \"print('ok')\""
@@ -78,8 +78,12 @@ class BaseObsolescencia(unittest.TestCase):
         _git(self.raiz, "add", "-A")
         _git(self.raiz, "commit", "-qm", "inicial")
         crear_trabajo(
-            WORK_ID, self.raiz, titulo="Obsolescencia", objetivo="Detectar",
-            criterios=None, restricciones=None,
+            WORK_ID,
+            self.raiz,
+            titulo="Obsolescencia",
+            objetivo="Detectar",
+            criterios=None,
+            restricciones=None,
         )
 
     # -- utilidades ---------------------------------------------------------
@@ -223,6 +227,7 @@ class TestDeteccion(BaseObsolescencia):
         self.assertEqual(v.tree_sha, tree)
         self.assertEqual(v.comando, OK)
 
+
 class TestCasosLimite(BaseObsolescencia):
     """Tests 8-11: ausencia, corrupción y Git no disponible."""
 
@@ -281,6 +286,7 @@ class TestCasosLimite(BaseObsolescencia):
         self.assertEqual(self.texto(), antes)
         self.assertEqual(self.historial(), ())
 
+
 class TestAutoridadYAtomicidad(BaseObsolescencia):
     """Tests 12-15: autoridad, atomicidad e idempotencia."""
 
@@ -330,9 +336,7 @@ class TestAutoridadYAtomicidad(BaseObsolescencia):
         self.assertEqual(len(self.historial()), 1)
 
     def test_varias_entradas_conviven(self):
-        for i, (verificado, actual) in enumerate(
-            [("t1", "u1"), ("t2", "u2"), ("t3", "u3")]
-        ):
+        for verificado, actual in [("t1", "u1"), ("t2", "u2"), ("t3", "u3")]:
             registrar_veredicto_obsoleto(
                 WORK_ID,
                 formatear_veredicto_obsoleto("pasa", verificado, actual, "tree_distinto"),
@@ -392,17 +396,22 @@ class TestAutoridadYAtomicidad(BaseObsolescencia):
         estado_operativo = texto.split("## Estado operativo")[1].split("## Referencias Git")[0]
         self.assertIn("Veredictos obsoletos", estado_operativo)
 
+
 class TestProcesosIndependientes(BaseObsolescencia):
     """Test 23 — A persiste, B modifica y detecta, C lee. Sin memoria compartida."""
 
     def _proceso(self, script: str) -> str:
-        return subprocess.run(
-            [sys.executable, "-c", textwrap.dedent(script)],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd=str(RAIZ),
-        ).stdout.strip().splitlines()[-1]
+        return (
+            subprocess.run(
+                [sys.executable, "-c", textwrap.dedent(script)],
+                check=True,
+                capture_output=True,
+                text=True,
+                cwd=str(RAIZ),
+            )
+            .stdout.strip()
+            .splitlines()[-1]
+        )
 
     def test_ciclo_entre_tres_procesos(self):
         # Proceso A: F4 verifica y persiste.
@@ -506,7 +515,3 @@ class TestFronteras(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-
-

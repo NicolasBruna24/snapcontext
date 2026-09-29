@@ -90,7 +90,9 @@ class TestRoundTripReal(_Base):
             },
             self.raiz,
         )
-        self.assertEqual(tras_a.siguiente_paso, "Agente A implementa safe_divide; documentación pendiente")
+        self.assertEqual(
+            tras_a.siguiente_paso, "Agente A implementa safe_divide; documentación pendiente"
+        )
         self.assertEqual(tras_a.trabajo_pendiente, ("documentación del divisor cero",))
         self.assertEqual(tras_a.ciclo_de_vida, inicial.ciclo_de_vida)
 
@@ -176,7 +178,9 @@ class TestRoundTripReal(_Base):
         nuevos = ("criterio A", "criterio B", "criterio C")
         estado = actualizar_estado(WORK_ID, {"criterios": nuevos}, self.raiz)
         self.assertEqual(estado.criterios, nuevos)
-        self.assertIn("### Criterios de aceptación\n\n- criterio A\n- criterio B\n- criterio C", self._texto())
+        self.assertIn(
+            "### Criterios de aceptación\n\n- criterio A\n- criterio B\n- criterio C", self._texto()
+        )
 
     def test_ambos_formatos_documentales_conviven(self):
         """H3 (multi-línea) y clave en línea (una línea) tras una misma operación."""
@@ -206,9 +210,7 @@ class TestFronteraPrimitiveVsMcp(_Base):
         No se pide confirmación, no se toca `HERRAMIENTAS_PREDEFINIDAS` y no
         se otorga ningún permiso: la primitive es una capacidad de library.
         """
-        estado = actualizar_estado(
-            WORK_ID, {"siguiente_paso": "cierre preparado"}, self.raiz
-        )
+        estado = actualizar_estado(WORK_ID, {"siguiente_paso": "cierre preparado"}, self.raiz)
         self.assertEqual(estado.siguiente_paso, "cierre preparado")
         # B14-H: la primitive por sí sola no otorga capacidad de agente. La
         # escritura existe, pero vive detrás de una frontera de autoridad

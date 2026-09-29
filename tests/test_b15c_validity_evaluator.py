@@ -23,16 +23,16 @@ from work_verdict import (
     VALID,
     CurrentGitState,
     GitAnchor,
-    Verdict,
     ValidityResult,
+    Verdict,
     evaluar_validez_verdict,
     leer_estado_git,
 )
 
-X = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"   # commit
-Y = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"   # commit
-T = "1111111111111111111111111111111111111111"   # tree (contenido probado)
-U = "2222222222222222222222222222222222222222"   # tree (contenido distinto)
+X = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"  # commit
+Y = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"  # commit
+T = "1111111111111111111111111111111111111111"  # tree (contenido probado)
+U = "2222222222222222222222222222222222222222"  # tree (contenido distinto)
 
 
 def _verdict(commit: str, limpio: bool, tree: str = T) -> Verdict:
@@ -57,27 +57,23 @@ def _estado(commit: str, limpio: bool, tree: str = T) -> CurrentGitState:
 #  actual_tree, esperado)
 MATRIZ = [
     # Mismo contenido: VALID, sea cual sea la historia Git.
-    (X, True,  T, X, True,  T, VALID),
+    (X, True, T, X, True, T, VALID),
     (X, False, T, X, False, T, VALID),
-    (X, False, T, Y, True,  T, VALID),   # caso C/D: commit y clean cambian
-    (Y, True,  T, X, False, T, VALID),   # caso F: historia al revés
+    (X, False, T, Y, True, T, VALID),  # caso C/D: commit y clean cambian
+    (Y, True, T, X, False, T, VALID),  # caso F: historia al revés
     # Contenido distinto: OBSOLETE, sea cual sea el resto.
-    (X, True,  T, X, True,  U, OBSOLETE),
+    (X, True, T, X, True, U, OBSOLETE),
     (X, False, T, X, False, U, OBSOLETE),  # caso B: el falso positivo de B15-E
-    (X, False, T, Y, True,  U, OBSOLETE),
-    (X, True,  T, Y, False, U, OBSOLETE),
+    (X, False, T, Y, True, U, OBSOLETE),
+    (X, True, T, Y, False, U, OBSOLETE),
 ]
 
 
 class TestMatrizDeValidez(unittest.TestCase):
     def test_matriz_completa(self):
         for ac, al, at, cc, cl, ct, esperado in MATRIZ:
-            with self.subTest(
-                anchor=f"({ac[:1]},{al},{at[0]})", actual=f"({cc[:1]},{cl},{ct[0]})"
-            ):
-                resultado = evaluar_validez_verdict(
-                    _verdict(ac, al, at), _estado(cc, cl, ct)
-                )
+            with self.subTest(anchor=f"({ac[:1]},{al},{at[0]})", actual=f"({cc[:1]},{cl},{ct[0]})"):
+                resultado = evaluar_validez_verdict(_verdict(ac, al, at), _estado(cc, cl, ct))
                 self.assertEqual(resultado.status, esperado)
 
     def test_la_regla_es_unicamente_la_igualdad_de_contenido(self):
@@ -86,42 +82,32 @@ class TestMatrizDeValidez(unittest.TestCase):
             with self.subTest(anchor=at[0], actual=ct[0]):
                 esperado = VALID if at == ct else OBSOLETE
                 self.assertEqual(
-                    evaluar_validez_verdict(
-                        _verdict(ac, al, at), _estado(cc, cl, ct)
-                    ).status,
+                    evaluar_validez_verdict(_verdict(ac, al, at), _estado(cc, cl, ct)).status,
                     esperado,
                 )
 
     def test_commit_distinto_con_mismo_tree_sigue_valid(self):
         """B15-F §15: el commit es metadato."""
         self.assertEqual(
-            evaluar_validez_verdict(
-                _verdict(X, False, T), _estado(Y, True, T)
-            ).status,
+            evaluar_validez_verdict(_verdict(X, False, T), _estado(Y, True, T)).status,
             VALID,
         )
 
     def test_commit_igual_con_tree_distinto_es_obsolete(self):
         self.assertEqual(
-            evaluar_validez_verdict(
-                _verdict(X, False, T), _estado(X, False, U)
-            ).status,
+            evaluar_validez_verdict(_verdict(X, False, T), _estado(X, False, U)).status,
             OBSOLETE,
         )
 
     def test_clean_distinto_con_tree_igual_sigue_valid(self):
         self.assertEqual(
-            evaluar_validez_verdict(
-                _verdict(X, True, T), _estado(X, False, T)
-            ).status,
+            evaluar_validez_verdict(_verdict(X, True, T), _estado(X, False, T)).status,
             VALID,
         )
 
     def test_clean_igual_con_tree_distinto_es_obsolete(self):
         self.assertEqual(
-            evaluar_validez_verdict(
-                _verdict(X, False, T), _estado(X, False, U)
-            ).status,
+            evaluar_validez_verdict(_verdict(X, False, T), _estado(X, False, U)).status,
             OBSOLETE,
         )
 
@@ -129,9 +115,7 @@ class TestMatrizDeValidez(unittest.TestCase):
         for ac, al, at, cc, cl, ct, _ in MATRIZ:
             with self.subTest(anchor=at[0], actual=ct[0]):
                 self.assertNotEqual(
-                    evaluar_validez_verdict(
-                        _verdict(ac, al, at), _estado(cc, cl, ct)
-                    ).status,
+                    evaluar_validez_verdict(_verdict(ac, al, at), _estado(cc, cl, ct)).status,
                     "UNDETERMINED",
                 )
 
@@ -147,9 +131,20 @@ class TestValidityResult(unittest.TestCase):
     def test_no_arrastra_datos_del_entorno(self):
         """No incluye Verdict, CurrentGitState, WorkState ni salida de Git."""
         nombres = {campo.name for campo in dataclasses.fields(ValidityResult)}
-        for prohibido in ("verdict", "git_anchor", "current_git_state", "work_state",
-                          "state_md", "git_status", "subprocess", "diff", "rama",
-                          "tree_sha", "commit", "working_tree_clean"):
+        for prohibido in (
+            "verdict",
+            "git_anchor",
+            "current_git_state",
+            "work_state",
+            "state_md",
+            "git_status",
+            "subprocess",
+            "diff",
+            "rama",
+            "tree_sha",
+            "commit",
+            "working_tree_clean",
+        ):
             with self.subTest(campo=prohibido):
                 self.assertNotIn(prohibido, nombres)
 
@@ -181,9 +176,7 @@ class TestSemanticaDeComparacion(unittest.TestCase):
         )
         # Un solo carácter distinto ya es divergencia.
         self.assertEqual(
-            evaluar_validez_verdict(
-                _verdict(X, True, T), _estado(X, True, T[:-1] + "3")
-            ).status,
+            evaluar_validez_verdict(_verdict(X, True, T), _estado(X, True, T[:-1] + "3")).status,
             OBSOLETE,
         )
 
@@ -207,37 +200,27 @@ class TestCasosCriticos(unittest.TestCase):
     def test_caso_b_contenido_distinto_mismo_commit_es_obsolete(self):
         """El falso positivo que B15-E descubrió: el contenido cambió."""
         self.assertEqual(
-            evaluar_validez_verdict(
-                _verdict(X, False, T), _estado(X, False, U)
-            ).status,
+            evaluar_validez_verdict(_verdict(X, False, T), _estado(X, False, U)).status,
             OBSOLETE,
         )
 
     def test_caso_c_mismo_contenido_commit_distinto_es_valid(self):
         """El falso negativo que B15-E descubrió: el contenido es idéntico."""
         self.assertEqual(
-            evaluar_validez_verdict(
-                _verdict(X, False, T), _estado(Y, True, T)
-            ).status,
+            evaluar_validez_verdict(_verdict(X, False, T), _estado(Y, True, T)).status,
             VALID,
         )
 
     def test_revert_al_contenido_probado_recupera_valid(self):
         """§17: A → B → A. La historia Git no participa."""
         verificado = _verdict(X, False, T)
-        self.assertEqual(
-            evaluar_validez_verdict(verificado, _estado(X, False, U)).status, OBSOLETE
-        )
-        self.assertEqual(
-            evaluar_validez_verdict(verificado, _estado(Y, True, T)).status, VALID
-        )
+        self.assertEqual(evaluar_validez_verdict(verificado, _estado(X, False, U)).status, OBSOLETE)
+        self.assertEqual(evaluar_validez_verdict(verificado, _estado(Y, True, T)).status, VALID)
 
     def test_head_avanzado_con_mismo_contenido_es_valid(self):
         """§18: consecuencia deliberada de B15-E."""
         self.assertEqual(
-            evaluar_validez_verdict(
-                _verdict(X, True, T), _estado(Y, True, T)
-            ).status,
+            evaluar_validez_verdict(_verdict(X, True, T), _estado(Y, True, T)).status,
             VALID,
         )
 
@@ -264,11 +247,15 @@ class TestPureza(unittest.TestCase):
         arbol = self._arbol()
         importados = {
             (n.module or "") for n in ast.walk(arbol) if isinstance(n, ast.ImportFrom)
-        } | {
-            a.name for n in ast.walk(arbol) if isinstance(n, ast.Import) for a in n.names
-        }
-        for prohibido in ("work_context", "snapcontext", "mcp_tools", "react_agent",
-                          "planificador", "agentes"):
+        } | {a.name for n in ast.walk(arbol) if isinstance(n, ast.Import) for a in n.names}
+        for prohibido in (
+            "work_context",
+            "snapcontext",
+            "mcp_tools",
+            "react_agent",
+            "planificador",
+            "agentes",
+        ):
             with self.subTest(modulo=prohibido):
                 self.assertNotIn(prohibido, importados)
 
@@ -277,7 +264,8 @@ class TestPureza(unittest.TestCase):
 
         arbol = self._arbol()
         funcion = next(
-            n for n in ast.walk(arbol)
+            n
+            for n in ast.walk(arbol)
             if isinstance(n, ast.FunctionDef) and n.name == "evaluar_validez_verdict"
         )
         cuerpo = list(funcion.body)
@@ -322,14 +310,17 @@ class TestPureza(unittest.TestCase):
 
         arbol = self._arbol()
         funcion = next(
-            n for n in ast.walk(arbol)
+            n
+            for n in ast.walk(arbol)
             if isinstance(n, ast.FunctionDef) and n.name == "evaluar_validez_verdict"
         )
-        atributos = {
-            n.attr for n in ast.walk(funcion) if isinstance(n, ast.Attribute)
-        }
-        for prohibido in ("write_text", "actualizar_estado", "escribir_documento_trabajo",
-                          "leer_estado"):
+        atributos = {n.attr for n in ast.walk(funcion) if isinstance(n, ast.Attribute)}
+        for prohibido in (
+            "write_text",
+            "actualizar_estado",
+            "escribir_documento_trabajo",
+            "leer_estado",
+        ):
             with self.subTest(atributo=prohibido):
                 self.assertNotIn(prohibido, atributos)
         # El evaluador no menciona `veredictos_obsoletos` en absoluto.
@@ -338,9 +329,7 @@ class TestPureza(unittest.TestCase):
         # nombra para declarar la independencia; eso no es una dependencia.
         importados = {
             (n.module or "") for n in ast.walk(arbol) if isinstance(n, ast.ImportFrom)
-        } | {
-            a.name for n in ast.walk(arbol) if isinstance(n, ast.Import) for a in n.names
-        }
+        } | {a.name for n in ast.walk(arbol) if isinstance(n, ast.Import) for a in n.names}
         self.assertNotIn("work_context", importados)
 
 
@@ -359,9 +348,7 @@ class TestUndeterminedDescartado(unittest.TestCase):
         for ac, al, at, cc, cl, ct, _ in MATRIZ:
             with self.subTest(anchor=at[0], actual=ct[0]):
                 self.assertIn(
-                    evaluar_validez_verdict(
-                        _verdict(ac, al, at), _estado(cc, cl, ct)
-                    ).status,
+                    evaluar_validez_verdict(_verdict(ac, al, at), _estado(cc, cl, ct)).status,
                     {VALID, OBSOLETE},
                 )
 
@@ -440,25 +427,19 @@ class TestFlujoCompleto(unittest.TestCase):
         verdict = _verdict(
             estado_limpio.commit, estado_limpio.working_tree_clean, estado_limpio.tree_sha
         )
-        self.assertEqual(
-            evaluar_validez_verdict(verdict, estado_limpio).status, VALID
-        )
+        self.assertEqual(evaluar_validez_verdict(verdict, estado_limpio).status, VALID)
 
         self.fichero.write_text("V = 2\n", encoding="utf-8")
         estado_sucio = leer_estado_git(str(self.repo))
         self.assertEqual(estado_sucio.commit, self.head)  # mismo commit
-        self.assertEqual(
-            evaluar_validez_verdict(verdict, estado_sucio).status, OBSOLETE
-        )
+        self.assertEqual(evaluar_validez_verdict(verdict, estado_sucio).status, OBSOLETE)
 
         # Y con HEAD avanzado: el adapter solo reporta, el evaluador decide.
         self._git("add", "m.py")
         self._git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "2")
         estado_nuevo = leer_estado_git(str(self.repo))
         self.assertNotEqual(estado_nuevo.commit, self.head)
-        self.assertEqual(
-            evaluar_validez_verdict(verdict, estado_nuevo).status, OBSOLETE
-        )
+        self.assertEqual(evaluar_validez_verdict(verdict, estado_nuevo).status, OBSOLETE)
 
 
 if __name__ == "__main__":

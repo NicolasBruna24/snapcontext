@@ -28,17 +28,17 @@ from unittest import mock
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
-import react_agent  # noqa: E402
-import snapcontext as sc  # noqa: E402
-import work_context  # noqa: E402
-import work_verdict  # noqa: E402
-from exceptions import EstadoGitIndisponibleError  # noqa: E402
-from work_verdict import (  # noqa: E402
+import react_agent
+import snapcontext as sc
+import work_context
+import work_verdict
+from exceptions import EstadoGitIndisponibleError
+from work_verdict import (
     OBSOLETE,
     SCOPE_NO_DEFINIDO,
     VALID,
-    Verdict,
     ValidityResult,
+    Verdict,
     leer_estado_git,
 )
 
@@ -98,7 +98,7 @@ class TestProduccionVerdictF4(BaseF4):
     def test_ejecucion_fallida_produce_falla_y_conserva_anchor(self):
         """Test 2."""
         pre = leer_estado_git(str(self.repo))
-        r = self.ejecutar("python3 -c \"raise SystemExit(3)\"")
+        r = self.ejecutar('python3 -c "raise SystemExit(3)"')
 
         self.assertFalse(r["ok"])
         v = r["verdict"]
@@ -109,7 +109,7 @@ class TestProduccionVerdictF4(BaseF4):
     def test_tree_sha_es_el_estado_capturado_antes_de_ejecutar(self):
         """Test 3 — el anchor es exactamente la captura previa."""
         pre = leer_estado_git(str(self.repo))
-        r = self.ejecutar("python3 -c \"print(1)\"")
+        r = self.ejecutar('python3 -c "print(1)"')
 
         self.assertEqual(r["verdict"].git_anchor.tree_sha, pre.tree_sha)
         self.assertEqual(r["verdict"].git_anchor.commit, pre.commit)
@@ -130,7 +130,7 @@ class TestProduccionVerdictF4(BaseF4):
             return estado
 
         with mock.patch.object(work_verdict, "leer_estado_git", side_effect=registrar):
-            r = self.ejecutar("python3 -c \"print(1)\"")
+            r = self.ejecutar('python3 -c "print(1)"')
 
         self.assertEqual(len(vistos), 2)  # PRE + CURRENT
         self.assertEqual(r["verdict"].git_anchor.tree_sha, vistos[0].tree_sha)
@@ -139,10 +139,7 @@ class TestProduccionVerdictF4(BaseF4):
     def test_ejecucion_que_modifica_el_arbol_no_cambia_el_anchor(self):
         """Test 4 — el comando verificado ensucia el árbol post-ejecución."""
         pre = leer_estado_git(str(self.repo))
-        comando = (
-            "python3 -c \"open('generado.txt','w').write('x')\""
-            " && python3 -c \"print('ok')\""
-        )
+        comando = "python3 -c \"open('generado.txt','w').write('x')\" && python3 -c \"print('ok')\""
         r = self.ejecutar(comando)
 
         self.assertTrue(r["ok"])
@@ -181,7 +178,7 @@ class TestProduccionVerdictF4(BaseF4):
         self.assertNotIsInstance(r["verdict"], ValidityResult)
         nombres = {f.name for f in dataclasses.fields(r["verdict"])}
         self.assertNotIn("validity", nombres)
-        r2 = self.ejecutar("python3 -c \"raise SystemExit(1)\"")
+        r2 = self.ejecutar('python3 -c "raise SystemExit(1)"')
         self.assertNotEqual(r2["verdict"].resultado, OBSOLETE)
 
     def test_no_persiste_nada(self):
@@ -244,9 +241,7 @@ class TestFalloDeGit(BaseF4):
             side_effect=EstadoGitIndisponibleError("sin repo", "sin_repositorio"),
         ):
             with mock.patch.object(sc, "_ejecutar_comando", return_value=(0, "ok", "")):
-                r = self.agente()._tool_ejecutar_pruebas(
-                    {"comando": "python3 -c \"print(1)\""}
-                )
+                r = self.agente()._tool_ejecutar_pruebas({"comando": 'python3 -c "print(1)"'})
 
         # Sin estado previo NO hay identidad: no se fabrica un Verdict.
         self.assertIsNone(r["verdict"])
@@ -261,7 +256,7 @@ class TestFalloDeGit(BaseF4):
         plano.mkdir()
         with mock.patch.object(sc, "_ejecutar_comando", return_value=(0, "ok", "")):
             r = react_agent.ReactAgent(str(plano), auto=True)._tool_ejecutar_pruebas(
-                {"comando": "python3 -c \"print(1)\""}
+                {"comando": 'python3 -c "print(1)"'}
             )
 
         self.assertIsNone(r["verdict"])
@@ -292,9 +287,7 @@ class TestFronterasDeResponsabilidad(unittest.TestCase):
         fuente = Path(react_agent.__file__).read_text(encoding="utf-8")
         self.assertIn("evaluar_validez_verdict", fuente)
         # F4 no *usa* las constantes de validez: solo delega en el evaluador.
-        codigo = "\n".join(
-            linea.split("#", 1)[0] for linea in _cuerpo_f4().splitlines()
-        )
+        codigo = "\n".join(linea.split("#", 1)[0] for linea in _cuerpo_f4().splitlines())
         for constante in (OBSOLETE, VALID):
             self.assertNotIn(constante, codigo)
 
@@ -328,7 +321,7 @@ class TestFronterasDeResponsabilidad(unittest.TestCase):
             _git(repo, "add", "-A")
             _git(repo, "commit", "-qm", "c")
             r = react_agent.ReactAgent(str(repo), auto=True)._tool_ejecutar_pruebas(
-                {"comando": "python3 -c \"print(1)\""}
+                {"comando": 'python3 -c "print(1)"'}
             )
 
         self.assertEqual(r["verdict"].scope, SCOPE_NO_DEFINIDO)
@@ -338,6 +331,3 @@ class TestFronterasDeResponsabilidad(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-

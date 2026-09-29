@@ -31,9 +31,7 @@ COMMIT_EJEMPLO_2 = "357faa00ee251aaf4c5d73df409bb370c5741a6"
 # ===========================================================================
 class TestGitAnchor(unittest.TestCase):
     def test_creacion_valida(self):
-        anchor = GitAnchor(
-            tree_sha=TREE_EJEMPLO, commit=COMMIT_EJEMPLO, working_tree_clean=True
-        )
+        anchor = GitAnchor(tree_sha=TREE_EJEMPLO, commit=COMMIT_EJEMPLO, working_tree_clean=True)
         self.assertEqual(anchor.tree_sha, TREE_EJEMPLO)
         self.assertEqual(anchor.commit, COMMIT_EJEMPLO)
         self.assertTrue(anchor.working_tree_clean)
@@ -142,8 +140,15 @@ class TestVerdict(unittest.TestCase):
 
     def test_no_contiene_validity_ni_obsolete(self):
         nombres = {campo.name for campo in dataclasses.fields(Verdict)}
-        for prohibido in ("validity", "valid", "obsolete", "obsoleto", "estado",
-                          "current_git_state", "git_state"):
+        for prohibido in (
+            "validity",
+            "valid",
+            "obsolete",
+            "obsoleto",
+            "estado",
+            "current_git_state",
+            "git_state",
+        ):
             with self.subTest(campo=prohibido):
                 self.assertNotIn(prohibido, nombres)
 
@@ -163,17 +168,12 @@ class TestVerdict(unittest.TestCase):
 
         raiz = Path(__file__).resolve().parents[1]
         arbol = ast.parse((raiz / "work_verdict.py").read_text(encoding="utf-8"))
-        nombres = {
-            n.id for n in ast.walk(arbol) if isinstance(n, ast.Name)
-        } | {n.attr for n in ast.walk(arbol) if isinstance(n, ast.Attribute)}
-        importados = {
-            (n.module or "")
-            for n in ast.walk(arbol)
-            if isinstance(n, ast.ImportFrom)
-        } | {
-            a.name for n in ast.walk(arbol) if isinstance(n, ast.Import)
-            for a in n.names
+        nombres = {n.id for n in ast.walk(arbol) if isinstance(n, ast.Name)} | {
+            n.attr for n in ast.walk(arbol) if isinstance(n, ast.Attribute)
         }
+        importados = {
+            (n.module or "") for n in ast.walk(arbol) if isinstance(n, ast.ImportFrom)
+        } | {a.name for n in ast.walk(arbol) if isinstance(n, ast.Import) for a in n.names}
         # No importa el canal WORK ni toca documentos.
         self.assertNotIn("work_context", importados)
         self.assertNotIn("read_text", nombres)
@@ -226,8 +226,8 @@ class TestAdapterGit(_RepoTemporal):
         antes = self._estado()
         self.fichero.write_text("VERSION = 2\n", encoding="utf-8")
         despues = self._estado()
-        self.assertEqual(despues.commit, antes.commit)      # mismo commit
-        self.assertFalse(despues.working_tree_clean)        # ahora sucio
+        self.assertEqual(despues.commit, antes.commit)  # mismo commit
+        self.assertFalse(despues.working_tree_clean)  # ahora sucio
 
     def test_7_8_restaurar_sin_comandos_destructivos(self):
         """Se restaura el fichero con Python, no con `git checkout`/`restore`."""
@@ -272,8 +272,19 @@ class TestErroresAdapter(unittest.TestCase):
         (repo / "a.txt").write_text("x\n", encoding="utf-8")
         subprocess.run(["git", "-C", str(repo), "add", "a.txt"], check=True)
         subprocess.run(
-            ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
-             "commit", "-q", "-m", "i"],
+            [
+                "git",
+                "-C",
+                str(repo),
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "-m",
+                "i",
+            ],
             check=True,
         )
         import unittest.mock as mock
@@ -281,13 +292,15 @@ class TestErroresAdapter(unittest.TestCase):
         import work_verdict
 
         with mock.patch.object(
-            work_verdict, "_correr_git", side_effect=EstadoGitIndisponibleError("x", "git_no_disponible")
+            work_verdict,
+            "_correr_git",
+            side_effect=EstadoGitIndisponibleError("x", "git_no_disponible"),
         ):
             with self.assertRaises(EstadoGitIndisponibleError):
                 leer_estado_git(str(repo))
 
     def test_es_runtime_y_no_valueerror(self):
-        """ distinguishable de entrada inválida / documento inválido."""
+        """distinguishable de entrada inválida / documento inválido."""
         self.assertTrue(issubclass(EstadoGitIndisponibleError, RuntimeError))
         self.assertFalse(issubclass(EstadoGitIndisponibleError, ValueError))
 
@@ -363,17 +376,16 @@ class TestFronteras(unittest.TestCase):
 
         raiz = Path(__file__).resolve().parents[1]
         arbol = ast.parse((raiz / "work_verdict.py").read_text(encoding="utf-8"))
-        clases = {
-            n.name: n for n in arbol.body if isinstance(n, ast.ClassDef)
-        }
+        clases = {n.name: n for n in arbol.body if isinstance(n, ast.ClassDef)}
         for nombre in ("GitAnchor", "Verdict", "CurrentGitState"):
             cuerpo = clases[nombre].body
             metodos = [n for n in cuerpo if isinstance(n, ast.FunctionDef)]
             # Solo `__post_init__` (validación); ningún método con lógica de E/S.
             for metodo in metodos:
                 with self.subTest(clase=nombre, metodo=metodo.name):
-                    self.assertIn(metodo.name, {"__post_init__", "__init__", "__repr__",
-                                               "__eq__", "__hash__"})
+                    self.assertIn(
+                        metodo.name, {"__post_init__", "__init__", "__repr__", "__eq__", "__hash__"}
+                    )
 
     def test_el_modulo_no_importa_work_context_ni_snapcontext(self):
         import ast
@@ -382,9 +394,7 @@ class TestFronteras(unittest.TestCase):
         arbol = ast.parse((raiz / "work_verdict.py").read_text(encoding="utf-8"))
         importados = {
             (n.module or "") for n in ast.walk(arbol) if isinstance(n, ast.ImportFrom)
-        } | {
-            a.name for n in ast.walk(arbol) if isinstance(n, ast.Import) for a in n.names
-        }
+        } | {a.name for n in ast.walk(arbol) if isinstance(n, ast.Import) for a in n.names}
         for prohibido in ("work_context", "snapcontext", "mcp_tools", "react_agent"):
             with self.subTest(modulo=prohibido):
                 self.assertNotIn(prohibido, importados)
@@ -402,10 +412,12 @@ class TestFronteras(unittest.TestCase):
         import work_verdict
 
         # El adapter no llama al evaluador ni menciona estados de validez.
-        arbol = ast.parse((Path(__file__).resolve().parents[1] / "work_verdict.py")
-                          .read_text(encoding="utf-8"))
+        arbol = ast.parse(
+            (Path(__file__).resolve().parents[1] / "work_verdict.py").read_text(encoding="utf-8")
+        )
         adapter = next(
-            n for n in ast.walk(arbol)
+            n
+            for n in ast.walk(arbol)
             if isinstance(n, ast.FunctionDef) and n.name == "leer_estado_git"
         )
         cuerpo = ast.dump(adapter)
@@ -421,9 +433,7 @@ class TestFronteras(unittest.TestCase):
 
         raiz = Path(__file__).resolve().parents[1]
         arbol = ast.parse((raiz / "work_verdict.py").read_text(encoding="utf-8"))
-        atributos = {
-            n.attr for n in ast.walk(arbol) if isinstance(n, ast.Attribute)
-        }
+        atributos = {n.attr for n in ast.walk(arbol) if isinstance(n, ast.Attribute)}
         for prohibido in ("write_text", "actualizar_estado", "escribir_documento_trabajo"):
             with self.subTest(atributo=prohibido):
                 self.assertNotIn(prohibido, atributos)

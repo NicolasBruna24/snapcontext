@@ -360,7 +360,11 @@ class TestEjecutarComandoIntegracion(unittest.TestCase):
             sc._ejecutar_comando("rm -rf /", ".")
         fake.assert_called_once()
         args, _ = fake.call_args
-        ejecutado = " ".join(str(a) for a in args[0]) if isinstance(args[0], (list, tuple)) else str(args[0])
+        ejecutado = (
+            " ".join(str(a) for a in args[0])
+            if isinstance(args[0], (list, tuple))
+            else str(args[0])
+        )
         self.assertIn("docker run", ejecutado)
         self.assertIn(f"{Path('.').resolve()}:{sc.SANDBOX_DIR_TRABAJO}", ejecutado)
 

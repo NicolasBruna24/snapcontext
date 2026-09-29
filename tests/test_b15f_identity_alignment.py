@@ -139,7 +139,17 @@ class TestCasosCriticosReales(_RepoTemporal):
         verdict = self._verdict()
         self.fichero.write_text("V = 1\n", encoding="utf-8")
         self._git("add", "modulo.py")
-        self._git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "vacio")
+        self._git(
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "vacio",
+        )
         despues = self._estado()
         self.assertNotEqual(despues.commit, verdict.git_anchor.commit)
         self.assertEqual(evaluar_validez_verdict(verdict, despues).status, VALID)
@@ -224,7 +234,8 @@ class TestPurezaDelEvaluador(unittest.TestCase):
         raiz = Path(__file__).resolve().parents[1]
         arbol = ast.parse((raiz / "work_verdict.py").read_text(encoding="utf-8"))
         funcion = next(
-            n for n in ast.walk(arbol)
+            n
+            for n in ast.walk(arbol)
             if isinstance(n, ast.FunctionDef) and n.name == "evaluar_validez_verdict"
         )
         cuerpo = list(funcion.body)
@@ -238,8 +249,15 @@ class TestPurezaDelEvaluador(unittest.TestCase):
         }
         # Solo comprobación de tipos y construcción del resultado.
         self.assertEqual(called, {"ValidityResult", "isinstance", "TypeError"})
-        for prohibido in ("leer_estado_git", "_tree_sha_working_tree", "_correr_git",
-                          "open", "read_text", "subprocess", "run"):
+        for prohibido in (
+            "leer_estado_git",
+            "_tree_sha_working_tree",
+            "_correr_git",
+            "open",
+            "read_text",
+            "subprocess",
+            "run",
+        ):
             with self.subTest(llamada=prohibido):
                 self.assertNotIn(prohibido, called)
 
@@ -250,7 +268,8 @@ class TestPurezaDelEvaluador(unittest.TestCase):
         raiz = Path(__file__).resolve().parents[1]
         arbol = ast.parse((raiz / "work_verdict.py").read_text(encoding="utf-8"))
         funcion = next(
-            n for n in ast.walk(arbol)
+            n
+            for n in ast.walk(arbol)
             if isinstance(n, ast.FunctionDef) and n.name == "evaluar_validez_verdict"
         )
         cuerpo = ast.dump(funcion)

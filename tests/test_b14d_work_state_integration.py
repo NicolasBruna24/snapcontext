@@ -91,9 +91,7 @@ class TestConsumidor(_BaseIntegracion):
         self.assertEqual(
             resultado["objetivo"], "Soportar division segura y documentar divisor cero."
         )
-        self.assertEqual(
-            resultado["criterios"], ["safe_divide existe", "b == 0 lanza ValueError"]
-        )
+        self.assertEqual(resultado["criterios"], ["safe_divide existe", "b == 0 lanza ValueError"])
 
     def test_a_coincide_con_la_api_oficial_leer_estado(self):
         """El consumidor no duplica el parseo: usa la misma API que B14-C."""
@@ -216,9 +214,7 @@ class TestFronteraNegativa(_BaseIntegracion):
 
     def test_e_no_expone_verdicto_interpretado_ni_obsolescencia(self):
         self._reescribir(
-            self._sustituir(
-                (PLACEHOLDER_VERDICT, f"- Último veredicto de verificación: {VERDICT}")
-            )
+            self._sustituir((PLACEHOLDER_VERDICT, f"- Último veredicto de verificación: {VERDICT}"))
         )
         resultado = self._herramienta(work_id=WORK_ID, directorio=str(self.raiz))["resultado"]
         # El veredicto es una cadena opaca: no hay resultado/anchor/autor sueltos.
@@ -243,8 +239,7 @@ class TestFronteraNegativa(_BaseIntegracion):
         for archivo, funcion in (("snapcontext.py", "_tool_work_state"),):
             arbol = ast.parse((raiz / archivo).read_text(encoding="utf-8"))
             nodo = next(
-                n for n in ast.walk(arbol)
-                if isinstance(n, ast.FunctionDef) and n.name == funcion
+                n for n in ast.walk(arbol) if isinstance(n, ast.FunctionDef) and n.name == funcion
             )
             cuerpo = list(nodo.body)
             if cuerpo and isinstance(cuerpo[0], ast.Expr):
@@ -291,13 +286,10 @@ class TestFronteraNegativa(_BaseIntegracion):
                     herramientas.append(archivo.name)
         # B15-L añade un segundo consumidor real y declarado: la operación de
         # obsolescencia, que necesita leer el documento para comparar el árbol.
-        self.assertEqual(
-            sorted(set(llamadas_directas)), ["snapcontext.py", "work_obsolencia.py"]
-        )
+        self.assertEqual(sorted(set(llamadas_directas)), ["snapcontext.py", "work_obsolencia.py"])
         # Y el dispatcher MCP la expone como herramienta real, no privada.
         self.assertIn("mcp_tools.py", herramientas)
 
 
 if __name__ == "__main__":
     unittest.main()
-

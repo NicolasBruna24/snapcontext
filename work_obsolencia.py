@@ -89,7 +89,6 @@ class DeteccionObsolescencia:
         return self.estado == ES_OBSOLETO and not self.ya_registrado
 
 
-
 def _reconstruir_verdict(verificacion):
     """Reconstruye un `Verdict` **solo** con lo que el documento conserva.
 

@@ -33,19 +33,18 @@ import re
 import stat
 import tempfile
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-
-from dataclasses import dataclass, field
 
 from exceptions import ContratoEstadoInvalidoError, RutaInseguraError
 
 __all__ = [
+    "DOCUMENTOS_CANONICOS",
     "DOCUMENTO_ASERCIONES",
     "DOCUMENTO_CONTENEDOR",
     "DOCUMENTO_DECISIONES",
     "DOCUMENTO_ESTADO",
-    "DOCUMENTOS_CANONICOS",
     "EXCLUSION_STAGING_GIT",
     "VALIDIDAD_NO_EVALUADA",
     "WORK_CONTAINER",
@@ -54,9 +53,9 @@ __all__ = [
     "WorkState",
     "actualizar_estado",
     "crear_trabajo",
+    "es_parte_contenedor",
     "escribir_documento_trabajo",
     "esta_dentro_de_trabajo",
-    "es_parte_contenedor",
     "leer_estado",
     "leer_ultima_verificacion",
     "leer_veredictos_obsoletos",
@@ -259,12 +258,7 @@ def _lista(items: Sequence[str] | None, vacio: str) -> str:
 
 def _cabecera(kind: str, work_id: str, proyecto: str) -> str:
     """Cabecera de etiquetas fijas común a los documentos del canal (B9 §14)."""
-    return (
-        f"Kind: {kind}\n"
-        f"Contract: {VERSION_CONTRATO}\n"
-        f"Work: {work_id}\n"
-        f"Project: {proyecto}\n"
-    )
+    return f"Kind: {kind}\nContract: {VERSION_CONTRATO}\nWork: {work_id}\nProject: {proyecto}\n"
 
 
 def _contenido_estado(
@@ -355,9 +349,7 @@ def _contenido_aserciones(work_id: str, proyecto: str) -> str:
     )
 
 
-def _contenido_readme_trabajo(
-    work_id: str, titulo: str, proyecto: str, instante: str
-) -> str:
+def _contenido_readme_trabajo(work_id: str, titulo: str, proyecto: str, instante: str) -> str:
     """Señalización del trabajo: qué documento es autoritativo de qué (B9 §5.4).
 
     No contiene estado, fechas de avance ni propuestas: describe, no es fuente
@@ -464,12 +456,12 @@ def crear_trabajo(
         ),
         DOCUMENTO_DECISIONES: _contenido_decisiones(identificador, proyecto),
         DOCUMENTO_ASERCIONES: _contenido_aserciones(identificador, proyecto),
-        DOCUMENTO_CONTENEDOR: _contenido_readme_trabajo(
-            identificador, titulo, proyecto, declarado
-        ),
+        DOCUMENTO_CONTENEDOR: _contenido_readme_trabajo(identificador, titulo, proyecto, declarado),
     }
     for nombre, contenido in documentos.items():
-        escribir_documento_trabajo(f"{WORK_CONTAINER}/{identificador}/{nombre}", contenido, raiz_res)
+        escribir_documento_trabajo(
+            f"{WORK_CONTAINER}/{identificador}/{nombre}", contenido, raiz_res
+        )
     return directorio_trabajo
 
 
@@ -527,9 +519,7 @@ _CAMPOS_CONOCIDOS = frozenset(
 #: Línea ``- Clave: valor`` (o ``Clave: valor`` en cabecera). La clase de
 #: caracteres de la clave excluye ``:``, así que el emparejamiento es lineal
 #: (nada de retroceso catastrófico sobre líneas largas sin clave).
-_RE_CLAVE = re.compile(
-    r"^[\t ]*(?:[-*][\t ]+)?([^\n:#][^\n:#]{0,47}?)[\t ]*:[\t ]?(.*)$"
-)
+_RE_CLAVE = re.compile(r"^[\t ]*(?:[-*][\t ]+)?([^\n:#][^\n:#]{0,47}?)[\t ]*:[\t ]?(.*)$")
 
 _RE_ENCABEZADO = re.compile(r"^(#{1,6})[\t ]+(.*)$")
 
@@ -598,9 +588,7 @@ class WorkState:
 def _leer_texto_utf8(ruta: Path) -> str:
     """Lee ``ruta`` como UTF-8. Falla cerrado si no es un fichero legible."""
     if ruta.is_symlink() or not ruta.is_file():
-        raise ContratoEstadoInvalidoError(
-            f"no existe un documento de estado legible: {ruta.name}"
-        )
+        raise ContratoEstadoInvalidoError(f"no existe un documento de estado legible: {ruta.name}")
     try:
         return ruta.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
@@ -641,8 +629,7 @@ def _parsear_cabecera(lineas: list[str]) -> dict[str, str]:
         valor = coincidencia.group(2).strip()
         if clave in cabecera and cabecera[clave] != valor:
             raise ContratoEstadoInvalidoError(
-                "cabecera ambigua: "
-                f"'{coincidencia.group(1).strip()}' aparece con valores distintos"
+                f"cabecera ambigua: '{coincidencia.group(1).strip()}' aparece con valores distintos"
             )
         cabecera[clave] = valor
     return cabecera
@@ -769,9 +756,6 @@ def _tupla(valores: dict, clave: str) -> tuple[str, ...]:
     return ()
 
 
-
-
-
 def leer_estado(work_id: str, directorio: str | Path = ".") -> WorkState:
     """Lee ``.work/<work_id>/state.md`` y devuelve su lectura documental (B14-C).
 
@@ -810,9 +794,7 @@ def leer_estado(work_id: str, directorio: str | Path = ".") -> WorkState:
     texto = _leer_texto_utf8(destino)
     lineas = texto.splitlines()
     if not any(linea.strip() for linea in lineas):
-        raise ContratoEstadoInvalidoError(
-            f"el documento de estado está vacío: {ruta_relativa!r}"
-        )
+        raise ContratoEstadoInvalidoError(f"el documento de estado está vacío: {ruta_relativa!r}")
 
     cabecera = _parsear_cabecera(lineas)
     if not cabecera:
@@ -1064,9 +1046,7 @@ def _validar_tipos(cambios: Mapping[str, object]) -> None:
             if isinstance(valor, str):
                 continue  # un único elemento
             if not isinstance(valor, (list, tuple)):
-                raise TypeError(
-                    f"'{campo}' es un campo de lista: espera una secuencia de cadenas"
-                )
+                raise TypeError(f"'{campo}' es un campo de lista: espera una secuencia de cadenas")
             if any(not isinstance(item, str) for item in valor):
                 raise TypeError(f"'{campo}' solo admite cadenas en sus elementos")
             if not [i for i in valor if i.strip()]:
@@ -1135,14 +1115,19 @@ def actualizar_estado(
     texto = _leer_texto_utf8(destino)
     lineas = texto.splitlines()
     if not any(linea.strip() for linea in lineas):
-        raise ContratoEstadoInvalidoError(f"el documento de estado está vacío: {DOCUMENTO_ESTADO!r}")
+        raise ContratoEstadoInvalidoError(
+            f"el documento de estado está vacío: {DOCUMENTO_ESTADO!r}"
+        )
 
     # Solo se escribe sobre un documento contractualmente válido (mismo umbral
     # que el Reader): el writer no «repara» cabeceras que no se pueden leer.
     cabecera = _parsear_cabecera(lineas)
-    if not cabecera or cabecera.get("kind") != KIND_ESTADO or (
-        cabecera.get("contract") != VERSION_CONTRATO
-    ) or cabecera.get("work") != identificador:
+    if (
+        not cabecera
+        or cabecera.get("kind") != KIND_ESTADO
+        or (cabecera.get("contract") != VERSION_CONTRATO)
+        or cabecera.get("work") != identificador
+    ):
         raise ContratoEstadoInvalidoError(
             "el documento de estado no cumple el contrato b9-1: no se escribe"
         )
@@ -1196,7 +1181,6 @@ _CAMPOS_VERIFICACION = (
     "instante",
     "detectado",
 )
-
 
 
 @dataclass(frozen=True)
@@ -1302,7 +1286,7 @@ def formatear_verificacion(
     return f"[verificacion:v{VERIFICACION_FORMATO}] {cuerpo}"
 
 
-def leer_ultima_verificacion(estado: "WorkState") -> UltimaVerificacion | None:
+def leer_ultima_verificacion(estado: WorkState) -> UltimaVerificacion | None:
     """Recupera la última verificación persistida desde un :class:`WorkState`.
 
     Devuelve ``None`` si la línea no está en formato B15-K: los `state.md`
@@ -1364,7 +1348,6 @@ def leer_ultima_verificacion(estado: "WorkState") -> UltimaVerificacion | None:
     )
 
 
-
 def registrar_verificacion(
     work_id: str,
     resultado: str,
@@ -1416,9 +1399,6 @@ def registrar_verificacion(
     return actualizar_estado(work_id, cambios, directorio)
 
 
-
-
-
 # ---------------------------------------------------------------------------
 # B15-L — Historial y transición explícita de obsolescencia
 # ---------------------------------------------------------------------------
@@ -1429,7 +1409,7 @@ HISTORIAL_FORMATO = "1"
 #: más `tree_actual` y `detectado`, para que la entrada histórica sea
 #: autosuficiente: identifica el veredicto que dejó de ser válido **y** el
 #: árbol frente al cual dejó de serlo.
-_CAMPOS_HISTORIAL = _CAMPOS_VERIFICACION + ("tree_actual",)
+_CAMPOS_HISTORIAL = (*_CAMPOS_VERIFICACION, "tree_actual")
 
 
 @dataclass(frozen=True)
@@ -1552,7 +1532,7 @@ def _parsear_entradas(texto: str, marca: str) -> dict[str, str]:
     return valores
 
 
-def leer_veredictos_obsoletos(estado: "WorkState") -> tuple["VeredictoObsoleto", ...]:
+def leer_veredictos_obsoletos(estado: WorkState) -> tuple[VeredictoObsoleto, ...]:
     """Lee el historial `veredictos_obsoletos` de un :class:`WorkState`.
 
     Tolera las entradas históricas en texto libre que el canal ya aceptaba
@@ -1592,7 +1572,6 @@ def leer_veredictos_obsoletos(estado: "WorkState") -> tuple["VeredictoObsoleto",
     return tuple(entradas)
 
 
-
 def _lineas_con_clave_obsoletos(lineas: list[str]) -> list[str]:
     """Asegura que existe la clave `Veredictos obsoletos` en el documento.
 
@@ -1618,11 +1597,12 @@ def _lineas_con_clave_obsoletos(lineas: list[str]) -> list[str]:
             while fin < len(lineas) and not _RE_ENCABEZADO.match(lineas[fin]):
                 fin += 1
             # Se inserta al final de la sección, antes del siguiente encabezado.
-            return lineas[:fin] + ["- Veredictos obsoletos: - (ninguno)"] + lineas[fin:]
+            return [*lineas[:fin], "- Veredictos obsoletos: - (ninguno)", *lineas[fin:]]
 
     raise ContratoEstadoInvalidoError(
         "el documento no declara la sección '## Estado operativo': no se registra historial"
     )
+
 
 def _lineas_historial_obsoletos(lineas: list[str], entradas: list[str]) -> list[str]:
     """Reescribe la clave `Veredictos obsoletos` con **una entrada por línea**.
@@ -1646,9 +1626,7 @@ def _lineas_historial_obsoletos(lineas: list[str], entradas: list[str]) -> list[
             prefijo = linea[: linea.index(nombre)]
             break
     if inicio is None:
-        raise ContratoEstadoInvalidoError(
-            "el documento no declara la clave 'Veredictos obsoletos'"
-        )
+        raise ContratoEstadoInvalidoError("el documento no declara la clave 'Veredictos obsoletos'")
 
     # Se consumen las continuaciones `- item` preexistentes: quedan sustituidas.
     # Una entrada del historial contiene `:` (p. ej. `[obsoleto:v1]`), así que
@@ -1666,13 +1644,13 @@ def _lineas_historial_obsoletos(lineas: list[str], entradas: list[str]) -> list[
         fin += 1
 
     if not entradas:
-        return lineas[:inicio] + [f"{prefijo}{nombre}: - (ninguno)"] + lineas[fin:]
-    return lineas[:inicio] + [
+        return [*lineas[:inicio], f"{prefijo}{nombre}: - (ninguno)", *lineas[fin:]]
+    return [
+        *lineas[:inicio],
         f"{prefijo}{nombre}: {entradas[0]}",
         *(f"- {e}" for e in entradas[1:]),
-    ] + lineas[fin:]
-
-
+        *lineas[fin:],
+    ]
 
 
 def registrar_veredicto_obsoleto(
@@ -1732,12 +1710,17 @@ def registrar_veredicto_obsoleto(
 
     lineas = _leer_texto_utf8(destino).splitlines()
     if not any(linea.strip() for linea in lineas):
-        raise ContratoEstadoInvalidoError(f"el documento de estado está vacío: {DOCUMENTO_ESTADO!r}")
+        raise ContratoEstadoInvalidoError(
+            f"el documento de estado está vacío: {DOCUMENTO_ESTADO!r}"
+        )
 
     cabecera = _parsear_cabecera(lineas)
-    if not cabecera or cabecera.get("kind") != KIND_ESTADO or (
-        cabecera.get("contract") != VERSION_CONTRATO
-    ) or cabecera.get("work") != identificador:
+    if (
+        not cabecera
+        or cabecera.get("kind") != KIND_ESTADO
+        or (cabecera.get("contract") != VERSION_CONTRATO)
+        or cabecera.get("work") != identificador
+    ):
         raise ContratoEstadoInvalidoError(
             "el documento de estado no cumple el contrato b9-1: no se escribe"
         )
@@ -1757,13 +1740,10 @@ def registrar_veredicto_obsoleto(
             # Ya registrado: no se duplica. El documento no se reescribe.
             return leer_estado(identificador, raiz_res)
 
-    lineas = _lineas_historial_obsoletos(lineas, list(previas) + [entrada])
+    lineas = _lineas_historial_obsoletos(lineas, [*list(previas), entrada])
     escribir_documento_trabajo(
         f"{WORK_CONTAINER}/{identificador}/{DOCUMENTO_ESTADO}",
         "\n".join(lineas) + "\n",
         raiz_res,
     )
     return leer_estado(identificador, raiz_res)
-
-
-

@@ -125,9 +125,7 @@ class TestPreservacion(_BaseWriter):
 
     def test_c_conserva_prosa_y_markdown_adicionales(self):
         despues = self._texto()
-        self.assertIn(
-            "Solo la persona responsable ratifica cambios en esta sección", despues
-        )
+        self.assertIn("Solo la persona responsable ratifica cambios en esta sección", despues)
         self.assertIn("Las propuestas pendientes no se enumeran aquí", despues)
         self.assertIn("## Pendiente de ratificación", despues)
 
@@ -362,7 +360,6 @@ class TestFronteraNegativa(_BaseWriter):
         import dataclasses
 
         import mcp_tools
-
         from work_context import actualizar_estado
 
         catalogo = mcp_tools._cargar_herramientas_mcp()

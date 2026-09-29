@@ -233,8 +233,9 @@ class TestStagePathspecB15CI(unittest.TestCase):
         """C — init/add/commit/rev-parse producen un commit válido."""
         Path(self.dir, "nuevo.py").write_text("x = 1\n", encoding="utf-8")
         paso = {"accion": "editar", "descripcion": "crear modulo"}
-        with _BDAislada(), mock.patch.object(
-            sc, "cargar_configuracion", side_effect=RuntimeError("offline")
+        with (
+            _BDAislada(),
+            mock.patch.object(sc, "cargar_configuracion", side_effect=RuntimeError("offline")),
         ):
             h = sc._commit_paso(paso, _args(), self.dir)
         self.assertTrue(h and len(h) >= 7)
@@ -256,9 +257,7 @@ class TestStageFalloB15CI(unittest.TestCase):
     # --- D. _git_commit_paso ---------------------------------------------
     def test_d1_git_commit_paso_usa_la_misma_frontera(self):
         """D — la ruta latente tampoco manda el staging a CONTAINER."""
-        with mock.patch.object(
-            sc, "_ejecutar_stage_paso", wraps=sc._ejecutar_stage_paso
-        ) as stage:
+        with mock.patch.object(sc, "_ejecutar_stage_paso", wraps=sc._ejecutar_stage_paso) as stage:
             self.assertTrue(sc._git_commit_paso("crear modulo", self.dir))
         stage.assert_called_once()
 
@@ -276,6 +275,7 @@ class TestStageFalloB15CI(unittest.TestCase):
     # --- E. Fallo de staging ---------------------------------------------
     def test_e1_no_se_reporta_como_fallo_de_commit(self):
         """E — el commit NO se intenta y el diagnóstico dice 'staging'."""
+
         # `_ejecutar_comando` se mantiene funcional: solo se rompe el staging,
         # de modo que las sondas previas (`_es_repo_git`, `git status`) siguen
         # devolviendo un resultado válido y el flujo llega al staging.
@@ -293,9 +293,7 @@ class TestStageFalloB15CI(unittest.TestCase):
             mock.patch.object(sc, "_ejecutar_comando", side_effect=runner),
             mock.patch.object(sc, "aviso") as aviso_mock,
         ):
-            resultado = sc._commit_paso(
-                {"accion": "editar", "descripcion": "x"}, _args(), self.dir
-            )
+            resultado = sc._commit_paso({"accion": "editar", "descripcion": "x"}, _args(), self.dir)
 
         self.assertIsNone(resultado)
         texto = " ".join(str(c) for c in aviso_mock.call_args_list)

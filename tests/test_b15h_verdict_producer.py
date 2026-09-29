@@ -26,8 +26,8 @@ from work_verdict import (
     VALID,
     CurrentGitState,
     GitAnchor,
-    Verdict,
     ValidityResult,
+    Verdict,
     evaluar_validez_verdict,
     producir_verdict,
 )
@@ -38,12 +38,8 @@ OTRO_TREE = "deadbeef00000000000000000000000000000000"
 OTRO_COMMIT = "ffff0000ffff0000ffff0000ffff0000ffff0000"
 
 
-def estado_arbol(
-    tree_sha: str = TREE, commit: str = COMMIT, clean: bool = True
-) -> CurrentGitState:
-    return CurrentGitState(
-        tree_sha=tree_sha, commit=commit, working_tree_clean=clean
-    )
+def estado_arbol(tree_sha: str = TREE, commit: str = COMMIT, clean: bool = True) -> CurrentGitState:
+    return CurrentGitState(tree_sha=tree_sha, commit=commit, working_tree_clean=clean)
 
 
 class TestConstruccionBasica(unittest.TestCase):
@@ -163,9 +159,7 @@ class TestMetadataOpcional(unittest.TestCase):
         self.assertTrue(v.scope.strip())
 
     def test_scope_explicito_llega_intacto(self):
-        v = producir_verdict(
-            True, "pytest", estado_arbol(), scope="proyecto completo"
-        )
+        v = producir_verdict(True, "pytest", estado_arbol(), scope="proyecto completo")
         self.assertEqual(v.scope, "proyecto completo")
 
     def test_scope_se_recorta_como_hace_verdict(self):
@@ -221,7 +215,8 @@ class TestNoConsultaGit(unittest.TestCase):
             work_verdict, "_correr_git", side_effect=AssertionError("Git")
         ) as falso:
             with mock.patch.object(
-                work_verdict, "_tree_sha_working_tree",
+                work_verdict,
+                "_tree_sha_working_tree",
                 side_effect=AssertionError("Git"),
             ) as arbol:
                 producir_verdict(True, "pytest", estado_arbol())
@@ -243,9 +238,7 @@ class TestNoConsultaGit(unittest.TestCase):
         }
         # El productor solo construye (GitAnchor, Verdict), comprueba el tipo
         # de entrada y lanza TypeError. Nada más.
-        self.assertEqual(
-            llamadas, {"GitAnchor", "Verdict", "isinstance", "TypeError"}
-        )
+        self.assertEqual(llamadas, {"GitAnchor", "Verdict", "isinstance", "TypeError"})
 
     def test_ast_no_consulta_observacion_de_git(self):
         """Inspección AST equivalente: ninguna llamada al adapter.
@@ -260,15 +253,15 @@ class TestNoConsultaGit(unittest.TestCase):
             for n in ast.walk(arbol)
             if not (isinstance(n, ast.Constant) and isinstance(n.value, str))
         ]
-        nombres = {
-            n.id for n in cuerpo if isinstance(n, ast.Name)
-        } | {
-            n.attr for n in cuerpo if isinstance(n, ast.Attribute)
-        } | {
-            n.func.id
-            for n in cuerpo
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-        }
+        nombres = (
+            {n.id for n in cuerpo if isinstance(n, ast.Name)}
+            | {n.attr for n in cuerpo if isinstance(n, ast.Attribute)}
+            | {
+                n.func.id
+                for n in cuerpo
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+            }
+        )
         for prohibido in (
             "leer_estado_git",
             "_correr_git",
@@ -354,9 +347,7 @@ class TestComposicionConElEvaluador(unittest.TestCase):
 
     def test_tree_distinto_es_obsolete(self):
         v = producir_verdict(True, "pytest", estado_arbol(tree_sha=TREE))
-        r = evaluar_validez_verdict(
-            v, estado_arbol(tree_sha=OTRO_TREE, commit=COMMIT, clean=False)
-        )
+        r = evaluar_validez_verdict(v, estado_arbol(tree_sha=OTRO_TREE, commit=COMMIT, clean=False))
         self.assertEqual(r.status, OBSOLETE)
 
     def test_verdict_fallido_tambien_es_valid_si_el_arbol_no_cambio(self):

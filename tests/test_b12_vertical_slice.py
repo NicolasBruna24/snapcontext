@@ -59,8 +59,19 @@ def _crear_proyecto(tmp: str) -> Path:
     _git(raiz, "init", "-q")
     _git(raiz, "add", "README.md", "src", "tests")
     subprocess.run(
-        ["git", "-C", str(raiz), "-c", "user.name=t", "-c", "user.email=t@t",
-         "commit", "-q", "-m", "initial"],
+        [
+            "git",
+            "-C",
+            str(raiz),
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "-m",
+            "initial",
+        ],
         check=True,
     )
     return raiz
@@ -69,10 +80,7 @@ def _crear_proyecto(tmp: str) -> Path:
 def _leer_frio(raiz: Path) -> dict[str, str]:
     """Lee los documentos canónicos con ``open()`` puro (sin SnapContext)."""
     base = raiz / ".work" / WORK_ID
-    return {
-        nombre: open(base / nombre, encoding="utf-8").read()
-        for nombre in DOCUMENTOS_CANONICOS
-    }
+    return {nombre: open(base / nombre, encoding="utf-8").read() for nombre in DOCUMENTOS_CANONICOS}
 
 
 class TestSliceVertical(unittest.TestCase):
@@ -86,19 +94,19 @@ class TestSliceVertical(unittest.TestCase):
             self.raiz,
             titulo="Division segura",
             objetivo="Soportar division segura y documentar divisor cero.",
-            criterios=["safe_divide existe", "b == 0 lanza ValueError",
-                       "tests pasan", "README documenta divisor cero"],
+            criterios=[
+                "safe_divide existe",
+                "b == 0 lanza ValueError",
+                "tests pasan",
+                "README documenta divisor cero",
+            ],
             restricciones=["sin dependencias nuevas"],
         )
         # Estado inicial operativo (siguiente paso declarado).
         # B14-F: evolución legítima del trabajo → API declarativa del canal.
         actualizar_estado(
             WORK_ID,
-            {
-                "siguiente_paso": (
-                    "Agente A implementa safe_divide; documentación pendiente"
-                )
-            },
+            {"siguiente_paso": ("Agente A implementa safe_divide; documentación pendiente")},
             self.raiz,
         )
 
@@ -125,25 +133,22 @@ class TestSliceVertical(unittest.TestCase):
             "- Tipo: observación\n- Autor: Agente A\n"
             "### P-1 — usar Decimal\n- Tipo: propuesta\n- Autor: Agente A",
         )
-        escribir_documento_trabajo(
-            f".work/{WORK_ID}/assertions.md", aserciones, self.raiz
-        )
+        escribir_documento_trabajo(f".work/{WORK_ID}/assertions.md", aserciones, self.raiz)
 
         # Agente B: lectura en frío con apertura directa de ficheros.
         frio = _leer_frio(self.raiz)
-        st, dec, asc = (frio["state.md"], frio["decisions.md"],
-                        frio["assertions.md"])
-        self.assertIn(f"Work: {WORK_ID}", st)                  # id
-        self.assertIn("Soportar division segura", st)          # objetivo
+        st, dec, asc = (frio["state.md"], frio["decisions.md"], frio["assertions.md"])
+        self.assertIn(f"Work: {WORK_ID}", st)  # id
+        self.assertIn("Soportar division segura", st)  # objetivo
         self.assertEqual(st.count("- safe_divide existe"), 1)  # criterios
-        self.assertIn("### Alcance incluido", st)              # scope
-        self.assertIn("### Restricciones", st)                 # restricciones
-        self.assertIn("safe_divide con guardia b == 0", st)    # completado
-        self.assertIn("documentación pendiente", st)           # pendiente
-        self.assertIn("Bloqueos", st)                          # bloqueos
-        self.assertIn("pasa", st)                              # veredicto
-        self.assertIn(self.head, st)                           # anchor
-        self.assertIn("Agente A implementa safe_divide", st)   # siguiente paso
+        self.assertIn("### Alcance incluido", st)  # scope
+        self.assertIn("### Restricciones", st)  # restricciones
+        self.assertIn("safe_divide con guardia b == 0", st)  # completado
+        self.assertIn("documentación pendiente", st)  # pendiente
+        self.assertIn("Bloqueos", st)  # bloqueos
+        self.assertIn("pasa", st)  # veredicto
+        self.assertIn(self.head, st)  # anchor
+        self.assertIn("Agente A implementa safe_divide", st)  # siguiente paso
         # C5: la propuesta de A NO es decisión ratificada.
         self.assertIn("(ninguna todavía)", dec)
         self.assertNotIn("Decimal", dec)
@@ -162,8 +167,19 @@ class TestSliceVertical(unittest.TestCase):
         )
         _git(self.raiz, "add", ".", ":(exclude).work")
         subprocess.run(
-            ["git", "-C", str(self.raiz), "-c", "user.name=t",
-             "-c", "user.email=t@t", "commit", "-q", "-m", "b12: docs"],
+            [
+                "git",
+                "-C",
+                str(self.raiz),
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "-m",
+                "b12: docs",
+            ],
             check=True,
         )
         c2 = _git(self.raiz, "rev-parse", "HEAD").strip()
@@ -200,13 +216,10 @@ class TestSliceVertical(unittest.TestCase):
             f"anchor Git: {self.head} (clean); autor: Agente B; instante: {ts1}"
         )
         # B14-F: registrar el veredicto es una actualización declarativa legítima.
-        actualizar_estado(
-            WORK_ID, {"ultimo_veredicto": veredicto_texto}, self.raiz
-        )
+        actualizar_estado(WORK_ID, {"ultimo_veredicto": veredicto_texto}, self.raiz)
         veredicto = f"- Último veredicto de verificación: {veredicto_texto}"
         # Cambio Git posterior (sin commit): el anchor ya no describe el árbol.
-        (self.raiz / "README.md").write_text("# demo\npost-veredicto\n",
-                                             encoding="utf-8")
+        (self.raiz / "README.md").write_text("# demo\npost-veredicto\n", encoding="utf-8")
         status = _git(self.raiz, "status", "--short")
         self.assertIn("README.md", status)
         obsoleto = (
@@ -239,6 +252,3 @@ class TestSliceVertical(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-

@@ -5514,8 +5514,7 @@ def _ejecutar_chat(  # noqa: C901  (refactor de complejidad: Fase 10c)
                         # el formato JSON. La política de autoridad NO se
                         # decide aquí: vive en `_exigir_autoridad`.
                         aviso(
-                            "Uso: /tool work_state_update "
-                            '\'{"work_id": "...", "cambios": {...}}\''
+                            'Uso: /tool work_state_update \'{"work_id": "...", "cambios": {...}}\''
                         )
                         argumentos = {"cambios": {}}
                     elif nombre == "ast":
@@ -5911,10 +5910,7 @@ def _ejecutar_stage_paso(directorio: str, timeout: int = 60) -> tuple[int, str, 
 
     nivel, motivo = clasificar_comando_argv(argv)
     if nivel != "directo":
-        aviso(
-            f"[git-profundo] Staging no permitido sin sandbox ({motivo}); "
-            "no se ejecuta."
-        )
+        aviso(f"[git-profundo] Staging no permitido sin sandbox ({motivo}); no se ejecuta.")
         return (-1, "", f"staging rechazado: {motivo}")
     try:
         proc = ejecutar_comando_seguro(argv, cwd=str(directorio), timeout=timeout)
@@ -5949,10 +5945,7 @@ def _git_commit_paso(descripcion: str, directorio: str = ".") -> bool:
         return True
     _ejecutar_stage_paso_resultado = _ejecutar_stage_paso(directorio, timeout=60)
     if _ejecutar_stage_paso_resultado[0] != 0:
-        aviso(
-            "El staging del paso falló: "
-            f"{(_ejecutar_stage_paso_resultado[2] or '').strip()}"
-        )
+        aviso(f"El staging del paso falló: {(_ejecutar_stage_paso_resultado[2] or '').strip()}")
         return False
     mensaje = f"paso: {descripcion}".replace('"', "'")
     codigo, _, stderr = _ejecutar_comando(f'git commit -m "{mensaje}"', directorio, timeout=60)
@@ -9050,7 +9043,6 @@ def _exigir_autoridad(cambios, autorizacion: bool) -> None:
     parcial, porque aquí todavía no se ha escrito nada.
     """
     from exceptions import AutoridadInsuficienteError
-
     from work_context import _CAMPOS_ESCRIBIBLES
 
     if not isinstance(cambios, Mapping):
@@ -9076,8 +9068,7 @@ def _exigir_autoridad(cambios, autorizacion: bool) -> None:
     if desconocidos:
         # Entrada inválida: no es cuestión de autoridad, el nombre no existe.
         raise ValueError(
-            f"campos no escribibles: {desconocidos}. "
-            f"Admitidos: {sorted(_CAMPOS_ESCRIBIBLES)}"
+            f"campos no escribibles: {desconocidos}. Admitidos: {sorted(_CAMPOS_ESCRIBIBLES)}"
         )
 
     if not autorizacion:

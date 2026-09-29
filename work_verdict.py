@@ -37,15 +37,15 @@ from dataclasses import dataclass
 from exceptions import EstadoGitIndisponibleError
 
 __all__ = [
-    "CurrentGitState",
-    "GitAnchor",
     "OBSOLETE",
     "RESULTADO_FALLA",
     "RESULTADO_PASA",
     "SCOPE_NO_DEFINIDO",
     "VALID",
-    "Verdict",
+    "CurrentGitState",
+    "GitAnchor",
     "ValidityResult",
+    "Verdict",
     "evaluar_validez_verdict",
     "leer_estado_git",
     "producir_verdict",
@@ -172,7 +172,9 @@ class Verdict:
 # ---------------------------------------------------------------------------
 # Adapter observacional de Git
 # ---------------------------------------------------------------------------
-def _correr_git(argv: tuple[str, ...], directorio: str, indice: str | None = None) -> tuple[int, str]:
+def _correr_git(
+    argv: tuple[str, ...], directorio: str, indice: str | None = None
+) -> tuple[int, str]:
     """Ejecuta un comando Git de solo lectura y devuelve ``(rc, stdout)``.
 
     Reutiliza :func:`sandbox_utils.ejecutar_comando_seguro`, que acepta **una
@@ -241,9 +243,7 @@ def _tree_sha_working_tree(directorio: str) -> str:
                 "no se pudo calcular el árbol del working tree (`git add -A`)",
                 "git_no_disponible",
             )
-        codigo, tree = _correr_git(
-            _COMANDO_WRITE_TREE, directorio, indice=str(indice)
-        )
+        codigo, tree = _correr_git(_COMANDO_WRITE_TREE, directorio, indice=str(indice))
     if codigo != 0 or not tree:
         raise EstadoGitIndisponibleError(
             "no se pudo calcular el tree SHA del working tree", "git_no_disponible"
@@ -304,9 +304,7 @@ def leer_estado_git(directorio: str = ".") -> CurrentGitState:
         )
     codigo_status, cambios = _correr_git(_COMANDO_STATUS, directorio)
     if codigo_status != 0:
-        raise EstadoGitIndisponibleError(
-            "`git status --porcelain` falló", "git_no_disponible"
-        )
+        raise EstadoGitIndisponibleError("`git status --porcelain` falló", "git_no_disponible")
     return CurrentGitState(
         tree_sha=_tree_sha_working_tree(directorio),
         commit=commit,

@@ -70,7 +70,9 @@ class TestCondicionesPlan(unittest.TestCase):
             os.environ.pop("SNAPCONTEXT_SANDBOX", None)
             version = f'"{sys.executable}" --version'
             self.assertTrue(sc._evaluar_condicion(f"comando_exito('{version}')", self.tmp))
-            self.assertFalse(sc._evaluar_condicion("comando_exito('cmd_que_no_existe_123')", self.tmp))
+            self.assertFalse(
+                sc._evaluar_condicion("comando_exito('cmd_que_no_existe_123')", self.tmp)
+            )
             # Fallo de un binario que sí existe: contrato != "no ejecutable".
             fallo = f'"{sys.executable}" -c exit_1'
             self.assertFalse(sc._evaluar_condicion(f"comando_exito('{fallo}')", self.tmp))
@@ -138,7 +140,10 @@ class TestHerramientasMcpAvanzadas(unittest.TestCase):
                 fh.write("puts 'hola'\n")
             resultado = sc._tool_ast_avanzado(ruta)
             self.assertFalse(resultado["ok"])
-            self.assertIn("mcp_avanzado", resultado.get("error", ""))
+            self.assertIn(
+                "sin analizador disponible",
+                resultado["error"],
+            )
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -149,7 +154,7 @@ class TestHerramientasMcpAvanzadas(unittest.TestCase):
         with mock.patch.object(sc, "SentenceTransformer", None):
             resultado = sc._tool_semantic_search("gestión de pagos")
             self.assertFalse(resultado["ok"])
-            self.assertIn("embeddings", resultado["error"])
+            self.assertIn("sentence-transformers", resultado["error"])
 
     def test_semantic_search_integrada_en_dispatcher(self):
         with mock.patch.object(

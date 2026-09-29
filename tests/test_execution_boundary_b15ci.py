@@ -40,8 +40,8 @@ from unittest import mock
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
-import snapcontext as sc  # noqa: E402
-import sandbox_utils  # noqa: E402
+import sandbox_utils
+import snapcontext as sc
 
 #: Comando fuera de la allowlist (intérprete + metacarácter `&&`).
 CMD_FUERA_ALLOWLIST = "python3 -c \"print('ok')\""
@@ -100,9 +100,7 @@ class _BaseFrontera(unittest.TestCase):
 
     def limite_real(self, retorno=_proc(0, "ok", "")):
         """Mockea el límite real de ejecución (nacimiento del proceso)."""
-        return mock.patch.object(
-            sandbox_utils.subprocess, "run", return_value=retorno
-        )
+        return mock.patch.object(sandbox_utils.subprocess, "run", return_value=retorno)
 
 
 class TestA_ContainerMontaElDirectorioSolicitado(_BaseFrontera):
@@ -211,7 +209,9 @@ class TestD_FailClosed(_BaseFrontera):
             # El binario de Docker existe pero el daemon no responde.
             mock.patch.object(sc, "_docker_disponible", return_value=False),
             mock.patch.object(
-                sandbox_utils.subprocess, "run", return_value=_proc(125, "", "docker: daemon no responde")
+                sandbox_utils.subprocess,
+                "run",
+                return_value=_proc(125, "", "docker: daemon no responde"),
             ) as limite,
         ):
             codigo, _, stderr = sc._ejecutar_comando(CMD_FUERA_ALLOWLIST, str(repo))
@@ -241,9 +241,7 @@ class TestE_DirectoYAbortar(_BaseFrontera):
     def test_abortar_no_ejecuta(self):
         repo = self.repo()
         with (
-            mock.patch.object(
-                sc, "_decidir_ejecucion_sandbox", return_value=sc._SANDBOX_ABORTAR
-            ),
+            mock.patch.object(sc, "_decidir_ejecucion_sandbox", return_value=sc._SANDBOX_ABORTAR),
             mock.patch.object(sandbox_utils.subprocess, "run") as limite,
         ):
             codigo, _, stderr = sc._ejecutar_comando("rm -rf /", str(repo))
@@ -294,14 +292,10 @@ class TestG_PreYPostSobreElMismoWorkspace(_BaseFrontera):
         import shlex
 
         argv = shlex.split(args[0]) if args else []
-        host = next(
-            (argv[i + 1].split(":")[0] for i, a in enumerate(argv) if a == "-v"), None
-        )
+        host = next((argv[i + 1].split(":")[0] for i, a in enumerate(argv) if a == "-v"), None)
         self.assertIsNotNone(host, f"no se encontró mount en: {argv}")
         self.assertIn("-w", argv)
-        return _RUN_REAL(
-            argv[-1], shell=True, cwd=host, capture_output=True, text=True
-        )
+        return _RUN_REAL(argv[-1], shell=True, cwd=host, capture_output=True, text=True)
 
     def test_pre_y_post_observan_el_mismo_arbol(self):
         import work_verdict
@@ -318,9 +312,7 @@ class TestG_PreYPostSobreElMismoWorkspace(_BaseFrontera):
         pre = work_verdict.leer_estado_git(str(repo))
         with (
             mock.patch.object(sc, "_docker_disponible", return_value=True),
-            mock.patch.object(
-                sandbox_utils.subprocess, "run", side_effect=self._emular_contenedor
-            ),
+            mock.patch.object(sandbox_utils.subprocess, "run", side_effect=self._emular_contenedor),
         ):
             codigo, _, _ = sc._ejecutar_comando(CMD_ESCRIBE, str(repo))
         post = work_verdict.leer_estado_git(str(repo))

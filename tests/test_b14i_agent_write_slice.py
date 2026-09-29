@@ -73,9 +73,7 @@ class _BaseSlice(unittest.TestCase):
         )
         # Camino real: el planificador pide confirmación interactiva; en un
         # test sin TTY se denegaría, así que se autoriza explícitamente.
-        self._permiso = mock.patch.object(
-            sc, "_confirmar_accion", return_value=True
-        )
+        self._permiso = mock.patch.object(sc, "_confirmar_accion", return_value=True)
         self._permiso.start()
         self.addCleanup(self._permiso.stop)
         sc._contexto_plan_reiniciar()
@@ -184,9 +182,7 @@ class TestConfirmacionSlice(_BaseSlice):
         r_aut = _tool_work_state_update(
             WORK_ID, {"ciclo_de_vida": "cerrado"}, False, str(self.raiz)
         )
-        r_ent = _tool_work_state_update(
-            WORK_ID, {"campo_inexistente": "x"}, False, str(self.raiz)
-        )
+        r_ent = _tool_work_state_update(WORK_ID, {"campo_inexistente": "x"}, False, str(self.raiz))
         self.assertEqual(r_aut["categoria"], "autoridad")
         self.assertEqual(r_ent["categoria"], "entrada")
         # Las excepciones también son distintas.
@@ -198,9 +194,7 @@ class TestConfirmacionSlice(_BaseSlice):
         self.assertTrue(issubclass(ContratoEstadoInvalidoError, ValueError))
 
     def test_con_autorizacion_persiste(self):
-        ok, detalle = self._agente_actualiza(
-            {"ciclo_de_vida": "cerrado"}, autorizacion=True
-        )
+        ok, detalle = self._agente_actualiza({"ciclo_de_vida": "cerrado"}, autorizacion=True)
         self.assertTrue(ok, detalle)
         self.assertEqual(self._agente_consulta()["ciclo_de_vida"], "cerrado")
         self.assertIn("- Ciclo de vida: cerrado", self._texto())
@@ -343,9 +337,7 @@ class TestVerdictYGitSlice(_BaseSlice):
         self.assertNotIn("OBSOLETO", self._texto())
 
     def test_referencias_git_se_persisten_como_texto(self):
-        ok, detalle = self._agente_actualiza(
-            {"git_actual": "feat/slice", "git_rama": "feat/slice"}
-        )
+        ok, detalle = self._agente_actualiza({"git_actual": "feat/slice", "git_rama": "feat/slice"})
         self.assertTrue(ok, detalle)
         leido = self._agente_consulta()
         self.assertEqual(leido["git"]["actual"], "feat/slice")
@@ -362,9 +354,7 @@ class TestVerdictYGitSlice(_BaseSlice):
         with mock.patch.object(
             sp, "run", side_effect=AssertionError("se intentó ejecutar un proceso")
         ):
-            ok, _ = self._agente_actualiza(
-                {"ultimo_veredicto": VERDICT, "git_rama": "cualquiera"}
-            )
+            ok, _ = self._agente_actualiza({"ultimo_veredicto": VERDICT, "git_rama": "cualquiera"})
         self.assertTrue(ok)
         self.assertEqual(self._agente_consulta()["git"]["rama"], "cualquiera")
 
@@ -440,8 +430,7 @@ class TestFronteras(_BaseSlice):
     def test_no_se_tocan_decisions_ni_assertions(self):
         base = self.raiz / ".work" / WORK_ID
         antes = {
-            n: (base / n).read_text(encoding="utf-8")
-            for n in ("decisions.md", "assertions.md")
+            n: (base / n).read_text(encoding="utf-8") for n in ("decisions.md", "assertions.md")
         }
         self._agente_actualiza({"siguiente_paso": "x"})
         self._agente_actualiza({"ciclo_de_vida": "cerrado"}, True)

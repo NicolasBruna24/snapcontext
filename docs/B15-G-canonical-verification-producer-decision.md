@@ -177,15 +177,14 @@ Firma conceptual (**no implementada**):
 
 ```python
 def producir_verdict(
-    exito: bool,                 # obligatorio: el resultado de la verificación
-    comando: str | Sequence[str],# obligatorio
-    estado: CurrentGitState,      # obligatorio: capturado por el llamador ANTES
+    exito: bool,  # obligatorio: el resultado de la verificación
+    comando: str | Sequence[str],  # obligatorio
+    estado: CurrentGitState,  # obligatorio: capturado por el llamador ANTES
     *,
-    scope: str | None = None,    # opcional
-    autor: str | None = None,    # opcional
-    instante: str | None = None, # opcional
-) -> Verdict:
-    ...
+    scope: str | None = None,  # opcional
+    autor: str | None = None,  # opcional
+    instante: str | None = None,  # opcional
+) -> Verdict: ...
 ```
 
 | Campo | Obligatorio | Quién lo decide |

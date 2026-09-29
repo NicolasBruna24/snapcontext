@@ -61,6 +61,7 @@ class TestEscritorAtomico(unittest.TestCase):
             escribir_documento_trabajo(".work/a/state.md", "v2", raiz)
             self.assertEqual(ruta.read_text(encoding="utf-8"), "v2")
 
+
 class TestEscritorAtomicoFallo(unittest.TestCase):
     def test_fallo_antes_del_replace_conserva_contenido(self):
         with tempfile.TemporaryDirectory() as d:
@@ -135,8 +136,11 @@ class TestCreacionMinima(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             raiz = _raiz(Path(d))
             base = crear_trabajo(
-                "demo", raiz, titulo="Demostracion",
-                objetivo="Probar el canal WORK.", criterios=["criterio 1"],
+                "demo",
+                raiz,
+                titulo="Demostracion",
+                objetivo="Probar el canal WORK.",
+                criterios=["criterio 1"],
             )
             self.assertEqual(base, raiz / WORK_CONTAINER / "demo")
             for nombre in (*DOCUMENTOS_CANONICOS, "README.md"):
@@ -145,8 +149,12 @@ class TestCreacionMinima(unittest.TestCase):
             self.assertIn("Kind: work-state", estado)
             self.assertIn("Work: demo", estado)
             self.assertIn("Probar el canal WORK.", estado)
-            self.assertIn("Kind: work-decisions", (base / "decisions.md").read_text(encoding="utf-8"))
-            self.assertIn("Kind: work-assertions", (base / "assertions.md").read_text(encoding="utf-8"))
+            self.assertIn(
+                "Kind: work-decisions", (base / "decisions.md").read_text(encoding="utf-8")
+            )
+            self.assertIn(
+                "Kind: work-assertions", (base / "assertions.md").read_text(encoding="utf-8")
+            )
 
     def test_contrato_decisiones_append_only_b13_c_r3(self):
         """Verifica que decisions.md declara el núcleo semántico ratificado en B13-C-R3-001."""
@@ -155,8 +163,14 @@ class TestCreacionMinima(unittest.TestCase):
             base = crear_trabajo("demo", raiz, objetivo="o")
             decisiones_txt = (base / "decisions.md").read_text(encoding="utf-8")
             self.assertIn("Documento **append-only**: las entradas no se editan.", decisiones_txt)
-            self.assertIn("Para cambiar una\ndecisión se añade otra que indique expresamente qué sustituye mediante\nel campo `Sustituye a:`.", decisiones_txt)
-            self.assertIn("La entrada original permanece inmutable y no se\nmodifica ni se elimina su contenido.", decisiones_txt)
+            self.assertIn(
+                "Para cambiar una\ndecisión se añade otra que indique expresamente qué sustituye mediante\nel campo `Sustituye a:`.",
+                decisiones_txt,
+            )
+            self.assertIn(
+                "La entrada original permanece inmutable y no se\nmodifica ni se elimina su contenido.",
+                decisiones_txt,
+            )
             self.assertNotIn("la anterior pasa a figurar como sustituida", decisiones_txt)
 
     def test_duplicado_traversal_y_escape_rechazados(self):
@@ -173,9 +187,7 @@ class TestCreacionMinima(unittest.TestCase):
 class TestStagingExcluyeWork(unittest.TestCase):
     @staticmethod
     def _git(args, cwd):
-        return subprocess.run(
-            ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=60
-        )
+        return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=60)
 
     def _repo(self, base):
         repo = base / "repo"
@@ -246,7 +258,8 @@ class TestProjectBoundary(unittest.TestCase):
             self.assertFalse([c for c in candidatos if WORK_CONTAINER in Path(c).parts])
             self.assertTrue(any(Path(c).name == "example.py" for c in candidatos))
             usados = [
-                c for c in sorted(proj.rglob("*"))
+                c
+                for c in sorted(proj.rglob("*"))
                 if c.is_file() and not any(p in sc.CARPETAS_IGNORADAS for p in c.parts)
             ]
             self.assertFalse([u for u in usados if WORK_CONTAINER in u.parts])
@@ -271,4 +284,3 @@ class TestProjectBoundary(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
